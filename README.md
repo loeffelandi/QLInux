@@ -14,6 +14,7 @@ Kein Browser-Tool, kein WebUSB.
 | M1 | Setup, API-Verifikation, Datenmodell | ✅ |
 | M2 | Rendering-Kern + Druck-Wrapper (headless) | ✅ |
 | M3 | PySide6-GUI (Canvas, Panel, Vorschau) | ✅ |
+| M3.x | Canvas-Editing, Icons, Druckvorschau, weiches Scrollen, Sheets | ✅ |
 | M4 | Vorlagen, Settings, `.deb`-Paket | ⏳ |
 
 ## Architektur
@@ -30,6 +31,9 @@ ql_editor/
   media_panel.py # Bandauswahl, Laenge, Auto-Length, Margins  (M3)
   preview.py     # 1-bit-Binarisierung (Kernfunktionen)        (M3)
   icons.py       # programmatisch gezeichnete Vektor-Icons     (M3)
+  sheet.py       # Dialoge als Overlay im Fenster (kein 2. Fenster) (M3.8)
+  widgets.py     # Wheel-Guard + weiches Scrollen               (M3.7)
+  inspector.py   # kontextabhaengige Eigenschaften              (M3.1)
   templates.py   # Vorlagen (JSON + Assets)                   (M4)
   settings.py    # QSettings (Druckeradresse, letzte Auswahl) (M4)
   app.py         # QApplication / MainWindow                  (M3)
@@ -80,6 +84,19 @@ Platzmangel scrollbar und die Formulare brechen bei schmalem Fenster um.
 Die Seitenpanels starten mit großzügigen Standardbreiten (Band/Drucker 300 px,
 Eigenschaften 380 px) und das Fenster öffnet ohne gespeicherte Geometrie mit
 1320 x 860 px.
+
+### Dialoge als Sheet (statt eigenem Fenster)
+Alle Dialoge (Bildauswahl, Eingaben, Meldungen) laufen als **Sheet innerhalb
+des Hauptfensters** (`ql_editor/sheet.py`): Der Hintergrund wird abgedunkelt,
+die Bedienung dahinter ist gesperrt, `Esc` schließt.
+
+Der Grund ist Wayland: Ein eigener Dialog ist dort ein zweites Top-Level-Fenster.
+Der Compositor verwaltet es selbst - unter COSMIC bleibt es als eigenes Fenster
+im Vordergrund und lässt sich nicht "wegklicken". Qt 6.12 meldet Dialoge zudem
+nicht über das Protokoll `xdg-dialog-v1` an, sodass Tiling-Compositor sie wie
+normale Fenster behandeln. Ein Overlay *im* Fenster umgeht das komplett: es gibt
+kein zweites Fenster, das der Fenstermanager verwalten könnte. Solange ein Sheet
+offen ist, werden auch App-Tastenkürzel (Ctrl+P, Entf, ...) geschluckt.
 
 ### Bedienung (wie eine Desktop-App)
 Die Oberfläche ist **icon-basiert**: die Toolbar zeigt nur Icons (mit Tooltips),

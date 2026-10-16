@@ -15,6 +15,7 @@ gedruckt ueber :mod:`ql_editor.printer` (in einem Worker-Thread).
 from __future__ import annotations
 
 import sys
+from pathlib import Path
 
 from PIL import Image
 from PySide6.QtCore import QPointF, QRectF, QSize, QThread, QTimer, Qt, Signal
@@ -23,13 +24,10 @@ from PySide6.QtWidgets import (
     QApplication,
     QCheckBox,
     QDockWidget,
-    QFileDialog,
     QFrame,
-    QInputDialog,
     QLabel,
     QMainWindow,
     QMenu,
-    QMessageBox,
     QPushButton,
     QScrollArea,
     QSpinBox,
@@ -52,6 +50,7 @@ from .printer import (
 )
 from .renderer import render_scene_to_image
 from .settings import AppSettings
+from .sheet import ask_choice, ask_text, choose_file, show_message
 from .widgets import SmoothScrollArea, install_wheel_guard_recursive
 
 BARCODE_SYMBOLOGIES = ["code128", "code39", "ean13", "ean8", "upca", "itf", "codabar"]
@@ -491,7 +490,7 @@ class MainWindow(QMainWindow):
         try:
             item = ImageItem.from_file(path)
         except ValueError as exc:
-            QMessageBox.warning(self, "Bild", str(exc))
+            show_message(self, "warning", "Bild", str(exc))
             return
         rect = item.boundingRect()
         pos = QPointF(scene_pos.x() - rect.width() / 2, scene_pos.y() - rect.height() / 2)
@@ -522,38 +521,65 @@ class MainWindow(QMainWindow):
         self._build_context_menu(scene_pos).exec(global_pos)
 
     def _add_image(self) -> None:
-        path, _ = QFileDialog.getOpenFileName(
-            self, "Bild wählen", "", "Bilder (*.png *.jpg *.jpeg *.bmp *.gif);;Alle Dateien (*)"
+        def _selected(path: str | None) -> None:
+            if not path:
+                return
+            self._settings.image_dir = str(Path(path).parent)
+            try:
+                item = ImageItem.from_file(path)
+            except ValueError as exc:
+                show_message(self, "warning", "Bild", str(exc))
+                return
+            self._add_item(item)
+
+        choose_file(
+            self,
+            caption="Bild wählen",
+            name_filter="Bilder (*.png *.jpg *.jpeg *.bmp *.gif);;Alle Dateien (*)",
+            on_selected=_selected,
+            start_dir=self._settings.image_dir,
         )
-        if not path:
-            return
-        try:
-            item = ImageItem.from_file(path)
-        except ValueError as exc:
-            QMessageBox.warning(self, "Bild", str(exc))
-            return
-        self._add_item(item)
 
     def _add_barcode(self) -> None:
-        symbology, ok = QInputDialog.getItem(self, "Barcode", "Symbologie", BARCODE_SYMBOLOGIES, 0, False)
-        if not ok:
-            return
-        value, ok = QInputDialog.getText(self, "Barcode", "Inhalt")
-        if not ok or not value:
-            return
-        try:
-            item = BarcodeItem(value, symbology, height_dots=max(60, int(self._canvas.height_dots * 0.4)))
-        except ValueError as exc:
-            QMessageBox.warning(self, "Barcode", str(exc))
-            return
-        self._add_item(item)
+        def _with_symbology(symbology: str) -> None:
+            def _with_value(value: str) -> None:
+                if not value:
+                    return
+                try:
+                    item = BarcodeItem(
+                        value,
+                        symbology,
+                        height_dots=max(60, int(self._canvas.height_dots * 0.4)),
+                    )
+                except ValueError as exc:
+                    show_message(self, "warning", "Barcode", str(exc))
+                    return
+                self._add_item(item)
+
+            ask_text(self, title="Barcode", label="Inhalt", on_ok=_with_value)
+
+        ask_choice(
+            self,
+            title="Barcode",
+            label="Symbologie",
+            items=BARCODE_SYMBOLOGIES,
+            on_ok=_with_symbology,
+        )
 
     def _add_qr(self) -> None:
-        value, ok = QInputDialog.getText(self, "QR-Code", "Inhalt", text="https://")
-        if not ok or not value:
-            return
-        item = QRItem(value, size_dots=max(60, int(self._canvas.height_dots * 0.5)))
-        self._add_item(item)
+        def _with_value(value: str) -> None:
+            if not value:
+                return
+            item = QRItem(value, size_dots=max(60, int(self._canvas.height_dots * 0.5)))
+            self._add_item(item)
+
+        ask_text(
+            self,
+            title="QR-Code",
+            label="Inhalt",
+            default="https://",
+            on_ok=_with_value,
+        )
 
     def _add_line(self) -> None:
         width = self._canvas.sceneRect().width()
@@ -576,7 +602,7 @@ class MainWindow(QMainWindow):
         try:
             image = self._current_render()
         except Exception as exc:
-            QMessageBox.critical(self, "Rendern", f"Etikett konnte nicht gerendert werden:\n{exc}")
+            show_message(self, "critical", "Rendern", f"Etikett konnte nicht gerendert werden:\n{exc}")
             return
         label = self._media_panel.label
         config = self._media_panel.printer_config()
@@ -599,7 +625,7 @@ class MainWindow(QMainWindow):
 
     def _on_print_failed(self, message: str) -> None:
         self.statusBar().showMessage("Druck fehlgeschlagen.", 8000)
-        QMessageBox.critical(self, "Druckfehler", message)
+        show_message(self, "critical", "Druckfehler", message)
 
     # ------------------------------------------------------------- Detect ---
     def _on_detect_label(self) -> None:
@@ -609,13 +635,14 @@ class MainWindow(QMainWindow):
             label = detect_label(config)
         except Exception as exc:  # pragma: no cover - defensiv
             QApplication.restoreOverrideCursor()
-            QMessageBox.warning(self, "Band erkennen", f"Abfrage fehlgeschlagen:\n{exc}")
+            show_message(self, "warning", "Band erkennen", f"Abfrage fehlgeschlagen:\n{exc}")
             return
         finally:
             QApplication.restoreOverrideCursor()
         if label is None:
-            QMessageBox.information(
+            show_message(
                 self,
+                "info",
                 "Band erkennen",
                 "Der Drucker hat kein Band gemeldet (kein Status-Readback über TCP).\n"
                 "Bitte das Band manuell auswählen.",
@@ -625,8 +652,9 @@ class MainWindow(QMainWindow):
             self.statusBar().showMessage(f"Band erkannt: {label.display_name}", 8000)
 
     def _show_about(self) -> None:
-        QMessageBox.about(
+        show_message(
             self,
+            "info",
             "Über QLInux",
             "QLInux - P-touch-Editor-Klon für Brother QL-820NWB\n\n"
             f"Band- und Modellmaße: {len(media.all_labels())} Bänder / "
@@ -649,13 +677,7 @@ def main(argv: list[str] | None = None) -> int:
     app = QApplication.instance() or QApplication(argv)
     app.setApplicationName("QLInux")
     window = MainWindow()
-    window.resize(1080, 700)
     window.show()
-    window.resizeDocks(
-        [window._right_dock],
-        [320],
-        Qt.Orientation.Horizontal,
-    )
     return app.exec()
 
 

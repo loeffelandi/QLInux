@@ -58,6 +58,14 @@ class AppSettings:
     def last_label(self, value: str) -> None:
         self.set_value("media/last_label", value)
 
+    @property
+    def image_dir(self) -> str:
+        return str(self.value("files/image_dir", ""))
+
+    @image_dir.setter
+    def image_dir(self, value: str) -> None:
+        self.set_value("files/image_dir", value)
+
     # -- Fenster ------------------------------------------------------------
     def save_geometry(self, geometry: QByteArray) -> None:
         self.set_value("window/geometry", geometry)
