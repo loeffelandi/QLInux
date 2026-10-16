@@ -28,8 +28,8 @@ from PySide6.QtGui import QAction, QKeySequence
 from PySide6.QtWidgets import (
     QApplication,
     QCheckBox,
-    QDockWidget,
     QFrame,
+    QHBoxLayout,
     QLabel,
     QMainWindow,
     QMenu,
@@ -48,25 +48,18 @@ from .icons import icon
 from .inspector import InspectorPanel
 from .items import BarcodeItem, ImageItem, LineItem, QRItem, RectItem, TextItem
 from .media_panel import MediaPanel
-from .preview import PreviewOptions, binarize, to_qimage
+from .panels import OverlayPanel, PanelHost
+from .preview import DEFAULT_THRESHOLD, PreviewOptions, binarize, ink_ratio, to_qimage
 from .printer import (
     PrinterError,
     detect_label,
     print_image,
 )
-from .renderer import render_scene_to_image
 from .settings import AppSettings
 from .sheet import ask_choice, ask_text, choose_file, show_message
 from .widgets import SmoothScrollArea, install_wheel_guard_recursive
 
 BARCODE_SYMBOLOGIES = ["code128", "code39", "ean13", "ean8", "upca", "itf", "codabar"]
-
-#: Standardbreiten der Seitenpanels in Pixeln.  Der Wert fuer rechts ist so
-#: gewaehlt, dass die Formularzeilen des Inspectors (z. B. "Symbologie",
-#: "Höhe (Dots)", "Größe (px)") einzeilig bleiben - darunter klappen die
-#: Beschriftungen um und das Panel wird unnoetig hoch.
-DEFAULT_LEFT_DOCK_WIDTH = 300
-DEFAULT_RIGHT_DOCK_WIDTH = 300
 
 
 class PrintWorker(QThread):
@@ -101,10 +94,13 @@ class MainWindow(QMainWindow):
         self.setWindowIcon(icon("label"))
         self._adjusting = False
         self._print_worker: PrintWorker | None = None
+        #: Ansicht (Zoom + Mittelpunkt) vor dem Einschalten der Druckvorschau.
+        self._preview_view: tuple[float, QPointF] | None = None
 
         self._canvas = LabelCanvas(self)
         self._canvas.setMinimumSize(240, 180)
-        self.setCentralWidget(self._canvas)
+        self._host = PanelHost(self._canvas, self)
+        self.setCentralWidget(self._host)
 
         self._media_panel = MediaPanel(self)
         self._media_panel.setMinimumWidth(220)
@@ -114,7 +110,7 @@ class MainWindow(QMainWindow):
         # Gesamtfenster darf klein werden, ohne dass etwas unbedienbar wird.
         self.setMinimumSize(640, 460)
 
-        self._build_docks()
+        self._build_panels()
         self._build_actions()
         self._build_toolbar()
 
@@ -169,33 +165,34 @@ class MainWindow(QMainWindow):
         area.setWidget(widget)
         return area
 
-    def _build_docks(self) -> None:
-        left = QDockWidget("Band & Drucker", self)
-        left.setWidget(self._scroll_wrap(self._media_panel))
-        left.setFeatures(QDockWidget.DockWidgetFeature.DockWidgetMovable)
-        left.setMinimumWidth(220)
-        self.addDockWidget(Qt.DockWidgetArea.LeftDockWidgetArea, left)
-        self._left_dock = left
+    def _build_panels(self) -> None:
+        """Seitenpanels als einklappbare Overlays ueber dem Canvas.
 
-        right = QDockWidget("Eigenschaften & Druck", self)
-        right.setFeatures(QDockWidget.DockWidgetFeature.DockWidgetMovable)
-        right.setMinimumWidth(260)
+        Der Pfeil sitzt *im* Panel (siehe :mod:`ql_editor.panels`); die
+        Panel-Breiten orientieren sich an den Formularzeilen (siehe
+        ``PANEL_WIDTH``), damit "Symbologie"/"Höhe (Dots)" einzeilig bleiben.
+        """
+        self._left_panel = OverlayPanel(
+            "Band & Drucker",
+            self._scroll_wrap(self._media_panel),
+            Qt.Edge.LeftEdge,
+            self,
+        )
+        self._host.add_panel(self._left_panel)
+
         splitter = QSplitter(Qt.Orientation.Vertical, self)
         splitter.addWidget(self._scroll_wrap(self._inspector))
         splitter.addWidget(self._scroll_wrap(self._build_print_panel()))
         splitter.setStretchFactor(0, 1)
         splitter.setStretchFactor(1, 0)
         splitter.setSizes([380, 220])
-        right.setWidget(splitter)
-        self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, right)
-        self._right_dock = right
-
-        # Standardbreiten an den Panels orientiert (siehe Konstanten oben).
-        self.resizeDocks(
-            [left, right],
-            [DEFAULT_LEFT_DOCK_WIDTH, DEFAULT_RIGHT_DOCK_WIDTH],
-            Qt.Orientation.Horizontal,
+        self._right_panel = OverlayPanel(
+            "Eigenschaften & Druck",
+            splitter,
+            Qt.Edge.RightEdge,
+            self,
         )
+        self._host.add_panel(self._right_panel)
 
     def _build_print_panel(self) -> QWidget:
         widget = QWidget(self)
@@ -207,25 +204,55 @@ class MainWindow(QMainWindow):
         layout.addWidget(title)
 
         hint = QLabel(
-            "Druckvorschau über das Auge-Symbol in der Toolbar "
-            "(zeigt die echte 1-bit-Ausgabe)."
+            "Diese Werte gehen genau so an den Drucker. Die Druckvorschau "
+            "(Auge-Symbol, Strg+Umschalt+P) zeigt das Ergebnis in echten "
+            "Druckpunkten."
         )
         hint.setWordWrap(True)
         hint.setStyleSheet("color:#777;")
         layout.addWidget(hint)
 
+        threshold_label = QLabel("Schwelle (mehr Tinte →)")
+        threshold_label.setToolTip(
+            "Graustufen-Schwelle wie im brother_ql-Werkzeug (\"-t\"):\n"
+            "höher = mehr Pixel werden Tinte (kräftiger, aber zugesetzt),\n"
+            "niedriger = nur dunkle Pixel drucken (feiner)."
+        )
         self._threshold_spin = QSpinBox()
         self._threshold_spin.setRange(0, 100)
-        self._threshold_spin.setValue(70)
-        self._threshold_spin.setToolTip("Höher = mehr Pixel werden zu Tinte")
+        self._threshold_spin.setValue(DEFAULT_THRESHOLD)
+        self._threshold_spin.setSuffix(" %")
+        self._threshold_spin.setToolTip(threshold_label.toolTip())
+        self._ink_label = QLabel("Tinte: –")
+        self._ink_label.setStyleSheet("color:#777;")
+        self._ink_label.setToolTip(
+            "Anteil der bedruckten Fläche - sofort sichtbar, was die Schwelle "
+            "und das Dithering bewirken."
+        )
+        threshold_row = QHBoxLayout()
+        threshold_row.setContentsMargins(0, 0, 0, 0)
+        threshold_row.addWidget(self._threshold_spin)
+        threshold_row.addWidget(self._ink_label, 1)
+
         self._dither_check = QCheckBox("Dithering (Floyd-Steinberg)")
+        self._dither_check.setToolTip(
+            "Graustufen werden gepunktet statt hart geschwellt.\n"
+            "Sinnvoll für Fotos; bei der Schwelle oben dann ohne Wirkung."
+        )
+        self._hq_check = QCheckBox("Hohe Druckqualität (HQ)")
+        self._hq_check.setChecked(True)
+        self._hq_check.setToolTip(
+            "Drucker-Qualitätsflag (pquality): HQ druckt langsamer, mit "
+            "kräftigeren Kanten.\nOhne HQ druckt der Drucker schneller."
+        )
         self._cut_check = QCheckBox("Nach dem Druck schneiden")
         self._cut_check.setChecked(True)
         self._print_button = QPushButton(icon("print"), "Drucken")
 
-        layout.addWidget(QLabel("Threshold"))
-        layout.addWidget(self._threshold_spin)
+        layout.addWidget(threshold_label)
+        layout.addLayout(threshold_row)
         layout.addWidget(self._dither_check)
+        layout.addWidget(self._hq_check)
         layout.addWidget(self._cut_check)
         layout.addStretch(1)
         layout.addWidget(self._print_button)
@@ -288,6 +315,14 @@ class MainWindow(QMainWindow):
         self._act_zoom_out.setShortcut(QKeySequence.StandardKey.ZoomOut)
         self._act_zoom_out.triggered.connect(self._canvas.zoom_out)
 
+        self._act_zoom_100 = QAction(icon("zoom_100"), "1:1", self)
+        self._act_zoom_100.setToolTip(
+            "Zoom 1:1 (Strg+1) - echte Druckpunkte,\n"
+            "so wie der Drucker sie setzt"
+        )
+        self._act_zoom_100.setShortcut("Ctrl+1")
+        self._act_zoom_100.triggered.connect(self._canvas.zoom_100)
+
         self._act_print = QAction(icon("print"), "Drucken", self)
         self._act_print.setToolTip("Drucken (Ctrl+P)")
         self._act_print.setShortcut("Ctrl+P")
@@ -306,28 +341,26 @@ class MainWindow(QMainWindow):
         self._act_panel_left.setCheckable(True)
         self._act_panel_left.setChecked(True)
         self._act_panel_left.setToolTip(
-            "Panel links ein-/ausblenden (Strg+B)\nBand, Ausrichtung, Länge, Margins"
+            "Panel links ein-/ausklappen (Strg+B)\n"
+            "Eingeklappt bleibt ein Streifen mit Pfeil; er klappt beim "
+            "Überfahren über dem Canvas auf"
         )
         self._act_panel_left.setShortcut("Ctrl+B")
-        self._act_panel_left.toggled.connect(
-            lambda visible: self._on_toggle_panel(self._left_dock, visible)
-        )
+        self._act_panel_left.toggled.connect(self._left_panel.set_docked)
 
         self._act_panel_right = QAction(icon("panel_right"), "Panel rechts", self)
         self._act_panel_right.setCheckable(True)
         self._act_panel_right.setChecked(True)
         self._act_panel_right.setToolTip(
-            "Panel rechts ein-/ausblenden (Strg+Shift+B)\nEigenschaften und Druckoptionen"
+            "Panel rechts ein-/ausklappen (Strg+Shift+B)\nEigenschaften und Druckoptionen"
         )
         self._act_panel_right.setShortcut("Ctrl+Shift+B")
-        self._act_panel_right.toggled.connect(
-            lambda visible: self._on_toggle_panel(self._right_dock, visible)
-        )
+        self._act_panel_right.toggled.connect(self._right_panel.set_docked)
 
-        # Haekchen auch dann synchron halten, wenn das Panel ueber den
-        # Schliessen-Knopf der Titelleiste versteckt wird.
-        self._left_dock.visibilityChanged.connect(self._act_panel_left.setChecked)
-        self._right_dock.visibilityChanged.connect(self._act_panel_right.setChecked)
+        # Pfeil im Panel und Menue-Haekchen synchron halten (der Pfeil ist der
+        # primaere Weg, das Menue der Shortcut).
+        self._left_panel.docked_changed.connect(self._act_panel_left.setChecked)
+        self._right_panel.docked_changed.connect(self._act_panel_right.setChecked)
 
         self._act_quit = QAction(icon("quit"), "Beenden", self)
         self._act_quit.setToolTip("Beenden (Strg+Q)")
@@ -361,11 +394,6 @@ class MainWindow(QMainWindow):
         bar.addWidget(self._menu_button)
         bar.addSeparator()
 
-        # "Chrome"-Gruppe: Sichtbarkeit der Seitenpanels (kleine Bildschirme).
-        bar.addAction(self._act_panel_left)
-        bar.addAction(self._act_panel_right)
-        bar.addSeparator()
-
         bar.addAction(self._act_add_text)
         bar.addAction(self._act_add_image)
         bar.addAction(self._act_add_barcode)
@@ -380,6 +408,7 @@ class MainWindow(QMainWindow):
         bar.addAction(self._act_zoom_out)
         bar.addAction(self._act_zoom_fit)
         bar.addAction(self._act_zoom_in)
+        bar.addAction(self._act_zoom_100)
         bar.addSeparator()
         bar.addAction(self._act_print_preview)
         bar.addAction(self._act_print)
@@ -416,6 +445,7 @@ class MainWindow(QMainWindow):
             self._act_zoom_out,
             self._act_zoom_fit,
             self._act_zoom_in,
+            self._act_zoom_100,
         ):
             menu.addAction(act)
         menu.addSection("Drucken")
@@ -426,21 +456,6 @@ class MainWindow(QMainWindow):
         return menu
 
     # ------------------------------------------------------------- Settings --
-    def _on_toggle_panel(self, dock: QDockWidget, visible: bool) -> None:
-        """Seitenpanel ein-/ausblenden.
-
-        Wird sowohl von den Toolbar-/Menue-Aktionen als auch (ueber
-        ``visibilityChanged``) vom Schliessen-Knopf der Titelleiste ausgeloest.
-        Der Zustand wird beim Schliessen des Fensters gesichert - hier bewusst
-        kein Settings-Zugriff, weil das Signal auch beim Abbau der Widgets
-        feuert.
-        """
-        dock.setVisible(visible)
-        if not visible:
-            # Der Fokus darf nicht in einem gerade verschwundenen Formularfeld
-            # landen - sonst veraendert das Mausrad dort Werte.
-            self._canvas.setFocus()
-
     def _apply_saved_settings(self) -> None:
         geometry = self._settings.restore_geometry()
         if geometry is not None:
@@ -458,6 +473,12 @@ class MainWindow(QMainWindow):
         # Zuletzt gewaehlte Panel-Sichtbarkeit wiederherstellen (kleine Screens).
         self._act_panel_left.setChecked(self._settings.panel_left_visible)
         self._act_panel_right.setChecked(self._settings.panel_right_visible)
+        # Druckoptionen wiederherstellen (Schwelle, Dithering, HQ, Schneiden).
+        self._threshold_spin.setValue(self._settings.threshold)
+        self._dither_check.setChecked(self._settings.dither)
+        self._hq_check.setChecked(self._settings.hq)
+        self._cut_check.setChecked(self._settings.cut)
+        self._schedule_refresh()
 
     # ---------------------------------------------------------- Media-Sync --
     def _on_media_changed(self) -> None:
@@ -507,14 +528,12 @@ class MainWindow(QMainWindow):
         ``rotate=True`` (Druckpfad, Ausrichtung ``ALONG``) dreht das Ergebnis in
         die Bandorientierung; ohne Drehung passt es 1:1 auf den Canvas - genau
         das braucht die Druckvorschau als Overlay.
+
+        Die Textmarke blendet :meth:`LabelCanvas.render_printable` aus: sonst
+        landet die blinkende Einfuegemarke als duenne Linie in Vorschau und
+        Etikett.
         """
-        rect = self._canvas.printable_rect()
-        return render_scene_to_image(
-            self._canvas.scene(),
-            int(rect.width()),
-            int(rect.height()),
-            rotate=rotate,
-        )
+        return self._canvas.render_printable(rotate=rotate)
 
     def _for_print(self) -> Image.Image:
         """Bild fuer den Drucker: immer exakt ``dots_printable[0]`` breit."""
@@ -522,15 +541,21 @@ class MainWindow(QMainWindow):
         return self._current_render(rotate=rotate)
 
     def _refresh_now(self) -> None:
-        """Aktualisiere die Canvas-Druckvorschau (nur im Vorschau-Modus)."""
-        if not self._canvas.print_preview:
-            return
+        """Druckvorschau und Tintenanteil aktualisieren (entprellt).
+
+        Der Tintenanteil wird immer berechnet - er zeigt sofort, was Schwelle
+        und Dithering bewirken, auch wenn die Vorschau aus ist.
+        """
         try:
             image = self._current_render()
         except Exception as exc:  # pragma: no cover - defensiv
             self.statusBar().showMessage(f"Renderfehler: {exc}")
             return
-        self._canvas.set_print_image(to_qimage(binarize(image, self._preview_options())))
+        options = self._preview_options()
+        if self._canvas.print_preview:
+            self._canvas.set_print_image(to_qimage(binarize(image, options)))
+        ratio = ink_ratio(image, options)
+        self._ink_label.setText(f"Tinte: {ratio * 100:.1f} %".replace(".", ","))
 
     def _preview_options(self) -> PreviewOptions:
         return PreviewOptions(
@@ -539,15 +564,39 @@ class MainWindow(QMainWindow):
         )
 
     def _on_toggle_print_preview(self, enabled: bool) -> None:
+        if enabled:
+            # Die vorherige Ansicht merken, um sie beim Verlassen
+            # wiederherzustellen.
+            self._preview_view = (
+                self._canvas.transform().m11(),
+                self._canvas.mapToScene(self._canvas.viewport().rect().center()),
+            )
+            # 1:1 zeigt die echten Druckpunkte. Nur beim *Verkleinern* verliert
+            # das 1-bit-Bild feine Linien - wer schon vergroessert hat, bleibt
+            # so stehen.
+            if self._canvas.transform().m11() < 1.0:
+                self._canvas.zoom_100()
         self._canvas.set_print_preview(enabled)
         if enabled:
             self._refresh_now()
             self.statusBar().showMessage(
-                "Druckvorschau aktiv - echte 1-bit-Ausgabe (Esc beendet)", 4000
+                "Druckvorschau aktiv - echte 1-bit-Ausgabe bei 1:1 (Esc beendet)", 4000
             )
         else:
             self._canvas.set_print_image(None)
+            self._restore_preview_view()
             self.statusBar().showMessage("Druckvorschau aus", 2000)
+        self._update_zoom_label()
+
+    def _restore_preview_view(self) -> None:
+        """Nach dem Verlassen der Vorschau zurueck zur vorherigen Ansicht."""
+        if self._preview_view is None:
+            return
+        scale, centre = self._preview_view
+        self._preview_view = None
+        self._canvas.zoom_by(scale / max(1e-6, self._canvas.transform().m11()))
+        self._canvas.centerOn(centre)
+        self._update_zoom_label()
 
     def _exit_print_preview(self) -> None:
         self._act_print_preview.setChecked(False)
@@ -625,7 +674,20 @@ class MainWindow(QMainWindow):
         self._schedule_refresh()
 
     def _on_zoom_changed(self, percent: float) -> None:
-        self._zoom_label.setText(f"Zoom {percent:.0f} %")
+        self._update_zoom_label(percent)
+
+    def _update_zoom_label(self, percent: float | None = None) -> None:
+        """Zoomanzeige - mit Hinweis, wenn die Vorschau nicht 1:1 ist.
+
+        Die Vorschau zeigt die echten Druckpunkte nur ab 1:1; darunter
+        verschwinden feine Linien im 1-bit-Bild.
+        """
+        if percent is None:
+            percent = self._canvas.transform().m11() * 100.0
+        text = f"Zoom {percent:.0f} %"
+        if self._canvas.print_preview and percent < 99.5:
+            text += " · Vorschau: 1:1 für Details (Strg+1)"
+        self._zoom_label.setText(text)
 
     def _on_item_double_clicked(self, item) -> None:
         self._on_selection_changed()
@@ -768,6 +830,7 @@ class MainWindow(QMainWindow):
         options = {
             "threshold": self._threshold_spin.value(),
             "dither": self._dither_check.isChecked(),
+            "hq": self._hq_check.isChecked(),
             "red": self._media_panel.use_red(),
             "cut": self._cut_check.isChecked(),
         }
@@ -829,6 +892,10 @@ class MainWindow(QMainWindow):
         self._settings.last_label = self._media_panel.label_id()
         self._settings.panel_left_visible = self._act_panel_left.isChecked()
         self._settings.panel_right_visible = self._act_panel_right.isChecked()
+        self._settings.threshold = self._threshold_spin.value()
+        self._settings.dither = self._dither_check.isChecked()
+        self._settings.hq = self._hq_check.isChecked()
+        self._settings.cut = self._cut_check.isChecked()
         self._settings.sync()
         super().closeEvent(event)
 

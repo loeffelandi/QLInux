@@ -33,13 +33,16 @@ Direkte Bearbeitung mit der Maus (modernes Editor-Gefuehl):
 from __future__ import annotations
 
 import math
-from typing import Any
+from contextlib import contextmanager
+from typing import Any, Iterator
 
 from PySide6.QtCore import QPoint, QPointF, QRectF, Qt, Signal
 from PySide6.QtGui import QBrush, QColor, QFont, QImage, QPainter, QPen, QPolygonF
 from PySide6.QtWidgets import QGraphicsScene, QGraphicsView, QWidget
+from PIL import Image
 
 from . import items as items_mod
+from .renderer import render_scene_to_image
 from .media import (
     LabelSpec,
     Orientation,
@@ -427,6 +430,43 @@ class LabelCanvas(QGraphicsView):
         if self._print_preview:
             self.viewport().update()
 
+    @contextmanager
+    def suspend_text_caret(self) -> Iterator[None]:
+        """Waehrend des Renderns die Textmarke ausblenden.
+
+        ``QGraphicsTextItem`` malt beim Bearbeiten den Cursor mit. Die Szene
+        wird 1:1 gerendert - die Textmarke landete damit als duenne Linie in
+        Druckvorschau und Etikett. Waehrend des Renderns wird die Texteingabe
+        kurz abgeschaltet und danach samt Fokus wiederhergestellt, so dass die
+        Bearbeitung (Cursorposition, Auswahl, Tippen) unberuehrt bleibt.
+        """
+        editing = [item for item in self._scene.items() if getattr(item, "is_editing", False)]
+        for item in editing:
+            item.setTextInteractionFlags(Qt.TextInteractionFlag.NoTextInteraction)
+        try:
+            yield
+        finally:
+            for item in editing:
+                item.setTextInteractionFlags(Qt.TextInteractionFlag.TextEditorInteraction)
+                item.setFocus(Qt.FocusReason.OtherFocusReason)
+
+    def render_printable(self, *, rotate: bool = False) -> Image.Image:
+        """Die bedruckbare Flaeche 1:1 als ``PIL.Image`` rendern.
+
+        Zentraler Weg fuer Druckvorschau **und** Druck: die Szene wird in exakt
+        ``printable_rect()``-Groesse gerendert und Bearbeitungs-Dekorationen
+        (Textmarke) sind ausgeblendet. ``rotate=True`` dreht das Ergebnis in die
+        Bandorientierung (Ausrichtung ``ALONG``).
+        """
+        rect = self.printable_rect()
+        with self.suspend_text_caret():
+            return render_scene_to_image(
+                self.scene(),
+                int(rect.width()),
+                int(rect.height()),
+                rotate=rotate,
+            )
+
     # -- Zoom / Scrollen ----------------------------------------------------
     def fit_tape(self) -> None:
         """Zoom so, dass das gesamte Band in den Viewport passt."""
@@ -527,6 +567,18 @@ class LabelCanvas(QGraphicsView):
     def zoom_fit(self) -> None:
         self.fit_tape()
         self._update_rulers()
+
+    def zoom_100(self) -> None:
+        """Zoom auf 1:1 (100 %) und auf das Etikett zentrieren.
+
+        Nur bei 1:1 (oder Vergroesserung) zeigt der Bildschirm die echten
+        Druckpunkte: ein 1-bit-Bild verliert beim *Verkleinern* feine Linien.
+        """
+        self.zoom_by(1.0 / self._scale())
+        if self._label is not None:
+            self.centerOn(self.printable_rect().center())
+        self._update_rulers()
+        self._emit_zoom()
 
     # -- Zeichnen -----------------------------------------------------------
     def _scale(self) -> float:

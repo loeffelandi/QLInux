@@ -15,6 +15,7 @@ Kein Browser-Tool, kein WebUSB.
 | M2 | Rendering-Kern + Druck-Wrapper (headless) | ✅ |
 | M3 | PySide6-GUI (Canvas, Panel, Vorschau) | ✅ |
 | M3.x | Canvas-Editing, Icons, Druckvorschau, weiches Scrollen, Sheets | ✅ |
+| M3.11 | Einklappbare Overlay-Panels, Druckqualität, Vorschau in 1:1 | ✅ |
 | M4 | Vorlagen, Settings, `.deb`-Paket | ⏳ |
 
 ## Architektur
@@ -34,6 +35,7 @@ ql_editor/
   sheet.py       # Dialoge als Overlay im Fenster (kein 2. Fenster) (M3.8)
   widgets.py     # Wheel-Guard + weiches Scrollen               (M3.7)
   inspector.py   # kontextabhaengige Eigenschaften              (M3.1)
+  panels.py      # einklappbare Seitenpanels (Hover-Overlay)    (M3.11)
   templates.py   # Vorlagen (JSON + Assets)                   (M4)
   settings.py    # QSettings (Druckeradresse, letzte Auswahl) (M4)
   app.py         # QApplication / MainWindow                  (M3)
@@ -73,23 +75,31 @@ python -m ql_editor
   ohne herauszoomen zu müssen. Die Renderquelle bleibt davon unberührt - die
   Szene selbst ist weiterhin exakt die bedruckbare Fläche.
 * **Rechts**: Inspector (Eigenschaften des ausgewählten Objekts) + Druckoptionen
-  (Threshold, Dither, Schnitt, Drucken).
+  (Schwelle, Dithering, Hohe Qualität, Schnitt, Drucken).
 
 Der Canvas ist **räumlich WYSIWYG** (Position, Größe, mm, Randbegrenzung).
 Was er *nicht* zeigt, ist die **Binarisierung**: der Drucker kennt nur 1 bit
 Schwarz/Weiß, während der Canvas mit Antialiasing/Farbe zeichnet. Deshalb gibt
 es die **Druckvorschau** als Umschalter (Auge-Symbol in der Toolbar bzw.
 `Ctrl+Shift+P`, `Esc` beendet): sie legt das echte, binarisierte 1-bit-Bild
-über den Canvas - genau das, was aus dem Drucker kommt (Threshold + Dither).
-Im Vorschau-Modus ist die Bearbeitung gesperrt (Zoom/Pan bleiben möglich).
+über den Canvas - genau das, was aus dem Drucker kommt (Schwelle + Dithering).
+Die Vorschau ist **pixelgleich** mit den Daten, die an den Drucker gehen
+(Regressionstest in `tests/test_preview.py`).
+
+Damit der Bildschirm die echten Druckpunkte zeigt, springt die Vorschau beim
+Einschalten auf **1:1** (bzw. bleibt vergrößert, wenn schon gezoomt war) und
+stellt beim Beenden die vorherige Ansicht wieder her. Grund: ein 1-bit-Bild
+verliert beim *Verkleinern* feine Linien - die Vorschau sähe dann schlechter
+aus als der Druck. Ist sie kleiner als 100 %, erinnert die Zoomanzeige in der
+Statusleiste an `Ctrl+1` (1:1). Im Vorschau-Modus ist die Bearbeitung gesperrt
+(Zoom/Pan bleiben möglich).
 
 Das Layout ist **responsiv**: Der Canvas passt sich der Fenstergröße an
 (solange kein manueller Zoom gesetzt ist), die Seitenpanels werden bei
 Platzmangel scrollbar und die Formulare brechen bei schmalem Fenster um.
-Die Seitenpanels starten mit knappen Standardbreiten (Band/Drucker 300 px,
-Eigenschaften 300 px - gerade so breit, dass die Formularzeilen des Inspectors
-einzeilig bleiben) und das Fenster öffnet ohne gespeicherte Geometrie mit
-1320 x 860 px.
+Offene Panels sind 300 px breit (gerade so, dass die Formularzeilen des
+Inspectors einzeilig bleiben) und schrumpfen bei kleinen Fenstern automatisch;
+das Fenster öffnet ohne gespeicherte Geometrie mit 1320 x 860 px.
 
 ### Dialoge als Sheet (statt eigenem Fenster)
 Alle Dialoge (Bildauswahl, Eingaben, Meldungen) laufen als **Sheet innerhalb
@@ -144,7 +154,16 @@ Toolbar, bleiben also immer synchron.
   legen ein Textfeld an.
 * **Pfeiltasten** verschieben (mit Shift 10 Dots), **Entf** löscht.
 * **Druckvorschau** (Auge-Symbol, `Ctrl+Shift+P`): zeigt die echte 1-bit-Ausgabe
-  über dem Canvas; `Esc` beendet sie. Threshold/Dither wirken sofort.
+  über dem Canvas, beim Einschalten auf 1:1 (`Ctrl+1`); `Esc` beendet sie.
+  Schwelle/Dithering wirken sofort, „Tinte: x %" zeigt den Anteil der
+  bedruckten Fläche.
+* **Druckqualität**: Die Schwelle (`-t` wie im brother_ql-Werkzeug, Default
+  70 %) bestimmt, ab welcher Helligkeit ein Pixel Tinte wird - höher = mehr
+  Tinte (kräftiger, aber zugesetzt), niedriger = feiner. Dithering punktet
+  Graustufen (für Fotos); „Hohe Druckqualität (HQ)" ist das Qualitätsflag des
+  Druckers (`pquality`) - ohne HQ druckt er schneller. Alle vier Optionen
+  werden gemerkt. Der Wert geht 1:1 an den Drucker: die Vorschau zeigt genau
+  das Ergebnis.
 * **Ausrichtung** (Gruppe „Band" im linken Panel, auch im Hamburger-Menü):
   * *quer zum Band* (Voreinstellung): der Inhalt läuft über die Bandbreite,
     die Etikettenlänge ergibt sich aus der **Inhaltshöhe** - spart Band bei
@@ -164,17 +183,19 @@ Toolbar, bleiben also immer synchron.
 * **Mausrad** über einem Seitenpanel scrollt das Panel - auch wenn der Zeiger
   über einem Feld steht; ein Feld ändert seinen Wert nur, wenn es den Fokus
   hat (kein versehentliches Verstellen).
-* **Seitenpanels ein-/ausblenden** (kleine Bildschirme): Die ersten beiden
-  Toolbar-Knöpfe („Fenster mit gefülltem Seitenstreifen") schalten das linke
-  und das rechte Panel um - zusätzlich im Hamburger-Menü unter *Ansicht* und
-  per **`Ctrl+B`** (links) / **`Ctrl+Shift+B`** (rechts). Sind beide Panels
-  ausgeblendet, steht der Canvas in voller Fensterbreite zur Verfügung
-  (die effektive Mindestbreite des Fensters sinkt dadurch von ~730 auf 640 px).
-  Die Sichtbarkeit wird beim Beenden gemerkt und beim nächsten Start
-  wiederhergestellt. Bewusst *kein* Schließen-Kreuz in der Panel-Titelleiste:
-  Der Fusion-Knopf passt nicht zum eigenen, modernen Icon-Stil, und ein
-  versehentlich geschlossenes Panel wäre schlechter wiederzufinden - die
-  Umschalter in der Toolbar sind immer sichtbar und mit dem Menü synchron.
+* **Seitenpanels einklappen** (kleine Bildschirme): Der **Pfeil im Panel**
+  (senkrechte Tab-Leiste am Außenrand) klappt das jeweilige Panel auf den
+  schmalen Streifen zusammen - zusätzlich im Hamburger-Menü unter *Ansicht* und
+  per **`Ctrl+B`** (links) / **`Ctrl+Shift+B`** (rechts). Die Pfeile sitzen
+  bewusst *in* den Panels, nicht in der Toolbar.
+  Ist ein Panel eingeklappt, bleibt der Streifen mit Pfeil sichtbar; **beim
+  Überfahren klappt das Panel als Overlay über dem Canvas auf** (mit Schatten,
+  der Canvas behält seine Breite) und beim Verlassen wieder ein. Solange im
+  aufgeklappten Panel gearbeitet wird (Fokus im Formularfeld), bleibt es
+  stehen. Sind beide Panels eingeklappt, steht der Canvas in voller
+  Fensterbreite (die effektive Mindestbreite des Fensters sinkt dadurch von
+  ~730 auf 640 px). Der Zustand wird beim Beenden gemerkt und beim nächsten
+  Start wiederhergestellt.
 * **Rechtsklick** öffnet das Kontextmenü (Einfügen, Reihenfolge, Löschen).
 * Der **Inspector** zeigt kontextabhängig die passenden Eigenschaften
   (Text/Schrift/Farbe, Barcode-Inhalt/Symbologie, QR-Inhalt, Position, Drehung).

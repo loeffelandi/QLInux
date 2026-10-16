@@ -94,3 +94,50 @@ def test_to_qimage_is_drawable(qapp):
     painter.drawImage(QRectF(0, 0, 40, 20), qimg)
     painter.end()
     assert not pixmap.isNull()
+
+
+def test_preview_is_pixel_identical_to_the_printer_data():
+    """Kernversprechen: die Vorschau zeigt *genau* die Druckdaten.
+
+    Der Test faengt das 1-bit-Bild ab, das ``convert`` an den Drucker gibt, und
+    vergleicht es Pixel fuer Pixel mit :func:`binarize` - fuer alle
+    Threshold-/Dither-Kombinationen.
+    """
+    from brother_ql.raster import BrotherQLRaster
+
+    from ql_editor.media import get_label
+    from ql_editor.printer import PrinterConfig, build_raster
+
+    # Weisser Rand: beim Dithering darf kein Fehler von aussen hineindiffundieren
+    # (beim Druck liegt das Bild auf einer weissen 696er-Flaeche).
+    base = Image.new("L", (554, 200), 255)
+    base.paste(Image.linear_gradient("L").resize((534, 180)), (10, 10))
+    render = base.convert("RGB")
+    label = get_label("50")
+    config = PrinterConfig(model="QL-820NWB", address="tcp://127.0.0.1:9100")
+
+    captured: dict[str, Image.Image] = {}
+    original = BrotherQLRaster.add_raster_data
+
+    def spy(self, image_black, image_red=None):
+        captured["image"] = image_black.copy()
+        return original(self, image_black, image_red)
+
+    BrotherQLRaster.add_raster_data = spy
+    try:
+        for threshold in (50, 70, 90):
+            for dither in (False, True):
+                options = PreviewOptions(threshold=threshold, dither=dither)
+                build_raster(render, label, config, threshold=threshold, dither=dither)
+
+                # convert liefert 255 = Tinte; binarize 0 = Tinte.
+                sent = captured["image"]
+                sent_visual = sent.convert("L").point(lambda x: 0 if x else 255, mode="1")
+                offset = sent.width - render.width - label.right_margin_dots
+                crop = sent_visual.crop((offset, 0, offset + render.width, render.height))
+
+                assert crop.tobytes() == binarize(render, options).tobytes(), (
+                    f"Vorschau weicht bei threshold={threshold}, dither={dither} ab"
+                )
+    finally:
+        BrotherQLRaster.add_raster_data = original

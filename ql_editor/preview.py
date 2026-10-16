@@ -22,6 +22,10 @@ from dataclasses import dataclass
 from PIL import Image, ImageOps
 from PySide6.QtGui import QImage
 
+#: Standard-Schwelle in Prozent - identisch zum brother_ql-CLI (``-t``) und
+#: zum Default in :mod:`ql_editor.printer`.
+DEFAULT_THRESHOLD = 70
+
 
 @dataclass(frozen=True)
 class PreviewOptions:
@@ -34,7 +38,7 @@ class PreviewOptions:
         Statt hartem Threshold Floyd-Steinberg-Dithering verwenden.
     """
 
-    threshold: int = 70
+    threshold: int = DEFAULT_THRESHOLD
     dither: bool = False
 
     def library_threshold(self) -> int:

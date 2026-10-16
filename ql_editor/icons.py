@@ -245,6 +245,16 @@ def _draw_zoom_out(p: QPainter, color: QColor) -> None:
     _line(p, 7.5, 10.5, 13.5, 10.5)
 
 
+def _draw_chevron_left(p: QPainter, color: QColor) -> None:
+    _stroke_only(p, color, 2.1)
+    _poly(p, ((14.5, 5.5), (8.5, 12.0), (14.5, 18.5)))
+
+
+def _draw_chevron_right(p: QPainter, color: QColor) -> None:
+    _stroke_only(p, color, 2.1)
+    _poly(p, ((9.5, 5.5), (15.5, 12.0), (9.5, 18.5)))
+
+
 def _draw_zoom_fit(p: QPainter, color: QColor) -> None:
     _stroke_only(p, color, 1.7)
     for x1, y1, x2, y2, x3, y3 in (
@@ -255,6 +265,17 @@ def _draw_zoom_fit(p: QPainter, color: QColor) -> None:
     ):
         _line(p, x1, y1, x2, y2)
         _line(p, x2, y2, x3, y3)
+
+
+def _draw_zoom_100(p: QPainter, color: QColor) -> None:
+    # Lupe mit Punktraster: Ansicht in tatsaechlicher Groesse (1:1 = echte Dots).
+    _stroke_only(p, color, 1.7)
+    p.drawEllipse(QPointF(10.5, 10.5), 6.2, 6.2)
+    _line(p, 15.1, 15.1, 20.0, 20.0)
+    _fill_only(p, color)
+    for x in (8.4, 12.6):
+        for y in (8.4, 12.6):
+            p.drawEllipse(QPointF(x, y), 1.15, 1.15)
 
 
 def _draw_print(p: QPainter, color: QColor) -> None:
@@ -325,6 +346,9 @@ _DRAW = {
     "zoom_in": _draw_zoom_in,
     "zoom_out": _draw_zoom_out,
     "zoom_fit": _draw_zoom_fit,
+    "zoom_100": _draw_zoom_100,
+    "chevron_left": _draw_chevron_left,
+    "chevron_right": _draw_chevron_right,
     "print": _draw_print,
     "quit": _draw_quit,
     "about": _draw_about,

@@ -10,6 +10,7 @@ from __future__ import annotations
 from PySide6.QtCore import QByteArray, QSettings
 
 from .media import DEFAULT_MODEL
+from .preview import DEFAULT_THRESHOLD
 from .printer import DEFAULT_ADDRESS
 
 _ORG = "QLInux"
@@ -65,6 +66,48 @@ class AppSettings:
     @image_dir.setter
     def image_dir(self, value: str) -> None:
         self.set_value("files/image_dir", value)
+
+    # -- Druckoptionen ------------------------------------------------------
+    @staticmethod
+    def _as_int(value, default: int) -> int:
+        try:
+            return int(value)
+        except (TypeError, ValueError):
+            return default
+
+    @property
+    def threshold(self) -> int:
+        """Schwelle in Prozent (brother_ql ``-t``), Default siehe Preview."""
+        return self._as_int(self.value("print/threshold", None), DEFAULT_THRESHOLD)
+
+    @threshold.setter
+    def threshold(self, value: int) -> None:
+        self.set_value("print/threshold", int(value))
+
+    @property
+    def dither(self) -> bool:
+        return self._as_bool(self.value("print/dither", None), False)
+
+    @dither.setter
+    def dither(self, value: bool) -> None:
+        self.set_value("print/dither", bool(value))
+
+    @property
+    def hq(self) -> bool:
+        """Drucker-Qualitaetsflag (``pquality``)."""
+        return self._as_bool(self.value("print/hq", None), True)
+
+    @hq.setter
+    def hq(self, value: bool) -> None:
+        self.set_value("print/hq", bool(value))
+
+    @property
+    def cut(self) -> bool:
+        return self._as_bool(self.value("print/cut", None), True)
+
+    @cut.setter
+    def cut(self, value: bool) -> None:
+        self.set_value("print/cut", bool(value))
 
     # -- Fenster ------------------------------------------------------------
     def save_geometry(self, geometry: QByteArray) -> None:

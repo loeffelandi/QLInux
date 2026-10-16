@@ -497,12 +497,19 @@ def test_side_panels_use_smooth_scroll_area(qapp):
     assert len(win.findChildren(SmoothScrollArea)) >= 3
 
 
-def test_default_dock_widths_are_roomy(qapp):
+def test_open_panels_are_roomy(qapp):
     from ql_editor.app import MainWindow
+    from ql_editor.panels import PANEL_WIDTH
 
     win = MainWindow()
-    assert win._left_dock.minimumWidth() >= 200
-    assert win._right_dock.minimumWidth() >= 240
+    win.resize(1400, 900)
+    win.show()
+    qapp.processEvents()
+    assert win._left_panel.docked and win._right_panel.docked
+    assert win._left_panel.visible_width == PANEL_WIDTH
+    assert win._right_panel.visible_width == PANEL_WIDTH
+    assert win._media_panel.minimumWidth() >= 200
+    assert win._inspector.minimumWidth() >= 240
 
 
 def test_set_label_height_change_keeps_zoom(qapp):
@@ -1060,9 +1067,9 @@ def test_panel_result_shows_real_content_length(qapp):
 
 
 # --------------------------------------------------------------------------- #
-# Seitenpanels ein-/ausblenden
+# Seitenpanels: einklappen, Pfeil im Panel, Hover-Overlay
 # --------------------------------------------------------------------------- #
-def test_panel_toggle_actions_present_and_checked(qapp):
+def test_panel_actions_are_in_the_menu_not_the_toolbar(qapp):
     from PySide6.QtWidgets import QToolBar
 
     from ql_editor.app import MainWindow
@@ -1077,33 +1084,63 @@ def test_panel_toggle_actions_present_and_checked(qapp):
 
     bar = win.findChild(QToolBar)
     bar_actions = [a for a in bar.actions() if not a.isSeparator()]
-    assert win._act_panel_left in bar_actions
-    assert win._act_panel_right in bar_actions
+    assert win._act_panel_left not in bar_actions
+    assert win._act_panel_right not in bar_actions
+    # Erreichbar bleiben sie im Hamburger-Menue (Shortcut-Wege).
     assert win._act_panel_left in win._menu_button.menu().actions()
+    assert win._act_panel_right in win._menu_button.menu().actions()
 
 
-def test_hiding_panel_gives_canvas_more_room(qapp):
+def test_panel_arrow_sits_in_the_panel(qapp):
+    from PySide6.QtCore import QPointF
+
     from ql_editor.app import MainWindow
+
+    win = MainWindow()
+    win.resize(1100, 800)
+    win.show()
+    qapp.processEvents()
+
+    for panel in (win._left_panel, win._right_panel):
+        assert panel._button.parent() is panel
+        assert not panel._button.icon().isNull()
+        # Der Pfeil liegt im schmalen Streifen, nicht im Inhalt.
+        assert panel._strip_rect().contains(QPointF(panel._button.geometry().center()))
+        assert panel._button.toolTip()
+        assert panel.content.isVisible()
+
+
+def test_collapsing_panel_gives_canvas_more_room(qapp):
+    from ql_editor.app import MainWindow
+    from ql_editor.panels import STRIP_WIDTH
 
     win = MainWindow()
     win.resize(1000, 700)
     win.show()
     qapp.processEvents()
     before = win._canvas.width()
-    assert win._right_dock.isVisible()
 
     win._act_panel_right.setChecked(False)
+    win._right_panel.finish_animation()
     qapp.processEvents()
-    assert not win._right_dock.isVisible()
+    assert win._right_panel.docked is False
+    assert win._right_panel.visible_width == STRIP_WIDTH
     assert win._canvas.width() > before
+    # Der Streifen mit Pfeil bleibt erreichbar, der Inhalt ist weg.
+    assert win._right_panel.width() == STRIP_WIDTH
+    assert win._right_panel._button.isVisible()
+    assert not win._right_panel.content.isVisible()
 
     win._act_panel_right.setChecked(True)
+    win._right_panel.finish_animation()
     qapp.processEvents()
-    assert win._right_dock.isVisible()
+    assert win._right_panel.docked is True
+    assert win._right_panel.content.isVisible()
 
 
-def test_both_panels_can_be_hidden(qapp):
+def test_both_panels_can_be_collapsed(qapp):
     from ql_editor.app import MainWindow
+    from ql_editor.panels import STRIP_WIDTH
 
     win = MainWindow()
     win.resize(1000, 700)
@@ -1112,24 +1149,74 @@ def test_both_panels_can_be_hidden(qapp):
 
     win._act_panel_left.setChecked(False)
     win._act_panel_right.setChecked(False)
+    win._left_panel.finish_animation()
+    win._right_panel.finish_animation()
     qapp.processEvents()
-    assert not win._left_dock.isVisible()
-    assert not win._right_dock.isVisible()
-    # Der Canvas bekommt die volle Breite und der Fokus bleibt dort.
-    assert win._canvas.width() == pytest.approx(win.width(), abs=4)
-    assert qapp.focusWidget() is win._canvas
+    # Der Canvas bekommt alles bis auf die beiden Streifen.
+    assert win._canvas.width() == pytest.approx(win.width() - 2 * STRIP_WIDTH, abs=4)
 
 
-def test_hiding_panel_by_dock_keeps_action_in_sync(qapp):
+def test_panel_arrow_keeps_action_in_sync(qapp):
     from ql_editor.app import MainWindow
 
     win = MainWindow()
     win.show()
     qapp.processEvents()
-    # Simuliert das Verstecken von aussen (z. B. Titelleiste/Programmcode).
-    win._left_dock.hide()
+
+    win._left_panel._button.click()
     qapp.processEvents()
+    assert win._left_panel.docked is False
     assert win._act_panel_left.isChecked() is False
+
+    win._left_panel._button.click()
+    qapp.processEvents()
+    assert win._left_panel.docked is True
+    assert win._act_panel_left.isChecked() is True
+
+
+def test_collapsed_panel_peeks_over_canvas_on_hover(qapp):
+    from ql_editor.app import MainWindow
+    from ql_editor.panels import STRIP_WIDTH
+
+    win = MainWindow()
+    win.resize(1000, 700)
+    win.show()
+    qapp.processEvents()
+    win._act_panel_left.setChecked(False)
+    win._left_panel.finish_animation()
+    qapp.processEvents()
+    canvas_width = win._canvas.width()
+    expanded = win._left_panel.reserved_width
+
+    # Hover auf dem Streifen -> Panel klappt als Overlay auf.
+    win._left_panel.set_hovered(True)
+    win._left_panel.finish_animation()
+    qapp.processEvents()
+    assert win._left_panel.peeking is True
+    assert win._left_panel.visible_width == expanded
+    assert win._left_panel.content.isVisible()
+    # Der Canvas behaelt seine Breite: Overlay statt Verschieben.
+    assert win._canvas.width() == canvas_width
+    assert win._left_panel.canvas_reserved == STRIP_WIDTH
+
+    # Mauszeiger weg -> wieder einklappen.
+    win._left_panel.set_hovered(False)
+    win._left_panel.finish_animation()
+    qapp.processEvents()
+    assert win._left_panel.peeking is False
+    assert win._left_panel.visible_width == STRIP_WIDTH
+    assert not win._left_panel.content.isVisible()
+
+
+def test_docked_panel_does_not_peek(qapp):
+    from ql_editor.app import MainWindow
+
+    win = MainWindow()
+    win.show()
+    qapp.processEvents()
+    win._left_panel.set_hovered(True)
+    assert win._left_panel.peeking is False
+    assert win._left_panel.docked is True
 
 
 def test_panel_visibility_is_persisted(qapp):
@@ -1145,9 +1232,9 @@ def test_panel_visibility_is_persisted(qapp):
     again = MainWindow()
     again.show()
     qapp.processEvents()
-    assert again._right_dock.isVisible() is False
+    assert again._right_panel.docked is False
     assert again._act_panel_right.isChecked() is False
-    assert again._left_dock.isVisible() is True
+    assert again._left_panel.docked is True
 
 
 def test_panel_icons_available(qapp):
@@ -1418,3 +1505,191 @@ def test_inspector_image_size_in_millimetres(qapp):
     height.setValue(10.0)
     assert inspector._image_size(item)[1] == pytest.approx(10 * DOTS_PER_MM, abs=1.5)
     assert width.value() == pytest.approx(20.0, abs=0.2)
+
+
+# --------------------------------------------------------------------------- #
+# Druckbild: Auswahl, Textmarke und Qualitaetsoptionen
+# --------------------------------------------------------------------------- #
+def _render_1bit(canvas):
+    """Druckbild der Szene als 1-bit-Vergleichsbytes (ohne Drucker)."""
+    from ql_editor.preview import binarize
+
+    return binarize(canvas.render_printable()).tobytes()
+
+
+def _sample_items():
+    from PySide6.QtCore import QRectF
+    from PySide6.QtGui import QColor, QPixmap
+
+    from ql_editor.items import ImageItem, LineItem, RectItem
+
+    pixmap = QPixmap(120, 80)
+    pixmap.fill(QColor("black"))
+    return {
+        "Text": TextItem("Test 123", font_pixel_size=40),
+        "Image": ImageItem(pixmap),
+        "Barcode": BarcodeItem("123456789"),
+        "QR": QRItem("test", 120),
+        "Line": LineItem(0, 0, 200, 0, width_px=3),
+        "Rect": RectItem(QRectF(0, 0, 200, 80)),
+    }
+
+
+def test_selection_is_not_printed(qapp):
+    """Qt malt bei Auswahl einen gestrichelten Rahmen - der darf nicht drucken."""
+    canvas = _prepared_canvas(qapp)
+    for kind, item in _sample_items().items():
+        canvas.clear_items()
+        canvas.add_item(item)
+        item.setPos(40, 40)
+        canvas.scene().clearSelection()
+        without = _render_1bit(canvas)
+        item.setSelected(True)
+        with_selection = _render_1bit(canvas)
+        assert with_selection == without, f"{kind}: Auswahl landet im Druckbild"
+
+
+def test_text_caret_is_not_printed(qapp):
+    """Die Einfuegemarke darf nicht als duenne Linie im Etikett landen."""
+    canvas = _prepared_canvas(qapp)
+    item = TextItem("Bearbeitung 123", font_pixel_size=40)
+    canvas.add_item(item)
+    item.setPos(40, 40)
+    qapp.processEvents()
+
+    item.start_editing()
+    qapp.processEvents()
+    editing = _render_1bit(canvas)
+    item.finish_editing()
+    qapp.processEvents()
+    assert editing == _render_1bit(canvas)
+
+
+def test_text_editing_survives_rendering(qapp):
+    """Das Rendern blendet die Textmarke nur kurz aus - Bearbeitung bleibt."""
+    canvas = _prepared_canvas(qapp)
+    item = TextItem("Hallo", font_pixel_size=40)
+    canvas.add_item(item)
+    item.setPos(40, 40)
+    item.start_editing()
+    qapp.processEvents()
+    cursor = item.textCursor()
+    cursor.clearSelection()
+    cursor.movePosition(cursor.MoveOperation.End)
+    item.setTextCursor(cursor)
+
+    canvas.render_printable()
+
+    assert item.is_editing is True
+    assert item.hasFocus() is True
+    assert item.textCursor().position() == 5
+
+
+def test_print_preview_zooms_to_1_1_and_restores(qapp):
+    from ql_editor.app import MainWindow
+
+    win = MainWindow()
+    win.resize(1100, 700)
+    win.show()
+    qapp.processEvents()
+    before = win._canvas.transform().m11()
+    assert before < 1.0  # eingepasst
+
+    win._act_print_preview.setChecked(True)
+    qapp.processEvents()
+    assert win._canvas.transform().m11() == pytest.approx(1.0)
+    assert win._canvas.print_preview is True
+
+    win._act_print_preview.setChecked(False)
+    qapp.processEvents()
+    assert win._canvas.transform().m11() == pytest.approx(before)
+    assert win._canvas.print_preview is False
+
+
+def test_zoom_label_hints_when_preview_is_not_1_1(qapp):
+    from ql_editor.app import MainWindow
+
+    win = MainWindow()
+    win.resize(1100, 700)
+    win.show()
+    qapp.processEvents()
+    win._act_print_preview.setChecked(True)
+    qapp.processEvents()
+    win._canvas.zoom_out()
+    qapp.processEvents()
+    assert "1:1" in win._zoom_label.text()
+    win._act_print_preview.setChecked(False)
+    qapp.processEvents()
+    assert "1:1" not in win._zoom_label.text()
+
+
+def test_zoom_100_action_exists(qapp):
+    from ql_editor.app import MainWindow
+
+    win = MainWindow()
+    win.resize(1100, 700)
+    win.show()
+    qapp.processEvents()
+    assert not win._act_zoom_100.icon().isNull()
+    assert win._act_zoom_100.shortcut().toString() == "Ctrl+1"
+    win._canvas.zoom_by(0.5)
+    win._act_zoom_100.trigger()
+    assert win._canvas.transform().m11() == pytest.approx(1.0)
+
+
+def test_ink_readout_tracks_threshold(qapp):
+    from ql_editor.app import MainWindow
+
+    win = MainWindow()
+    win.show()
+    qapp.processEvents()
+    win._add_item(TextItem("Tinte", font_pixel_size=40), None)
+    win._canvas.cancel_editing()
+    win._refresh_now()
+
+    win._threshold_spin.setValue(20)
+    win._refresh_now()
+    low = win._ink_label.text()
+    win._threshold_spin.setValue(95)
+    win._refresh_now()
+    high = win._ink_label.text()
+    assert low.startswith("Tinte:") and high.startswith("Tinte:")
+    assert float(low.split()[1].replace(",", ".")) < float(high.split()[1].replace(",", "."))
+
+
+def test_hq_option_is_forwarded_to_the_printer(qapp):
+    from ql_editor.app import MainWindow
+    from ql_editor.printer import build_raster
+
+    win = MainWindow()
+    win.show()
+    qapp.processEvents()
+    image = win._for_print()
+    label = win._media_panel.label
+    config = win._media_panel.printer_config()
+    assert win._hq_check.isChecked() is True
+    with_hq = build_raster(image, label, config, hq=True)
+    without_hq = build_raster(image, label, config, hq=False)
+    assert with_hq != without_hq
+
+
+def test_print_options_are_persisted(qapp):
+    from ql_editor.app import MainWindow
+
+    win = MainWindow()
+    win.show()
+    qapp.processEvents()
+    win._threshold_spin.setValue(88)
+    win._dither_check.setChecked(True)
+    win._hq_check.setChecked(False)
+    win._cut_check.setChecked(False)
+    win.close()
+    qapp.processEvents()
+
+    again = MainWindow()
+    again.show()
+    qapp.processEvents()
+    assert again._threshold_spin.value() == 88
+    assert again._dither_check.isChecked() is True
+    assert again._hq_check.isChecked() is False
+    assert again._cut_check.isChecked() is False

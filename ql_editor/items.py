@@ -38,6 +38,8 @@ from PySide6.QtWidgets import (
     QGraphicsPixmapItem,
     QGraphicsRectItem,
     QGraphicsTextItem,
+    QStyle,
+    QStyleOptionGraphicsItem,
 )
 
 # --------------------------------------------------------------------------- #
@@ -114,6 +116,20 @@ class _ClampMixin:
         if change == QGraphicsItem.GraphicsItemChange.ItemPositionChange:
             value = _clamp_pos(self, value)
         return super().itemChange(change, value)
+
+    def paint(self, painter: QPainter, option, widget=None) -> None:  # noqa: N802
+        """Ohne Qt-Standard-Auswahlrahmen malen.
+
+        ``QGraphicsItem`` malt bei Auswahl (und Fokus) einen gestrichelten
+        Kasten um das Objekt. Die Szene wird 1:1 gerendert und gedruckt - der
+        Rahmen landete damit **im Etikett**. Die Auswahl zeigt der Canvas
+        selbst (rotationsfester blauer Rahmen + Anfasser), und der ist
+        View-Sache und damit nicht Teil des Druckbilds.
+        """
+        option = QStyleOptionGraphicsItem(option)
+        option.state &= ~QStyle.StateFlag.State_Selected
+        option.state &= ~QStyle.StateFlag.State_HasFocus
+        super().paint(painter, option, widget)
 
     def to_dict(self) -> dict[str, Any]:  # pragma: no cover - abstrakt
         raise NotImplementedError
