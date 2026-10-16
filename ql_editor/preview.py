@@ -10,8 +10,8 @@ Polaritaet:
 * Die Vorschau hier liefert die *visuelle* Darstellung: **0 = Tinte (schwarz),
   255 = Papier (weiss)** - so wie das Etikett auf dem Band erscheint.
 
-Das Modul ist Qt-frei (headless testbar); die Umwandlung in ein ``QImage``
-erfolgt in :func:`to_qimage` und importiert Qt erst bei Bedarf.
+Die Kernfunktionen (:func:`binarize`, :func:`ink_ratio`) sind Qt-frei und
+headless testbar; :class:`PreviewWidget` ist das GUI-Widget.
 """
 
 from __future__ import annotations
@@ -19,6 +19,9 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from PIL import Image, ImageOps
+from PySide6.QtCore import Qt
+from PySide6.QtGui import QImage, QPixmap
+from PySide6.QtWidgets import QLabel, QVBoxLayout, QWidget
 
 
 @dataclass(frozen=True)
@@ -86,13 +89,8 @@ def ink_ratio(image: Image.Image, options: PreviewOptions | None = None) -> floa
     return ink / total
 
 
-def to_qimage(image: Image.Image):
-    """Konvertiere die 1-bit-Vorschau in ein ``QImage`` (fuer die GUI).
-
-    Qt wird erst hier importiert, damit dieses Modul headless bleibt.
-    """
-    from PySide6.QtGui import QImage
-
+def to_qimage(image: Image.Image) -> QImage:
+    """Konvertiere die 1-bit-Vorschau in ein ``QImage`` (fuer die GUI)."""
     visual = image if image.mode == "1" else image.convert("1")
     data = visual.tobytes("raw", "1")
     width, height = visual.size
@@ -102,10 +100,71 @@ def to_qimage(image: Image.Image):
     return qimg.copy()
 
 
+class PreviewWidget(QWidget):
+    """Zeigt die monochrome 1-bit-Vorschau (das, was gedruckt wird)."""
+
+    def __init__(self, parent: QWidget | None = None):
+        super().__init__(parent)
+        self._options = PreviewOptions()
+        self._pil_image: Image.Image | None = None
+        self._rendered: Image.Image | None = None
+
+        self._info = QLabel("Keine Vorschau")
+        self._info.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self._info.setStyleSheet("color:#555; padding:4px;")
+        self._canvas = QLabel("Noch nichts zu drucken")
+        self._canvas.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self._canvas.setMinimumSize(160, 120)
+        self._canvas.setStyleSheet("background:#ffffff; border:1px solid #999;")
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(4, 4, 4, 4)
+        layout.addWidget(self._info)
+        layout.addWidget(self._canvas, 1)
+
+    def set_options(self, options: PreviewOptions) -> None:
+        self._options = options
+        self._refresh()
+
+    def set_image(self, image: Image.Image | None) -> None:
+        self._pil_image = image
+        self._refresh()
+
+    def _refresh(self) -> None:
+        if self._pil_image is None:
+            self._rendered = None
+            self._canvas.setPixmap(QPixmap())
+            self._canvas.setText("Noch nichts zu drucken")
+            self._info.setText("Keine Vorschau")
+            return
+        visual = binarize(self._pil_image, self._options)
+        self._rendered = visual
+        self._info.setText(
+            f"{visual.width} x {visual.height} px · Tinte "
+            f"{ink_ratio(self._pil_image, self._options) * 100:.1f} %"
+        )
+        self._update_pixmap()
+
+    def _update_pixmap(self) -> None:
+        if self._rendered is None:
+            return
+        pixmap = QPixmap.fromImage(to_qimage(self._rendered))
+        scaled = pixmap.scaled(
+            self._canvas.size(),
+            Qt.AspectRatioMode.KeepAspectRatio,
+            Qt.TransformationMode.FastTransformation,
+        )
+        self._canvas.setPixmap(scaled)
+
+    def resizeEvent(self, event):  # noqa: N802
+        super().resizeEvent(event)
+        self._update_pixmap()
+
+
 __all__ = [
     "PreviewOptions",
     "binarize",
     "preview_to_convert_parity",
     "ink_ratio",
     "to_qimage",
+    "PreviewWidget",
 ]

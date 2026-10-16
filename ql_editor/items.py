@@ -1,0 +1,490 @@
+"""Canvas-Items fuer den Editor: Text, Bild, Barcode, QR, Linie, Rahmen.
+
+Jedes Item:
+
+* ist ein ``QGraphicsItem`` (direkt in der Szene platzierbar/verschiebbar),
+* **klemmt seine Position auf den bedruckbaren Bereich** (``sceneRect``) -
+  das ist die "Randbegrenzung" wie im P-touch Editor: nichts landet in der
+  nicht bedruckbaren Zone,
+* kann sich per :meth:`to_dict` / :meth:`from_dict` serialisieren
+  (Grundlage fuer Vorlagen, M4).
+
+Codierung (Barcode/QR) geschieht mit ``python-barcode`` bzw. ``qrcode`` und
+wird in ein ``QPixmap`` umgewandelt.
+"""
+
+from __future__ import annotations
+
+import base64
+import io
+from typing import Any
+
+from PIL import Image
+from PySide6.QtCore import QPointF, QRectF, Qt
+from PySide6.QtGui import QBrush, QColor, QFont, QImage, QPainter, QPen, QPixmap
+from PySide6.QtWidgets import (
+    QGraphicsItem,
+    QGraphicsLineItem,
+    QGraphicsPixmapItem,
+    QGraphicsRectItem,
+    QGraphicsTextItem,
+)
+
+# --------------------------------------------------------------------------- #
+# Hilfsfunktionen
+# --------------------------------------------------------------------------- #
+def pil_to_qpixmap(image: Image.Image) -> QPixmap:
+    """Wandle ein ``PIL.Image`` in ein ``QPixmap`` (Alpha-sicher)."""
+    image = image.convert("RGBA")
+    data = image.tobytes("raw", "RGBA")
+    qimg = QImage(data, image.width, image.height, QImage.Format.Format_RGBA8888)
+    return QPixmap.fromImage(qimg.copy())
+
+
+def make_qr_image(data: str, *, box_size: int = 10, border: int = 1) -> Image.Image:
+    """Erzeuge ein QR-Code-Bild (schwarz auf weiss)."""
+    import qrcode
+
+    qr = qrcode.QRCode(border=border, box_size=box_size, error_correction=qrcode.constants.ERROR_CORRECT_M)
+    qr.add_data(data)
+    qr.make(fit=True)
+    return qr.make_image(fill_color="black", back_color="white").convert("RGB")
+
+
+def make_barcode_image(
+    value: str,
+    symbology: str = "code128",
+    *,
+    write_text: bool = True,
+    module_height: float = 10.0,
+    module_width: float = 0.3,
+) -> Image.Image:
+    """Erzeuge ein Barcode-Bild bei 300 dpi mit ``python-barcode``."""
+    import barcode
+    from barcode.writer import ImageWriter
+
+    barcode_class = barcode.get_barcode_class(symbology)
+    bc = barcode_class(value, writer=ImageWriter())
+    return bc.render(
+        writer_options={
+            "module_height": module_height,
+            "module_width": module_width,
+            "quiet_zone": 1.0,
+            "write_text": write_text,
+            "dpi": 300,
+        }
+    )
+
+
+def _clamp_pos(item: QGraphicsItem, new_pos: QPointF) -> QPointF:
+    """Klemme ``new_pos`` so, dass die Item-BBox im ``sceneRect`` bleibt."""
+    scene = item.scene()
+    if scene is None:
+        return new_pos
+    rect = scene.sceneRect()
+    bb = item.boundingRect()
+    if bb.width() > rect.width() or bb.height() > rect.height():
+        return new_pos  # Item groesser als Flaeche -> nicht klemmen
+    x = min(max(new_pos.x(), rect.left() - bb.left()), rect.right() - bb.right())
+    y = min(max(new_pos.y(), rect.top() - bb.top()), rect.bottom() - bb.bottom())
+    return QPointF(x, y)
+
+
+class _ClampMixin:
+    """Klemmt die Position auf den bedruckbaren Bereich + Serialisierungs-Basis."""
+
+    kind = "item"
+
+    def itemChange(self, change, value):  # noqa: N802 (Qt-API)
+        if change == QGraphicsItem.GraphicsItemChange.ItemPositionChange:
+            value = _clamp_pos(self, value)
+        return super().itemChange(change, value)
+
+    def to_dict(self) -> dict[str, Any]:  # pragma: no cover - abstrakt
+        raise NotImplementedError
+
+    def _base_dict(self) -> dict[str, Any]:
+        p = self.pos()
+        return {
+            "type": self.kind,
+            "x": p.x(),
+            "y": p.y(),
+            "rotation": self.rotation(),
+            "z": self.zValue(),
+        }
+
+    def _apply_base(self, d: dict[str, Any]) -> None:
+        self.setPos(QPointF(float(d.get("x", 0.0)), float(d.get("y", 0.0))))
+        self.setRotation(float(d.get("rotation", 0.0)))
+        self.setZValue(float(d.get("z", 0.0)))
+
+
+# --------------------------------------------------------------------------- #
+# Basis
+# --------------------------------------------------------------------------- #
+class LabelItem(_ClampMixin):
+    """Gemeinsame Basis (nur Serialisierung/Annotation, kein Qt-Zustand)."""
+
+    kind = "item"
+
+
+# --------------------------------------------------------------------------- #
+# Text
+# --------------------------------------------------------------------------- #
+class TextItem(_ClampMixin, QGraphicsTextItem):
+    kind = "text"
+
+    def __init__(self, text: str = "Text", font_family: str = "Sans", font_pixel_size: int = 48):
+        super().__init__(text)
+        self.setFlags(
+            QGraphicsItem.GraphicsItemFlag.ItemIsMovable
+            | QGraphicsItem.GraphicsItemFlag.ItemIsSelectable
+            | QGraphicsItem.GraphicsItemFlag.ItemSendsGeometryChanges
+        )
+        self.setDefaultTextColor(QColor("black"))
+        self._font_family = font_family
+        self._font_pixel_size = font_pixel_size
+        self._bold = False
+        self._italic = False
+        self._color = "black"
+        self.setTextWidth(-1)
+        self._apply_font()
+
+    def _apply_font(self) -> None:
+        font = QFont(self._font_family)
+        font.setPixelSize(self._font_pixel_size)
+        font.setBold(self._bold)
+        font.setItalic(self._italic)
+        self.setFont(font)
+
+    # -- Properties ---------------------------------------------------------
+    def set_font_pixel_size(self, size: int) -> None:
+        self._font_pixel_size = max(4, int(size))
+        self._apply_font()
+
+    def set_bold(self, value: bool) -> None:
+        self._bold = bool(value)
+        self._apply_font()
+
+    def set_italic(self, value: bool) -> None:
+        self._italic = bool(value)
+        self._apply_font()
+
+    def set_text_color(self, color: str) -> None:
+        self._color = color
+        self.setDefaultTextColor(QColor(color))
+
+    def set_text_width(self, width: float) -> None:
+        self.setTextWidth(width if width > 0 else -1)
+
+    @property
+    def text_value(self) -> str:
+        return self.toPlainText()
+
+    def set_text_value(self, value: str) -> None:
+        self.setPlainText(value)
+
+    def to_dict(self) -> dict[str, Any]:
+        d = self._base_dict()
+        d.update(
+            text=self.toPlainText(),
+            font_family=self._font_family,
+            font_pixel_size=self._font_pixel_size,
+            bold=self._bold,
+            italic=self._italic,
+            color=self._color,
+            text_width=self.textWidth(),
+        )
+        return d
+
+    @classmethod
+    def from_dict(cls, d: dict[str, Any]) -> "TextItem":
+        item = cls(d.get("text", "Text"), d.get("font_family", "Sans"), int(d.get("font_pixel_size", 48)))
+        item.set_bold(bool(d.get("bold", False)))
+        item.set_italic(bool(d.get("italic", False)))
+        item.set_text_color(d.get("color", "black"))
+        item.set_text_width(float(d.get("text_width", -1)))
+        item._apply_base(d)
+        return item
+
+
+# --------------------------------------------------------------------------- #
+# Bild
+# --------------------------------------------------------------------------- #
+class ImageItem(_ClampMixin, QGraphicsPixmapItem):
+    kind = "image"
+
+    def __init__(self, pixmap: QPixmap | None = None):
+        super().__init__(pixmap if pixmap is not None else QPixmap())
+        self.setFlags(
+            QGraphicsItem.GraphicsItemFlag.ItemIsMovable
+            | QGraphicsItem.GraphicsItemFlag.ItemIsSelectable
+            | QGraphicsItem.GraphicsItemFlag.ItemSendsGeometryChanges
+        )
+        self._source_path: str | None = None
+
+    @classmethod
+    def from_file(cls, path: str) -> "ImageItem":
+        pixmap = QPixmap(path)
+        if pixmap.isNull():
+            raise ValueError(f"Bild konnte nicht geladen werden: {path}")
+        item = cls(pixmap)
+        item._source_path = path
+        return item
+
+    @classmethod
+    def from_pil(cls, image: Image.Image) -> "ImageItem":
+        return cls(pil_to_qpixmap(image))
+
+    def set_scale(self, scale: float) -> None:
+        self.setTransform(self.transform().fromScale(scale, scale))
+
+    def to_dict(self) -> dict[str, Any]:
+        d = self._base_dict()
+        buf = io.BytesIO()
+        self.pixmap().toImage().save(buf, "PNG")
+        d.update(
+            data_b64=base64.b64encode(buf.getvalue()).decode("ascii"),
+            source_path=self._source_path,
+            scale_x=self.transform().m11(),
+            scale_y=self.transform().m22(),
+        )
+        return d
+
+    @classmethod
+    def from_dict(cls, d: dict[str, Any]) -> "ImageItem":
+        raw = base64.b64decode(d["data_b64"])
+        pixmap = QPixmap()
+        pixmap.loadFromData(raw, "PNG")
+        item = cls(pixmap)
+        item._source_path = d.get("source_path")
+        sx = float(d.get("scale_x", 1.0))
+        sy = float(d.get("scale_y", 1.0))
+        item.setTransform(item.transform().fromScale(sx, sy))
+        item._apply_base(d)
+        return item
+
+
+# --------------------------------------------------------------------------- #
+# QR-Code
+# --------------------------------------------------------------------------- #
+class QRItem(_ClampMixin, QGraphicsPixmapItem):
+    kind = "qr"
+
+    def __init__(self, data: str = "https://example.org", size_dots: int = 200):
+        super().__init__()
+        self.setFlags(
+            QGraphicsItem.GraphicsItemFlag.ItemIsMovable
+            | QGraphicsItem.GraphicsItemFlag.ItemIsSelectable
+            | QGraphicsItem.GraphicsItemFlag.ItemSendsGeometryChanges
+        )
+        self._data = data
+        self._size_dots = size_dots
+        self._regenerate()
+
+    def _regenerate(self) -> None:
+        img = make_qr_image(self._data)
+        pixmap = pil_to_qpixmap(img).scaled(
+            self._size_dots,
+            self._size_dots,
+            Qt.AspectRatioMode.KeepAspectRatio,
+            Qt.TransformationMode.FastTransformation,
+        )
+        self.setPixmap(pixmap)
+
+    def set_data(self, data: str) -> None:
+        self._data = data
+        self._regenerate()
+
+    def set_size_dots(self, size: int) -> None:
+        self._size_dots = max(20, int(size))
+        self._regenerate()
+
+    def to_dict(self) -> dict[str, Any]:
+        d = self._base_dict()
+        d.update(data=self._data, size_dots=self._size_dots)
+        return d
+
+    @classmethod
+    def from_dict(cls, d: dict[str, Any]) -> "QRItem":
+        item = cls(d.get("data", ""), int(d.get("size_dots", 200)))
+        item._apply_base(d)
+        return item
+
+
+# --------------------------------------------------------------------------- #
+# Barcode
+# --------------------------------------------------------------------------- #
+class BarcodeItem(_ClampMixin, QGraphicsPixmapItem):
+    kind = "barcode"
+
+    def __init__(
+        self,
+        value: str = "123456789",
+        symbology: str = "code128",
+        *,
+        show_text: bool = True,
+        height_dots: int = 120,
+    ):
+        super().__init__()
+        self.setFlags(
+            QGraphicsItem.GraphicsItemFlag.ItemIsMovable
+            | QGraphicsItem.GraphicsItemFlag.ItemIsSelectable
+            | QGraphicsItem.GraphicsItemFlag.ItemSendsGeometryChanges
+        )
+        self._value = value
+        self._symbology = symbology
+        self._show_text = show_text
+        self._height_dots = height_dots
+        self._regenerate()
+
+    def _regenerate(self) -> None:
+        try:
+            img = make_barcode_image(self._value, self._symbology, write_text=self._show_text)
+        except Exception as exc:  # ungueltiger Inhalt fuer die Symbologie
+            raise ValueError(f"Barcode '{self._value}' ({self._symbology}): {exc}") from exc
+        pixmap = pil_to_qpixmap(img)
+        if pixmap.height() > 0:
+            pixmap = pixmap.scaledToHeight(self._height_dots, Qt.TransformationMode.SmoothTransformation)
+        self.setPixmap(pixmap)
+
+    def set_value(self, value: str) -> None:
+        self._value = value
+        self._regenerate()
+
+    def set_symbology(self, symbology: str) -> None:
+        self._symbology = symbology
+        self._regenerate()
+
+    def set_height_dots(self, height: int) -> None:
+        self._height_dots = max(20, int(height))
+        self._regenerate()
+
+    def to_dict(self) -> dict[str, Any]:
+        d = self._base_dict()
+        d.update(value=self._value, symbology=self._symbology, show_text=self._show_text, height_dots=self._height_dots)
+        return d
+
+    @classmethod
+    def from_dict(cls, d: dict[str, Any]) -> "BarcodeItem":
+        item = cls(
+            d.get("value", ""), d.get("symbology", "code128"),
+            show_text=bool(d.get("show_text", True)), height_dots=int(d.get("height_dots", 120)),
+        )
+        item._apply_base(d)
+        return item
+
+
+# --------------------------------------------------------------------------- #
+# Linie / Rahmen
+# --------------------------------------------------------------------------- #
+class LineItem(_ClampMixin, QGraphicsLineItem):
+    kind = "line"
+
+    def __init__(self, x1: float = 0, y1: float = 0, x2: float = 200, y2: float = 0, width_px: float = 2):
+        super().__init__(x1, y1, x2, y2)
+        self.setFlags(
+            QGraphicsItem.GraphicsItemFlag.ItemIsMovable
+            | QGraphicsItem.GraphicsItemFlag.ItemIsSelectable
+            | QGraphicsItem.GraphicsItemFlag.ItemSendsGeometryChanges
+        )
+        self._width_px = width_px
+        self._apply_pen()
+
+    def _apply_pen(self) -> None:
+        pen = QPen(QColor("black"))
+        pen.setWidthF(self._width_px)
+        pen.setCapStyle(Qt.PenCapStyle.FlatCap)
+        self.setPen(pen)
+
+    def set_line_width(self, width_px: float) -> None:
+        self._width_px = max(0.5, float(width_px))
+        self._apply_pen()
+
+    def to_dict(self) -> dict[str, Any]:
+        ln = self.line()
+        d = self._base_dict()
+        d.update(x1=ln.x1(), y1=ln.y1(), x2=ln.x2(), y2=ln.y2(), width_px=self._width_px)
+        return d
+
+    @classmethod
+    def from_dict(cls, d: dict[str, Any]) -> "LineItem":
+        item = cls(d.get("x1", 0), d.get("y1", 0), d.get("x2", 200), d.get("y2", 0), d.get("width_px", 2))
+        item._apply_base(d)
+        return item
+
+
+class RectItem(_ClampMixin, QGraphicsRectItem):
+    kind = "rect"
+
+    def __init__(self, rect: QRectF | None = None, width_px: float = 2, filled: bool = False):
+        super().__init__(rect if rect is not None else QRectF(0, 0, 200, 100))
+        self.setFlags(
+            QGraphicsItem.GraphicsItemFlag.ItemIsMovable
+            | QGraphicsItem.GraphicsItemFlag.ItemIsSelectable
+            | QGraphicsItem.GraphicsItemFlag.ItemSendsGeometryChanges
+        )
+        self._width_px = width_px
+        self._filled = filled
+        self._apply_pen()
+
+    def _apply_pen(self) -> None:
+        pen = QPen(QColor("black"))
+        pen.setWidthF(self._width_px)
+        self.setPen(pen)
+        self.setBrush(QBrush(QColor("black")) if self._filled else QBrush(Qt.BrushStyle.NoBrush))
+
+    def set_line_width(self, width_px: float) -> None:
+        self._width_px = max(0.5, float(width_px))
+        self._apply_pen()
+
+    def set_filled(self, filled: bool) -> None:
+        self._filled = bool(filled)
+        self._apply_pen()
+
+    def to_dict(self) -> dict[str, Any]:
+        r = self.rect()
+        d = self._base_dict()
+        d.update(x=r.x(), y=r.y(), w=r.width(), h=r.height(), width_px=self._width_px, filled=self._filled)
+        return d
+
+    @classmethod
+    def from_dict(cls, d: dict[str, Any]) -> "RectItem":
+        rect = QRectF(d.get("x", 0), d.get("y", 0), d.get("w", 200), d.get("h", 100))
+        item = cls(rect, d.get("width_px", 2), bool(d.get("filled", False)))
+        item._apply_base(d)
+        return item
+
+
+ITEM_TYPES: dict[str, type] = {
+    TextItem.kind: TextItem,
+    ImageItem.kind: ImageItem,
+    QRItem.kind: QRItem,
+    BarcodeItem.kind: BarcodeItem,
+    LineItem.kind: LineItem,
+    RectItem.kind: RectItem,
+}
+
+
+def item_from_dict(d: dict[str, Any]) -> QGraphicsItem:
+    """Erzeuge ein Item aus seiner Serialisierung."""
+    kind = d.get("type")
+    if kind not in ITEM_TYPES:
+        raise ValueError(f"Unbekannter Item-Typ: {kind!r}")
+    return ITEM_TYPES[kind].from_dict(d)
+
+
+__all__ = [
+    "pil_to_qpixmap",
+    "make_qr_image",
+    "make_barcode_image",
+    "LabelItem",
+    "TextItem",
+    "ImageItem",
+    "QRItem",
+    "BarcodeItem",
+    "LineItem",
+    "RectItem",
+    "ITEM_TYPES",
+    "item_from_dict",
+]

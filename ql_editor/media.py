@@ -38,6 +38,9 @@ DOTS_PER_MM: float = DPI / MM_PER_INCH  # ~ 11.811
 #: Standardmodell dieser Installation.
 DEFAULT_MODEL: str = "QL-820NWB"
 
+#: Standardband fuer die Erstauswahl in der GUI (50 mm Endlos).
+DEFAULT_LABEL: str = "50"
+
 #: Zusaetzlicher Schnittversatz (Dots) fuer Endlosband.
 #:
 #: Der QL-820NWB kann den Vorschub nicht auf 0 setzen: ``convert()`` sendet
@@ -193,6 +196,26 @@ class LabelSpec:
     @property
     def feed_margin_mm(self) -> float:
         return dots_to_mm(self.feed_margin)
+
+    @property
+    def tape_total_width_dots(self) -> int:
+        """Volle Bandbreite in Dots (inkl. nicht bedruckbarer Raender)."""
+        return self.dots_total[0]
+
+    @property
+    def side_border_dots(self) -> int:
+        """Nicht bedruckbarer Rand links/rechts in Dots.
+
+        ``(dots_total - dots_printable) / 2`` - der Druckkopf kann die
+        aeussersten Bandkanten nicht bedrucken (beim QL-820NWB ~18 Dots
+        = 1,52 mm pro Seite). Der Canvas deckt bereits nur den bedruckbaren
+        Bereich ab; dieser Wert dient der Anzeige/Begrenzung in der GUI.
+        """
+        return max(0, (self.dots_total[0] - self.dots_printable[0]) // 2)
+
+    @property
+    def side_border_mm(self) -> float:
+        return dots_to_mm(self.side_border_dots)
 
     # -- Darstellung --------------------------------------------------------
     @property
@@ -442,6 +465,7 @@ __all__ = [
     "MM_PER_INCH",
     "DOTS_PER_MM",
     "DEFAULT_MODEL",
+    "DEFAULT_LABEL",
     "CUT_OFFSET_DOTS",
     "Kind",
     "Color",

@@ -13,7 +13,7 @@ Kein Browser-Tool, kein WebUSB.
 | --- | --- | --- |
 | M1 | Setup, API-Verifikation, Datenmodell | ✅ |
 | M2 | Rendering-Kern + Druck-Wrapper (headless) | ✅ |
-| M3 | PySide6-GUI (Canvas, Panel, Vorschau) | ⏳ |
+| M3 | PySide6-GUI (Canvas, Panel, Vorschau) | ✅ |
 | M4 | Vorlagen, Settings, `.deb`-Paket | ⏳ |
 
 ## Architektur
@@ -49,6 +49,27 @@ python scripts/verify_api.py            # dokumentiert die reale brother_ql-API
 Die gepinnten Abhaengigkeiten stehen in `requirements.txt`
 (bewusst **nicht** auf eine neuere `brother_ql`-Version anheben — der
 Git-Master entfernt `brother_ql.devicedependent` und bricht die App).
+
+## Starten (GUI)
+
+```bash
+source .venv/bin/activate
+python -m ql_editor
+```
+
+* **Links**: Bandauswahl (dynamisch, nach Modell gefiltert), Länge
+  (Auto Length / fest, Gesamt- oder Inhaltsmaß), Margins, Farbe.
+* **Mitte**: Canvas in exakter Bandbreite mit mm-Linealen; der **nicht
+  bedruckbare Rand** (~1,5 mm je Seite) ist schraffiert, Items werden darauf
+  begrenzt.
+* **Rechts**: monochrome 1-bit-Vorschau + Druckoptionen (Threshold, Dither,
+  Schnitt).
+
+Headless-Druckpfad (ohne GUI) zum Testen:
+
+```bash
+python scripts/print_test.py --label 50 --length-mm 40 --dry-run --save /tmp/x.png
+```
 
 ## Wichtige Fakten zur Installation
 
