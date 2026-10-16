@@ -156,26 +156,73 @@ def test_mainwindow_render_matches_canvas(qapp):
     assert image.height == win._canvas.height_dots
 
 
-def test_preview_widget_renders(qapp):
-    from ql_editor.preview import PreviewWidget
+def test_canvas_print_preview_mode(qapp):
     from PIL import Image
+    from PySide6.QtCore import QPointF
 
-    widget = PreviewWidget()
-    widget.set_image(Image.new("RGB", (100, 50), "white"))
-    assert widget._rendered is not None
-    assert widget._rendered.size == (100, 50)
+    from ql_editor.preview import binarize, to_qimage
+
+    canvas = _prepared_canvas(qapp)
+    item = TextItem("x", font_pixel_size=30)
+    canvas.add_item(item)
+    item.setPos(40, 60)
+
+    assert canvas.print_preview is False
+    assert canvas.isInteractive() is True
+
+    canvas.set_print_preview(True)
+    assert canvas.print_preview is True
+    assert canvas.isInteractive() is False
+    assert canvas.selected_items() == []
+
+    # Im Vorschau-Modus darf die Maus keine Items bewegen.
+    before = QPointF(item.pos())
+    center = item.sceneBoundingRect().center()
+    _press(canvas, center)
+    _drag_to(canvas, QPointF(center.x() + 50, center.y() + 40))
+    _release(canvas, QPointF(center.x() + 50, center.y() + 40))
+    assert item.pos() == before
+
+    canvas.set_print_image(to_qimage(binarize(Image.new("L", (10, 10), 128))))
+    assert canvas._print_image is not None
+
+    canvas.set_print_preview(False)
+    assert canvas.print_preview is False
+    assert canvas.isInteractive() is True
 
 
-def test_preview_widget_does_not_propagate_sizehint(qapp):
-    """Regression: die Vorschau darf das Dock nicht aufblaehen lassen."""
-    from PySide6.QtWidgets import QSizePolicy
+def test_canvas_print_preview_paints(qapp):
+    """Regression: das Zeichnen der Vorschau darf nicht abstuerzen."""
+    from ql_editor.app import MainWindow
 
-    from ql_editor.preview import PreviewWidget
+    win = MainWindow()
+    win.resize(900, 650)
+    win.show()
+    qapp.processEvents()
+    win._add_text()
+    win._act_print_preview.setChecked(True)
+    qapp.processEvents()
 
-    widget = PreviewWidget()
-    policy = widget._canvas.sizePolicy()
-    assert policy.horizontalPolicy() == QSizePolicy.Policy.Ignored
-    assert policy.verticalPolicy() == QSizePolicy.Policy.Ignored
+    pixmap = win._canvas.grab()
+    assert not pixmap.isNull()
+
+
+def test_canvas_print_preview_esc_requests_exit(qapp):
+    from PySide6.QtCore import QEvent, Qt
+    from PySide6.QtGui import QKeyEvent
+
+    canvas = _prepared_canvas(qapp)
+    seen: list[int] = []
+    canvas.print_preview_exit_requested.connect(lambda: seen.append(1))
+    canvas.set_print_preview(True)
+
+    canvas.keyPressEvent(QKeyEvent(QEvent.Type.KeyPress, Qt.Key.Key_Escape, Qt.KeyboardModifier.NoModifier))
+    assert seen == [1]
+
+    # Ausserhalb des Vorschau-Modus darf Esc das Signal nicht ausloesen.
+    canvas.set_print_preview(False)
+    canvas.keyPressEvent(QKeyEvent(QEvent.Type.KeyPress, Qt.Key.Key_Escape, Qt.KeyboardModifier.NoModifier))
+    assert seen == [1]
 
 
 # --------------------------------------------------------------------------- #
@@ -281,6 +328,41 @@ def test_mainwindow_double_click_creates_text(qapp):
     texts = [i for i in win._canvas.scene().items() if isinstance(i, TextItem)]
     assert len(texts) == 1
     assert texts[0].is_editing is True
+
+
+def test_mainwindow_print_preview_action(qapp):
+    from ql_editor.app import MainWindow
+
+    win = MainWindow()
+    win.resize(1000, 700)
+    win.show()
+    qapp.processEvents()
+    win._add_text()
+
+    act = win._act_print_preview
+    assert act.isCheckable()
+    assert win._canvas.print_preview is False
+
+    act.setChecked(True)
+    assert win._canvas.print_preview is True
+    assert win._canvas._print_image is not None
+    assert not win._canvas._print_image.isNull()
+
+    act.setChecked(False)
+    assert win._canvas.print_preview is False
+    assert win._canvas._print_image is None
+
+
+def test_print_preview_exit_signal_unchecks_action(qapp):
+    from ql_editor.app import MainWindow
+
+    win = MainWindow()
+    win._act_print_preview.setChecked(True)
+    assert win._canvas.print_preview is True
+
+    win._canvas.print_preview_exit_requested.emit()
+    assert win._act_print_preview.isChecked() is False
+    assert win._canvas.print_preview is False
 
 
 # --------------------------------------------------------------------------- #

@@ -28,7 +28,7 @@ ql_editor/
   items.py       # Canvas-Items (Text/Bild/Barcode/QR/Linie) (M3)
   canvas.py      # QGraphicsScene mit fester px-Groesse       (M3)
   media_panel.py # Bandauswahl, Laenge, Auto-Length, Margins  (M3)
-  preview.py     # monochrome 1-bit-Vorschau                  (M3)
+  preview.py     # 1-bit-Binarisierung (Kernfunktionen)        (M3)
   icons.py       # programmatisch gezeichnete Vektor-Icons     (M3)
   templates.py   # Vorlagen (JSON + Assets)                   (M4)
   settings.py    # QSettings (Druckeradresse, letzte Auswahl) (M4)
@@ -63,8 +63,16 @@ python -m ql_editor
 * **Mitte**: Canvas in exakter Bandbreite mit mm-Linealen; der **nicht
   bedruckbare Rand** (~1,5 mm je Seite) ist schraffiert, Items werden darauf
   begrenzt.
-* **Rechts**: Inspector (Eigenschaften des ausgewählten Objekts) + monochrome
-  1-bit-Vorschau + Druckoptionen (Threshold, Dither, Schnitt).
+* **Rechts**: Inspector (Eigenschaften des ausgewählten Objekts) + Druckoptionen
+  (Threshold, Dither, Schnitt, Drucken).
+
+Der Canvas ist **räumlich WYSIWYG** (Position, Größe, mm, Randbegrenzung).
+Was er *nicht* zeigt, ist die **Binarisierung**: der Drucker kennt nur 1 bit
+Schwarz/Weiß, während der Canvas mit Antialiasing/Farbe zeichnet. Deshalb gibt
+es die **Druckvorschau** als Umschalter (Auge-Symbol in der Toolbar bzw.
+`Ctrl+Shift+P`, `Esc` beendet): sie legt das echte, binarisierte 1-bit-Bild
+über den Canvas - genau das, was aus dem Drucker kommt (Threshold + Dither).
+Im Vorschau-Modus ist die Bearbeitung gesperrt (Zoom/Pan bleiben möglich).
 
 Das Layout ist **responsiv**: Der Canvas passt sich der Fenstergröße an
 (solange kein manueller Zoom gesetzt ist), die Seitenpanels werden bei
@@ -92,6 +100,8 @@ Laufzeit gezeichnet (`ql_editor/icons.py`) und passen sich der Palette an
   (werden am Mauszeiger zentriert); Textabwürfe (z. B. aus einem Editor)
   legen ein Textfeld an.
 * **Pfeiltasten** verschieben (mit Shift 10 Dots), **Entf** löscht.
+* **Druckvorschau** (Auge-Symbol, `Ctrl+Shift+P`): zeigt die echte 1-bit-Ausgabe
+  über dem Canvas; `Esc` beendet sie. Threshold/Dither wirken sofort.
 * **Mausrad** über dem Canvas: scrollt, wenn es etwas zu scrollen gibt,
   sonst zoomt es; **Ctrl + Rad** zoomt immer, **Shift + Rad** scrollt
   horizontal, **mittlere Maustaste ziehen** verschiebt den Ausschnitt.

@@ -308,6 +308,18 @@ def _draw_view(p: QPainter, color: QColor) -> None:
     p.drawEllipse(QPointF(12, 12), 3, 3)
 
 
+def _draw_preview(p: QPainter, color: QColor) -> None:
+    p.setPen(_pen(color, 1.6))
+    p.setBrush(Qt.BrushStyle.NoBrush)
+    p.drawRoundedRect(QRectF(3.5, 5.5, 17, 13), 2, 2)
+    path = QPainterPath()
+    path.moveTo(7, 12)
+    path.quadTo(12, 8, 17, 12)
+    path.quadTo(12, 16, 7, 12)
+    p.drawPath(path)
+    p.drawEllipse(QPointF(12, 12), 1.8, 1.8)
+
+
 def _draw_help(p: QPainter, color: QColor) -> None:
     p.setPen(_pen(color, 1.7))
     p.setBrush(Qt.BrushStyle.NoBrush)
@@ -343,6 +355,7 @@ _DRAW = {
     "about": _draw_about,
     "label": _draw_label,
     "detect": _draw_detect,
+    "preview": _draw_preview,
     "file": _draw_file,
     "edit": _draw_edit,
     "view": _draw_view,

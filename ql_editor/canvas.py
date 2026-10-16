@@ -26,7 +26,7 @@ import math
 from typing import Any
 
 from PySide6.QtCore import QPoint, QPointF, QRectF, Qt, Signal
-from PySide6.QtGui import QBrush, QColor, QFont, QPainter, QPen, QPolygonF
+from PySide6.QtGui import QBrush, QColor, QFont, QImage, QPainter, QPen, QPolygonF
 from PySide6.QtWidgets import QGraphicsScene, QGraphicsView, QWidget
 
 from . import items as items_mod
@@ -140,6 +140,7 @@ class LabelCanvas(QGraphicsView):
     items_changed = Signal()
     image_dropped = Signal(str, QPointF)
     text_dropped = Signal(str, QPointF)
+    print_preview_exit_requested = Signal()
 
     def __init__(self, parent: QWidget | None = None):
         super().__init__(parent)
@@ -161,6 +162,10 @@ class LabelCanvas(QGraphicsView):
         self._height_dots = 0
         self._needs_fit = True
         self._auto_fit = True
+
+        # Druckvorschau: 1-bit-Bild des Druckergebnisses ueber die Szene legen.
+        self._print_preview = False
+        self._print_image: QImage | None = None
 
         # Interaktionszustand
         self._op: str | None = None
@@ -226,6 +231,39 @@ class LabelCanvas(QGraphicsView):
 
     def is_interacting(self) -> bool:
         return self._op is not None or self._pan_active
+
+    # -- Druckvorschau ------------------------------------------------------
+    @property
+    def print_preview(self) -> bool:
+        """``True``, wenn der Canvas die 1-bit-Druckansicht zeigt."""
+        return self._print_preview
+
+    def set_print_preview(self, enabled: bool) -> None:
+        """Druckvorschau-Modus ein-/ausschalten.
+
+        Im Modus wird das fertige 1-bit-Bild ueber die Szene gelegt; die
+        Bearbeitung ist deaktiviert (Zoom/Pan bleiben moeglich).
+        """
+        enabled = bool(enabled)
+        if enabled == self._print_preview:
+            self.viewport().update()
+            return
+        self._print_preview = enabled
+        if enabled:
+            self.cancel_editing()
+            self._scene.clearSelection()
+            self.setInteractive(False)
+            self.setDragMode(QGraphicsView.DragMode.NoDrag)
+        else:
+            self.setInteractive(True)
+            self.setDragMode(QGraphicsView.DragMode.RubberBandDrag)
+        self.viewport().update()
+
+    def set_print_image(self, image: QImage | None) -> None:
+        """Setze das binarisierte Bild fuer die Druckvorschau (oder ``None``)."""
+        self._print_image = image
+        if self._print_preview:
+            self.viewport().update()
 
     # -- Zoom / Scrollen ----------------------------------------------------
     def fit_tape(self) -> None:
@@ -341,6 +379,14 @@ class LabelCanvas(QGraphicsView):
 
     def drawForeground(self, painter: QPainter, rect: QRectF) -> None:  # noqa: N802
         super().drawForeground(painter, rect)
+
+        # Druckvorschau: das binarisierte 1-bit-Bild deckt die Items ab.
+        if self._print_preview:
+            if self._print_image is not None and not self._print_image.isNull():
+                painter.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform, False)
+                painter.drawImage(self.sceneRect(), self._print_image)
+            return
+
         painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
 
         # Auswahlrahmen (rotationsfest) fuer alle ausgewaehlten Items.
@@ -519,6 +565,10 @@ class LabelCanvas(QGraphicsView):
             event.accept()
             return
 
+        if self._print_preview:
+            event.accept()
+            return
+
         if event.button() == Qt.MouseButton.LeftButton:
             scene_pos = self.mapToScene(self._event_pos(event))
             handle = self._handle_at(scene_pos)
@@ -575,6 +625,10 @@ class LabelCanvas(QGraphicsView):
             delta = self._event_pos(event) - self._pan_start
             self.horizontalScrollBar().setValue(self._pan_origin[0] - delta.x())
             self.verticalScrollBar().setValue(self._pan_origin[1] - delta.y())
+            event.accept()
+            return
+
+        if self._print_preview:
             event.accept()
             return
 
@@ -704,6 +758,9 @@ class LabelCanvas(QGraphicsView):
         super().mouseReleaseEvent(event)
 
     def mouseDoubleClickEvent(self, event) -> None:  # noqa: N802
+        if self._print_preview:
+            event.accept()
+            return
         if event.button() != Qt.MouseButton.LeftButton:
             super().mouseDoubleClickEvent(event)
             return
@@ -719,6 +776,9 @@ class LabelCanvas(QGraphicsView):
         event.accept()
 
     def contextMenuEvent(self, event) -> None:  # noqa: N802
+        if self._print_preview:
+            event.accept()
+            return
         self.context_menu_requested.emit(
             self._event_global_pos(event), self.mapToScene(self._event_pos(event))
         )
@@ -739,18 +799,27 @@ class LabelCanvas(QGraphicsView):
         return paths
 
     def dragEnterEvent(self, event) -> None:  # noqa: N802
+        if self._print_preview:
+            event.ignore()
+            return
         if self._drop_paths(event.mimeData()) or event.mimeData().hasText():
             event.acceptProposedAction()
         else:
             super().dragEnterEvent(event)
 
     def dragMoveEvent(self, event) -> None:  # noqa: N802
+        if self._print_preview:
+            event.ignore()
+            return
         if self._drop_paths(event.mimeData()) or event.mimeData().hasText():
             event.acceptProposedAction()
         else:
             super().dragMoveEvent(event)
 
     def dropEvent(self, event) -> None:  # noqa: N802
+        if self._print_preview:
+            event.ignore()
+            return
         scene_pos = self.mapToScene(event.position().toPoint())
         paths = self._drop_paths(event.mimeData())
         if paths:
@@ -766,6 +835,11 @@ class LabelCanvas(QGraphicsView):
 
     # -- Tastatur -----------------------------------------------------------
     def keyPressEvent(self, event) -> None:  # noqa: N802
+        if self._print_preview:
+            if event.key() == Qt.Key.Key_Escape:
+                self.print_preview_exit_requested.emit()
+            event.accept()
+            return
         focus = self._scene.focusItem()
         if focus is not None and getattr(focus, "is_editing", False):
             super().keyPressEvent(event)

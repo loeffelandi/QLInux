@@ -44,7 +44,7 @@ from .icons import icon
 from .inspector import InspectorPanel
 from .items import BarcodeItem, ImageItem, LineItem, QRItem, RectItem, TextItem
 from .media_panel import MediaPanel
-from .preview import PreviewOptions, PreviewWidget
+from .preview import PreviewOptions, binarize, to_qimage
 from .printer import (
     PrinterError,
     detect_label,
@@ -96,7 +96,6 @@ class MainWindow(QMainWindow):
 
         self._media_panel = MediaPanel(self)
         self._media_panel.setMinimumWidth(160)
-        self._preview = PreviewWidget(self)
         self._inspector = InspectorPanel(self)
         self._inspector.setMinimumWidth(160)
 
@@ -121,6 +120,7 @@ class MainWindow(QMainWindow):
         self._canvas.items_changed.connect(self._on_items_changed)
         self._canvas.image_dropped.connect(self._on_image_dropped)
         self._canvas.text_dropped.connect(self._on_text_dropped)
+        self._canvas.print_preview_exit_requested.connect(self._exit_print_preview)
         self._canvas.scene().selectionChanged.connect(self._on_selection_changed)
         # Direkte Canvas-Aenderungen (Ziehen, Groesse, Drehen) aktualisieren die
         # Vorschau live; die Bandgroesse wird erst am Ende der Geste neu berechnet.
@@ -164,9 +164,9 @@ class MainWindow(QMainWindow):
         splitter = QSplitter(Qt.Orientation.Vertical, self)
         splitter.addWidget(self._scroll_wrap(self._inspector))
         splitter.addWidget(self._scroll_wrap(self._build_print_panel()))
-        splitter.setStretchFactor(0, 0)
-        splitter.setStretchFactor(1, 1)
-        splitter.setSizes([260, 340])
+        splitter.setStretchFactor(0, 1)
+        splitter.setStretchFactor(1, 0)
+        splitter.setSizes([420, 240])
         right.setWidget(splitter)
         self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, right)
         self._right_dock = right
@@ -176,10 +176,17 @@ class MainWindow(QMainWindow):
         layout = QVBoxLayout(widget)
         layout.setContentsMargins(4, 4, 4, 4)
 
-        preview_title = QLabel("Vorschau (1:1 Druck)")
-        preview_title.setStyleSheet("color:#555; font-weight:600;")
-        layout.addWidget(preview_title)
-        layout.addWidget(self._preview, 1)
+        title = QLabel("Druckoptionen")
+        title.setStyleSheet("color:#555; font-weight:600;")
+        layout.addWidget(title)
+
+        hint = QLabel(
+            "Druckvorschau über das Auge-Symbol in der Toolbar "
+            "(zeigt die echte 1-bit-Ausgabe)."
+        )
+        hint.setWordWrap(True)
+        hint.setStyleSheet("color:#777;")
+        layout.addWidget(hint)
 
         self._threshold_spin = QSpinBox()
         self._threshold_spin.setRange(0, 100)
@@ -194,6 +201,7 @@ class MainWindow(QMainWindow):
         layout.addWidget(self._threshold_spin)
         layout.addWidget(self._dither_check)
         layout.addWidget(self._cut_check)
+        layout.addStretch(1)
         layout.addWidget(self._print_button)
 
         self._threshold_spin.valueChanged.connect(self._schedule_refresh)
@@ -259,6 +267,12 @@ class MainWindow(QMainWindow):
         self._act_print.setShortcut("Ctrl+P")
         self._act_print.triggered.connect(self._on_print)
 
+        self._act_print_preview = QAction(icon("preview"), "Druckvorschau", self)
+        self._act_print_preview.setCheckable(True)
+        self._act_print_preview.setToolTip("Druckvorschau: echte 1-bit-Ausgabe (Ctrl+Shift+P)")
+        self._act_print_preview.setShortcut("Ctrl+Shift+P")
+        self._act_print_preview.toggled.connect(self._on_toggle_print_preview)
+
         self._act_quit = QAction(icon("quit"), "Beenden", self)
         self._act_quit.setToolTip("Beenden (Strg+Q)")
         self._act_quit.setShortcut(QKeySequence.StandardKey.Quit)
@@ -289,6 +303,7 @@ class MainWindow(QMainWindow):
         bar.addAction(self._act_zoom_fit)
         bar.addAction(self._act_zoom_in)
         bar.addSeparator()
+        bar.addAction(self._act_print_preview)
         bar.addAction(self._act_print)
 
     def _build_menu(self) -> None:
@@ -301,6 +316,8 @@ class MainWindow(QMainWindow):
         edit_menu.addAction(self._act_front)
         edit_menu.addAction(self._act_back)
         view_menu = self.menuBar().addMenu(icon("view"), "&Ansicht")
+        view_menu.addAction(self._act_print_preview)
+        view_menu.addSeparator()
         view_menu.addAction(self._act_zoom_out)
         view_menu.addAction(self._act_zoom_fit)
         view_menu.addAction(self._act_zoom_in)
@@ -364,19 +381,35 @@ class MainWindow(QMainWindow):
         return render_scene_to_image(self._canvas.scene(), int(rect.width()), int(rect.height()))
 
     def _refresh_now(self) -> None:
+        """Aktualisiere die Canvas-Druckvorschau (nur im Vorschau-Modus)."""
+        if not self._canvas.print_preview:
+            return
         try:
             image = self._current_render()
         except Exception as exc:  # pragma: no cover - defensiv
             self.statusBar().showMessage(f"Renderfehler: {exc}")
             return
-        self._preview.set_options(self._preview_options())
-        self._preview.set_image(image)
+        self._canvas.set_print_image(to_qimage(binarize(image, self._preview_options())))
 
     def _preview_options(self) -> PreviewOptions:
         return PreviewOptions(
             threshold=self._threshold_spin.value(),
             dither=self._dither_check.isChecked(),
         )
+
+    def _on_toggle_print_preview(self, enabled: bool) -> None:
+        self._canvas.set_print_preview(enabled)
+        if enabled:
+            self._refresh_now()
+            self.statusBar().showMessage(
+                "Druckvorschau aktiv - echte 1-bit-Ausgabe (Esc beendet)", 4000
+            )
+        else:
+            self._canvas.set_print_image(None)
+            self.statusBar().showMessage("Druckvorschau aus", 2000)
+
+    def _exit_print_preview(self) -> None:
+        self._act_print_preview.setChecked(False)
 
     # ------------------------------------------------------------- Items ----
     def _default_item_pos(self) -> QPointF:
@@ -527,7 +560,6 @@ class MainWindow(QMainWindow):
     def _on_print(self) -> None:
         if self._print_worker is not None and self._print_worker.isRunning():
             return
-        self._refresh_now()
         try:
             image = self._current_render()
         except Exception as exc:

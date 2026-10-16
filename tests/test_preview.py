@@ -74,3 +74,23 @@ def test_to_qimage_size(qapp):
     assert qimg.width() == 30
     assert qimg.height() == 12
     assert not qimg.isNull()
+
+
+def test_to_qimage_is_drawable(qapp):
+    """Regression: das QImage muss von QPainter zeichenbar sein.
+
+    Ein aus Python-Bytes konstruiertes ``Format_Mono``-Bild hat hier einen
+    Segmentation Fault beim Zeichnen ausgeloest - deshalb Grayscale8.
+    """
+    from PySide6.QtCore import QRectF
+    from PySide6.QtGui import QPainter, QPixmap
+
+    visual = binarize(Image.linear_gradient("L").resize((40, 20)))
+    qimg = to_qimage(visual)
+
+    pixmap = QPixmap(80, 40)
+    pixmap.fill()
+    painter = QPainter(pixmap)
+    painter.drawImage(QRectF(0, 0, 40, 20), qimg)
+    painter.end()
+    assert not pixmap.isNull()

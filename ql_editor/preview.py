@@ -1,17 +1,18 @@
-"""Monochrome 1-bit Druckvorschau.
+"""Monochrome 1-bit Druckvorschau (Kernfunktionen).
 
 Bildet **exakt** die Binarisierung nach, die
-:func:`brother_ql.conversion.convert` fuer den Druck verwendet. Der Nutzer
-sieht damit, was der Drucker ausgibt (Threshold + optional Floyd-Steinberg).
+:func:`brother_ql.conversion.convert` fuer den Druck verwendet. Damit laesst
+sich zeigen, was der Drucker ausgibt (Threshold + optional Floyd-Steinberg).
 
 Polaritaet:
 * ``convert`` erzeugt intern ein ``mode="1"``-Bild, in dem **255 = Tinte**
   bedeutet (bestaetigt per Reader-Roundtrip, siehe Tests).
-* Die Vorschau hier liefert die *visuelle* Darstellung: **0 = Tinte (schwarz),
+* :func:`binarize` liefert die *visuelle* Darstellung: **0 = Tinte (schwarz),
   255 = Papier (weiss)** - so wie das Etikett auf dem Band erscheint.
 
-Die Kernfunktionen (:func:`binarize`, :func:`ink_ratio`) sind Qt-frei und
-headless testbar; :class:`PreviewWidget` ist das GUI-Widget.
+Alle Funktionen hier sind Qt-frei und headless testbar. Die Darstellung
+uebernimmt der Canvas selbst (Druckvorschau-Modus), siehe
+:mod:`ql_editor.canvas`.
 """
 
 from __future__ import annotations
@@ -19,9 +20,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from PIL import Image, ImageOps
-from PySide6.QtCore import Qt
-from PySide6.QtGui import QImage, QPixmap
-from PySide6.QtWidgets import QLabel, QSizePolicy, QVBoxLayout, QWidget
+from PySide6.QtGui import QImage
 
 
 @dataclass(frozen=True)
@@ -90,78 +89,19 @@ def ink_ratio(image: Image.Image, options: PreviewOptions | None = None) -> floa
 
 
 def to_qimage(image: Image.Image) -> QImage:
-    """Konvertiere die 1-bit-Vorschau in ein ``QImage`` (fuer die GUI)."""
-    visual = image if image.mode == "1" else image.convert("1")
-    data = visual.tobytes("raw", "1")
-    width, height = visual.size
-    stride = (width + 7) // 8
+    """Konvertiere die 1-bit-Vorschau in ein ``QImage`` (fuer den Canvas).
+
+    Bewusst ``Format_Grayscale8``: kompakt (1 Byte/Pixel) und von
+    ``QPainter`` zuverlaessig zeichenbar. Ein aus einem Python-Puffer
+    konstruiertes ``Format_Mono``-Bild fuehrt in dieser Qt-Version beim
+    Zeichnen zu einem Segmentation Fault (siehe Tests).
+    """
+    gray = image if image.mode == "L" else image.convert("L")
+    data = gray.tobytes("raw", "L")
+    width, height = gray.size
     # QImage behaelt keine Referenz auf den Puffer -> kopieren.
-    qimg = QImage(data, width, height, stride, QImage.Format.Format_Mono)
+    qimg = QImage(data, width, height, width, QImage.Format.Format_Grayscale8)
     return qimg.copy()
-
-
-class PreviewWidget(QWidget):
-    """Zeigt die monochrome 1-bit-Vorschau (das, was gedruckt wird)."""
-
-    def __init__(self, parent: QWidget | None = None):
-        super().__init__(parent)
-        self._options = PreviewOptions()
-        self._pil_image: Image.Image | None = None
-        self._rendered: Image.Image | None = None
-
-        self._info = QLabel("Keine Vorschau")
-        self._info.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self._info.setStyleSheet("color:#555; padding:4px;")
-        self._canvas = QLabel("Noch nichts zu drucken")
-        self._canvas.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self._canvas.setMinimumSize(120, 90)
-        # Wichtig: der QLabel darf seine Pixmap-Groesse NICHT als sizeHint an
-        # das Layout weitergeben, sonst waechst das Dock bei jedem Resize
-        # (Skalieren auf die eigene Groesse -> Feedback-Schleife).
-        self._canvas.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Ignored)
-        self._canvas.setStyleSheet("background:#ffffff; border:1px solid #999;")
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(4, 4, 4, 4)
-        layout.addWidget(self._info)
-        layout.addWidget(self._canvas, 1)
-
-    def set_options(self, options: PreviewOptions) -> None:
-        self._options = options
-        self._refresh()
-
-    def set_image(self, image: Image.Image | None) -> None:
-        self._pil_image = image
-        self._refresh()
-
-    def _refresh(self) -> None:
-        if self._pil_image is None:
-            self._rendered = None
-            self._canvas.setPixmap(QPixmap())
-            self._canvas.setText("Noch nichts zu drucken")
-            self._info.setText("Keine Vorschau")
-            return
-        visual = binarize(self._pil_image, self._options)
-        self._rendered = visual
-        self._info.setText(
-            f"{visual.width} x {visual.height} px · Tinte "
-            f"{ink_ratio(self._pil_image, self._options) * 100:.1f} %"
-        )
-        self._update_pixmap()
-
-    def _update_pixmap(self) -> None:
-        if self._rendered is None:
-            return
-        pixmap = QPixmap.fromImage(to_qimage(self._rendered))
-        scaled = pixmap.scaled(
-            self._canvas.size(),
-            Qt.AspectRatioMode.KeepAspectRatio,
-            Qt.TransformationMode.FastTransformation,
-        )
-        self._canvas.setPixmap(scaled)
-
-    def resizeEvent(self, event):  # noqa: N802
-        super().resizeEvent(event)
-        self._update_pixmap()
 
 
 __all__ = [
@@ -170,5 +110,4 @@ __all__ = [
     "preview_to_convert_parity",
     "ink_ratio",
     "to_qimage",
-    "PreviewWidget",
 ]
