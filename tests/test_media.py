@@ -133,6 +133,7 @@ def test_default_margins_from_feed_margin():
     assert isinstance(margins, Margins)
     assert margins.left == 0.0 and margins.right == 0.0
     assert margins.top == pytest.approx(label.feed_margin_mm)
+    assert margins.bottom == pytest.approx(label.feed_margin_mm)
 
 
 # --- Laengen-Kompensation (Gesamtlaenge statt Inhalt) ---
@@ -184,3 +185,63 @@ def test_finished_length_mode_ignored_for_die_cut():
         length_mode=media.LengthMode.FINISHED,
     )
     assert size == (696, 1109)
+
+
+# --- Ausrichtung (quer / laengs des Bandes) ---
+def test_orientation_flags():
+    assert media.Orientation.ACROSS.rotates_for_print is False
+    assert media.Orientation.ALONG.rotates_for_print is True
+    assert media.Orientation.ACROSS.label_de == "quer zum Band"
+    assert media.Orientation.ALONG.label_de == "längs des Bandes"
+
+
+def test_canvas_size_for_orientation_swaps_axes():
+    label = get_label("50")
+    assert media.canvas_size_for_orientation(label, 472) == (554, 472)
+    assert media.canvas_size_for_orientation(
+        label, 472, media.Orientation.ALONG
+    ) == (472, 554)
+
+
+def test_canvas_size_along_puts_length_on_width():
+    label = get_label("50")
+    model = get_model(MODEL)
+    size = media.canvas_size_dots(
+        label,
+        model,
+        auto_length=False,
+        fixed_length_mm=40,
+        orientation=media.Orientation.ALONG,
+    )
+    # Gleiche Laenge (472) wie DoD #2 - nur auf der anderen Achse.
+    assert size == (472, 554)
+
+
+def test_canvas_size_along_contains_printable_width():
+    label = get_label("50")
+    model = get_model(MODEL)
+    width, height = media.canvas_size_dots(
+        label, model, auto_length=True, content_length_dots=300,
+        orientation=media.Orientation.ALONG,
+    )
+    assert width == 300
+    assert height == label.width_dots
+
+
+def test_label_length_dots_is_orientation_independent():
+    label = get_label("50")
+    model = get_model(MODEL)
+    assert media.label_length_dots(
+        label, model, auto_length=True, content_length_dots=300
+    ) == 300
+    assert media.label_length_dots(
+        label, model, auto_length=False, fixed_length_mm=40
+    ) == 472
+
+
+def test_die_cut_orientation_swaps_axes():
+    label = get_label("62x100")
+    model = get_model(MODEL)
+    assert media.canvas_size_dots(
+        label, model, orientation=media.Orientation.ALONG
+    ) == (1109, 696)

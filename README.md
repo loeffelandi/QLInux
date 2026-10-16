@@ -23,12 +23,12 @@ Klare Schichtentrennung UI ↔ Rendering ↔ Druck:
 
 ```
 ql_editor/
-  media.py       # Datenmodell (Baender, Modelle, mm<->dots) — kein Qt
+  media.py       # Datenmodell (Baender, Modelle, Laenge/Ausrichtung) — kein Qt
   renderer.py    # Szene -> PIL.Image exakter Breite       (M2)
   printer.py     # brother_ql-Wrapper (convert + send)     (M2)
   items.py       # Canvas-Items (Text/Bild/Barcode/QR/Linie) (M3)
   canvas.py      # QGraphicsScene mit fester px-Groesse       (M3)
-  media_panel.py # Bandauswahl, Laenge, Auto-Length, Margins  (M3)
+  media_panel.py # Bandauswahl, Ausrichtung, Laenge, Margins  (M3)
   preview.py     # 1-bit-Binarisierung (Kernfunktionen)        (M3)
   icons.py       # programmatisch gezeichnete Vektor-Icons     (M3)
   sheet.py       # Dialoge als Overlay im Fenster (kein 2. Fenster) (M3.8)
@@ -62,7 +62,8 @@ source .venv/bin/activate
 python -m ql_editor
 ```
 
-* **Links**: Bandauswahl (dynamisch, nach Modell gefiltert), Länge
+* **Links**: Bandauswahl (dynamisch, nach Modell gefiltert), **Ausrichtung**
+  (quer / längs des Bandes, zwei Knöpfe in der Gruppe „Band"), Länge
   (Auto Length / fest, Gesamt- oder Inhaltsmaß), Margins, Farbe.
 * **Mitte**: Canvas in exakter Bandbreite mit mm-Linealen; der **nicht
   bedruckbare Rand** (~1,5 mm je Seite) ist schraffiert, Items werden darauf
@@ -131,6 +132,16 @@ Toolbar, bleiben also immer synchron.
 * **Pfeiltasten** verschieben (mit Shift 10 Dots), **Entf** löscht.
 * **Druckvorschau** (Auge-Symbol, `Ctrl+Shift+P`): zeigt die echte 1-bit-Ausgabe
   über dem Canvas; `Esc` beendet sie. Threshold/Dither wirken sofort.
+* **Ausrichtung** (Gruppe „Band" im linken Panel, auch im Hamburger-Menü):
+  * *quer zum Band* (Voreinstellung): der Inhalt läuft über die Bandbreite,
+    die Etikettenlänge ergibt sich aus der **Inhaltshöhe** - spart Band bei
+    langen, flachen Inhalten (z. B. einer Textzeile).
+  * *längs des Bandes*: der Inhalt läuft in Bandrichtung, die Etikettenlänge
+    ergibt sich aus der **Inhaltsbreite** - spart Band bei hohen, mehrzeiligen
+    Inhalten, weil die Bandbreite dann als Höhenbudget dient.
+    Der Canvas dreht sich mit (das Band läuft senkrecht, die Randbegrenzung
+    wandert an die Bandkanten oben/unten); für den Druck wird die Szene um
+    90° gedreht, sodass das Bild weiterhin exakt bandbreit ist.
 * **Mausrad** über dem Canvas: scrollt weich (animiert), wenn es etwas zu
   scrollen gibt, sonst zoomt es; **Ctrl + Rad** zoomt immer, **Shift + Rad**
   scrollt horizontal, **mittlere Maustaste ziehen** verschiebt den Ausschnitt.
@@ -159,4 +170,10 @@ python scripts/print_test.py --label 50 --length-mm 40 --dry-run --save /tmp/x.p
   Bei Endlosband fuegt der Drucker `2*feed_margin + CUT_OFFSET_DOTS`
   (~7 mm) hinzu; der Inhalt wird entsprechend reduziert. Mit `CONTENT` gilt
   stattdessen 1:1 der bedruckte Inhalt (z. B. 40 mm -> Canvas 554x472 px).
+* **Ausrichtung** (`ql_editor.media.Orientation`): Die bedruckbare Bandbreite
+  (`dots_printable[0]`) ist immer die Grenze quer zum Band - die Laenge selbst
+  ist unabhaengig davon in Bandrichtung definiert (`label_length_dots`). Nur
+  die Canvas-Achse wechselt (`canvas_size_for_orientation`), und bei `ALONG`
+  dreht der Renderer das Ergebnis einmal um 90° (reine Pixel-Permutation,
+  daher zeigt die Druckvorschau dieselben Pixel nur canvas-ausgerichtet).
 * Details und verifizierte API-Signaturen: siehe [`docs/API_NOTES.md`](docs/API_NOTES.md).

@@ -914,3 +914,137 @@ def test_context_menu_has_icons(qapp):
     items = [a for a in menu.actions() if not a.isSeparator()]
     assert items
     assert all(not a.icon().isNull() for a in items)
+
+
+# --------------------------------------------------------------------------- #
+# Ausrichtung (quer / laengs des Bandes)
+# --------------------------------------------------------------------------- #
+def test_panel_orientation_buttons_and_actions(qapp):
+    from ql_editor.media_panel import MediaPanel
+
+    panel = MediaPanel()
+    across, along = panel.orientation_actions()
+    assert (across.text(), along.text()) == ("Quer zum Band", "Längs des Bandes")
+    assert across.isCheckable() and along.isCheckable()
+    assert across.isChecked() and not along.isChecked()
+    assert panel.orientation() is media.Orientation.ACROSS
+    assert [b.isChecked() for b in panel._orientation_buttons] == [True, False]
+
+    panel._orientation_buttons[1].click()
+    assert panel.orientation() is media.Orientation.ALONG
+    assert along.isChecked() and not across.isChecked()
+    assert [b.isChecked() for b in panel._orientation_buttons] == [False, True]
+
+
+def test_orientation_actions_are_exclusive_and_emit(qapp):
+    from ql_editor.media_panel import MediaPanel
+
+    panel = MediaPanel()
+    seen: list[str] = []
+    panel.changed.connect(lambda: seen.append(panel.orientation().value))
+    across, along = panel.orientation_actions()
+
+    along.trigger()
+    across.trigger()
+    assert seen == ["along", "across"]
+    assert across.isChecked() and not along.isChecked()
+
+
+def test_orientation_ignored_when_unchanged(qapp):
+    from ql_editor.media_panel import MediaPanel
+
+    panel = MediaPanel()
+    seen: list[str] = []
+    panel.changed.connect(lambda: seen.append("changed"))
+    panel.set_orientation(media.Orientation.ACROSS)
+    assert seen == []
+    # Auch bei bereits gewaehlter Ausrichtung bleiben die Aktionen synchron.
+    panel.orientation_actions()[1].setChecked(True)
+    panel.set_orientation(media.Orientation.ACROSS)
+    assert panel.orientation_actions()[0].isChecked() is True
+
+
+def test_toolbar_has_no_orientation_buttons(qapp):
+    from PySide6.QtWidgets import QToolBar
+
+    from ql_editor.app import MainWindow
+
+    win = MainWindow()
+    bar = win.findChild(QToolBar)
+    texts = {a.text() for a in bar.actions()}
+    assert "Quer zum Band" not in texts
+    assert "Längs des Bandes" not in texts
+
+
+def test_orientation_is_in_hamburger_menu(qapp):
+    from ql_editor.app import MainWindow
+
+    win = MainWindow()
+    items = win._menu_button.menu().actions()
+    for act in win._media_panel.orientation_actions():
+        assert act in items
+
+
+def test_orientation_changes_canvas_and_print_image(qapp):
+    from PySide6.QtCore import QSize
+
+    from ql_editor.app import MainWindow
+
+    win = MainWindow()
+    win._new_text()
+    win._canvas.cancel_editing()
+    label = win._media_panel.label
+    length = win._canvas.length_dots
+    assert win._canvas.sceneRect().size().toSize() == QSize(label.width_dots, length)
+
+    win._media_panel.set_orientation(media.Orientation.ALONG)
+    assert win._canvas.sceneRect().size().toSize() == QSize(length, label.width_dots)
+    assert win._canvas.length_dots == length
+    # Das Druckbild ist in beiden Ausrichtungen bandbreit.
+    assert win._for_print().size == (label.width_dots, length)
+
+
+def test_orientation_moves_side_border_to_tape_edges(qapp):
+    from ql_editor.app import MainWindow
+
+    win = MainWindow()
+    label = win._media_panel.label
+    win._media_panel.set_orientation(media.Orientation.ALONG)
+    tape = win._canvas.tape_rect()
+    printable = win._canvas.sceneRect()
+    assert tape.top() == pytest.approx(-label.side_border_dots)
+    assert tape.bottom() == pytest.approx(printable.bottom() + label.side_border_dots)
+    assert tape.left() == pytest.approx(printable.left())
+    assert tape.width() == pytest.approx(printable.width())
+
+
+def test_print_preview_image_stays_canvas_aligned(qapp):
+    from ql_editor.app import MainWindow
+
+    win = MainWindow()
+    win._new_text()
+    win._canvas.cancel_editing()
+    win._media_panel.set_orientation(media.Orientation.ALONG)
+    win._act_print_preview.setChecked(True)
+    win._refresh_now()
+    image = win._canvas._print_image
+    assert image is not None
+    rect = win._canvas.sceneRect()
+    assert image.width() == int(rect.width())
+    assert image.height() == int(rect.height())
+
+
+def test_panel_result_shows_real_content_length(qapp):
+    from ql_editor.app import MainWindow
+    from ql_editor.items import TextItem
+
+    win = MainWindow()
+    win._add_item(TextItem("Hallo Welt", font_pixel_size=90))
+    win._canvas.cancel_editing()
+    assert "Inhalt" in win._media_panel._size_label.text()
+    across = win._media_panel._size_label.text()
+
+    win._media_panel.set_orientation(media.Orientation.ALONG)
+    along = win._media_panel._size_label.text()
+    assert across != along
+    assert "längs des Bandes" == win._media_panel._orientation_label.text()

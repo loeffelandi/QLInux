@@ -76,7 +76,7 @@ def test_assert_exact_label_width_ok_and_fail():
 def test_render_for_label_uses_label_width():
     label = get_label("50")
     scene = _scene_with_black_box(label.width_dots, 472)
-    img = render_for_label(scene, label, 472)
+    img = render_for_label(scene, label, (label.width_dots, 472))
     assert img.size == (label.width_dots, 472)
 
 
@@ -85,5 +85,32 @@ def test_render_for_label_mismatched_label_is_caught():
     # die Szene wird skaliert/geclippt, aber die Bildbreite stimmt.
     label = get_label("29")  # 306 px
     scene = _scene_with_black_box(306, 200)
-    img = render_for_label(scene, label, 200)
+    img = render_for_label(scene, label, (306, 200))
     assert img.size == (306, 200)
+
+
+# --- Drehung fuer die Ausrichtung "laengs des Bandes" ---
+def test_render_rotate_swaps_axes_and_only_permutes_pixels():
+    scene = _scene_with_black_box(200, 400)  # schwarze Box oben links
+    normal = render_scene_to_image(scene, 200, 400).convert("L")
+    rotated = render_scene_to_image(scene, 200, 400, rotate=True).convert("L")
+    assert normal.size == (200, 400)
+    assert rotated.size == (400, 200)
+    # Reine Drehung: identische Pixel, nur anders angeordnet (Dither/Threshold
+    # bleiben damit in beiden Ansichten gleich).
+    assert rotated.tobytes() == normal.transpose(Image.Transpose.ROTATE_90).tobytes()
+
+
+def test_render_rotate_moves_content_counter_clockwise():
+    scene = _scene_with_black_box(200, 400)
+    rotated = render_scene_to_image(scene, 200, 400, rotate=True).convert("L")
+    # Box war x=10..50, y=10..40 -> nach CCW x=10..40, y=149..189.
+    assert rotated.getpixel((25, 170)) < 128
+    assert rotated.getpixel((25, 20)) > 200
+
+
+def test_render_for_label_rotated_is_label_width():
+    label = get_label("50")  # 554 px Bandbreite
+    scene = _scene_with_black_box(300, label.width_dots)
+    img = render_for_label(scene, label, (300, label.width_dots), rotate=True)
+    assert img.size == (label.width_dots, 300)

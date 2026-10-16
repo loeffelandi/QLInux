@@ -383,6 +383,47 @@ class LengthMode(str, Enum):
     FINISHED = "finished"
 
 
+class Orientation(str, Enum):
+    """Ausrichtung des Etiketts relativ zum Bandvorschub.
+
+    Die **bedruckbare Bandbreite** (``dots_printable[0]``) ist immer die
+    Grenze quer zum Band - nur so wird der Druckkopf 1:1 angesteuert und
+    ``brother_ql`` muss nicht skalieren. Die Ausrichtung bestimmt nur, welche
+    Achse der Designflaeche diese Bandbreite belegt:
+
+    * ``ACROSS`` (Voreinstellung) - die Etikettenlaenge laeuft **quer** zum
+      Band: der Inhalt wird ueber die Bandbreite gesetzt (Text steht quer zum
+      Band), die Laenge ergibt sich aus der **Inhaltshoehe**.
+      Canvas = ``(Bandbreite x Laenge)``, Druck = Canvas 1:1.
+    * ``ALONG`` - die Etikettenlaenge laeuft **laengs** des Bandes: der Inhalt
+      wird in Bandrichtung gesetzt (Text steht laengs zum Band), die Laenge
+      ergibt sich aus der **Inhaltsbreite**. Fuer den Druck wird die Szene um
+      90 Grad gedreht (Gradzahl nur in :mod:`ql_editor.renderer`).
+      Canvas = ``(Laenge x Bandbreite)``.
+
+    Beide Ausrichtungen sind nuetzlich: ``ACROSS`` spart Band bei breitem,
+    flachem Inhalt (lange Textzeile), ``ALONG`` bei hohem, schmalem Inhalt
+    (mehrere gestapelte Zeilen), weil dann die Bandbreite als Hoehenbudget
+    dient.
+    """
+
+    ACROSS = "across"
+    ALONG = "along"
+
+    @property
+    def label_de(self) -> str:
+        """Kurzbezeichnung fuer die Oberflaeche."""
+        return {
+            Orientation.ACROSS: "quer zum Band",
+            Orientation.ALONG: "längs des Bandes",
+        }[self]
+
+    @property
+    def rotates_for_print(self) -> bool:
+        """True, wenn fuer den Druck um 90 Grad gedreht werden muss."""
+        return self is Orientation.ALONG
+
+
 def printer_extra_dots(label: LabelSpec) -> int:
     """Zusaetzliche Laenge (Dots), die der Drucker bei Endlosband hinzufuegt.
 
@@ -410,7 +451,7 @@ def finished_length_mm(label: LabelSpec, content_dots: int) -> float:
 # --------------------------------------------------------------------------- #
 # Canvas-Groesse
 # --------------------------------------------------------------------------- #
-def canvas_size_dots(
+def label_length_dots(
     label: LabelSpec,
     model: ModelSpec,
     *,
@@ -418,15 +459,13 @@ def canvas_size_dots(
     fixed_length_mm: float | None = None,
     content_length_dots: int = 0,
     length_mode: LengthMode = LengthMode.CONTENT,
-) -> tuple[int, int]:
-    """Berechne die Canvas-Groesse ``(breite_dots, hoehe_dots)``.
+) -> int:
+    """Laenge des Etiketts **in Bandrichtung** (Dots) - unabhaengig von der Ausrichtung.
 
-    * Breite ist **immer** ``label.dots_printable[0]`` - die einzige Breite,
-      die :func:`brother_ql.conversion.convert` ohne Resize akzeptiert.
-    * Bei Die-cut/Rund ist die Hoehe durch das Band vorgegeben
+    * Bei Die-cut/Rund ist die Laenge durch das Band vorgegeben
       (``dots_printable[1]``); ``auto_length``/``fixed_length_mm`` werden ignoriert.
     * Bei Endlosband bestimmt ``auto_length`` (Inhalt) bzw. ``fixed_length_mm``
-      die Hoehe; das Ergebnis wird auf die Modellgrenzen geklemmt.
+      die Laenge; das Ergebnis wird auf die Modellgrenzen geklemmt.
 
     ``length_mode`` steuert die Bedeutung von ``fixed_length_mm``:
 
@@ -435,24 +474,61 @@ def canvas_size_dots(
     * ``FINISHED`` - ``fixed_length_mm`` = fertiges Etikett inkl. Druckerrand;
       der Inhalt wird um :func:`printer_extra_dots` reduziert.
     """
-    width = label.width_dots
-
     if label.kind.is_fixed_size:
-        return width, label.height_dots
+        return label.height_dots
 
     if auto_length:
-        height = max(int(content_length_dots), 0)
+        length = max(int(content_length_dots), 0)
         # Kleinstes sinnvolles Etikett = Modell-Minimum.
-        height = model.clamp_length_dots(height) if height else model.min_max_length_dots[0]
-    else:
-        if fixed_length_mm is None:
-            raise ValueError("fixed_length_mm ist erforderlich, wenn auto_length=False")
-        if length_mode is LengthMode.FINISHED:
-            height = content_dots_for_finished_length(label, model, fixed_length_mm)
-        else:
-            height = model.clamp_length_dots(mm_to_dots(float(fixed_length_mm)))
+        return model.clamp_length_dots(length) if length else model.min_max_length_dots[0]
 
-    return width, height
+    if fixed_length_mm is None:
+        raise ValueError("fixed_length_mm ist erforderlich, wenn auto_length=False")
+    if length_mode is LengthMode.FINISHED:
+        return content_dots_for_finished_length(label, model, fixed_length_mm)
+    return model.clamp_length_dots(mm_to_dots(float(fixed_length_mm)))
+
+
+def canvas_size_for_orientation(
+    label: LabelSpec, length_dots: int, orientation: Orientation = Orientation.ACROSS
+) -> tuple[int, int]:
+    """Rechne eine Etikettenlaenge in die Canvas-Groesse ``(breite, hoehe)`` um.
+
+    Die Laenge selbst ist immer in Bandrichtung definiert; hier wird nur
+    entschieden, auf welche Canvas-Achse sie faellt.
+    """
+    if orientation is Orientation.ALONG:
+        return int(length_dots), int(label.width_dots)
+    return int(label.width_dots), int(length_dots)
+
+
+def canvas_size_dots(
+    label: LabelSpec,
+    model: ModelSpec,
+    *,
+    auto_length: bool = True,
+    fixed_length_mm: float | None = None,
+    content_length_dots: int = 0,
+    length_mode: LengthMode = LengthMode.CONTENT,
+    orientation: Orientation = Orientation.ACROSS,
+) -> tuple[int, int]:
+    """Berechne die Canvas-Groesse ``(breite_dots, hoehe_dots)``.
+
+    Die Designflaeche enthaelt **immer** die bedruckbare Bandbreite
+    (``label.width_dots``) als eine ihrer Achsen - die einzige Breite, die
+    :func:`brother_ql.conversion.convert` ohne Resize akzeptiert. ``orientation``
+    bestimmt, ob die Laenge auf die Hoehe (``ACROSS``) oder die Breite
+    (``ALONG``) faellt; Details siehe :class:`Orientation`.
+    """
+    length = label_length_dots(
+        label,
+        model,
+        auto_length=auto_length,
+        fixed_length_mm=fixed_length_mm,
+        content_length_dots=content_length_dots,
+        length_mode=length_mode,
+    )
+    return canvas_size_for_orientation(label, length, orientation)
 
 
 def length_bounds_mm(model: ModelSpec) -> tuple[float, float]:
@@ -470,6 +546,7 @@ __all__ = [
     "Kind",
     "Color",
     "LengthMode",
+    "Orientation",
     "Margins",
     "LabelSpec",
     "ModelSpec",
@@ -485,6 +562,8 @@ __all__ = [
     "printer_extra_dots",
     "content_dots_for_finished_length",
     "finished_length_mm",
+    "label_length_dots",
+    "canvas_size_for_orientation",
     "canvas_size_dots",
     "length_bounds_mm",
 ]

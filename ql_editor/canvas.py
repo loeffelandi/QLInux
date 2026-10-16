@@ -30,7 +30,13 @@ from PySide6.QtGui import QBrush, QColor, QFont, QImage, QPainter, QPen, QPolygo
 from PySide6.QtWidgets import QGraphicsScene, QGraphicsView, QWidget
 
 from . import items as items_mod
-from .media import LabelSpec, dots_to_mm, mm_to_dots
+from .media import (
+    LabelSpec,
+    Orientation,
+    canvas_size_for_orientation,
+    dots_to_mm,
+    mm_to_dots,
+)
 from .widgets import SmoothScroller, wheel_deltas
 
 RULER_WIDTH = 24
@@ -167,7 +173,8 @@ class LabelCanvas(QGraphicsView):
         self.horizontalScrollBar().sliderPressed.connect(self._h_scroller.stop)
 
         self._label: LabelSpec | None = None
-        self._height_dots = 0
+        self._length_dots = 0
+        self._orientation = Orientation.ACROSS
         self._needs_fit = True
         self._auto_fit = True
 
@@ -199,42 +206,88 @@ class LabelCanvas(QGraphicsView):
         self._v_ruler.show()
 
     # -- Setup --------------------------------------------------------------
-    def set_label(self, label: LabelSpec, height_dots: int, refit: bool | None = None) -> None:
-        """Setze Band + Canvas-Hoehe. Die Breite ist immer ``label.width_dots``.
+    def set_label(
+        self,
+        label: LabelSpec,
+        length_dots: int,
+        refit: bool | None = None,
+        orientation: Orientation = Orientation.ACROSS,
+    ) -> None:
+        """Setze Band, Etikettenlaenge und Ausrichtung.
+
+        ``length_dots`` ist die Laenge **in Bandrichtung**; welche Canvas-Achse
+        sie belegt, entscheidet ``orientation`` (siehe :class:`~ql_editor.media.Orientation`).
+        Die Designflaeche enthaelt immer die bedruckbare Bandbreite.
 
         ``refit``:
             ``None`` (Default) passt nur bei einem Bandwechsel (Breiten-
-            aenderung) oder beim ersten Setzen ein.
+            aenderung), beim ersten Setzen oder beim Wechsel der Ausrichtung ein.
         """
         first = self._label is None
-        width_changed = first or round(self.sceneRect().width()) != round(label.width_dots)
+        orientation = Orientation(orientation)
+        size = canvas_size_for_orientation(label, int(length_dots), orientation)
+        # Nur ein anderer Bandtyp (andere Bandbreite) oder die Ausrichtung
+        # rechtfertigen einen Refit - eine Laengenaenderung darf den manuell
+        # gewaehlten Zoom nicht wegwerfen (bei ALONG ist die Laenge die Breite!).
+        tape_changed = first or self._label.width_dots != label.width_dots
+        orientation_changed = orientation is not self._orientation
         self._label = label
-        self._height_dots = int(height_dots)
-        size = QRectF(0, 0, label.width_dots, height_dots)
-        self._scene.setSceneRect(size)
-        self.setSceneRect(size)
-        self._h_ruler.set_total_mm(dots_to_mm(label.width_dots + 2 * label.side_border_dots))
-        self._v_ruler.set_total_mm(dots_to_mm(height_dots))
+        self._length_dots = int(length_dots)
+        self._orientation = orientation
+        rect = QRectF(0, 0, size[0], size[1])
+        self._scene.setSceneRect(rect)
+        self.setSceneRect(rect)
+        self._update_ruler_totals()
         if refit is None:
-            refit = width_changed
+            refit = tape_changed or orientation_changed
         if refit:
             self._needs_fit = True
             self.fit_tape()
         self._update_rulers()
+
+    def _update_ruler_totals(self) -> None:
+        """Lineale an Ausrichtung anpassen: quer zur Bandkante zeigt die Bandbreite."""
+        label = self._label
+        if label is None:
+            return
+        tape_mm = dots_to_mm(label.width_dots + 2 * label.side_border_dots)
+        length_mm = dots_to_mm(self._length_dots)
+        if self._orientation is Orientation.ALONG:
+            self._h_ruler.set_total_mm(length_mm)
+            self._v_ruler.set_total_mm(tape_mm)
+        else:
+            self._h_ruler.set_total_mm(tape_mm)
+            self._v_ruler.set_total_mm(length_mm)
 
     @property
     def label(self) -> LabelSpec | None:
         return self._label
 
     @property
+    def orientation(self) -> Orientation:
+        return self._orientation
+
+    @property
+    def length_dots(self) -> int:
+        """Etikettenlaenge in Bandrichtung (Dots)."""
+        return self._length_dots
+
+    @property
     def height_dots(self) -> int:
-        return self._height_dots
+        """Hoehe der Designflaeche in Dots (Canvas-Achse)."""
+        return int(round(self.sceneRect().height()))
 
     def tape_rect(self) -> QRectF:
-        """Volle Bandflaeche inkl. nicht bedruckbarer Raender (Szenenkoordinaten)."""
+        """Volle Bandflaeche inkl. nicht bedruckbarer Raender (Szenenkoordinaten).
+
+        Die nicht bedruckbaren Bandkanten liegen immer quer zur Bandrichtung -
+        bei ``ALONG`` also ober- und unterhalb der Designflaeche.
+        """
         if self._label is None:
             return self.sceneRect()
         b = self._label.side_border_dots
+        if self._orientation is Orientation.ALONG:
+            return QRectF(self.sceneRect()).adjusted(0, -b, 0, b)
         return QRectF(self.sceneRect()).adjusted(-b, 0, b, 0)
 
     def is_interacting(self) -> bool:
@@ -375,8 +428,13 @@ class LabelCanvas(QGraphicsView):
         painter.setPen(pen)
         painter.setBrush(brush)
         if side > 0:
-            painter.drawRect(QRectF(printable.left() - side, printable.top(), side, printable.height()))
-            painter.drawRect(QRectF(printable.right(), printable.top(), side, printable.height()))
+            if self._orientation is Orientation.ALONG:
+                # Bandkanten liegen oben/unten (Band laeuft horizontal).
+                painter.drawRect(QRectF(printable.left(), printable.top() - side, printable.width(), side))
+                painter.drawRect(QRectF(printable.left(), printable.bottom(), printable.width(), side))
+            else:
+                painter.drawRect(QRectF(printable.left() - side, printable.top(), side, printable.height()))
+                painter.drawRect(QRectF(printable.right(), printable.top(), side, printable.height()))
         painter.setBrush(Qt.BrushStyle.NoBrush)
         painter.fillRect(printable, QColor("#ffffff"))
         pen = QPen(QColor("#7a9ec2"))

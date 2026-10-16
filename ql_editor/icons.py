@@ -171,6 +171,22 @@ def _draw_rect(p: QPainter, color: QColor) -> None:
     p.drawRoundedRect(QRectF(4.0, 6.5, 16.0, 11.0), _RADIUS, _RADIUS)
 
 
+def _draw_orient_across(p: QPainter, color: QColor) -> None:
+    # Designflaeche so breit wie das Band: der Inhalt laeuft ueber die Bandbreite.
+    _stroke_only(p, color, 1.7)
+    p.drawRoundedRect(QRectF(3.0, 8.0, 18.0, 8.0), 2.0, 2.0)
+    _fill_only(p, color)
+    p.drawRect(QRectF(6.0, 11.0, 12.0, 2.0))
+
+
+def _draw_orient_along(p: QPainter, color: QColor) -> None:
+    # Designflaeche so hoch wie das Band: der Inhalt laeuft in Bandrichtung.
+    _stroke_only(p, color, 1.7)
+    p.drawRoundedRect(QRectF(8.0, 3.0, 8.0, 18.0), 2.0, 2.0)
+    _fill_only(p, color)
+    p.drawRect(QRectF(9.8, 11.0, 4.4, 2.0))
+
+
 def _draw_front(p: QPainter, color: QColor) -> None:
     _stroke_only(p, color, 1.7)
     p.drawRoundedRect(QRectF(3.5, 11.0, 9.5, 9.5), 2.0, 2.0)
@@ -279,6 +295,8 @@ _DRAW = {
     "qr": _draw_qr,
     "line": _draw_line,
     "rect": _draw_rect,
+    "orient_across": _draw_orient_across,
+    "orient_along": _draw_orient_along,
     "front": _draw_front,
     "back": _draw_back,
     "delete": _draw_delete,

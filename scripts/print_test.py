@@ -123,7 +123,7 @@ def main(argv=None) -> int:
     print(f"Gesamt: ~{total_mm:.1f} mm fertiges Etikett")
 
     scene = build_scene(label, height, args.text, args.qr, args.font_size, args.margin_mm)
-    image = render_for_label(scene, label, height)
+    image = render_for_label(scene, label, (width, height))
     print(f"Render: {image.size[0]} x {image.size[1]} px (erwartet {label.width_dots} breit)")
 
     options = preview.PreviewOptions(threshold=args.threshold, dither=args.dither)

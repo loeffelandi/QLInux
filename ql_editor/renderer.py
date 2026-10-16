@@ -67,10 +67,18 @@ def render_scene_to_image(
     *,
     background: Qt.GlobalColor = Qt.GlobalColor.white,
     antialias: bool = True,
+    rotate: bool = False,
 ) -> Image.Image:
     """Rendere ``scene`` in ein ``PIL.Image`` der Groesse ``width_dots`` x ``height_dots``.
 
     Die Szene wird 1:1 abgebildet (``source = sceneRect``, ``target = Bild``).
+
+    ``rotate`` dreht das Ergebnis um 90 Grad **gegen** den Uhrzeigersinn
+    (Ausrichtung ``ALONG``: die Designflaeche ist ``Laenge x Bandbreite``, das
+    Druckbild muss aber ``Bandbreite x Laenge`` sein). Da die Drehung eine reine
+    Pixel-Permutation ist, bleibt jede punktweise Weiterverarbeitung (Threshold,
+    Dither) unveraendert - die Druckvorschau zeigt dieselben Pixel, nur in der
+    Canvas-Orientierung.
     """
     if width_dots <= 0 or height_dots <= 0:
         raise RenderError(
@@ -96,7 +104,10 @@ def render_scene_to_image(
     finally:
         painter.end()
 
-    return qimage_to_pil(image)
+    result = qimage_to_pil(image)
+    if rotate:
+        result = result.transpose(Image.Transpose.ROTATE_90)
+    return result
 
 
 def assert_exact_label_width(image: Image.Image, label: LabelSpec) -> None:
@@ -114,14 +125,23 @@ def assert_exact_label_width(image: Image.Image, label: LabelSpec) -> None:
 
 
 def render_for_label(
-    scene: RenderableScene, label: LabelSpec, height_dots: int
+    scene: RenderableScene,
+    label: LabelSpec,
+    canvas_size_dots: tuple[int, int],
+    *,
+    rotate: bool = False,
 ) -> Image.Image:
     """Rendere ``scene`` exakt in der Breite von ``label`` und pruefe das Ergebnis.
 
-    Bequemer Einstiegspunkt fuer den Druckpfad. Die Breite wird *nicht*
-    angepasst, sondern verifiziert - eine fehlerhafte Szene soll auffallen.
+    ``canvas_size_dots`` ist die Groesse der **Designflaeche** (Canvas). Mit
+    ``rotate=True`` (Ausrichtung ``ALONG``) wird das Ergebnis um 90 Grad gedreht
+    und ist danach ``label.width_dots`` breit.
+
+    Die Breite wird *nicht* angepasst, sondern verifiziert - eine fehlerhafte
+    Szene soll auffallen.
     """
-    image = render_scene_to_image(scene, label.width_dots, height_dots)
+    width, height = int(canvas_size_dots[0]), int(canvas_size_dots[1])
+    image = render_scene_to_image(scene, width, height, rotate=rotate)
     assert_exact_label_width(image, label)
     return image
 

@@ -12,23 +12,33 @@ Alle Masse kommen dynamisch aus :mod:`ql_editor.media` - keine Magic Numbers.
 
 from __future__ import annotations
 
-from PySide6.QtCore import Signal
+from PySide6.QtCore import QSize, Qt, Signal
+from PySide6.QtGui import QAction, QActionGroup
 from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
     QDoubleSpinBox,
     QFormLayout,
     QGroupBox,
+    QHBoxLayout,
     QLabel,
     QLineEdit,
     QPushButton,
+    QToolButton,
     QVBoxLayout,
     QWidget,
 )
 
 from . import media
 from .icons import icon
-from .media import DEFAULT_MODEL, LabelSpec, LengthMode, Margins, ModelSpec
+from .media import (
+    DEFAULT_MODEL,
+    LabelSpec,
+    LengthMode,
+    Margins,
+    ModelSpec,
+    Orientation,
+)
 from .printer import DEFAULT_ADDRESS
 
 
@@ -40,6 +50,13 @@ class MediaPanel(QWidget):
 
     def __init__(self, parent: QWidget | None = None):
         super().__init__(parent)
+        # Ausrichtung ist eine Dokument-Eigenschaft (Bedienelement liegt in der
+        # Toolbar, damit sie ohne Panel-Gefummel erreichbar ist); das Panel
+        # haelt den Zustand und ist damit die einzige Quelle der Wahrheit.
+        self._orientation = Orientation.ACROSS
+        # Aktuelle Inhaltslaenge in Bandrichtung - nur fuer die Ergebnis-Anzeige;
+        # das Hauptfenster meldet sie nach jeder Neuberechnung.
+        self._content_dots = 0
         self._build_ui()
         self._populate_models()
         self._populate_bands()
@@ -75,8 +92,10 @@ class MediaPanel(QWidget):
         self._color_combo.addItem("schwarz/rot", "red")
         self._border_label = QLabel("-")
         self._border_label.setWordWrap(True)
+        self._orientation_label = QLabel("-")
         media_form.addRow("Band", self._band_combo)
         media_form.addRow("Farbe", self._color_combo)
+        media_form.addRow("Ausrichtung", self._build_orientation_row())
         media_form.addRow("Nicht bedruckbar", self._border_label)
         outer.addWidget(media_box)
 
@@ -131,6 +150,59 @@ class MediaPanel(QWidget):
             spin.valueChanged.connect(self._on_media_changed)
         self._detect_button.clicked.connect(self.detect_requested.emit)
 
+    def _build_orientation_row(self) -> QWidget:
+        """Zwei Umschaltknoepfe (quer / laengs) fuer die Ausrichtung.
+
+        Die Aktionen gehoeren dem Panel (es ist die Quelle der Wahrheit) und
+        werden von Toolbar und Menue mitbenutzt - so bleiben Icon, Tooltip und
+        Haekchen ueberall automatisch synchron.
+        """
+        self._act_orient_across = QAction(icon("orient_across"), "Quer zum Band", self)
+        self._act_orient_across.setCheckable(True)
+        self._act_orient_across.setChecked(True)
+        self._act_orient_across.setToolTip(
+            "Ausrichtung: quer zum Band\n"
+            "Der Inhalt läuft über die Bandbreite; die Länge ergibt sich aus der "
+            "Inhaltshöhe (spart Band bei langen, flachen Inhalten)."
+        )
+        self._act_orient_along = QAction(icon("orient_along"), "Längs des Bandes", self)
+        self._act_orient_along.setCheckable(True)
+        self._act_orient_along.setToolTip(
+            "Ausrichtung: längs des Bandes\n"
+            "Der Inhalt läuft in Bandrichtung; die Länge ergibt sich aus der "
+            "Inhaltsbreite (spart Band bei hohen, mehrzeiligen Inhalten)."
+        )
+        self._orientation_group = QActionGroup(self)
+        self._orientation_group.setExclusive(True)
+        for action, orientation in (
+            (self._act_orient_across, Orientation.ACROSS),
+            (self._act_orient_along, Orientation.ALONG),
+        ):
+            self._orientation_group.addAction(action)
+            action.triggered.connect(
+                lambda _checked=False, value=orientation: self.set_orientation(value)
+            )
+
+        row = QWidget()
+        layout = QHBoxLayout(row)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(4)
+        self._orientation_buttons: list[QToolButton] = []
+        for action in (self._act_orient_across, self._act_orient_along):
+            button = QToolButton()
+            button.setDefaultAction(action)
+            button.setIconSize(QSize(20, 20))
+            button.setMinimumSize(38, 26)
+            button.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonIconOnly)
+            layout.addWidget(button)
+            self._orientation_buttons.append(button)
+        layout.addWidget(self._orientation_label, 1)
+        return row
+
+    def orientation_actions(self) -> tuple[QAction, QAction]:
+        """Die beiden Ausrichtungs-Aktionen (fuer Toolbar und Menue)."""
+        return self._act_orient_across, self._act_orient_along
+
     # --------------------------------------------------------------- Daten --
     def _populate_models(self) -> None:
         self._model_combo.blockSignals(True)
@@ -182,6 +254,25 @@ class MediaPanel(QWidget):
     def length_mode(self) -> LengthMode:
         return LengthMode(self._mode_combo.currentData())
 
+    def orientation(self) -> Orientation:
+        return self._orientation
+
+    def set_orientation(self, orientation: Orientation | str) -> None:
+        """Ausrichtung setzen (loest bei Aenderung :attr:`changed` aus)."""
+        orientation = Orientation(orientation)
+        if orientation is self._orientation:
+            self._sync_orientation_actions()
+            return
+        self._orientation = orientation
+        self._sync_orientation_actions()
+        self._sync_enabled()
+        self.changed.emit()
+
+    def _sync_orientation_actions(self) -> None:
+        along = self._orientation is Orientation.ALONG
+        self._act_orient_along.setChecked(along)
+        self._act_orient_across.setChecked(not along)
+
     def margins(self) -> Margins:
         return Margins(
             left=self._margin_spins["left"].value(),
@@ -195,6 +286,18 @@ class MediaPanel(QWidget):
 
     def canvas_size(self, content_length_dots: int = 0) -> tuple[int, int]:
         return media.canvas_size_dots(
+            self.label,
+            self.model,
+            auto_length=self.auto_length(),
+            fixed_length_mm=self.length_mm(),
+            content_length_dots=content_length_dots,
+            length_mode=self.length_mode(),
+            orientation=self._orientation,
+        )
+
+    def label_length_dots(self, content_length_dots: int = 0) -> int:
+        """Etikettenlaenge in Bandrichtung (Dots) - unabhaengig von der Ausrichtung."""
+        return media.label_length_dots(
             self.label,
             self.model,
             auto_length=self.auto_length(),
@@ -224,6 +327,18 @@ class MediaPanel(QWidget):
             spin.blockSignals(True)
             spin.setValue(round(value, 1))
             spin.blockSignals(False)
+
+    def set_content_dots(self, content_dots: int) -> None:
+        """Aktuelle Inhaltslaenge (Dots, Bandrichtung) fuer die Ergebnis-Anzeige.
+
+        Aendert nur die Darstellung - es wird bewusst **kein** :attr:`changed`
+        emittiert (sonst Rueckkopplung mit der Neuberechnung des Canvas).
+        """
+        content_dots = max(0, int(content_dots))
+        if content_dots == self._content_dots:
+            return
+        self._content_dots = content_dots
+        self._update_result()
 
     # ----------------------------------------------------------- Slots -----
     def _on_model_changed(self) -> None:
@@ -255,8 +370,19 @@ class MediaPanel(QWidget):
         self._border_label.setText(
             f"{label.side_border_mm:.2f} mm je Seite (schraffiert)"
         )
-        width, height = self.canvas_size()
-        total = media.finished_length_mm(label, height) if label.is_endless else media.dots_to_mm(height)
+        self._orientation_label.setText(self._orientation.label_de)
+        self._update_result()
+
+    def _update_result(self) -> None:
+        """Zeige Designflaeche und fertige Etikettenlaenge (mit echter Inhaltslaenge)."""
+        label = self.label
+        length = self.label_length_dots(self._content_dots)
+        width, height = self.canvas_size(self._content_dots)
+        total = (
+            media.finished_length_mm(label, length)
+            if label.is_endless
+            else media.dots_to_mm(length)
+        )
         self._size_label.setText(
             f"{media.dots_to_mm(width):.1f} x {media.dots_to_mm(height):.1f} mm Inhalt\n"
             f"→ Etikett ~{total:.1f} mm"

@@ -359,6 +359,9 @@ class MainWindow(QMainWindow):
         menu.addSection("Bearbeiten")
         for act in (self._act_front, self._act_back, self._act_delete):
             menu.addAction(act)
+        menu.addSection("Etikett")
+        for act in self._media_panel.orientation_actions():
+            menu.addAction(act)
         menu.addSection("Ansicht")
         for act in (
             self._act_print_preview,
@@ -404,33 +407,53 @@ class MainWindow(QMainWindow):
     def _recompute_canvas(self) -> None:
         self._adjusting = True
         try:
-            label = self._media_panel.label
-            model = self._media_panel.model
-            if self._media_panel.auto_length():
-                content = self._content_height_dots()
-                _, height = media.canvas_size_dots(
-                    label, model, auto_length=True, content_length_dots=content
-                )
-            else:
-                _, height = self._media_panel.canvas_size()
-            self._canvas.set_label(label, height)
+            orientation = self._media_panel.orientation()
+            content = (
+                self._content_length_dots(orientation)
+                if self._media_panel.auto_length()
+                else 0
+            )
+            length = self._media_panel.label_length_dots(content)
+            self._media_panel.set_content_dots(content)
+            self._canvas.set_label(
+                self._media_panel.label, length, orientation=orientation
+            )
         finally:
             self._adjusting = False
 
-    def _content_height_dots(self) -> int:
+    def _content_length_dots(self, orientation: media.Orientation) -> int:
+        """Laenge des Inhalts in Bandrichtung (Dots), inkl. Rand an der Bandkante."""
         rect = self._canvas.scene().itemsBoundingRect()
         if rect.isNull():
             return 0
         margins = self._media_panel.margins()
+        if orientation is media.Orientation.ALONG:
+            return int(rect.right()) + media.mm_to_dots(margins.right)
         return int(rect.bottom()) + media.mm_to_dots(margins.bottom)
 
     # ----------------------------------------------------------- Rendering --
     def _schedule_refresh(self) -> None:
         self._refresh_timer.start()
 
-    def _current_render(self) -> Image.Image:
+    def _current_render(self, *, rotate: bool = False) -> Image.Image:
+        """Rendere die Designflaeche.
+
+        ``rotate=True`` (Druckpfad, Ausrichtung ``ALONG``) dreht das Ergebnis in
+        die Bandorientierung; ohne Drehung passt es 1:1 auf den Canvas - genau
+        das braucht die Druckvorschau als Overlay.
+        """
         rect = self._canvas.sceneRect()
-        return render_scene_to_image(self._canvas.scene(), int(rect.width()), int(rect.height()))
+        return render_scene_to_image(
+            self._canvas.scene(),
+            int(rect.width()),
+            int(rect.height()),
+            rotate=rotate,
+        )
+
+    def _for_print(self) -> Image.Image:
+        """Bild fuer den Drucker: immer exakt ``dots_printable[0]`` breit."""
+        rotate = self._media_panel.orientation().rotates_for_print
+        return self._current_render(rotate=rotate)
 
     def _refresh_now(self) -> None:
         """Aktualisiere die Canvas-Druckvorschau (nur im Vorschau-Modus)."""
@@ -640,7 +663,7 @@ class MainWindow(QMainWindow):
         if self._print_worker is not None and self._print_worker.isRunning():
             return
         try:
-            image = self._current_render()
+            image = self._for_print()
         except Exception as exc:
             show_message(self, "critical", "Rendern", f"Etikett konnte nicht gerendert werden:\n{exc}")
             return
