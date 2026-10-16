@@ -3,9 +3,10 @@
 Jedes Item:
 
 * ist ein ``QGraphicsItem`` (direkt in der Szene platzierbar/verschiebbar),
-* **klemmt seine Position auf den bedruckbaren Bereich** (``sceneRect``) -
-  das ist die "Randbegrenzung" wie im P-touch Editor: nichts landet in der
-  nicht bedruckbaren Zone,
+* **klemmt seine Position auf den bedruckbaren Bereich** (``scene.sceneRect()``)
+  - das ist die "Randbegrenzung" wie im P-touch Editor: nichts landet in der
+  nicht bedruckbaren Zone. Bei gedrehten Objekten zaehlt die gedrehte Huelle,
+  also das, was auf dem Band sichtbar ist,
 * kann sich per :meth:`to_dict` / :meth:`from_dict` serialisieren
   (Grundlage fuer Vorlagen, M4).
 
@@ -86,17 +87,22 @@ def make_barcode_image(
 
 
 def _clamp_pos(item: QGraphicsItem, new_pos: QPointF) -> QPointF:
-    """Klemme ``new_pos`` so, dass die Item-BBox im ``sceneRect`` bleibt."""
+    """Klemme ``new_pos`` so, dass die Item-Huelle im ``sceneRect`` bleibt.
+
+    Die Huelle ist die achsenparallele Box des **gedrehten und skalierten**
+    Items - die Randbegrenzung gilt fuer das, was auf dem Band sichtbar ist.
+    """
     scene = item.scene()
     if scene is None:
         return new_pos
     rect = scene.sceneRect()
-    bb = item.boundingRect()
-    if bb.width() > rect.width() or bb.height() > rect.height():
+    hull = item.mapToScene(item.boundingRect()).boundingRect()
+    hull.translate(new_pos - item.pos())
+    if hull.width() > rect.width() or hull.height() > rect.height():
         return new_pos  # Item groesser als Flaeche -> nicht klemmen
-    x = min(max(new_pos.x(), rect.left() - bb.left()), rect.right() - bb.right())
-    y = min(max(new_pos.y(), rect.top() - bb.top()), rect.bottom() - bb.bottom())
-    return QPointF(x, y)
+    dx = min(max(0.0, rect.left() - hull.left()), rect.right() - hull.right())
+    dy = min(max(0.0, rect.top() - hull.top()), rect.bottom() - hull.bottom())
+    return QPointF(new_pos.x() + dx, new_pos.y() + dy)
 
 
 class _ClampMixin:
@@ -235,11 +241,14 @@ class TextItem(_ClampMixin, QGraphicsTextItem):
 
     def apply_resize(self, width: float, height: float) -> None:
         rect = self.boundingRect()
+        # Nur waagerechtes Ziehen setzt die Umbruchbreite. Sonst wuerde ein
+        # Hoehen-Drag (Schrift skalieren) den Text zusaetzlich umbrechen und
+        # die Hoehe unkontrolliert wachsen.
+        if self.textWidth() > 0 or abs(width - rect.width()) > 0.5:
+            self.set_text_width(width)
         if rect.height() > 0 and height > 0:
             factor = height / rect.height()
             self.set_font_pixel_size(max(4, round(self._font_pixel_size * factor)))
-        if width > 0:
-            self.set_text_width(width)
 
     @property
     def text_value(self) -> str:
@@ -299,9 +308,6 @@ class ImageItem(_ClampMixin, QGraphicsPixmapItem):
     @classmethod
     def from_pil(cls, image: Image.Image) -> "ImageItem":
         return cls(pil_to_qpixmap(image))
-
-    def set_scale(self, scale: float) -> None:
-        self.setTransform(QTransform().scale(scale, scale))
 
     # -- Groesse ------------------------------------------------------------
     resizable = True

@@ -508,7 +508,7 @@ class MainWindow(QMainWindow):
         die Bandorientierung; ohne Drehung passt es 1:1 auf den Canvas - genau
         das braucht die Druckvorschau als Overlay.
         """
-        rect = self._canvas.sceneRect()
+        rect = self._canvas.printable_rect()
         return render_scene_to_image(
             self._canvas.scene(),
             int(rect.width()),
@@ -560,7 +560,34 @@ class MainWindow(QMainWindow):
     def _default_font_size(self) -> int:
         return max(16, int(self._canvas.height_dots * 0.25) or 40)
 
+    def _fit_item_into_label(self, item) -> bool:
+        """Zu grosse Objekte auf die bedruckbare Flaeche verkleinern.
+
+        Beim Einfuegen eines Fotos ist das der Normalfall: ein 2400 px breites
+        Bild auf ein 50-mm-Band wuerde sonst stillschweigend am Bandrand
+        abgeschnitten. Verkleinert wird nur, nie vergroessert, und immer im
+        Seitenverhaeltnis. Die Hoehe ist nur bei fester Etikettenlaenge eine
+        harte Grenze - bei "Auto Length (Inhalt)" waechst das Etikett mit dem
+        Inhalt, dann begrenzt allein die Bandbreite.
+
+        :returns: ``True``, wenn das Objekt verkleinert wurde.
+        """
+        area = self._canvas.printable_rect()
+        width, height = self._canvas.item_scene_size(item)
+        if width <= 0 or height <= 0:
+            return False
+        limit_w = area.width()
+        limit_h = area.height() if not self._media_panel.auto_length() else None
+        factor = limit_w / width
+        if limit_h is not None:
+            factor = min(factor, limit_h / height)
+        if factor >= 1.0:
+            return False
+        item.apply_resize(width * factor, height * factor)
+        return True
+
     def _add_item(self, item, pos: QPointF | None = None) -> None:
+        self._fit_item_into_label(item)
         item.setPos(pos if pos is not None else self._default_item_pos())
         if isinstance(item, TextItem):
             item.document().contentsChanged.connect(self._on_text_edited)
@@ -621,8 +648,9 @@ class MainWindow(QMainWindow):
         except ValueError as exc:
             show_message(self, "warning", "Bild", str(exc))
             return
-        rect = item.boundingRect()
-        pos = QPointF(scene_pos.x() - rect.width() / 2, scene_pos.y() - rect.height() / 2)
+        self._fit_item_into_label(item)
+        width, height = self._canvas.item_scene_size(item)
+        pos = QPointF(scene_pos.x() - width / 2, scene_pos.y() - height / 2)
         self._add_item(item, pos)
 
     def _on_text_dropped(self, text: str, scene_pos: QPointF) -> None:
@@ -711,13 +739,15 @@ class MainWindow(QMainWindow):
         )
 
     def _add_line(self) -> None:
-        width = self._canvas.sceneRect().width()
+        width = self._canvas.printable_rect().width()
         item = LineItem(0, 0, int(width * 0.6), 0, width_px=3)
         self._add_item(item)
 
     def _add_rect(self) -> None:
         height = self._canvas.height_dots
-        item = RectItem(QRectF(0, 0, int(self._canvas.sceneRect().width() * 0.6), int(max(40, height * 0.4))))
+        item = RectItem(
+            QRectF(0, 0, int(self._canvas.printable_rect().width() * 0.6), int(max(40, height * 0.4)))
+        )
         self._add_item(item)
 
     def _bump_z(self, direction: int) -> None:

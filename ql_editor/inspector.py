@@ -26,6 +26,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from .media import dots_to_mm, mm_to_dots
 from .widgets import install_wheel_guard_recursive
 
 BARCODE_SYMBOLOGIES = ["code128", "code39", "ean13", "ean8", "upca", "itf", "codabar"]
@@ -174,13 +175,62 @@ class InspectorPanel(QWidget):
         form.addRow("Höhe (Dots)", height)
 
     def _build_image(self, item, form: QFormLayout) -> None:
-        scale = QDoubleSpinBox()
-        scale.setRange(1.0, 2000.0)
-        scale.setSuffix(" %")
-        scale.setDecimals(0)
-        scale.setValue(round(item.transform().m11() * 100) or 100)
-        scale.valueChanged.connect(lambda v: self._apply(lambda: item.set_scale(v / 100.0)))
-        form.addRow("Größe", scale)
+        """Groesse in Millimetern (statt Prozent der Originalpixel).
+
+        Bei Fotos ist "100 %" die Pixelgroesse der Datei - ein 2400-px-Bild
+        waere damit 203 mm breit. Millimeter sind das Mass, in dem man auf
+        einem Etikett denkt. Breite und Hoehe bleiben dabei im
+        Seitenverhaeltnis (verzerren geht mit den Anfassern am Canvas).
+        """
+        width_dots, height_dots = self._image_size(item)
+        ratio = (height_dots / width_dots) if width_dots > 0 else 1.0
+
+        width = QDoubleSpinBox()
+        width.setRange(1.0, 1000.0)
+        width.setDecimals(1)
+        width.setSuffix(" mm")
+        width.setValue(dots_to_mm(width_dots))
+
+        height = QDoubleSpinBox()
+        height.setRange(1.0, 1000.0)
+        height.setDecimals(1)
+        height.setSuffix(" mm")
+        height.setValue(dots_to_mm(height_dots))
+
+        def sync(w_dots: float, h_dots: float) -> None:
+            """Beide Felder nachziehen, ohne erneut zu resizen."""
+            self._loading = True
+            try:
+                width.setValue(dots_to_mm(w_dots))
+                height.setValue(dots_to_mm(h_dots))
+            finally:
+                self._loading = False
+
+        def resize_width(value: float) -> None:
+            if self._loading:
+                return
+            w_dots = mm_to_dots(value)
+            self._apply(lambda: item.apply_resize(w_dots, w_dots * ratio))
+            sync(w_dots, w_dots * ratio)
+
+        def resize_height(value: float) -> None:
+            if self._loading:
+                return
+            h_dots = mm_to_dots(value)
+            w_dots = h_dots / ratio if ratio > 0 else h_dots
+            self._apply(lambda: item.apply_resize(w_dots, h_dots))
+            sync(w_dots, h_dots)
+
+        width.valueChanged.connect(resize_width)
+        height.valueChanged.connect(resize_height)
+        form.addRow("Breite", width)
+        form.addRow("Höhe", height)
+
+    @staticmethod
+    def _image_size(item) -> tuple[float, float]:
+        """Angezeigte Groesse eines Bild-Items in Dots (ohne Drehung)."""
+        rect = item.transform().mapRect(item.boundingRect())
+        return (rect.width(), rect.height())
 
     def _build_line(self, item, form: QFormLayout) -> None:
         width = QDoubleSpinBox()

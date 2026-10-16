@@ -1,20 +1,30 @@
 """Canvas: ``QGraphicsView``/``QGraphicsScene`` mit fester Groesse sowie
 mm-Linealen und sichtbarer, nicht bedruckbarer Randzone.
 
-* **Feste Pixelgroesse**: ``sceneRect`` ist exakt ``(label.width_dots, hoehe)``
-  - dieselbe Flaeche, die der Renderer 1:1 in ein ``PIL.Image`` uebergibt.
+* **Feste Pixelgroesse**: die bedruckbare Flaeche (``printable_rect()`` bzw.
+  ``scene.sceneRect()``) ist exakt ``(label.width_dots, hoehe)`` - dieselbe
+  Flaeche, die der Renderer 1:1 in ein ``PIL.Image`` uebergibt.
+* **Arbeitsflaeche (Pasteboard)**: der *View* zeigt zusaetzlich einen Rand um
+  die Designflaeche (und alles, was ueber sie hinausragt). Dadurch sind
+  Scrollbalken in beide Richtungen vorhanden und auch sehr breite Objekte
+  (z. B. ein grosses Foto) mit der Maus erreichbar, ohne herauszoomen zu
+  muessen. Der Renderer ist davon unberuehrt.
 * **mm-Lineale** an Ober-/Unterkante.
 * **Randbegrenzung**: der nicht bedruckbare Bandrand (``label.side_border_dots``
   pro Seite) wird schraffiert dargestellt; Items werden durch
-  :mod:`ql_editor.items` auf die bedruckbare Flaeche geklemmt.
+  :mod:`ql_editor.items` auf die bedruckbare Flaeche geklemmt - bei gedrehten
+  Objekten gilt die gedrehte Huelle.
 
 Direkte Bearbeitung mit der Maus (modernes Editor-Gefuehl):
 
 * **Verschieben**: Item mit der linken Maustaste ziehen (Mehrfachauswahl
   bewegt sich gemeinsam), mit **magnetischem Einrasten** an Bandkanten,
   Bandmitte und anderen Objekten - Einrastlinien werden angezeigt.
-* **Groesse**: 8 Anfasser (Ecken + Kanten) am ausgewaehlten Objekt.
-* **Drehen**: Kreisfoermiger Griff ueber dem Objekt (Shift rastet auf 15°).
+* **Groesse**: 8 Anfasser (Ecken + Kanten) am ausgewaehlten Objekt; der
+  gegenueberliegende Griff bleibt stehen (auch bei gedrehten Objekten), der
+  Cursor dreht sich mit.
+* **Drehen**: Kreisfoermiger Griff ueber dem Objekt, gedreht wird um die
+  Objektmitte (Shift rastet auf 15 Grad).
 * **Mehrfachauswahl**: Gummiband auf freier Flaeche; **Ctrl+Klick** schaltet
   einzelne Objekte zur Auswahl hinzu/ab.
 * **Drag & Drop**: Bilddateien aus dem Dateimanager auf den Canvas ziehen.
@@ -46,22 +56,70 @@ HANDLE_SIZE_PX = 9
 ROTATE_OFFSET_PX = 24
 SNAP_TOLERANCE_PX = 6
 MIN_ITEM_SIZE = 4.0
+# Arbeitsflaeche ("Pasteboard") um die Designflaeche herum: genug Platz, um
+# Objekte zu greifen, die ueber die bedruckbare Flaeche hinausragen.
+PASTEBOARD_MARGIN_MM = 8.0
 
 HANDLE_NAMES = ("nw", "n", "ne", "e", "se", "s", "sw", "w")
 
-_HANDLE_CURSORS = {
-    "nw": Qt.CursorShape.SizeFDiagCursor,
-    "se": Qt.CursorShape.SizeFDiagCursor,
-    "ne": Qt.CursorShape.SizeBDiagCursor,
-    "sw": Qt.CursorShape.SizeBDiagCursor,
-    "n": Qt.CursorShape.SizeVerCursor,
-    "s": Qt.CursorShape.SizeVerCursor,
-    "e": Qt.CursorShape.SizeHorCursor,
-    "w": Qt.CursorShape.SizeHorCursor,
-    "rotate": Qt.CursorShape.CrossCursor,
+_OPPOSITE_HANDLE = {
+    "nw": "se",
+    "n": "s",
+    "ne": "sw",
+    "e": "w",
+    "se": "nw",
+    "s": "n",
+    "sw": "ne",
+    "w": "e",
 }
 
+# Griffrichtung in Item-Koordinaten (y zeigt nach unten).
+_HANDLE_DIRECTIONS = {
+    "e": (1.0, 0.0),
+    "se": (1.0, 1.0),
+    "s": (0.0, 1.0),
+    "sw": (-1.0, 1.0),
+    "w": (-1.0, 0.0),
+    "nw": (-1.0, -1.0),
+    "n": (0.0, -1.0),
+    "ne": (1.0, -1.0),
+}
+
+# Cursor nach Bildschirmrichtung des Griffs (0 Grad = Osten, im Uhrzeigersinn).
+_CURSOR_BY_DIRECTION = (
+    Qt.CursorShape.SizeHorCursor,  # 0   -> Osten
+    Qt.CursorShape.SizeFDiagCursor,  # 45  -> Suedost
+    Qt.CursorShape.SizeVerCursor,  # 90  -> Sueden
+    Qt.CursorShape.SizeBDiagCursor,  # 135 -> Suedwest
+    Qt.CursorShape.SizeHorCursor,  # 180 -> Westen
+    Qt.CursorShape.SizeFDiagCursor,  # 225 -> Nordwest
+    Qt.CursorShape.SizeVerCursor,  # 270 -> Norden
+    Qt.CursorShape.SizeBDiagCursor,  # 315 -> Nordost
+)
+
 _IMAGE_SUFFIXES = (".png", ".jpg", ".jpeg", ".bmp", ".gif", ".webp", ".tif", ".tiff")
+
+
+def _local_handle_point(rect: QRectF, name: str) -> QPointF:
+    """Griffpunkt in Item-Koordinaten, bezogen auf ``rect`` (Bounding-Box)."""
+    center = rect.center()
+    if name == "nw":
+        return rect.topLeft()
+    if name == "n":
+        return QPointF(center.x(), rect.top())
+    if name == "ne":
+        return rect.topRight()
+    if name == "e":
+        return QPointF(rect.right(), center.y())
+    if name == "se":
+        return rect.bottomRight()
+    if name == "s":
+        return QPointF(center.x(), rect.bottom())
+    if name == "sw":
+        return rect.bottomLeft()
+    if name == "w":
+        return QPointF(rect.left(), center.y())
+    raise KeyError(name)
 
 
 class MmRuler(QWidget):
@@ -236,7 +294,7 @@ class LabelCanvas(QGraphicsView):
         self._orientation = orientation
         rect = QRectF(0, 0, size[0], size[1])
         self._scene.setSceneRect(rect)
-        self.setSceneRect(rect)
+        self._update_pasteboard()
         self._update_ruler_totals()
         if refit is None:
             refit = tape_changed or orientation_changed
@@ -244,6 +302,39 @@ class LabelCanvas(QGraphicsView):
             self._needs_fit = True
             self.fit_tape()
         self._update_rulers()
+
+    def printable_rect(self) -> QRectF:
+        """Bedruckbare Designflaeche in Szenenkoordinaten.
+
+        Das ist die Flaeche, die der Renderer 1:1 in ein ``PIL.Image`` uebergibt
+        (``scene.sceneRect()``). Der **View** zeigt darueber hinaus eine
+        Arbeitsflaeche (siehe :meth:`_pasteboard_rect`), damit auch Objekte
+        erreichbar bleiben, die ueber die Flaeche hinausragen.
+        """
+        return QRectF(self._scene.sceneRect())
+
+    def _pasteboard_rect(self) -> QRectF:
+        """Scrollbare Flaeche: Designflaeche + ueberstehende Objekte + Rand."""
+        rect = self.printable_rect()
+        items = self._scene.itemsBoundingRect()
+        if not items.isNull():
+            rect = rect.united(items)
+        margin = mm_to_dots(PASTEBOARD_MARGIN_MM)
+        return rect.adjusted(-margin, -margin, margin, margin)
+
+    def _update_pasteboard(self) -> None:
+        """Scrollbereich des Views an den Inhalt anpassen (Scrollbalken!).
+
+        Der sichtbare Ausschnitt bleibt dabei stehen (Mitte merken) - sonst
+        springt der Canvas, sobald ein Objekt den Scrollbereich vergroessert.
+        """
+        rect = self._pasteboard_rect()
+        if rect == self.sceneRect():
+            return
+        center = self.mapToScene(self.viewport().rect().center())
+        self.setSceneRect(rect)
+        if not self._needs_fit:
+            self.centerOn(center)
 
     def _update_ruler_totals(self) -> None:
         """Lineale an Ausrichtung anpassen: quer zur Bandkante zeigt die Bandbreite."""
@@ -275,7 +366,16 @@ class LabelCanvas(QGraphicsView):
     @property
     def height_dots(self) -> int:
         """Hoehe der Designflaeche in Dots (Canvas-Achse)."""
-        return int(round(self.sceneRect().height()))
+        return int(round(self.printable_rect().height()))
+
+    def item_scene_size(self, item) -> tuple[float, float]:
+        """Aktuelle Groesse eines Items in Szenen-Einheiten (ohne Rotation).
+
+        Genau das Mass, das ``apply_resize`` erwartet - auch bei Items, die
+        ueber ihre eigene Transform-Matrix skaliert sind (Bilder).
+        """
+        rect = item.transform().mapRect(item.boundingRect())
+        return (rect.width(), rect.height())
 
     def tape_rect(self) -> QRectF:
         """Volle Bandflaeche inkl. nicht bedruckbarer Raender (Szenenkoordinaten).
@@ -283,12 +383,13 @@ class LabelCanvas(QGraphicsView):
         Die nicht bedruckbaren Bandkanten liegen immer quer zur Bandrichtung -
         bei ``ALONG`` also ober- und unterhalb der Designflaeche.
         """
+        printable = self.printable_rect()
         if self._label is None:
-            return self.sceneRect()
+            return printable
         b = self._label.side_border_dots
         if self._orientation is Orientation.ALONG:
-            return QRectF(self.sceneRect()).adjusted(0, -b, 0, b)
-        return QRectF(self.sceneRect()).adjusted(-b, 0, b, 0)
+            return printable.adjusted(0, -b, 0, b)
+        return printable.adjusted(-b, 0, b, 0)
 
     def is_interacting(self) -> bool:
         return self._op is not None or self._pan_active
@@ -355,7 +456,13 @@ class LabelCanvas(QGraphicsView):
         self._emit_zoom()
 
     def wheelEvent(self, event) -> None:  # noqa: N802
-        """Adaptiv: weich scrollen, wenn es etwas zu scrollen gibt, sonst zoomen."""
+        """Adaptiv: weich scrollen, wenn es etwas zu scrollen gibt, sonst zoomen.
+
+        Der Scrollbereich ist groesser als die Designflaeche (Arbeitsflaeche
+        ringsum). Damit das Rad trotzdem zoomt, solange man das ganze Etikett
+        sieht, entscheidet nicht der Scrollbalken-Bereich, sondern ob die
+        Designflaeche komplett im Viewport liegt.
+        """
         mods = event.modifiers()
         dx, dy = wheel_deltas(event)
 
@@ -373,7 +480,7 @@ class LabelCanvas(QGraphicsView):
         if mods & Qt.KeyboardModifier.ShiftModifier and hmax > 0:
             dx, dy = (dy or dx), 0.0
 
-        if vmax > 0 or hmax > 0:
+        if (vmax > 0 or hmax > 0) and not self._label_fits_in_view():
             # Rad nach oben -> Inhalt nach unten -> Wert verkleinern.
             if vmax > 0:
                 self._v_scroller.scroll_by(-dy)
@@ -385,6 +492,21 @@ class LabelCanvas(QGraphicsView):
         if dy:
             self.zoom_by(1.15 if dy > 0 else 1 / 1.15)
         event.accept()
+
+    def _label_fits_in_view(self) -> bool:
+        """Liegt die bedruckbare Flaeche komplett im sichtbaren Ausschnitt?
+
+        Bewusst ueber die Groesse (nicht ueber den aktuellen Scrollstand):
+        solange das ganze Etikett sichtbar ist, soll das Mausrad zoomen - der
+        Scrollbereich ist durch die Arbeitsflaeche immer groesser als das
+        Etikett.
+        """
+        if self._label is None:
+            return True
+        scale = self._scale()
+        printable = self.printable_rect()
+        size = self.viewport().size()
+        return printable.width() * scale <= size.width() + 0.5 and printable.height() * scale <= size.height() + 0.5
 
     def zoom_by(self, factor: float) -> None:
         current = self.transform().m11()
@@ -418,7 +540,7 @@ class LabelCanvas(QGraphicsView):
         if self._label is None:
             return
         tape = self.tape_rect()
-        printable = self.sceneRect()
+        printable = self.printable_rect()
         side = self._label.side_border_dots
 
         painter.fillRect(tape, QColor("#f4f4f4"))
@@ -451,7 +573,7 @@ class LabelCanvas(QGraphicsView):
         if self._print_preview:
             if self._print_image is not None and not self._print_image.isNull():
                 painter.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform, False)
-                painter.drawImage(self.sceneRect(), self._print_image)
+                painter.drawImage(self.printable_rect(), self._print_image)
             return
 
         painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
@@ -512,22 +634,38 @@ class LabelCanvas(QGraphicsView):
 
     def _handle_points(self, item) -> dict[str, QPointF]:
         br = item.boundingRect()
-        local = {
-            "nw": br.topLeft(),
-            "n": QPointF(br.center().x(), br.top()),
-            "ne": br.topRight(),
-            "e": QPointF(br.right(), br.center().y()),
-            "se": br.bottomRight(),
-            "s": QPointF(br.center().x(), br.bottom()),
-            "sw": br.bottomLeft(),
-            "w": QPointF(br.left(), br.center().y()),
+        return {
+            name: item.mapToScene(_local_handle_point(br, name)) for name in HANDLE_NAMES
         }
-        return {name: item.mapToScene(pt) for name, pt in local.items()}
 
     def _rotate_handle_point(self, item) -> QPointF:
-        br = item.boundingRect()
+        """Drehgriff: oberhalb der Oberkante, **im Item-System** gedreht.
+
+        Der Abstand ist in Bildschirmpixeln konstant - auch bei skalierten
+        Items (Bilder), deren lokale Einheiten nicht den Szeneneinheiten
+        entsprechen.
+        """
+        top = self._handle_points(item)["n"]
+        # Richtung "nach oben" im Item-System als Szenenrichtung (normiert).
+        origin = item.mapToScene(QPointF(0.0, 0.0))
+        up = item.mapToScene(QPointF(0.0, -1.0)) - origin
+        length = math.hypot(up.x(), up.y())
+        if length < 1e-9:
+            return QPointF(top.x(), top.y() - ROTATE_OFFSET_PX / self._scale())
         offset = ROTATE_OFFSET_PX / self._scale()
-        return item.mapToScene(QPointF(br.center().x(), br.top() - offset))
+        return QPointF(
+            top.x() + up.x() / length * offset, top.y() + up.y() / length * offset
+        )
+
+    def _cursor_for_handle(self, item, name: str):
+        """Cursor passend zur **gedrehten** Griffrichtung (sonst irrefuehrend)."""
+        vx, vy = _HANDLE_DIRECTIONS[name]
+        theta = math.radians(item.rotation())
+        cos_t, sin_t = math.cos(theta), math.sin(theta)
+        screen_x = vx * cos_t - vy * sin_t
+        screen_y = vx * sin_t + vy * cos_t
+        step = round(math.degrees(math.atan2(screen_y, screen_x)) / 45.0) % 8
+        return _CURSOR_BY_DIRECTION[step]
 
     def _handle_scene_rect(self) -> QRectF | None:
         """Kompatibilitaet: Rect des Sued-Ost-Griffs (oder ``None``)."""
@@ -568,7 +706,7 @@ class LabelCanvas(QGraphicsView):
             excluded = {id(exclude)}
         targets_x: list[float] = []
         targets_y: list[float] = []
-        r = self.sceneRect()
+        r = self.printable_rect()
         targets_x += [r.left(), r.center().x(), r.right()]
         targets_y += [r.top(), r.center().y(), r.bottom()]
         for it in self._scene.items():
@@ -663,7 +801,7 @@ class LabelCanvas(QGraphicsView):
         self._op_handle = handle
         self._op_start_scene = scene_pos
         self._op_start_bbox = item.sceneBoundingRect()
-        self._op_start_size = (item.boundingRect().width(), item.boundingRect().height())
+        self._op_start_size = self.item_scene_size(item)
         self._op_start_rotation = item.rotation()
         if handle == "rotate":
             self._op = "rotate"
@@ -709,14 +847,17 @@ class LabelCanvas(QGraphicsView):
             event.accept()
             return
         if self._op == "rotate":
-            self._do_rotate(scene_pos)
+            self._do_rotate(scene_pos, snap=bool(event.modifiers() & Qt.KeyboardModifier.ShiftModifier))
             event.accept()
             return
 
-        # Cursor je nach Griff
+        # Cursor je nach Griff (mitgedreht wie das Item)
         handle = self._handle_at(scene_pos)
         if handle is not None:
-            self.viewport().setCursor(_HANDLE_CURSORS.get(handle[0], Qt.CursorShape.ArrowCursor))
+            if handle[0] == "rotate":
+                self.viewport().setCursor(Qt.CursorShape.CrossCursor)
+            else:
+                self.viewport().setCursor(self._cursor_for_handle(handle[1], handle[0]))
         else:
             self.viewport().unsetCursor()
         super().mouseMoveEvent(event)
@@ -781,27 +922,40 @@ class LabelCanvas(QGraphicsView):
         new_w = max(MIN_ITEM_SIZE, new_w)
         new_h = max(MIN_ITEM_SIZE, new_h)
 
-        # Gegenkante verankern - mit der tatsaechlichen Groesse nach dem
-        # Resize (Text kann minimal von der angeforderten Hoehe abweichen).
-        if not angle:
-            item.apply_resize(new_w, new_h)
-            current = item.sceneBoundingRect()
-            target_left = bbox.right() - current.width() if "w" in name else bbox.left()
-            target_top = bbox.bottom() - current.height() if "n" in name else bbox.top()
-            item.moveBy(target_left - current.left(), target_top - current.top())
-        else:
-            item.apply_resize(new_w, new_h)
+        # Der gegenueberliegende Griff bleibt in Szenenkoordinaten stehen -
+        # das gilt auch fuer gedrehte und skalierte Items. Vorher merken,
+        # nach dem Resize nachfuehren.
+        anchor_name = _OPPOSITE_HANDLE[name]
+        anchor_before = self._handle_points(item)[anchor_name]
+        item.apply_resize(new_w, new_h)
+        anchor_local = _local_handle_point(item.boundingRect(), anchor_name)
+        anchor_after = item.mapToScene(anchor_local)
+        item.moveBy(anchor_before.x() - anchor_after.x(), anchor_before.y() - anchor_after.y())
 
         self._guides = guides
         self.viewport().update()
 
-    def _do_rotate(self, scene_pos: QPointF) -> None:
+    def _do_rotate(self, scene_pos: QPointF, *, snap: bool = False) -> None:
+        """Drehen um die **Item-Mitte** (nicht um die obere linke Ecke).
+
+        Der Drehpunkt des Items liegt in Qt links oben; damit sich das Objekt
+        natuerlich um seine Mitte dreht, wird die Position entsprechend
+        nachgefuehrt. Mit ``snap`` (Shift) rastet der Winkel auf 15 Grad.
+        """
         item = self._op_item
         center = self._op_rotate_center
         angle = math.degrees(
             math.atan2(scene_pos.y() - center.y(), scene_pos.x() - center.x()) - self._op_rotate_start
         ) + self._op_start_rotation
-        item.setRotation(round(angle, 1))
+        if snap:
+            angle = round(angle / 15.0) * 15.0
+        angle = round(angle, 1)
+
+        local_center = item.boundingRect().center()
+        before = item.mapToScene(local_center)
+        item.setRotation(angle)
+        after = item.mapToScene(local_center)
+        item.moveBy(before.x() - after.x(), before.y() - after.y())
         self.viewport().update()
 
     def mouseReleaseEvent(self, event) -> None:  # noqa: N802
@@ -819,6 +973,8 @@ class LabelCanvas(QGraphicsView):
             self._guides = []
             self.viewport().update()
             if finished in ("move", "resize", "rotate"):
+                # Nach der Geste: Scrollbereich an die neue Objektlage anpassen.
+                self._update_pasteboard()
                 self.items_changed.emit()
             event.accept()
             return
@@ -951,6 +1107,7 @@ class LabelCanvas(QGraphicsView):
         self._scene.addItem(item)
         self._scene.clearSelection()
         item.setSelected(True)
+        self._update_pasteboard()
 
     def selected_items(self) -> list:
         return list(self._scene.selectedItems())
@@ -958,6 +1115,7 @@ class LabelCanvas(QGraphicsView):
     def delete_selected(self) -> None:
         for item in self.selected_items():
             self._scene.removeItem(item)
+        self._update_pasteboard()
 
     def items_serialized(self) -> list[dict[str, Any]]:
         result = [it.to_dict() for it in self._scene.items() if hasattr(it, "to_dict")]
@@ -970,11 +1128,13 @@ class LabelCanvas(QGraphicsView):
                 self._scene.removeItem(existing)
         for d in data:
             self._scene.addItem(items_mod.item_from_dict(d))
+        self._update_pasteboard()
 
     def clear_items(self) -> None:
         for existing in list(self._scene.items()):
             if hasattr(existing, "to_dict"):
                 self._scene.removeItem(existing)
+        self._update_pasteboard()
 
     # -- Geometrie ----------------------------------------------------------
     def resizeEvent(self, event) -> None:  # noqa: N802

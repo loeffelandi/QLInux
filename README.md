@@ -67,7 +67,11 @@ python -m ql_editor
   (Auto Length / fest, Gesamt- oder Inhaltsmaß), Margins, Farbe.
 * **Mitte**: Canvas in exakter Bandbreite mit mm-Linealen; der **nicht
   bedruckbare Rand** (~1,5 mm je Seite) ist schraffiert, Items werden darauf
-  begrenzt.
+  begrenzt. Um die Designfläche liegt eine **Arbeitsfläche** (8 mm Rand,
+  zusätzlich alles, was übersteht): dadurch gibt es **Scrollbalken in beide
+  Richtungen** und auch sehr breite Objekte bleiben mit der Maus erreichbar,
+  ohne herauszoomen zu müssen. Die Renderquelle bleibt davon unberührt - die
+  Szene selbst ist weiterhin exakt die bedruckbare Fläche.
 * **Rechts**: Inspector (Eigenschaften des ausgewählten Objekts) + Druckoptionen
   (Threshold, Dither, Schnitt, Drucken).
 
@@ -122,9 +126,17 @@ Toolbar, bleiben also immer synchron.
   Bandmitte und anderen Objekten ein - die Einrastlinien werden während
   des Ziehens angezeigt (an Objekten/Zentren/Seiten).
 * **8 Anfasser** (Ecken + Kanten) am ausgewählten Objekt ändern Größe und
-  Proportion; die **gegenüberliegende Kante bleibt verankert**. Der runde
-  Griff **über** dem Objekt dreht es (Shift rastet auf 15°).
-  (Text = Schriftgröße, QR bleibt quadratisch, Barcode = Höhe.)
+  Proportion; der **gegenüberliegende Griff bleibt in Szenenkoordinaten
+  stehen** - auch bei gedrehten und skalierten Objekten (ein gedrehtes Bild
+  wächst also dorthin, wo der Zeiger zieht). Der Mauszeiger dreht sich mit dem
+  Objekt mit. Bei Text skaliert die Höhe die Schrift, die Breite setzt die
+  Umbruchbreite. Der runde Griff **über** dem Objekt dreht es **um seine
+  Mitte** (Shift rastet auf 15°).
+* **Bilder** werden beim Einfügen (Toolbar, Kontextmenü oder Drag & Drop) auf
+  die **Bandbreite verkleinert**, wenn sie größer sind - nie vergrößert, immer
+  im Seitenverhältnis. Ein 2400-px-Foto landet damit direkt passend auf dem
+  Etikett statt am Bandrand abgeschnitten zu werden. Die Größe steht im
+  Inspector in **Millimetern** (Breite/Höhe bleiben im Verhältnis).
 * **Mehrfachauswahl**: Gummiband auf freier Fläche, **Ctrl + Klick**
   schaltet einzelne Objekte zur Auswahl hinzu/ab.
 * **Drag & Drop**: Bilddateien aus dem Dateimanager auf den Canvas ziehen
@@ -143,11 +155,12 @@ Toolbar, bleiben also immer synchron.
     Der Canvas dreht sich mit (das Band läuft senkrecht, die Randbegrenzung
     wandert an die Bandkanten oben/unten); für den Druck wird die Szene um
     90° gedreht, sodass das Bild weiterhin exakt bandbreit ist.
-* **Mausrad** über dem Canvas: scrollt weich (animiert), wenn es etwas zu
-  scrollen gibt, sonst zoomt es; **Ctrl + Rad** zoomt immer, **Shift + Rad**
-  scrollt horizontal, **mittlere Maustaste ziehen** verschiebt den Ausschnitt.
-  Trackpads werden über `pixelDelta` fein unterstützt.
-  Zusätzlich: Zoom −/Einpassen/+ in der Toolbar (Ctrl+0 = einpassen).
+* **Mausrad** über dem Canvas: scrollt weich (animiert), sobald man über die
+  Etikettengröße hinausgezoomt hat, sonst zoomt es; **Ctrl + Rad** zoomt immer,
+  **Shift + Rad** scrollt horizontal, **mittlere Maustaste ziehen** verschiebt
+  den Ausschnitt. Trackpads werden über `pixelDelta` fein unterstützt.
+  Zusätzlich: Zoom −/Einpassen/+ in der Toolbar (Ctrl+0 = einpassen), und die
+  **Scrollbalken** des Canvas für beide Richtungen.
 * **Mausrad** über einem Seitenpanel scrollt das Panel - auch wenn der Zeiger
   über einem Feld steht; ein Feld ändert seinen Wert nur, wenn es den Fokus
   hat (kein versehentliches Verstellen).

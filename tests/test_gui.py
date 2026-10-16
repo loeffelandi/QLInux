@@ -6,11 +6,13 @@ Randbegrenzung. Es wird kein Drucker benoetigt.
 
 from __future__ import annotations
 
+import math
+
 import pytest
-from PySide6.QtCore import QSettings
+from PySide6.QtCore import QSettings, Qt
 
 from ql_editor import media
-from ql_editor.canvas import LabelCanvas
+from ql_editor.canvas import ROTATE_OFFSET_PX, LabelCanvas
 from ql_editor.items import BarcodeItem, QRItem, TextItem, item_from_dict
 from ql_editor.media import get_label
 
@@ -79,12 +81,18 @@ def test_media_panel_margins_from_feed_margin(qapp):
 # --------------------------------------------------------------------------- #
 # Canvas
 # --------------------------------------------------------------------------- #
-def test_canvas_scene_rect_is_exact_width(qapp):
+def test_canvas_printable_rect_is_exact_width(qapp):
     canvas = LabelCanvas()
     label = get_label("50")
     canvas.set_label(label, 472)
-    assert canvas.sceneRect().width() == 554
-    assert canvas.sceneRect().height() == 472
+    printable = canvas.printable_rect()
+    assert printable.width() == 554
+    assert printable.height() == 472
+    # Die Szene selbst (Renderquelle) bleibt exakt die Designflaeche ...
+    assert canvas.scene().sceneRect() == printable
+    # ... der View zeigt ringsum eine Arbeitsflaeche (Scrollbereich).
+    assert canvas.sceneRect().width() > printable.width()
+    assert canvas.sceneRect().height() > printable.height()
 
 
 def test_canvas_tape_rect_includes_side_border(qapp):
@@ -101,15 +109,16 @@ def test_items_are_clamped_to_printable_area(qapp):
     item = TextItem("x")
     canvas.add_item(item)
 
+    printable = canvas.printable_rect()
     item.setPos(10_000, 10_000)
     br = item.sceneBoundingRect()
-    assert br.right() <= canvas.sceneRect().right() + 1
-    assert br.bottom() <= canvas.sceneRect().bottom() + 1
+    assert br.right() <= printable.right() + 1
+    assert br.bottom() <= printable.bottom() + 1
 
     item.setPos(-10_000, -10_000)
     br = item.sceneBoundingRect()
-    assert br.left() >= canvas.sceneRect().left() - 1
-    assert br.top() >= canvas.sceneRect().top() - 1
+    assert br.left() >= printable.left() - 1
+    assert br.top() >= printable.top() - 1
 
 
 def test_canvas_item_serialization_roundtrip(qapp):
@@ -727,7 +736,7 @@ def test_canvas_move_snaps_to_center_with_guide(qapp):
     item.setSelected(True)
     qapp.processEvents()
 
-    center_y = canvas.sceneRect().center().y()
+    center_y = canvas.printable_rect().center().y()
     start = item.sceneBoundingRect().center()
     target = QPointF(start.x(), center_y - 2)
     _press(canvas, start)
@@ -995,10 +1004,10 @@ def test_orientation_changes_canvas_and_print_image(qapp):
     win._canvas.cancel_editing()
     label = win._media_panel.label
     length = win._canvas.length_dots
-    assert win._canvas.sceneRect().size().toSize() == QSize(label.width_dots, length)
+    assert win._canvas.printable_rect().size().toSize() == QSize(label.width_dots, length)
 
     win._media_panel.set_orientation(media.Orientation.ALONG)
-    assert win._canvas.sceneRect().size().toSize() == QSize(length, label.width_dots)
+    assert win._canvas.printable_rect().size().toSize() == QSize(length, label.width_dots)
     assert win._canvas.length_dots == length
     # Das Druckbild ist in beiden Ausrichtungen bandbreit.
     assert win._for_print().size == (label.width_dots, length)
@@ -1011,7 +1020,7 @@ def test_orientation_moves_side_border_to_tape_edges(qapp):
     label = win._media_panel.label
     win._media_panel.set_orientation(media.Orientation.ALONG)
     tape = win._canvas.tape_rect()
-    printable = win._canvas.sceneRect()
+    printable = win._canvas.printable_rect()
     assert tape.top() == pytest.approx(-label.side_border_dots)
     assert tape.bottom() == pytest.approx(printable.bottom() + label.side_border_dots)
     assert tape.left() == pytest.approx(printable.left())
@@ -1029,7 +1038,7 @@ def test_print_preview_image_stays_canvas_aligned(qapp):
     win._refresh_now()
     image = win._canvas._print_image
     assert image is not None
-    rect = win._canvas.sceneRect()
+    rect = win._canvas.printable_rect()
     assert image.width() == int(rect.width())
     assert image.height() == int(rect.height())
 
@@ -1146,3 +1155,266 @@ def test_panel_icons_available(qapp):
 
     names = icons.available()
     assert "panel_left" in names and "panel_right" in names
+
+
+# --------------------------------------------------------------------------- #
+# Arbeitsflaeche (Pasteboard) / Scrollen
+# --------------------------------------------------------------------------- #
+def _wide_image(width: int = 2400, height: int = 1600):
+    from PySide6.QtGui import QPixmap
+
+    from ql_editor.items import ImageItem
+
+    pixmap = QPixmap(width, height)
+    pixmap.fill()
+    return ImageItem(pixmap)
+
+
+def test_pasteboard_gives_scrollbars_for_oversized_items(qapp):
+    canvas = _prepared_canvas(qapp)
+    assert canvas.printable_rect().width() == 554
+    # Arbeitsflaeche ist groesser als die Designflaeche -> es gibt etwas zu scrollen.
+    assert canvas.sceneRect().width() > canvas.printable_rect().width()
+
+    item = _wide_image()
+    canvas.add_item(item)
+    item.apply_resize(900, 600)
+    canvas._update_pasteboard()
+    qapp.processEvents()
+
+    assert canvas.horizontalScrollBar().maximum() > 0
+    assert canvas.sceneRect().contains(item.sceneBoundingRect())
+
+
+def test_pasteboard_keeps_visible_area_when_items_grow(qapp):
+    from PySide6.QtCore import QPointF
+
+    canvas = _prepared_canvas(qapp)
+    canvas.zoom_by(2.0)
+    qapp.processEvents()
+    before = canvas.mapToScene(canvas.viewport().rect().center())
+
+    item = _wide_image()
+    canvas.add_item(item)
+    item.apply_resize(1200, 800)
+    canvas._update_pasteboard()
+    qapp.processEvents()
+
+    after = canvas.mapToScene(canvas.viewport().rect().center())
+    assert after.x() == pytest.approx(before.x(), abs=1.5)
+    assert after.y() == pytest.approx(before.y(), abs=1.5)
+
+
+def test_wheel_zooms_while_whole_label_is_visible(qapp):
+    from PySide6.QtCore import Qt
+
+    canvas = _prepared_canvas(qapp)
+    canvas.fit_tape()
+    qapp.processEvents()
+    assert canvas._label_fits_in_view() is True
+
+    before = canvas.transform().m11()
+    canvas.wheelEvent(_wheel_event(Qt.KeyboardModifier.NoModifier, 120))
+    assert canvas.transform().m11() > before
+
+
+def test_wheel_scrolls_horizontally_when_zoomed_in(qapp):
+    from PySide6.QtCore import Qt
+
+    canvas = _prepared_canvas(qapp)
+    canvas.zoom_by(4.0)
+    qapp.processEvents()
+    assert canvas._label_fits_in_view() is False
+
+    bar = canvas.horizontalScrollBar()
+    before_zoom = canvas.transform().m11()
+    canvas.wheelEvent(_wheel_event(Qt.KeyboardModifier.ShiftModifier, -120))
+    assert canvas.transform().m11() == pytest.approx(before_zoom)
+    assert bar.maximum() > 0
+
+
+def test_mainwindow_shrinks_oversized_image_to_tape_width(qapp):
+    from ql_editor.app import MainWindow
+
+    win = MainWindow()
+    item = _wide_image(2400, 1600)
+    win._add_item(item)
+
+    width, height = win._canvas.item_scene_size(item)
+    assert width == pytest.approx(win._canvas.printable_rect().width(), abs=1.0)
+    assert height < width
+    # Seitenverhaeltnis bleibt erhalten (1600/2400 = 2/3).
+    assert height == pytest.approx(width * 1600 / 2400, rel=0.01)
+
+
+def test_small_image_is_not_enlarged(qapp):
+    from ql_editor.app import MainWindow
+
+    win = MainWindow()
+    item = _wide_image(120, 80)
+    win._add_item(item)
+    width, height = win._canvas.item_scene_size(item)
+    # Pixmap-Items haben in Qt einen halben Dot "Rand" pro Seite.
+    assert width == pytest.approx(120.0, abs=1.5)
+    assert height == pytest.approx(80.0, abs=1.5)
+
+
+# --------------------------------------------------------------------------- #
+# Groesse / Drehung (auch bei gedrehten und skalierten Objekten)
+# --------------------------------------------------------------------------- #
+def test_resize_keeps_anchor_for_rotated_item(qapp):
+    from PySide6.QtCore import QPointF
+
+    canvas = _prepared_canvas(qapp)
+    item = TextItem("gedreht", font_pixel_size=40)
+    canvas.add_item(item)
+    item.setPos(150, 120)
+    item.setRotation(30)
+    canvas._scene.clearSelection()
+    item.setSelected(True)
+    qapp.processEvents()
+
+    anchor_before = canvas._handle_points(item)["nw"]
+    se = canvas._handle_points(item)["se"]
+    target = QPointF(se.x() + 40, se.y() + 30)
+    _press(canvas, se)
+    _drag_to(canvas, target)
+    _release(canvas, target)
+
+    anchor_after = canvas._handle_points(item)["nw"]
+    assert anchor_after.x() == pytest.approx(anchor_before.x(), abs=0.5)
+    assert anchor_after.y() == pytest.approx(anchor_before.y(), abs=0.5)
+
+
+def test_resize_of_scaled_image_uses_scene_units(qapp):
+    from PySide6.QtCore import QPointF
+
+    canvas = _prepared_canvas(qapp)
+    item = _wide_image(1000, 800)
+    canvas.add_item(item)
+    item.setPos(40, 40)
+    item.setTransform(item.transform().scale(0.2, 0.2))  # angezeigte Breite 200
+    canvas._scene.clearSelection()
+    item.setSelected(True)
+    qapp.processEvents()
+
+    width_before = canvas.item_scene_size(item)[0]
+    assert width_before == pytest.approx(200, abs=1)
+
+    e = canvas._handle_points(item)["e"]
+    target = QPointF(e.x() + 50, e.y())
+    _press(canvas, e)
+    _drag_to(canvas, target)
+    _release(canvas, target)
+
+    # Der Zeiger wanderte 50 Szenen-Dots -> das Bild waechst um 50 Dots,
+    # nicht um 50 * 1/0.2.
+    assert canvas.item_scene_size(item)[0] == pytest.approx(width_before + 50, abs=1.5)
+
+
+def test_rotation_keeps_item_center(qapp):
+    from PySide6.QtCore import QPointF
+
+    canvas = _prepared_canvas(qapp)
+    item = TextItem("mitte", font_pixel_size=40)
+    canvas.add_item(item)
+    item.setPos(200, 150)
+    canvas._scene.clearSelection()
+    item.setSelected(True)
+    qapp.processEvents()
+
+    center_before = item.mapToScene(item.boundingRect().center())
+    handle = canvas._rotate_handle_point(item)
+    _press(canvas, handle)
+    _drag_to(canvas, QPointF(center_before.x() + 120, center_before.y() + 60))
+    _release(canvas, QPointF(center_before.x() + 120, center_before.y() + 60))
+
+    center_after = item.mapToScene(item.boundingRect().center())
+    assert item.rotation() != pytest.approx(0)
+    assert center_after.x() == pytest.approx(center_before.x(), abs=0.5)
+    assert center_after.y() == pytest.approx(center_before.y(), abs=0.5)
+
+
+def test_rotation_snaps_to_15_degrees(qapp):
+    from PySide6.QtCore import QPointF
+
+    canvas = _prepared_canvas(qapp)
+    item = TextItem("rastet", font_pixel_size=40)
+    canvas.add_item(item)
+    canvas._scene.clearSelection()
+    item.setSelected(True)
+    center = item.mapToScene(item.boundingRect().center())
+    canvas._op_item = item
+    canvas._op_rotate_center = center
+    canvas._op_rotate_start = -math.pi / 2
+    canvas._op_start_rotation = 0.0
+    canvas._do_rotate(QPointF(center.x() + 100, center.y() + 17), snap=True)
+    # atan2(17, 100) = 9.65 Grad, plus 90 Grad Startversatz -> auf 105 Grad gerastet.
+    assert item.rotation() % 15 == pytest.approx(0, abs=0.01)
+    assert item.rotation() == pytest.approx(105, abs=0.01)
+
+
+def test_rotate_handle_distance_is_constant_for_scaled_items(qapp):
+    canvas = _prepared_canvas(qapp)
+    item = _wide_image(1000, 800)
+    canvas.add_item(item)
+    item.setTransform(item.transform().scale(0.1, 0.1))
+    qapp.processEvents()
+
+    top = canvas._handle_points(item)["n"]
+    handle = canvas._rotate_handle_point(item)
+    distance = math.hypot(handle.x() - top.x(), handle.y() - top.y())
+    assert distance == pytest.approx(ROTATE_OFFSET_PX / canvas.transform().m11(), rel=0.01)
+
+
+def test_handle_cursor_follows_rotation(qapp):
+    canvas = _prepared_canvas(qapp)
+    item = TextItem("cursor", font_pixel_size=40)
+    canvas.add_item(item)
+
+    assert canvas._cursor_for_handle(item, "e") == Qt.CursorShape.SizeHorCursor
+    item.setRotation(90)
+    assert canvas._cursor_for_handle(item, "e") == Qt.CursorShape.SizeVerCursor
+    item.setRotation(45)
+    assert canvas._cursor_for_handle(item, "e") == Qt.CursorShape.SizeFDiagCursor
+
+
+def test_rotated_item_is_clamped_by_rotated_hull(qapp):
+    canvas = _prepared_canvas(qapp)
+    item = TextItem("Rand", font_pixel_size=40)
+    canvas.add_item(item)
+    item.setRotation(90)
+    item.setPos(10_000, 10_000)
+
+    printable = canvas.printable_rect()
+    hull = item.sceneBoundingRect()
+    assert hull.right() <= printable.right() + 1
+    assert hull.bottom() <= printable.bottom() + 1
+
+
+def test_inspector_image_size_in_millimetres(qapp):
+    from PySide6.QtWidgets import QDoubleSpinBox
+
+    from ql_editor.inspector import InspectorPanel
+    from ql_editor.media import DOTS_PER_MM
+
+    inspector = InspectorPanel()
+    item = _wide_image(600, 300)
+    inspector.set_item(item)
+
+    fields = inspector.findChildren(QDoubleSpinBox)
+    assert len(fields) == 2
+    width, height = fields
+    assert width.value() == pytest.approx(600 / DOTS_PER_MM, abs=0.2)
+    assert height.value() == pytest.approx(300 / DOTS_PER_MM, abs=0.2)
+
+    # Breite aendern: Hoehe folgt im Seitenverhaeltnis (2:1).
+    width.setValue(30.0)
+    assert inspector._image_size(item)[0] == pytest.approx(30 * DOTS_PER_MM, abs=1.5)
+    assert inspector._image_size(item)[1] == pytest.approx(15 * DOTS_PER_MM, abs=1.5)
+    assert height.value() == pytest.approx(15.0, abs=0.2)
+
+    # Hoehe aendern: Breite folgt.
+    height.setValue(10.0)
+    assert inspector._image_size(item)[1] == pytest.approx(10 * DOTS_PER_MM, abs=1.5)
+    assert width.value() == pytest.approx(20.0, abs=0.2)
