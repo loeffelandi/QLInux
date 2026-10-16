@@ -129,8 +129,12 @@ macOS) keinen globalen Menübalken; ein Menü-Knopf in der Toolbar ist dort die
 übliche, moderne Lösung. Die Einträge teilen sich die `QAction`s mit der
 Toolbar, bleiben also immer synchron.
 
-* **Doppelklick ins Leere** legt ein Textfeld an und startet die Bearbeitung.
-* **Doppelklick auf Text** editiert inline (Esc beendet).
+* **Doppelklick ins Leere** legt ein Textfeld an und startet die Bearbeitung -
+  **leer und ohne Markierung**: der Cursor blinkt, getippt wird sofort der
+  eigene Text. Bleibt das Feld leer (Klick daneben oder `Esc`), wird es wieder
+  verworfen, statt als unsichtbares Objekt liegen zu bleiben.
+* **Doppelklick auf Text** editiert inline: der Cursor steht an der geklickten
+  Stelle, der Text bleibt unmarkiert (nichts wird überschrieben). `Esc` beendet.
 * **Ziehen** verschiebt das Objekt; bei Mehrfachauswahl bewegt sich die
   ganze Auswahl gemeinsam. Objekte **rasten magnetisch** an Bandkanten,
   Bandmitte und anderen Objekten ein - die Einrastlinien werden während

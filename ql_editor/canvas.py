@@ -1040,10 +1040,12 @@ class LabelCanvas(QGraphicsView):
             super().mouseDoubleClickEvent(event)
             return
         item = self._top_serializable_item_at(self._event_pos(event))
+        scene_pos = self.mapToScene(self._event_pos(event))
         if item is None:
-            self.text_requested.emit(self.mapToScene(self._event_pos(event)))
+            self.text_requested.emit(scene_pos)
         elif getattr(item, "kind", None) == "text":
-            item.start_editing()
+            # Cursor dorthin, wo geklickt wurde (kein Vorauswaehlen des Textes).
+            item.start_editing(item.mapFromScene(scene_pos))
         else:
             self._scene.clearSelection()
             item.setSelected(True)
@@ -1115,11 +1117,19 @@ class LabelCanvas(QGraphicsView):
                 self.print_preview_exit_requested.emit()
             event.accept()
             return
+        key = event.key()
         focus = self._scene.focusItem()
-        if focus is not None and getattr(focus, "is_editing", False):
+        editing = focus is not None and getattr(focus, "is_editing", False)
+        if key == Qt.Key.Key_Escape:
+            # Esc beendet die Inline-Bearbeitung und die Auswahl. Qt laesst ein
+            # Textfeld in Bearbeitung von sich aus offen - deshalb hier zuerst.
+            self.cancel_editing()
+            self._scene.clearSelection()
+            event.accept()
+            return
+        if editing:
             super().keyPressEvent(event)
             return
-        key = event.key()
         if key in (Qt.Key.Key_Delete, Qt.Key.Key_Backspace):
             self.delete_selected()
             self.items_changed.emit()
@@ -1139,11 +1149,6 @@ class LabelCanvas(QGraphicsView):
             for item in self.selected_items():
                 item.moveBy(dx, dy)
             self.items_changed.emit()
-            event.accept()
-            return
-        if key == Qt.Key.Key_Escape:
-            self.cancel_editing()
-            self._scene.clearSelection()
             event.accept()
             return
         super().keyPressEvent(event)
@@ -1168,6 +1173,12 @@ class LabelCanvas(QGraphicsView):
         for item in self.selected_items():
             self._scene.removeItem(item)
         self._update_pasteboard()
+
+    def remove_item(self, item) -> None:
+        """Ein einzelnes Item entfernen (Auswahl der uebrigen bleibt)."""
+        if item.scene() is self._scene:
+            self._scene.removeItem(item)
+            self._update_pasteboard()
 
     def items_serialized(self) -> list[dict[str, Any]]:
         result = [it.to_dict() for it in self._scene.items() if hasattr(it, "to_dict")]

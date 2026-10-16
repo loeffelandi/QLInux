@@ -640,13 +640,21 @@ class MainWindow(QMainWindow):
         item.setPos(pos if pos is not None else self._default_item_pos())
         if isinstance(item, TextItem):
             item.document().contentsChanged.connect(self._on_text_edited)
+            item.editing_finished.connect(self._on_text_editing_finished)
         self._canvas.add_item(item)
         self._canvas.setFocus()
         self._recompute_canvas()
         self._schedule_refresh()
         self._on_selection_changed()
 
-    def _new_text(self, pos: QPointF | None = None, text: str = "Text") -> TextItem:
+    def _new_text(self, pos: QPointF | None = None, text: str = "") -> TextItem:
+        """Neues Textfeld anlegen und direkt bearbeiten.
+
+        Bewusst **ohne Platzhaltertext**: der Doppelklick setzt nur den Cursor,
+        getippt wird sofort der eigene Text. Bleibt das Feld leer, wird es beim
+        Beenden der Bearbeitung wieder verworfen (siehe
+        :meth:`_on_text_editing_finished`) - wie im P-touch Editor.
+        """
         item = TextItem(text, font_pixel_size=self._default_font_size())
         self._add_item(item, pos)
         item.start_editing()
@@ -657,6 +665,25 @@ class MainWindow(QMainWindow):
 
     def _on_text_requested(self, scene_pos: QPointF) -> None:
         self._new_text(scene_pos)
+
+    def _on_text_editing_finished(self) -> None:
+        """Leer gebliebene Textfelder verwerfen.
+
+        Ein Doppelklick legt ein leeres Feld an; tippt man nichts und klickt
+        daneben, soll kein unsichtbares Objekt im Etikett zurueckbleiben.
+        Das Entfernen wird verzoegert, weil das Signal aus dem Fokus-Event des
+        Items kommt - dort darf es sich nicht selbst aus der Szene nehmen.
+        """
+        item = self.sender()
+        if not isinstance(item, TextItem) or str(item.toPlainText()).strip():
+            return
+        QTimer.singleShot(0, lambda: self._discard_text_if_empty(item))
+
+    def _discard_text_if_empty(self, item: TextItem) -> None:
+        if item.scene() is None or str(item.toPlainText()).strip():
+            return
+        self._canvas.remove_item(item)
+        self._on_items_changed()
 
     def _on_text_edited(self) -> None:
         self._recompute_canvas()

@@ -245,8 +245,145 @@ def test_text_item_inline_editing(qapp):
     assert item.is_editing is False
     item.start_editing()
     assert item.is_editing is True
+    assert item.textCursor().hasSelection() is False
     item.finish_editing()
     assert item.is_editing is False
+
+
+def test_escape_ends_inline_editing(qapp):
+    """Esc beendet die Bearbeitung (Qt laesst das Textfeld sonst offen)."""
+    from PySide6.QtCore import QEvent, Qt
+    from PySide6.QtGui import QKeyEvent
+
+    canvas = _prepared_canvas(qapp)
+    item = TextItem("Hallo")
+    canvas.add_item(item)
+    item.start_editing()
+    assert item.is_editing is True
+
+    canvas.keyPressEvent(
+        QKeyEvent(QEvent.Type.KeyPress, Qt.Key.Key_Escape, Qt.KeyboardModifier.NoModifier)
+    )
+    assert item.is_editing is False
+    assert item.isSelected() is False
+
+
+def test_new_text_is_empty_and_not_selected(qapp):
+    """Doppelklick legt ein leeres Feld an - kein markierter Platzhaltertext."""
+    from PySide6.QtCore import QPointF
+
+    from ql_editor.app import MainWindow
+
+    win = MainWindow()
+    win.show()
+    qapp.processEvents()
+    item = win._new_text(QPointF(50, 50))
+    qapp.processEvents()
+
+    assert item.is_editing is True
+    assert item.toPlainText() == ""
+    assert item.textCursor().hasSelection() is False
+    # Sofort tippen schreibt den eigenen Text.
+    item.textCursor().insertText("Hallo")
+    assert item.toPlainText() == "Hallo"
+
+
+def test_editing_existing_text_does_not_select_everything(qapp):
+    """Doppelklick in ein bestehendes Feld setzt nur den Cursor."""
+    from PySide6.QtCore import QPointF
+
+    canvas = _prepared_canvas(qapp)
+    item = TextItem("Hallo Band", font_pixel_size=40)
+    canvas.add_item(item)
+    item.setPos(40, 40)
+    item.start_editing(QPointF(20, 10))
+
+    assert item.is_editing is True
+    assert item.textCursor().hasSelection() is False
+    before = len(item.toPlainText())
+    item.textCursor().insertText("X")
+    assert len(item.toPlainText()) == before + 1  # anhaengen statt ersetzen
+
+
+def test_empty_text_field_is_discarded_when_editing_ends(qapp):
+    """Leer gebliebene Felder verschwinden (kein unsichtbares Objekt)."""
+    from PySide6.QtCore import QPointF
+
+    from ql_editor.app import MainWindow
+
+    win = MainWindow()
+    win.show()
+    qapp.processEvents()
+    win._new_text(QPointF(50, 50))
+    qapp.processEvents()
+    win._canvas.cancel_editing()
+    qapp.processEvents()
+    assert [i for i in win._canvas.scene().items() if isinstance(i, TextItem)] == []
+
+
+def test_text_field_with_content_survives_editing(qapp):
+    from PySide6.QtCore import QPointF
+
+    from ql_editor.app import MainWindow
+
+    win = MainWindow()
+    win.show()
+    qapp.processEvents()
+    item = win._new_text(QPointF(50, 50))
+    item.textCursor().insertText("Bleibt")
+    win._canvas.cancel_editing()
+    qapp.processEvents()
+    texts = [i for i in win._canvas.scene().items() if isinstance(i, TextItem)]
+    assert [i.toPlainText() for i in texts] == ["Bleibt"]
+
+
+def test_double_click_in_text_puts_cursor_at_click(qapp):
+    """Doppelklick ins Feld: Cursor an die geklickte Stelle, nichts markiert."""
+    from PySide6.QtCore import QEvent, QPointF, Qt
+
+    canvas = _prepared_canvas(qapp)
+    item = TextItem("Hallo Band", font_pixel_size=40)
+    canvas.add_item(item)
+    item.setPos(40, 40)
+    canvas.cancel_editing()
+
+    click = item.mapToScene(QPointF(120, 20))
+    canvas.mouseDoubleClickEvent(
+        _mouse_event(
+            QEvent.Type.MouseButtonDblClick,
+            canvas,
+            click,
+            Qt.MouseButton.LeftButton,
+            Qt.MouseButton.LeftButton,
+            Qt.KeyboardModifier.NoModifier,
+        )
+    )
+    cursor = item.textCursor()
+    assert item.is_editing is True
+    assert cursor.hasSelection() is False
+    assert 0 < cursor.position() < len(item.toPlainText())
+
+
+def test_double_click_on_empty_canvas_requests_new_text(qapp):
+    from PySide6.QtCore import QEvent, QPointF, Qt
+
+    canvas = _prepared_canvas(qapp)
+    seen: list[QPointF] = []
+    canvas.text_requested.connect(seen.append)
+
+    canvas.mouseDoubleClickEvent(
+        _mouse_event(
+            QEvent.Type.MouseButtonDblClick,
+            canvas,
+            QPointF(200, 150),
+            Qt.MouseButton.LeftButton,
+            Qt.MouseButton.LeftButton,
+            Qt.KeyboardModifier.NoModifier,
+        )
+    )
+    assert len(seen) == 1
+    assert seen[0].x() == pytest.approx(200, abs=1)
+    assert seen[0].y() == pytest.approx(150, abs=1)
 
 
 def test_apply_resize_for_all_types(qapp):
@@ -1550,7 +1687,9 @@ def test_selection_is_not_printed(qapp):
 
 
 def test_text_caret_is_not_printed(qapp):
-    """Die Einfuegemarke darf nicht als duenne Linie im Etikett landen."""
+    """Weder Einfuegemarke noch Textmarkierung duerfen im Etikett landen."""
+    from PySide6.QtGui import QTextCursor
+
     canvas = _prepared_canvas(qapp)
     item = TextItem("Bearbeitung 123", font_pixel_size=40)
     canvas.add_item(item)
@@ -1559,6 +1698,9 @@ def test_text_caret_is_not_printed(qapp):
 
     item.start_editing()
     qapp.processEvents()
+    cursor = item.textCursor()
+    cursor.select(QTextCursor.SelectionType.Document)
+    item.setTextCursor(cursor)
     editing = _render_1bit(canvas)
     item.finish_editing()
     qapp.processEvents()

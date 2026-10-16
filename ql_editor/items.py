@@ -20,7 +20,7 @@ import base64
 from typing import Any
 
 from PIL import Image
-from PySide6.QtCore import QBuffer, QIODevice, QPointF, QRectF, Qt
+from PySide6.QtCore import QBuffer, QIODevice, QPointF, QRectF, Qt, Signal
 from PySide6.QtGui import (
     QBrush,
     QColor,
@@ -165,7 +165,11 @@ class LabelItem(_ClampMixin):
 class TextItem(_ClampMixin, QGraphicsTextItem):
     kind = "text"
 
-    def __init__(self, text: str = "Text", font_family: str = "Sans", font_pixel_size: int = 48):
+    #: Bearbeitung beendet (Fokus weg oder Esc). Die App raeumt damit leere
+    #: Textfelder auf, die nur durch einen Doppelklick entstanden sind.
+    editing_finished = Signal()
+
+    def __init__(self, text: str = "", font_family: str = "Sans", font_pixel_size: int = 48):
         super().__init__(text)
         self.setFlags(
             QGraphicsItem.GraphicsItemFlag.ItemIsMovable
@@ -233,16 +237,35 @@ class TextItem(_ClampMixin, QGraphicsTextItem):
         self.setTextWidth(width if width > 0 else -1)
 
     # -- Inline-Bearbeitung -------------------------------------------------
-    def start_editing(self) -> None:
-        """Doppelklick-Modus: Cursor setzen und gesamten Text vorauswaehlen."""
+    def start_editing(self, item_pos: QPointF | None = None) -> None:
+        """Bearbeitung starten - **ohne** den Text vorauszuwaehlen.
+
+        Ein Doppelklick soll nichts ueberschreiben: der Cursor landet an der
+        geklickten Stelle, sonst am Ende des Textes. Innerhalb eines Feldes in
+        Bearbeitung setzt ein einfacher Klick den Cursor genau - die Canvas
+        laesst Klicks auf ein Feld in Bearbeitung durch.
+        """
         self.setTextInteractionFlags(Qt.TextInteractionFlag.TextEditorInteraction)
         self.setFocus(Qt.FocusReason.MouseFocusReason)
         cursor = self.textCursor()
-        cursor.select(QTextCursor.SelectionType.Document)
+        cursor.clearSelection()
+        index = self._index_at(item_pos) if item_pos is not None else -1
+        if index >= 0:
+            cursor.setPosition(index)
+        else:
+            cursor.movePosition(QTextCursor.MoveOperation.End)
         self.setTextCursor(cursor)
 
+    def _index_at(self, item_pos: QPointF) -> int:
+        """Zeichenposition unter ``item_pos`` (Item-Koordinaten) oder ``-1``."""
+        index = self.document().documentLayout().hitTest(item_pos, Qt.HitTestAccuracy.FuzzyHit)
+        return int(index)
+
     def finish_editing(self) -> None:
+        was_editing = self.is_editing
         self.setTextInteractionFlags(Qt.TextInteractionFlag.NoTextInteraction)
+        if was_editing:
+            self.editing_finished.emit()
 
     @property
     def is_editing(self) -> bool:
