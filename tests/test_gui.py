@@ -1947,6 +1947,36 @@ def test_threshold_is_disabled_while_dithering(qapp, tmp_path):
     assert win._threshold_label.text() == "Tintenmenge"
 
 
+def test_threshold_range_excludes_the_extremes(qapp, tmp_path):
+    """Alles-schwarz und nur-reines-Schwarz sind nicht waehlbar."""
+    from ql_editor.preview import THRESHOLD_MAX, THRESHOLD_MIN
+
+    win = _temp_window(qapp, tmp_path)
+    assert win._threshold_spin.minimum() == THRESHOLD_MIN
+    assert win._threshold_spin.maximum() == THRESHOLD_MAX
+    assert THRESHOLD_MIN < 70 < THRESHOLD_MAX
+
+    win._threshold_spin.setValue(100)
+    assert win._threshold_spin.value() == THRESHOLD_MAX
+    win._threshold_spin.setValue(0)
+    assert win._threshold_spin.value() == THRESHOLD_MIN
+
+    # Alte Einstellungen ausserhalb der Spanne werden beim Laden begrenzt.
+    win._settings.threshold = 5
+    win._apply_saved_settings()
+    assert win._threshold_spin.value() == THRESHOLD_MIN
+
+
+def test_threshold_has_an_explanatory_tooltip(qapp, tmp_path):
+    win = _temp_window(qapp, tmp_path)
+    tooltip = win._threshold_spin.toolTip()
+    assert tooltip == win._threshold_label.toolTip()
+    assert "Schwärze" in tooltip          # was der Wert bedeutet
+    assert "kräftiger" in tooltip         # hoeher = mehr Tinte
+    assert "Dithering" in tooltip         # wann er nicht wirkt
+    assert "40 %" in tooltip and "90 %" in tooltip  # waehlbare Spanne
+
+
 def test_old_hq_setting_is_migrated(qapp, tmp_path):
     """Bestehende Einstellungen (print/hq) werden einmalig uebersetzt."""
     from PySide6.QtCore import QSettings

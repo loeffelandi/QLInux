@@ -26,6 +26,13 @@ from PySide6.QtGui import QImage
 #: zum Default in :mod:`ql_editor.printer`.
 DEFAULT_THRESHOLD = 70
 
+#: Waehlbare Spanne der Tintenmenge (Prozent). Die Extremwerte sind bewusst
+#: nicht waehlbar: 100 % druckt jede Flaeche schwarz, 0 % nur reines Schwarz -
+#: beides ist kein brauchbares Ergebnis. 40 % = fein (nur dunkle Punkte werden
+#: Tinte), 90 % = kraeftig (auch hellgraue Raender werden schwarz).
+THRESHOLD_MIN = 40
+THRESHOLD_MAX = 90
+
 
 @dataclass(frozen=True)
 class PreviewOptions:
@@ -130,6 +137,9 @@ def to_qimage(image: Image.Image) -> QImage:
 
 
 __all__ = [
+    "DEFAULT_THRESHOLD",
+    "THRESHOLD_MAX",
+    "THRESHOLD_MIN",
     "PreviewOptions",
     "binarize",
     "preview_to_convert_parity",

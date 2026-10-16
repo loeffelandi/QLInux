@@ -52,6 +52,8 @@ from .media_panel import MediaPanel
 from .panels import OverlayPanel, PanelHost
 from .preview import (
     DEFAULT_THRESHOLD,
+    THRESHOLD_MAX,
+    THRESHOLD_MIN,
     PreviewOptions,
     binarize,
     ink_ratio,
@@ -245,10 +247,11 @@ class MainWindow(QMainWindow):
 
         # Tintenmenge = brother_ql-Schwelle ("-t"). Sie wirkt nur ohne
         # Dithering (convert() nutzt sie dann nicht) - deshalb wird sie dann
-        # ausgegraut, statt still wirkungslos zu sein.
+        # ausgegraut, statt still wirkungslos zu sein. Die Extremwerte (alles
+        # schwarz / nur reines Schwarz) sind nicht waehlbar.
         self._threshold_label = QLabel("Tintenmenge")
         self._threshold_spin = QSpinBox()
-        self._threshold_spin.setRange(0, 100)
+        self._threshold_spin.setRange(THRESHOLD_MIN, THRESHOLD_MAX)
         self._threshold_spin.setValue(DEFAULT_THRESHOLD)
         self._threshold_spin.setSuffix(" %")
         self._threshold_label.setBuddy(self._threshold_spin)
@@ -294,17 +297,23 @@ class MainWindow(QMainWindow):
 
     def _threshold_tooltip(self) -> str:
         return (
-            "Wie viel Tinte der Drucker setzt (Schwelle \"-t\" von brother_ql, "
-            "Standard 70 %).\n"
-            "Der Drucker kennt nur Schwarz oder Weiß - hier wird entschieden, ab "
-            "wann ein Grauton\n"
-            "(z. B. eine weiche Buchstabenkante) Tinte wird:\n"
-            "70 % = alles ab etwa 30 % Schwärze wird Tinte (gut für Text).\n"
-            "höher = mehr Tinte: auch hellgraue Ränder werden schwarz (kräftiger, "
-            "breitere Schrift).\n"
-            "niedriger = weniger Tinte: nur dunkle Punkte werden schwarz (feiner; "
-            "dünne Striche können ausfransen).\n"
-            "Wirkt nur ohne Dithering - mit Dithering ignoriert brother_ql den Wert."
+            "Wie viel Tinte der Drucker setzt.\n"
+            "\n"
+            "Der Drucker kennt nur Schwarz oder Weiß: jede weiche Kante und "
+            "jeder Grauton\n"
+            "im Design muss zu einem von beidem werden. Die Tintenmenge ist der "
+            "Schnitt:\n"
+            "70 % (Standard) = alles ab etwa 30 % Schwärze wird Tinte - gut für "
+            "Text.\n"
+            "höher = mehr Tinte: auch hellgraue Ränder werden schwarz, die "
+            "Schrift wird\n"
+            "kräftiger und etwas breiter.\n"
+            "niedriger = weniger Tinte: nur dunkle Punkte werden schwarz, feiner "
+            "- dünne\n"
+            "Striche können ausfransen.\n"
+            f"Einstellbar von {THRESHOLD_MIN} % (fein) bis {THRESHOLD_MAX} % "
+            "(kräftig).\n"
+            "Wirkt nur ohne Dithering."
         )
 
     def _on_dither_toggled(self) -> None:

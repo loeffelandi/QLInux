@@ -183,15 +183,14 @@ Toolbar, bleiben also immer synchron.
     die Stufe an (`DPI_600_MODELS` in `ql_editor/printer.py`: QL-800, QL-810W,
     QL-820NWB); sie braucht doppelt so viele Zeilen und druckt deshalb
     langsamer.
-* **Tintenmenge** (die Schwelle `-t` des brother_ql-Werkzeugs, Standard 70 %):
-  Der Drucker kennt nur Schwarz oder Weiß. Das Feld legt fest, **ab wann ein
-  Grauton Tinte wird** - 70 % heißt „alles ab etwa 30 % Schwärze wird Tinte".
-  Höher = mehr Tinte (auch hellgraue Ränder werden schwarz, kräftigere und
-  etwas breitere Schrift); niedriger = weniger Tinte (nur dunkle Punkte werden
-  schwarz, feiner - dünne Striche können ausfransen). Für Textetiketten ist der
-  Standardwert gut; nachjustieren lohnt bei sehr dünnen Schriften, feinen
-  Grafiken oder ausgefransten Kanten. „Tinte: x %" zeigt sofort, was der Wert
-  bewirkt.
+* **Tintenmenge** (Standard 70 %, einstellbar von 40 % bis 90 %): Der Drucker
+  kennt nur Schwarz oder Weiß - jede weiche Kante und jeder Grauton im Design
+  muss zu einem von beidem werden. Das Feld ist der Schnitt: 70 % heißt „alles
+  ab etwa 30 % Schwärze wird Tinte". Höher = mehr Tinte (auch hellgraue Ränder
+  werden schwarz, kräftigere und etwas breitere Schrift); niedriger = weniger
+  Tinte (nur dunkle Punkte werden schwarz, feiner - dünne Striche können
+  ausfransen). Die Extremwerte (alles schwarz bzw. nur reines Schwarz) sind
+  bewusst nicht wählbar. „Tinte: x %" zeigt sofort, was der Wert bewirkt.
 * **Graustufen (Dithering)**: für Fotos und Bilder - Grautöne werden gepunktet
   statt hart geschwellt. Dann ist die Tintenmenge **wirkungslos** (die
   Bibliothek ignoriert sie); das Feld wird ausgegraut, statt still nichts zu
