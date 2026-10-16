@@ -845,6 +845,61 @@ def test_canvas_resize_se_keeps_top_left(qapp):
     assert b1.width() > b0.width()
 
 
+def test_rotate_handle_shows_a_rotation_cursor(qapp):
+    """Am Drehgriff zeigt der Zeiger ein Rotations-Symbol, kein Fadenkreuz.
+
+    Qt hat keinen Rotations-Cursor - er wird wie die Icons gezeichnet und als
+    Pixmap-Zeiger gesetzt (siehe :func:`ql_editor.icons.cursor`).
+    """
+    from PySide6.QtCore import QEvent, Qt
+
+    from ql_editor import icons
+
+    canvas = _prepared_canvas(qapp)
+    item = TextItem("drehen", font_pixel_size=30)
+    canvas.add_item(item)
+    item.setPos(100, 120)
+    canvas._scene.clearSelection()
+    item.setSelected(True)
+    qapp.processEvents()
+
+    canvas.mouseMoveEvent(
+        _mouse_event(
+            QEvent.Type.MouseMove,
+            canvas,
+            canvas._rotate_handle_point(item),
+            Qt.MouseButton.NoButton,
+            Qt.MouseButton.NoButton,
+            Qt.KeyboardModifier.NoModifier,
+        )
+    )
+    cursor = canvas.viewport().cursor()
+    assert cursor.shape() == Qt.CursorShape.BitmapCursor
+    assert cursor.pixmap().width() == icons.CURSOR_SIZE
+
+    # Ueber einem Groessen-Griff bleibt es beim System-Cursor.
+    east = canvas._handle_points(item)["e"]
+    canvas.mouseMoveEvent(
+        _mouse_event(
+            QEvent.Type.MouseMove,
+            canvas,
+            east,
+            Qt.MouseButton.NoButton,
+            Qt.MouseButton.NoButton,
+            Qt.KeyboardModifier.NoModifier,
+        )
+    )
+    assert canvas.viewport().cursor().shape() == Qt.CursorShape.SizeHorCursor
+
+
+def test_rotation_cursor_is_cached_and_unknown_names_raise(qapp):
+    from ql_editor import icons
+
+    assert icons.cursor("rotate") is icons.cursor("rotate")
+    with pytest.raises(KeyError):
+        icons.cursor("gibt-es-nicht")
+
+
 def test_canvas_rotate_handle(qapp):
     from PySide6.QtCore import QPointF
 

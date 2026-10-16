@@ -22,15 +22,19 @@ Aufruf::
 
 from __future__ import annotations
 
-from PySide6.QtCore import QPointF, QRectF, Qt
+import math
+
+from PySide6.QtCore import QPoint, QPointF, QRectF, Qt
 from PySide6.QtGui import (
     QColor,
+    QCursor,
     QIcon,
     QPainter,
     QPainterPath,
     QPalette,
     QPen,
     QPixmap,
+    QPolygonF,
 )
 from PySide6.QtWidgets import QApplication
 
@@ -40,7 +44,10 @@ _SIZES = (16, 20, 22, 24, 32, 48)
 _STROKE = 1.8
 #: Einheitlicher Eckenradius fuer abgerundete Rechtecke.
 _RADIUS = 2.5
+#: Groesse eines gezeichneten Mauszeigers (Bildschirmpixel).
+CURSOR_SIZE = 24
 _CACHE: dict[tuple[str, str], QIcon] = {}
+_CURSOR_CACHE: dict[tuple[str, int, int], QCursor] = {}
 
 
 # --------------------------------------------------------------------------- #
@@ -68,6 +75,43 @@ def text_color() -> QColor:
     if app is not None:
         return app.palette().color(QPalette.ColorRole.WindowText)
     return QColor("#222222")
+
+
+def cursor(name: str, size: int = CURSOR_SIZE) -> QCursor:
+    """Ein ``QCursor`` aus einem gezeichneten Symbol (gecacht).
+
+    Qt bringt keinen Rotations-Cursor mit - das Symbol wird deshalb wie die
+    Icons gezeichnet und als Pixmap-Zeiger benutzt. Bewusst **ohne** Kontur:
+    der Zeiger laeuft ueber dem hellen Canvas, und eine weisse Umrandung macht
+    das feine Symbol bei 24 px nur dick und unkenntlich.
+
+    Der "Klickpunkt" ist die Mitte des Symbols.
+    """
+    if name not in _DRAW:
+        raise KeyError(f"Unbekanntes Icon: {name}")
+    ratio = _device_pixel_ratio()
+    key = (name, size, ratio)
+    cached = _CURSOR_CACHE.get(key)
+    if cached is None:
+        cached = _build_cursor(name, size, ratio)
+        _CURSOR_CACHE[key] = cached
+    return cached
+
+
+def _device_pixel_ratio() -> int:
+    """Geraetepixel pro logischem Pixel (HiDPI) - mindestens 1."""
+    app = QApplication.instance()
+    screen = app.primaryScreen() if app is not None else None
+    if screen is None:
+        return 1
+    return max(1, round(screen.devicePixelRatio()))
+
+
+def _build_cursor(name: str, size: int, ratio: int) -> QCursor:
+    pixels = size * ratio
+    pixmap = _render(name, pixels, QColor("#000000"))
+    hotspot = QPoint(pixels // 2, pixels // 2)
+    return QCursor(pixmap, hotspot.x(), hotspot.y())
 
 
 def available() -> tuple[str, ...]:
@@ -328,6 +372,40 @@ def _draw_preview(p: QPainter, color: QColor) -> None:
     p.drawEllipse(QPointF(12.0, 12.0), 2.8, 2.8)
 
 
+def _draw_rotate(p: QPainter, color: QColor) -> None:
+    """Kreisbogen mit Pfeilspitze - das uebliche "drehen"-Symbol.
+
+    Wird auch als Mauszeiger am Drehgriff benutzt (Qt kennt keinen
+    Rotations-Cursor).
+    """
+    center = QPointF(12.0, 12.0)
+    radius = 7.6
+    start, end = 55.0, 315.0  # Luecke rechts oben
+    _stroke_only(p, color, 1.4)
+    p.drawArc(
+        QRectF(center.x() - radius, center.y() - radius, 2 * radius, 2 * radius),
+        int(start * 16),
+        int((end - start) * 16),
+    )
+    # Pfeilspitze genau am Bogenende, in Bewegungsrichtung gedreht.
+    theta = math.radians(end)
+    tip = QPointF(
+        center.x() + radius * math.cos(theta), center.y() - radius * math.sin(theta)
+    )
+    forward = QPointF(-math.sin(theta), -math.cos(theta))  # Bewegungsrichtung
+    sideways = QPointF(-forward.y(), forward.x())
+    _fill_only(p, color)
+    p.drawPolygon(
+        QPolygonF(
+            [
+                tip + forward * 5.8,
+                tip - forward * 0.6 + sideways * 2.9,
+                tip - forward * 0.6 - sideways * 2.9,
+            ]
+        )
+    )
+
+
 _DRAW = {
     "menu": _draw_menu,
     "text": _draw_text,
@@ -355,6 +433,7 @@ _DRAW = {
     "label": _draw_label,
     "detect": _draw_detect,
     "preview": _draw_preview,
+    "rotate": _draw_rotate,
 }
 
-__all__ = ["icon", "text_color", "available", "GRID"]
+__all__ = ["icon", "cursor", "text_color", "available", "GRID"]

@@ -154,7 +154,9 @@ Toolbar, bleiben also immer synchron.
   wächst also dorthin, wo der Zeiger zieht). Der Mauszeiger dreht sich mit dem
   Objekt mit. Bei Text skaliert die Höhe die Schrift, die Breite setzt die
   Umbruchbreite. Der runde Griff **über** dem Objekt dreht es **um seine
-  Mitte** (Shift rastet auf 15°).
+  Mitte** (Shift rastet auf 15°); der Mauszeiger zeigt dort ein gezeichnetes
+  **Rotations-Symbol** (Qt hat keinen passenden System-Cursor, ein Fadenkreuz
+  würde nichts über „drehen" sagen - siehe `ql_editor/icons.cursor`).
 * **Bilder** werden beim Einfügen (Toolbar, Kontextmenü oder Drag & Drop) auf
   die **Bandbreite verkleinert**, wenn sie größer sind - nie vergrößert, immer
   im Seitenverhältnis. Ein 2400-px-Foto landet damit direkt passend auf dem

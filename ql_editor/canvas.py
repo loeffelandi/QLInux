@@ -42,6 +42,7 @@ from PySide6.QtWidgets import QGraphicsScene, QGraphicsView, QWidget
 from PIL import Image
 
 from . import items as items_mod
+from .icons import cursor
 from .renderer import render_scene_to_image
 from .media import (
     LabelSpec,
@@ -912,7 +913,9 @@ class LabelCanvas(QGraphicsView):
         handle = self._handle_at(scene_pos)
         if handle is not None:
             if handle[0] == "rotate":
-                self.viewport().setCursor(Qt.CursorShape.CrossCursor)
+                # Eigenes Rotations-Symbol: Qt hat keinen passenden Cursor,
+                # ein Fadenkreuz sagt hier nichts ueber "drehen".
+                self.viewport().setCursor(cursor("rotate"))
             else:
                 self.viewport().setCursor(self._cursor_for_handle(handle[1], handle[0]))
         else:
