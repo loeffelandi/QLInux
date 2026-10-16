@@ -13,7 +13,7 @@ import pytest
 from PIL import Image
 
 from ql_editor import printer
-from ql_editor.media import get_label
+from ql_editor.media import get_label, get_model
 from ql_editor.printer import (
     PrinterConfig,
     PrinterConnectionError,
@@ -104,6 +104,101 @@ def test_build_raster_no_cut_option():
     img = Image.new("RGB", (label.width_dots, 472), "white")
     data = build_raster(img, label, CONFIG, cut=False)
     assert len(data) > 0
+
+
+def _capture_raster_images(monkeypatch) -> list[tuple[int, int]]:
+    """Fange die Bildgroessen ab, die ``convert`` an den Drucker gibt."""
+    from brother_ql.raster import BrotherQLRaster
+
+    sizes: list[tuple[int, int]] = []
+    original = BrotherQLRaster.add_raster_data
+
+    def spy(self, image_black, image_red=None):
+        sizes.append(image_black.size)
+        return original(self, image_black, image_red)
+
+    monkeypatch.setattr(BrotherQLRaster, "add_raster_data", spy)
+    return sizes
+
+
+def _expanded_mode_flags(data: bytes) -> int:
+    """Das Flag-Byte des ``ESC i K`` (Expanded Mode) aus den Rasterdaten."""
+    marker = b"\x1b\x69\x4b"
+    index = data.index(marker)
+    return data[index + len(marker)]
+
+
+def test_build_raster_600dpi_sets_high_resolution_and_doubles_rows(monkeypatch):
+    """600-dpi-Modus: Bit 7 an, doppelt so viele Zeilen.
+
+    Die Raster Command Reference der QL-800-Reihe: ``ESC i K`` Bit 7
+    ("High resolution printing") - "1: It prints at 600 dpi in the paper length
+    direction". Der Drucker setzt die Zeilen also mit halbem Abstand; fuer
+    dieselbe Laenge braucht das Bild deshalb doppelt so viele Zeilen (und
+    ``convert`` erwartet genau das: ``dots_expected = [el*2]``).
+    """
+    label = get_label("62")  # 696 px breit
+    device_width = get_model(CONFIG.model).device_pixel_width
+    sizes = _capture_raster_images(monkeypatch)
+
+    design_height = 100  # Dots der Designflaeche in Bandlaufrichtung
+    normal = build_raster(
+        Image.new("RGB", (label.width_dots, design_height), "white"), label, CONFIG
+    )
+    high = build_raster(
+        Image.new(
+            "RGB",
+            (label.width_dots * printer.DPI_600_SCALE, design_height * printer.DPI_600_SCALE),
+            "white",
+        ),
+        label,
+        CONFIG,
+        dpi_600=True,
+    )
+
+    assert _expanded_mode_flags(normal) & 0x40 == 0
+    assert _expanded_mode_flags(high) & 0x40 == 0x40
+
+    # convert() halbiert die doppelte Breite wieder (Bandbreite) und fuellt auf
+    # die Druckkopfbreite auf - die Zeilenzahl bleibt doppelt.
+    rows_normal, rows_high = sizes[0][1], sizes[1][1]
+    assert sizes[0][0] == device_width == sizes[1][0]
+    assert rows_high == rows_normal * printer.DPI_600_SCALE
+    # Gleiche Laenge: die 600-dpi-Zeilen sind halb so lang wie die 300-dpi-Zeilen.
+    assert rows_normal / 300 == pytest.approx(rows_high / 600)
+
+
+def test_build_raster_600dpi_needs_the_scaled_size():
+    """Ohne Renderfaktor 2 lehnt der Druckpfad ab, statt halb zu drucken."""
+    label = get_label("62")
+    img = Image.new("RGB", (label.width_dots, 100), "white")
+    with pytest.raises(PrinterError):
+        build_raster(img, label, CONFIG, dpi_600=True)
+
+
+def test_build_raster_600dpi_die_cut_keeps_the_label_size(monkeypatch):
+    """Auch auf Formetiketten bleibt das 600-dpi-Bild bandbreit und doppelt hoch."""
+    label = get_label("62x100")
+    sizes = _capture_raster_images(monkeypatch)
+    width, height = label.dots_printable
+    build_raster(
+        Image.new("RGB", (width * printer.DPI_600_SCALE, height * printer.DPI_600_SCALE), "white"),
+        label,
+        CONFIG,
+        dpi_600=True,
+    )
+    assert sizes[0][1] == height * printer.DPI_600_SCALE
+
+
+def test_validate_accepts_the_600dpi_scale():
+    label = get_label("50")
+    validate_for_print(
+        Image.new("RGB", (label.width_dots * 2, 400), "white"), label, scale=2
+    )
+    with pytest.raises(PrinterError):
+        validate_for_print(
+            Image.new("RGB", (label.width_dots, 400), "white"), label, scale=2
+        )
 
 
 # --------------------------------------------------------------------------- #

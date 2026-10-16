@@ -81,6 +81,27 @@ def preview_to_convert_parity(
     return ImageOps.invert(binarize(image, options).convert("L")).convert("1")
 
 
+def reduce_for_display(image: Image.Image, factor: int) -> Image.Image:
+    """Verkleinere ein Druckbild um ``factor`` fuer die Anzeige (Graustufen).
+
+    Im 600-dpi-Modus hat das Druckbild doppelt so viele Zeilen wie die
+    Designflaeche. Fuer das Overlay auf dem Canvas (300-dpi-Raster) wird es
+    deshalb um Faktor 2 verkleinert - mit **Box-Filter**, also als Mittelwert
+    der gedruckten Punkte. So bleibt die Vorschau ehrlich: aus dem 1-bit-
+    Druckbild wird genau das, was das Auge an dieser Stelle sieht (feine
+    Details als Grau, nicht als harte Punkte).
+
+    ``factor <= 1`` liefert das Bild unveraendert.
+    """
+    if factor <= 1:
+        return image
+    width, height = image.size
+    return image.convert("L").resize(
+        (max(1, width // factor), max(1, height // factor)),
+        Image.Resampling.BOX,
+    )
+
+
 def ink_ratio(image: Image.Image, options: PreviewOptions | None = None) -> float:
     """Anteil der Tinte (0.0..1.0) im binarisierten Bild - fuer Warnhinweise."""
     visual = binarize(image, options).convert("L")
@@ -112,6 +133,7 @@ __all__ = [
     "PreviewOptions",
     "binarize",
     "preview_to_convert_parity",
+    "reduce_for_display",
     "ink_ratio",
     "to_qimage",
 ]

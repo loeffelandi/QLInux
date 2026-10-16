@@ -450,20 +450,25 @@ class LabelCanvas(QGraphicsView):
                 item.setTextInteractionFlags(Qt.TextInteractionFlag.TextEditorInteraction)
                 item.setFocus(Qt.FocusReason.OtherFocusReason)
 
-    def render_printable(self, *, rotate: bool = False) -> Image.Image:
+    def render_printable(self, *, rotate: bool = False, scale: int = 1) -> Image.Image:
         """Die bedruckbare Flaeche 1:1 als ``PIL.Image`` rendern.
 
         Zentraler Weg fuer Druckvorschau **und** Druck: die Szene wird in exakt
         ``printable_rect()``-Groesse gerendert und Bearbeitungs-Dekorationen
         (Textmarke) sind ausgeblendet. ``rotate=True`` dreht das Ergebnis in die
         Bandorientierung (Ausrichtung ``ALONG``).
+
+        ``scale`` rendert feiner (600-dpi-Modus: ``scale=2``). Die Szene wird
+        dabei in beiden Achsen mit ``scale`` gerendert - das ist genau die
+        Groesse, die ``convert()`` im 600-dpi-Modus erwartet (quer weiterhin
+        300 dpi, in Bandlaufrichtung 600 dpi).
         """
         rect = self.printable_rect()
         with self.suspend_text_caret():
             return render_scene_to_image(
                 self.scene(),
-                int(rect.width()),
-                int(rect.height()),
+                int(rect.width()) * scale,
+                int(rect.height()) * scale,
                 rotate=rotate,
             )
 

@@ -110,17 +110,23 @@ def render_scene_to_image(
     return result
 
 
-def assert_exact_label_width(image: Image.Image, label: LabelSpec) -> None:
-    """Stelle sicher, dass ``image`` exakt ``label.dots_printable[0]`` breit ist.
+def assert_exact_label_width(
+    image: Image.Image, label: LabelSpec, *, scale: int = 1
+) -> None:
+    """Stelle sicher, dass ``image`` exakt ``scale * label.dots_printable[0]`` breit ist.
+
+    ``scale`` ist der Renderfaktor: im 600-dpi-Modus (``scale=2``) erwartet
+    ``convert()`` genau die doppelte Breite (``dots_expected``), sonst schaltet
+    es seinen eigenen Resize-Pfad ein.
 
     :raises RenderError: bei Abweichung - die Fehlermeldung nennt Soll und Ist.
     """
-    expected = label.width_dots
+    expected = label.width_dots * scale
     if image.width != expected:
         raise RenderError(
             f"Bildbreite {image.width} px entspricht nicht der Bandbreite "
-            f"{expected} px (Band {label.identifier!r}). Das wuerde brother_ql "
-            f"zum Resize zwingen."
+            f"{expected} px (Band {label.identifier!r}, Faktor {scale}). Das "
+            f"wuerde brother_ql zum Resize zwingen."
         )
 
 
@@ -130,6 +136,7 @@ def render_for_label(
     canvas_size_dots: tuple[int, int],
     *,
     rotate: bool = False,
+    scale: int = 1,
 ) -> Image.Image:
     """Rendere ``scene`` exakt in der Breite von ``label`` und pruefe das Ergebnis.
 
@@ -137,12 +144,18 @@ def render_for_label(
     ``rotate=True`` (Ausrichtung ``ALONG``) wird das Ergebnis um 90 Grad gedreht
     und ist danach ``label.width_dots`` breit.
 
+    ``scale`` rendert die Designflaeche in beiden Achsen feiner (600-dpi-Modus:
+    ``scale=2``). Da die Szene als Vektor gerendert wird, entsteht dabei echte
+    zusaetzliche Aufloesung - nicht ein hochskaliertes Bild.
+
     Die Breite wird *nicht* angepasst, sondern verifiziert - eine fehlerhafte
     Szene soll auffallen.
     """
     width, height = int(canvas_size_dots[0]), int(canvas_size_dots[1])
-    image = render_scene_to_image(scene, width, height, rotate=rotate)
-    assert_exact_label_width(image, label)
+    image = render_scene_to_image(
+        scene, width * scale, height * scale, rotate=rotate
+    )
+    assert_exact_label_width(image, label, scale=scale)
     return image
 
 

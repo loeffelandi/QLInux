@@ -114,3 +114,47 @@ def test_render_for_label_rotated_is_label_width():
     scene = _scene_with_black_box(300, label.width_dots)
     img = render_for_label(scene, label, (300, label.width_dots), rotate=True)
     assert img.size == (label.width_dots, 300)
+
+
+# --- Renderfaktor fuer den 600-dpi-Modus ---
+def test_render_for_label_scale_renders_finer_in_both_axes():
+    """``scale=2`` rendert die Designflaeche doppelt so fein (600-dpi-Modus).
+
+    Genau diese Groesse erwartet ``convert()`` dann (``dots_expected``); die
+    Laenge bleibt, weil der Drucker die Zeilen mit halbem Abstand setzt.
+    """
+    label = get_label("50")  # 554 px Bandbreite
+    scene = _scene_with_black_box(label.width_dots, 472)
+
+    fine = render_for_label(scene, label, (label.width_dots, 472), scale=2)
+    assert fine.size == (label.width_dots * 2, 472 * 2)
+    assert_exact_label_width(fine, label, scale=2)
+
+    # Ungerader/zu kleiner Faktor faellt auf: die Breite muss zum Faktor passen.
+    with pytest.raises(RenderError):
+        assert_exact_label_width(fine, label)
+
+
+def test_render_for_label_scale_rotated_stays_label_width_times_scale():
+    label = get_label("50")
+    scene = _scene_with_black_box(300, label.width_dots)
+    img = render_for_label(scene, label, (300, label.width_dots), rotate=True, scale=2)
+    # Nach der Drehung: Bandbreite x Laenge, jeweils mit dem Faktor.
+    assert img.size == (label.width_dots * 2, 300 * 2)
+
+
+def test_render_scale_keeps_the_geometry_proportional():
+    """Faktor 2 verdoppelt die Pixel, nicht die Form.
+
+    Ein Rechteck an derselben relativen Stelle bleibt dort - im 600-dpi-Bild
+    liegt es bei doppelten Koordinaten. Genau das braucht der 600-dpi-Druck:
+    dieselbe Anordnung, nur feiner abgetastet.
+    """
+    scene = _scene_with_black_box(200, 400)  # schwarze Box bei (10,10)..(50,40)
+
+    normal = render_scene_to_image(scene, 200, 400).convert("L")
+    fine = render_scene_to_image(scene, 400, 800).convert("L")
+
+    assert fine.size == (400, 800)
+    assert normal.getpixel((30, 25)) < 128 and fine.getpixel((60, 50)) < 128
+    assert normal.getpixel((150, 300)) > 200 and fine.getpixel((300, 600)) > 200

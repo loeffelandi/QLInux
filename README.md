@@ -16,6 +16,7 @@ Kein Browser-Tool, kein WebUSB.
 | M3 | PySide6-GUI (Canvas, Panel, Vorschau) | ✅ |
 | M3.x | Canvas-Editing, Icons, Druckvorschau, weiches Scrollen, Sheets | ✅ |
 | M3.11 | Einklappbare Overlay-Panels, Druckqualität, Vorschau in 1:1 | ✅ |
+| M3.12 | Druckqualität pro Modell (Standard/HQ/600 dpi), Tintenmenge erklärt | ✅ |
 | M4 | Vorlagen, Settings, `.deb`-Paket | ⏳ |
 
 ## Architektur
@@ -75,7 +76,7 @@ python -m ql_editor
   ohne herauszoomen zu müssen. Die Renderquelle bleibt davon unberührt - die
   Szene selbst ist weiterhin exakt die bedruckbare Fläche.
 * **Rechts**: Inspector (Eigenschaften des ausgewählten Objekts) + Druckoptionen
-  (Schwelle, Dithering, Hohe Qualität, Schnitt, Drucken).
+  (Druckqualität, Graustufen, Tintenmenge, Schnitt, Drucken).
 
 Der Canvas ist **räumlich WYSIWYG** (Position, Größe, mm, Randbegrenzung).
 Was er *nicht* zeigt, ist die **Binarisierung**: der Drucker kennt nur 1 bit
@@ -93,6 +94,12 @@ verliert beim *Verkleinern* feine Linien - die Vorschau sähe dann schlechter
 aus als der Druck. Ist sie kleiner als 100 %, erinnert die Zoomanzeige in der
 Statusleiste an `Ctrl+1` (1:1). Im Vorschau-Modus ist die Bearbeitung gesperrt
 (Zoom/Pan bleiben möglich).
+
+Im **600-dpi-Modus** rendert die Vorschau mit demselben Faktor wie der Druck
+und rechnet das 1-bit-Bild nur für die Anzeige auf Canvas-Größe herunter
+(Box-Filter, also Mittelung der gedruckten Punkte). Gezeigt werden damit
+weiterhin die echten Druckdaten - nur eben auf 300-dpi-Anzeigeraster; feine
+Details erscheinen dabei als Grau statt als harte Punkte.
 
 Das Layout ist **responsiv**: Der Canvas passt sich der Fenstergröße an
 (solange kein manueller Zoom gesetzt ist), die Seitenpanels werden bei
@@ -163,13 +170,33 @@ Toolbar, bleiben also immer synchron.
   über dem Canvas, beim Einschalten auf 1:1 (`Ctrl+1`); `Esc` beendet sie.
   Schwelle/Dithering wirken sofort, „Tinte: x %" zeigt den Anteil der
   bedruckten Fläche.
-* **Druckqualität**: Die Schwelle (`-t` wie im brother_ql-Werkzeug, Default
-  70 %) bestimmt, ab welcher Helligkeit ein Pixel Tinte wird - höher = mehr
-  Tinte (kräftiger, aber zugesetzt), niedriger = feiner. Dithering punktet
-  Graustufen (für Fotos); „Hohe Druckqualität (HQ)" ist das Qualitätsflag des
-  Druckers (`pquality`) - ohne HQ druckt er schneller. Alle vier Optionen
-  werden gemerkt. Der Wert geht 1:1 an den Drucker: die Vorschau zeigt genau
-  das Ergebnis.
+* **Druckqualität** (rechts unter „Druckoptionen"): eine Liste mit genau den
+  Stufen, die der **gewählte Drucker** kann - die höchste ist voreingestellt.
+  * *Standard (schneller)*: ohne Qualitätsflag, der Drucker druckt zügiger.
+  * *Hoch (HQ)*: das Qualitätsflag `pquality` (kräftigere Kanten, langsamer) -
+    das kann jedes Modell.
+  * *Maximum (600 dpi)*: der High-Resolution-Modus des Druckers. Er setzt die
+    Zeilen **in Bandlaufrichtung** mit halbem Abstand (600 statt 300 dpi), quer
+    zur Bandbreite bleibt es bei 300 dpi. Das Etikett wird dafür in beiden
+    Achsen mit doppelter Auflösung gerendert (echte Vektorpixel, kein
+    Hochskalieren) und behält seine Länge. Nur Modelle mit diesem Modus bieten
+    die Stufe an (`DPI_600_MODELS` in `ql_editor/printer.py`: QL-800, QL-810W,
+    QL-820NWB); sie braucht doppelt so viele Zeilen und druckt deshalb
+    langsamer.
+* **Tintenmenge** (die Schwelle `-t` des brother_ql-Werkzeugs, Standard 70 %):
+  Der Drucker kennt nur Schwarz oder Weiß. Das Feld legt fest, **wie viel
+  Helligkeit noch als Tinte gedruckt wird**: 70 % heißt „alles, was dunkler als
+  70 % des Graubereichs ist, wird Tinte". Höher = kräftiger, hellgraue Kanten
+  bleiben erhalten; niedriger = feiner, hellgraue Kanten verschwinden. Für
+  Textetiketten ist der Standardwert gut - nachjustieren lohnt bei sehr dünnen
+  Schriften, feinen Grafiken oder ausgefransten Kanten. „Tinte: x %" zeigt
+  sofort, was der Wert bewirkt.
+* **Graustufen (Dithering)**: für Fotos und Bilder - Grautöne werden gepunktet
+  statt hart geschwellt. Dann ist die Tintenmenge **wirkungslos** (die
+  Bibliothek ignoriert sie); das Feld wird ausgegraut, statt still nichts zu
+  tun.
+* Alle Druckoptionen werden gemerkt. Die Werte gehen 1:1 an den Drucker: die
+  Vorschau zeigt genau das Ergebnis.
 * **Ausrichtung** (Gruppe „Band" im linken Panel, auch im Hamburger-Menü):
   * *quer zum Band* (Voreinstellung): der Inhalt läuft über die Bandbreite,
     die Etikettenlänge ergibt sich aus der **Inhaltshöhe** - spart Band bei

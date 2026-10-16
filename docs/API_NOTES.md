@@ -118,6 +118,40 @@ Intern polstert `convert()` auf die Geraetebreite
 `number_bytes_per_row * 8 = 720` px (QL-820NWB) und setzt den Offset
 `720 - breite - right_margin_dots`. Die Bildhoehe bestimmt die Etikettenlaenge.
 
+## 600-dpi-Modus (`dpi_600`)
+
+`convert()` setzt mit `dpi_600=True` das Bit 6 des Expanded-Mode-Kommandos
+(`ESC i K`, `add_expanded_mode`). Laut Raster Command Reference der QL-800-Reihe
+ist das Bit 7 (0-basiert Bit 6) **"High resolution printing"**:
+
+> 1: It prints at 600 dpi in the paper length direction
+> 0: It prints at 300 dpi in the paper length direction (default)
+
+und im Kapitel "Resolution": *"600 dpi high, 300 dpi wide"* mit
+Hoehen-Breiten-Verhaeltnis **2:1**. Quer zur Bandbreite bleibt es also bei
+300 dpi; feiner wird nur die Bandlaufrichtung.
+
+Konsequenzen (in `printer.DPI_600_SCALE` / `canvas.render_printable(scale=…)`):
+
+1. Fuer **dieselbe Laenge** braucht das Bild doppelt so viele Zeilen - der
+   Drucker setzt die Zeilen mit halbem Abstand. Genau das erwartet `convert()`
+   auch: `dots_expected = [el*2 for el in dots_printable]` (die-cut: die Masse
+   werden geprueft, endlos: nur die Breite).
+2. `convert()` halbiert bei Endlosbaendern die **Breite** des Bildes
+   (`im.resize((im.size[0]//2, im.size[1]))`), bevor es auf die Geraetebreite
+   polstert. Deshalb rendert QLInux die Designflaeche in **beiden** Achsen mit
+   Faktor 2: nach dem Halbieren bleibt exakt die Bandbreite uebrig (kein
+   zweiter Resize, keine "Need to resize"-Warnung) und die Zeilenzahl bleibt
+   doppelt.
+3. Die Vorschau rendert mit demselben Faktor und mittelt das 1-bit-Bild fuer
+   das Canvas-Overlay herunter (Box-Filter) - sie zeigt also weiterhin die
+   echten Druckdaten.
+
+Unterstuetzte Modelle stehen in `printer.DPI_600_MODELS` (QL-800, QL-810W,
+QL-820NWB; belegt ueber die Brother-Datenblaetter "High resolution mode:
+300 x 600 dpi"). `brother_ql` 0.9.4 fuehrt diese Faehigkeit nicht mit - daher
+die gepflegte Liste.
+
 ## Pillow-10-Patch
 
 Von Haus aus nutzt `conversion.py` Zeile 112 `Image.ANTIALIAS` (in Pillow ≥ 10

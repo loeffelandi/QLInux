@@ -11,17 +11,21 @@ from PySide6.QtCore import QByteArray, QSettings
 
 from .media import DEFAULT_MODEL
 from .preview import DEFAULT_THRESHOLD
-from .printer import DEFAULT_ADDRESS
+from .printer import DEFAULT_ADDRESS, QUALITY_MAXIMUM
 
 _ORG = "QLInux"
 _APP = "QLInux"
 
 
 class AppSettings:
-    """Duenne, typisierte Huelle um ``QSettings``."""
+    """Duenne, typisierte Huelle um ``QSettings``.
 
-    def __init__(self) -> None:
-        self._settings = QSettings(_ORG, _APP)
+    ``settings`` laesst sich injizieren (Tests nutzen eine temporaere INI-Datei
+    und beruehren so die echten Nutzer-Einstellungen nicht).
+    """
+
+    def __init__(self, settings: QSettings | None = None) -> None:
+        self._settings = settings or QSettings(_ORG, _APP)
 
     # -- Rohzugriff ---------------------------------------------------------
     def value(self, key: str, default=None):
@@ -93,13 +97,25 @@ class AppSettings:
         self.set_value("print/dither", bool(value))
 
     @property
-    def hq(self) -> bool:
-        """Drucker-Qualitaetsflag (``pquality``)."""
-        return self._as_bool(self.value("print/hq", None), True)
+    def print_quality(self) -> str:
+        """Gewaehlte Druckqualitaet (Schluessel aus :mod:`ql_editor.printer`).
 
-    @hq.setter
-    def hq(self, value: bool) -> None:
-        self.set_value("print/hq", bool(value))
+        Ohne gespeicherte Wahl ist die **maximale** Stufe voreingestellt - die
+        Oberflaeche begrenzt sie auf das, was das gewaehlte Modell kann. Aeltere
+        Versionen kannten nur ein HQ-Haekchen; das wird einmalig uebersetzt,
+        damit bestehende Einstellungen nicht verloren gehen.
+        """
+        value = self.value("print/quality", None)
+        if value is not None:
+            return str(value)
+        legacy = self.value("print/hq", None)
+        if legacy is None:
+            return QUALITY_MAXIMUM.key
+        return "high" if self._as_bool(legacy, True) else "standard"
+
+    @print_quality.setter
+    def print_quality(self, value: str) -> None:
+        self.set_value("print/quality", str(value))
 
     @property
     def cut(self) -> bool:

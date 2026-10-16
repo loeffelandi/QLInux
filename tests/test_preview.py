@@ -141,3 +141,25 @@ def test_preview_is_pixel_identical_to_the_printer_data():
                 )
     finally:
         BrotherQLRaster.add_raster_data = original
+
+
+def test_reduce_for_display_averages_the_printed_dots():
+    """600-dpi-Druckdaten werden fuer das Canvas-Overlay gemittelt.
+
+    Die Vorschau zeigt damit die echten Druckdaten - nur auf die 300-dpi-Groesse
+    der Designflaeche gebracht. Eine Tintenzeile plus eine Papierzeile ergibt
+    also 50 % Grau, nicht einen harten schwarzen Punkt.
+    """
+    from ql_editor.preview import reduce_for_display
+
+    image = Image.new("1", (4, 2), 255)
+    for x in range(4):
+        image.putpixel((x, 0), 0)  # obere Zeile Tinte
+
+    reduced = reduce_for_display(image, 2)
+    assert reduced.size == (2, 1)
+    assert reduced.mode == "L"
+    assert reduced.getpixel((0, 0)) == 128  # Mittelwert aus 0 (Tinte) und 255
+
+    # Ohne Verkleinerung bleibt das Bild unangetastet.
+    assert reduce_for_display(image, 1) is image

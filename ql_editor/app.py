@@ -28,6 +28,7 @@ from PySide6.QtGui import QAction, QKeySequence
 from PySide6.QtWidgets import (
     QApplication,
     QCheckBox,
+    QComboBox,
     QFrame,
     QHBoxLayout,
     QLabel,
@@ -49,11 +50,23 @@ from .inspector import InspectorPanel
 from .items import BarcodeItem, ImageItem, LineItem, QRItem, RectItem, TextItem
 from .media_panel import MediaPanel
 from .panels import OverlayPanel, PanelHost
-from .preview import DEFAULT_THRESHOLD, PreviewOptions, binarize, ink_ratio, to_qimage
+from .preview import (
+    DEFAULT_THRESHOLD,
+    PreviewOptions,
+    binarize,
+    ink_ratio,
+    reduce_for_display,
+    to_qimage,
+)
 from .printer import (
+    DPI_600_SCALE,
+    PrintQuality,
     PrinterError,
     detect_label,
+    maximum_quality,
     print_image,
+    quality_by_key,
+    quality_options,
 )
 from .settings import AppSettings
 from .sheet import ask_choice, ask_text, choose_file, show_message
@@ -185,7 +198,7 @@ class MainWindow(QMainWindow):
         splitter.addWidget(self._scroll_wrap(self._build_print_panel()))
         splitter.setStretchFactor(0, 1)
         splitter.setStretchFactor(1, 0)
-        splitter.setSizes([380, 220])
+        splitter.setSizes([300, 340])
         self._right_panel = OverlayPanel(
             "Eigenschaften & Druck",
             splitter,
@@ -204,63 +217,145 @@ class MainWindow(QMainWindow):
         layout.addWidget(title)
 
         hint = QLabel(
-            "Diese Werte gehen genau so an den Drucker. Die Druckvorschau "
-            "(Auge-Symbol, Strg+Umschalt+P) zeigt das Ergebnis in echten "
-            "Druckpunkten."
+            "Geht 1:1 an den Drucker; die Druckvorschau (Strg+Umschalt+P) zeigt "
+            "das Ergebnis in echten Druckpunkten."
         )
         hint.setWordWrap(True)
         hint.setStyleSheet("color:#777;")
         layout.addWidget(hint)
 
-        threshold_label = QLabel("Schwelle (mehr Tinte →)")
-        threshold_label.setToolTip(
-            "Graustufen-Schwelle wie im brother_ql-Werkzeug (\"-t\"):\n"
-            "höher = mehr Pixel werden Tinte (kräftiger, aber zugesetzt),\n"
-            "niedriger = nur dunkle Pixel drucken (feiner)."
+        # Qualitaet: nur was das gewaehlte Modell kann - die maximale Stufe ist
+        # voreingestellt (siehe printer.quality_options).
+        quality_label = QLabel("Qualität")
+        self._quality_combo = QComboBox()
+        quality_label.setBuddy(self._quality_combo)
+        self._quality_hint = QLabel()
+        self._quality_hint.setWordWrap(True)
+        self._quality_hint.setStyleSheet("color:#777;")
+        layout.addWidget(quality_label)
+        layout.addWidget(self._quality_combo)
+        layout.addWidget(self._quality_hint)
+
+        self._dither_check = QCheckBox("Graustufen (Dithering)")
+        self._dither_check.setToolTip(
+            "Graustufen werden gepunktet statt hart geschwellt - für Fotos.\n"
+            "Ohne Dithering entscheidet die Tintenmenge unten, welche Helligkeit "
+            "Tinte wird."
         )
+
+        # Tintenmenge = brother_ql-Schwelle ("-t"). Sie wirkt nur ohne
+        # Dithering (convert() nutzt sie dann nicht) - deshalb wird sie dann
+        # ausgegraut, statt still wirkungslos zu sein.
+        self._threshold_label = QLabel("Tintenmenge")
         self._threshold_spin = QSpinBox()
         self._threshold_spin.setRange(0, 100)
         self._threshold_spin.setValue(DEFAULT_THRESHOLD)
         self._threshold_spin.setSuffix(" %")
-        self._threshold_spin.setToolTip(threshold_label.toolTip())
+        self._threshold_label.setBuddy(self._threshold_spin)
+        self._threshold_spin.setToolTip(self._threshold_tooltip())
+        self._threshold_label.setToolTip(self._threshold_spin.toolTip())
         self._ink_label = QLabel("Tinte: –")
         self._ink_label.setStyleSheet("color:#777;")
         self._ink_label.setToolTip(
-            "Anteil der bedruckten Fläche - sofort sichtbar, was die Schwelle "
-            "und das Dithering bewirken."
+            "Anteil der bedruckten Fläche - sofort sichtbar, was Tintenmenge "
+            "und Dithering bewirken."
         )
         threshold_row = QHBoxLayout()
         threshold_row.setContentsMargins(0, 0, 0, 0)
         threshold_row.addWidget(self._threshold_spin)
         threshold_row.addWidget(self._ink_label, 1)
 
-        self._dither_check = QCheckBox("Dithering (Floyd-Steinberg)")
-        self._dither_check.setToolTip(
-            "Graustufen werden gepunktet statt hart geschwellt.\n"
-            "Sinnvoll für Fotos; bei der Schwelle oben dann ohne Wirkung."
-        )
-        self._hq_check = QCheckBox("Hohe Druckqualität (HQ)")
-        self._hq_check.setChecked(True)
-        self._hq_check.setToolTip(
-            "Drucker-Qualitätsflag (pquality): HQ druckt langsamer, mit "
-            "kräftigeren Kanten.\nOhne HQ druckt der Drucker schneller."
-        )
         self._cut_check = QCheckBox("Nach dem Druck schneiden")
         self._cut_check.setChecked(True)
         self._print_button = QPushButton(icon("print"), "Drucken")
 
-        layout.addWidget(threshold_label)
-        layout.addLayout(threshold_row)
         layout.addWidget(self._dither_check)
-        layout.addWidget(self._hq_check)
+        layout.addWidget(self._threshold_label)
+        layout.addLayout(threshold_row)
         layout.addWidget(self._cut_check)
         layout.addStretch(1)
         layout.addWidget(self._print_button)
 
+        self._quality_combo.currentIndexChanged.connect(self._on_quality_changed)
         self._threshold_spin.valueChanged.connect(self._schedule_refresh)
-        self._dither_check.toggled.connect(self._schedule_refresh)
+        self._dither_check.toggled.connect(self._on_dither_toggled)
         self._print_button.clicked.connect(self._on_print)
+        self._sync_quality_options()
         return widget
+
+    def _on_quality_changed(self) -> None:
+        """Qualitaet gewechselt: Hinweis aktualisieren und neu rendern.
+
+        Der 600-dpi-Modus aendert den Renderfaktor - Vorschau und Tintenanteil
+        muessen also neu berechnet werden.
+        """
+        self._update_quality_hint()
+        self._schedule_refresh()
+
+    def _threshold_tooltip(self) -> str:
+        return (
+            "Wie viel Helligkeit als Tinte gedruckt wird (Schwelle \"-t\" von "
+            "brother_ql, Standard 70 %):\n"
+            "70 % = alles, was dunkler als 70 % des Graubereichs ist, wird Tinte.\n"
+            "höher = kräftiger/breitere Schrift, feine Kanten bleiben erhalten;\n"
+            "niedriger = feiner, hellgraue Kanten verschwinden.\n"
+            "Wirkt nur ohne Dithering - mit Dithering ignoriert der Drucker sie."
+        )
+
+    def _on_dither_toggled(self) -> None:
+        self._sync_threshold_enabled()
+        self._schedule_refresh()
+
+    def _sync_threshold_enabled(self) -> None:
+        """Tintenmenge nur anbieten, wenn sie wirkt (ohne Dithering)."""
+        active = not self._dither_check.isChecked()
+        self._threshold_spin.setEnabled(active)
+        self._threshold_label.setEnabled(active)
+        self._threshold_label.setText("Tintenmenge" if active else "Tintenmenge (ohne Wirkung)")
+
+    def _sync_quality_options(self, prefer: str | None = None) -> None:
+        """Qualitaetsliste an das gewaehlte Modell anpassen.
+
+        Die Auswahl bleibt erhalten, solange das Modell sie kann; sonst wird die
+        maximale Stufe des Modells gewaehlt (so ist immer die bestmoegliche
+        Qualitaet des angeschlossenen Druckers voreingestellt).
+
+        ``prefer`` ueberschreibt die Auswahl (beim Laden der Einstellungen).
+        """
+        model_id = self._media_panel.model_id()
+        options = quality_options(model_id)
+        wanted = prefer or self._quality_combo.currentData() or self._settings.print_quality
+
+        self._quality_combo.blockSignals(True)
+        self._quality_combo.clear()
+        for option in options:
+            self._quality_combo.addItem(option.label, option.key)
+        index = self._quality_combo.findData(wanted)
+        if index < 0:
+            index = self._quality_combo.findData(maximum_quality(model_id).key)
+        self._quality_combo.setCurrentIndex(max(0, index))
+        self._quality_combo.blockSignals(False)
+
+        chosen = quality_by_key(model_id, self._quality_combo.currentData())
+        self._quality_combo.setToolTip(f"{chosen.label}: {chosen.detail}.")
+        self._update_quality_hint()
+        self._sync_threshold_enabled()
+
+    def _update_quality_hint(self) -> None:
+        """Untertitel zur Qualitaetsauswahl: was dieses Modell hergibt."""
+        model_id = self._media_panel.model_id()
+        best = maximum_quality(model_id)
+        chosen = self._quality()
+        if chosen.key == best.key:
+            self._quality_hint.setText(f"{model_id}: maximale Qualität dieses Druckers.")
+        else:
+            self._quality_hint.setText(f"{model_id}: höchste Stufe ist „{best.label}“.")
+
+    def _quality(self) -> PrintQuality:
+        """Die gewaehlte Druckqualitaet - auf die Faehigkeiten des Modells begrenzt."""
+        return quality_by_key(
+            self._media_panel.model_id(), self._quality_combo.currentData()
+        )
 
     def _build_actions(self) -> None:
         self._act_add_text = QAction(icon("text"), "Text", self)
@@ -473,10 +568,12 @@ class MainWindow(QMainWindow):
         # Zuletzt gewaehlte Panel-Sichtbarkeit wiederherstellen (kleine Screens).
         self._act_panel_left.setChecked(self._settings.panel_left_visible)
         self._act_panel_right.setChecked(self._settings.panel_right_visible)
-        # Druckoptionen wiederherstellen (Schwelle, Dithering, HQ, Schneiden).
+        # Druckoptionen wiederherstellen (Tintenmenge, Dithering, Qualitaet,
+        # Schneiden). Die Qualitaet erst *nach* dem Modell - ihre Stufen haengen
+        # am Drucker.
         self._threshold_spin.setValue(self._settings.threshold)
         self._dither_check.setChecked(self._settings.dither)
-        self._hq_check.setChecked(self._settings.hq)
+        self._sync_quality_options(prefer=self._settings.print_quality)
         self._cut_check.setChecked(self._settings.cut)
         self._schedule_refresh()
 
@@ -488,6 +585,8 @@ class MainWindow(QMainWindow):
         self._settings.last_label = self._media_panel.label_id()
         self._settings.address = self._media_panel.address()
         self._settings.model = self._media_panel.model_id()
+        # Ein anderes Modell hat andere Qualitaetsstufen.
+        self._sync_quality_options()
         self._on_selection_changed()
         self._schedule_refresh()
 
@@ -522,38 +621,59 @@ class MainWindow(QMainWindow):
     def _schedule_refresh(self) -> None:
         self._refresh_timer.start()
 
-    def _current_render(self, *, rotate: bool = False) -> Image.Image:
+    def _current_render(self, *, rotate: bool = False, scale: int = 1) -> Image.Image:
         """Rendere die Designflaeche.
 
         ``rotate=True`` (Druckpfad, Ausrichtung ``ALONG``) dreht das Ergebnis in
         die Bandorientierung; ohne Drehung passt es 1:1 auf den Canvas - genau
         das braucht die Druckvorschau als Overlay.
 
+        ``scale=2`` rendert feiner (600-dpi-Modus, siehe
+        :meth:`LabelCanvas.render_printable`).
+
         Die Textmarke blendet :meth:`LabelCanvas.render_printable` aus: sonst
         landet die blinkende Einfuegemarke als duenne Linie in Vorschau und
         Etikett.
         """
-        return self._canvas.render_printable(rotate=rotate)
+        return self._canvas.render_printable(rotate=rotate, scale=scale)
+
+    def _print_scale(self) -> int:
+        """Renderfaktor fuer den Druck (1 = 300 dpi, 2 = 600-dpi-Modus)."""
+        return DPI_600_SCALE if self._quality().dpi_600 else 1
 
     def _for_print(self) -> Image.Image:
-        """Bild fuer den Drucker: immer exakt ``dots_printable[0]`` breit."""
+        """Bild fuer den Drucker: immer exakt ``dots_printable[0]`` breit.
+
+        Im 600-dpi-Modus ist es ``DPI_600_SCALE`` mal so gross - genau das
+        erwartet ``convert()`` dann (``dots_expected``); die Laenge bleibt, weil
+        der Drucker die Zeilen mit halbem Abstand setzt.
+        """
         rotate = self._media_panel.orientation().rotates_for_print
-        return self._current_render(rotate=rotate)
+        return self._current_render(rotate=rotate, scale=self._print_scale())
 
     def _refresh_now(self) -> None:
         """Druckvorschau und Tintenanteil aktualisieren (entprellt).
 
-        Der Tintenanteil wird immer berechnet - er zeigt sofort, was Schwelle
+        Gerendert wird mit dem Faktor des **Druckpfads**: die Vorschau zeigt
+        damit immer die echten Druckdaten. Im 600-dpi-Modus wird das 1-bit-Bild
+        fuer das Overlay auf Canvas-Groesse heruntergerechnet (Box-Filter),
+        waehrend der Tintenanteil auf den vollen Daten beruht.
+
+        Der Tintenanteil wird immer berechnet - er zeigt sofort, was Tintenmenge
         und Dithering bewirken, auch wenn die Vorschau aus ist.
         """
+        scale = self._print_scale()
         try:
-            image = self._current_render()
+            image = self._current_render(scale=scale)
         except Exception as exc:  # pragma: no cover - defensiv
             self.statusBar().showMessage(f"Renderfehler: {exc}")
             return
         options = self._preview_options()
         if self._canvas.print_preview:
-            self._canvas.set_print_image(to_qimage(binarize(image, options)))
+            printable = binarize(image, options)
+            self._canvas.set_print_image(
+                to_qimage(reduce_for_display(printable, scale))
+            )
         ratio = ink_ratio(image, options)
         self._ink_label.setText(f"Tinte: {ratio * 100:.1f} %".replace(".", ","))
 
@@ -854,10 +974,12 @@ class MainWindow(QMainWindow):
             return
         label = self._media_panel.label
         config = self._media_panel.printer_config()
+        quality = self._quality()
         options = {
             "threshold": self._threshold_spin.value(),
             "dither": self._dither_check.isChecked(),
-            "hq": self._hq_check.isChecked(),
+            "hq": quality.hq,
+            "dpi_600": quality.dpi_600,
             "red": self._media_panel.use_red(),
             "cut": self._cut_check.isChecked(),
         }
@@ -921,7 +1043,7 @@ class MainWindow(QMainWindow):
         self._settings.panel_right_visible = self._act_panel_right.isChecked()
         self._settings.threshold = self._threshold_spin.value()
         self._settings.dither = self._dither_check.isChecked()
-        self._settings.hq = self._hq_check.isChecked()
+        self._settings.print_quality = self._quality().key
         self._settings.cut = self._cut_check.isChecked()
         self._settings.sync()
         super().closeEvent(event)

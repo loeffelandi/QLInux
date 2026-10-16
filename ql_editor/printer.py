@@ -37,6 +37,86 @@ _STATUS_REQUEST = b"\x1b\x69\x53"
 _STATUS_RESPONSE_LEN = 32
 
 
+# --------------------------------------------------------------------------- #
+# Druckqualitaet (modellabhaengig)
+# --------------------------------------------------------------------------- #
+@dataclass(frozen=True)
+class PrintQuality:
+    """Eine waehlbare Druckqualitaet - Abbildung auf ``convert()``-Schalter."""
+
+    key: str
+    label: str
+    detail: str
+    hq: bool
+    dpi_600: bool = False
+
+
+#: Stufen, die brother_ql kennt. "Maximum" gibt es nur bei passendem Druckkopf.
+QUALITY_STANDARD = PrintQuality(
+    "standard",
+    "Standard (schneller)",
+    "Qualitaetsflag aus - der Drucker druckt schneller",
+    hq=False,
+)
+QUALITY_HIGH = PrintQuality(
+    "high",
+    "Hoch (HQ)",
+    "feinste Stufe des Druckkopfs (pquality)",
+    hq=True,
+)
+QUALITY_MAXIMUM = PrintQuality(
+    "maximum",
+    "Maximum (600 dpi)",
+    "600 dpi in Bandlaufrichtung - feinste Stufe des Druckers",
+    hq=True,
+    dpi_600=True,
+)
+
+#: Modelle mit "High resolution mode" (600 dpi in Bandlaufrichtung, quer
+#: weiterhin 300 dpi). Belegt durch die Brother-Datenblaetter ("Print
+#: resolution: Standard 300x300 dpi / High resolution mode 300x600 dpi") und
+#: die Raster Command Reference der QL-800-Reihe: ``ESC i K``, Bit 7 -
+#: "1: It prints at 600 dpi in the paper length direction".
+#:
+#: brother_ql 0.9.4 fuehrt diese Faehigkeit nicht mit, deshalb steht sie hier.
+#: Bewusst konservativ: nur Modelle mit belegtem High-Resolution-Modus. Ein
+#: neues Modell ist eine Zeile - die Stufe erscheint dann automatisch.
+DPI_600_MODELS = frozenset({"QL-800", "QL-810W", "QL-820NWB"})
+
+#: Renderfaktor fuer den 600-dpi-Modus: der Drucker setzt die Zeilen dann mit
+#: halbem Abstand (600 dpi statt 300 dpi) - fuer die gleiche *Laenge* braucht
+#: das Bild also doppelt so viele Zeilen. Genau das erwartet auch
+#: ``convert()`` (``dots_expected = [el*2 for el in dots_printable]``).
+DPI_600_SCALE = 2
+
+
+def quality_options(model_id: str) -> tuple[PrintQuality, ...]:
+    """Waehlbare Druckqualitaeten fuer ein Modell - die beste Stufe steht zuletzt.
+
+    ``hq``/``pquality`` steckt im Standard-Kommando und geht bei jedem Modell
+    (brother_ql setzt das Flag immer). ``600 dpi`` verlangt den Expanded-Mode
+    **und** einen 600-dpi-Druckkopf.
+    """
+    model = get_model(model_id)
+    options = [QUALITY_STANDARD, QUALITY_HIGH]
+    if model.expanded_mode and model_id in DPI_600_MODELS:
+        options.append(QUALITY_MAXIMUM)
+    return tuple(options)
+
+
+def maximum_quality(model_id: str) -> PrintQuality:
+    """Die hoechste Qualitaet, die das Modell kann - Vorgabe der Oberflaeche."""
+    return quality_options(model_id)[-1]
+
+
+def quality_by_key(model_id: str, key: str) -> PrintQuality:
+    """Stufe per Schluessel; unbekannte Schluessel fallen auf das Maximum zurueck."""
+    for option in quality_options(model_id):
+        if option.key == key:
+            return option
+    return maximum_quality(model_id)
+
+
 class PrinterError(RuntimeError):
     """Allgemeiner Druckfehler (ungueltige Parameter, Band, Modell, ...)."""
 
@@ -85,16 +165,24 @@ class PrinterStatus:
 # Rasterdaten erzeugen
 # --------------------------------------------------------------------------- #
 def validate_for_print(
-    image: Image.Image, label: LabelSpec, *, red: bool = False
+    image: Image.Image,
+    label: LabelSpec,
+    *,
+    red: bool = False,
+    scale: int = 1,
 ) -> None:
     """Pruefe Bild und Band *vor* der Konvertierung.
 
-    Erzwingt das Kernprinzip: Bildbreite == ``label.dots_printable[0]``.
+    Erzwingt das Kernprinzip: Bildbreite == ``scale * label.dots_printable[0]``.
+    ``scale=2`` ist der 600-dpi-Modus - dort erwartet ``convert()`` genau die
+    doppelte Breite (``dots_expected``).
     """
-    if image.width != label.width_dots:
+    expected = label.width_dots * scale
+    if image.width != expected:
         raise PrinterError(
-            f"Bildbreite {image.width} px != Bandbreite {label.width_dots} px "
-            f"(Band {label.identifier!r}). Bitte ueber den Renderer erzeugen."
+            f"Bildbreite {image.width} px != {expected} px "
+            f"(Band {label.identifier!r}, Faktor {scale}). Bitte ueber den "
+            f"Renderer erzeugen."
         )
     if red and not label.color.supports_red:
         raise PrinterError(
@@ -120,8 +208,14 @@ def build_raster(
     """Erzeuge die Raster-Instruktionsbytes fuer ``image`` (ohne zu drucken).
 
     Reiner Rechenweg - ideal fuer ``--dry-run`` und Tests.
+
+    Mit ``dpi_600=True`` muss ``image`` ``DPI_600_SCALE`` mal so gross sein
+    (siehe :data:`DPI_600_SCALE`); ``convert()`` setzt dann das High-Resolution-
+    Bit und erwartet genau diese Groesse.
     """
-    validate_for_print(image, label, red=red)
+    validate_for_print(
+        image, label, red=red, scale=DPI_600_SCALE if dpi_600 else 1
+    )
 
     model = get_model(config.model)
     if red and not model.two_color:

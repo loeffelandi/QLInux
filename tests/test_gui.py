@@ -1145,6 +1145,8 @@ def test_orientation_changes_canvas_and_print_image(qapp):
     from ql_editor.app import MainWindow
 
     win = MainWindow()
+    # Qualitaet festnageln: hier geht es um die Ausrichtung, nicht um 600 dpi.
+    win._quality_combo.setCurrentIndex(win._quality_combo.findData("high"))
     win._new_text()
     win._canvas.cancel_editing()
     label = win._media_panel.label
@@ -1156,6 +1158,13 @@ def test_orientation_changes_canvas_and_print_image(qapp):
     assert win._canvas.length_dots == length
     # Das Druckbild ist in beiden Ausrichtungen bandbreit.
     assert win._for_print().size == (label.width_dots, length)
+
+    # Im 600-dpi-Modus rendert die Designflaeche doppelt so fein - in beiden
+    # Ausrichtungen, denn die feine Achse ist immer die Bandlaufrichtung.
+    win._quality_combo.setCurrentIndex(win._quality_combo.findData("maximum"))
+    assert win._for_print().size == (label.width_dots * 2, length * 2)
+    win._media_panel.set_orientation(media.Orientation.ACROSS)
+    assert win._for_print().size == (label.width_dots * 2, length * 2)
 
 
 def test_orientation_moves_side_border_to_tape_edges(qapp):
@@ -1800,39 +1809,168 @@ def test_ink_readout_tracks_threshold(qapp):
     assert float(low.split()[1].replace(",", ".")) < float(high.split()[1].replace(",", "."))
 
 
-def test_hq_option_is_forwarded_to_the_printer(qapp):
-    from ql_editor.app import MainWindow
-    from ql_editor.printer import build_raster
+def _temp_window(qapp, tmp_path):
+    """MainWindow mit Einstellungen in einer temporaeren INI-Datei.
 
-    win = MainWindow()
+    Damit bleiben Tests unabhaengig von den echten Nutzer-Einstellungen (und
+    schreiben auch nicht hinein).
+    """
+    from PySide6.QtCore import QSettings
+
+    from ql_editor.app import MainWindow
+    from ql_editor.settings import AppSettings
+
+    settings = AppSettings(
+        QSettings(str(tmp_path / "settings.ini"), QSettings.Format.IniFormat)
+    )
+    win = MainWindow(settings=settings)
     win.show()
     qapp.processEvents()
-    image = win._for_print()
+    return win
+
+
+def test_quality_is_forwarded_to_the_printer(qapp, tmp_path):
+    """Die gewaehlte Qualitaet bestimmt Druckauftrag und Renderfaktor."""
+    from ql_editor.printer import build_raster
+
+    win = _temp_window(qapp, tmp_path)
     label = win._media_panel.label
     config = win._media_panel.printer_config()
-    assert win._hq_check.isChecked() is True
-    with_hq = build_raster(image, label, config, hq=True)
-    without_hq = build_raster(image, label, config, hq=False)
+
+    # Der QL-820NWB kann 600 dpi - genau die maximale Stufe ist voreingestellt.
+    assert win._quality().key == "maximum"
+    assert win._quality().dpi_600 is True
+    assert win._print_scale() == 2
+    assert win._for_print().width == label.width_dots * 2
+
+    win._quality_combo.setCurrentIndex(win._quality_combo.findData("standard"))
+    qapp.processEvents()
+    assert win._quality().hq is False
+    assert win._print_scale() == 1
+    plain = win._for_print()
+    assert plain.width == label.width_dots
+
+    with_hq = build_raster(plain, label, config, hq=True)
+    without_hq = build_raster(plain, label, config, hq=False)
     assert with_hq != without_hq
 
 
-def test_print_options_are_persisted(qapp):
-    from ql_editor.app import MainWindow
-
-    win = MainWindow()
-    win.show()
-    qapp.processEvents()
+def test_print_options_are_persisted(qapp, tmp_path):
+    win = _temp_window(qapp, tmp_path)
     win._threshold_spin.setValue(88)
     win._dither_check.setChecked(True)
-    win._hq_check.setChecked(False)
+    win._quality_combo.setCurrentIndex(win._quality_combo.findData("standard"))
     win._cut_check.setChecked(False)
     win.close()
     qapp.processEvents()
 
-    again = MainWindow()
-    again.show()
-    qapp.processEvents()
+    again = _temp_window(qapp, tmp_path)
     assert again._threshold_spin.value() == 88
     assert again._dither_check.isChecked() is True
-    assert again._hq_check.isChecked() is False
+    assert again._quality_combo.currentData() == "standard"
     assert again._cut_check.isChecked() is False
+
+
+def test_quality_options_follow_the_printer_model(qapp):
+    """Jedes Modell bietet nur, was es kann - die beste Stufe zuletzt."""
+    from ql_editor.printer import maximum_quality, quality_by_key, quality_options
+
+    keys = [option.key for option in quality_options("QL-820NWB")]
+    assert keys == ["standard", "high", "maximum"]
+    assert maximum_quality("QL-820NWB").dpi_600 is True
+
+    # Der QL-500 hat weder Expanded-Mode noch 600-dpi-Kopf.
+    assert [option.key for option in quality_options("QL-500")] == ["standard", "high"]
+    assert maximum_quality("QL-500").key == "high"
+
+    # Eine nicht unterstuetzte Stufe faellt auf das Maximum des Modells zurueck.
+    assert quality_by_key("QL-500", "maximum").key == "high"
+    assert quality_by_key("QL-820NWB", "high").hq is True
+
+
+def test_quality_combo_follows_a_model_change(qapp, tmp_path):
+    win = _temp_window(qapp, tmp_path)
+    assert win._quality().key == "maximum"
+
+    combo = win._media_panel._model_combo
+    combo.setCurrentIndex(combo.findData("QL-500"))
+    qapp.processEvents()
+
+    assert win._quality_combo.currentData() == "high"  # Maximum gibt es hier nicht
+    assert win._print_scale() == 1
+    assert "QL-500" in win._quality_hint.text()
+
+    # Zurueck zum QL-820NWB: die maximale Stufe ist wieder waehlbar.
+    combo.setCurrentIndex(combo.findData("QL-820NWB"))
+    qapp.processEvents()
+    assert "maximum" in [
+        win._quality_combo.itemData(i) for i in range(win._quality_combo.count())
+    ]
+
+
+def test_print_preview_in_600dpi_is_reduced_to_canvas_size(qapp, tmp_path):
+    """Im 600-dpi-Modus zeigt die Vorschau die echten Druckdaten.
+
+    Das 1-bit-Bild hat dann doppelt so viele Zeilen; fuer das Overlay wird es
+    auf die Canvas-Groesse gemittelt (sonst waere die Vorschau gestaucht).
+    """
+    win = _temp_window(qapp, tmp_path)
+    win._quality_combo.setCurrentIndex(win._quality_combo.findData("maximum"))
+    win._add_text()
+    win._canvas.cancel_editing()
+    win._canvas.set_print_preview(True)
+    win._refresh_now()
+
+    printable = win._canvas.printable_rect()
+    preview = win._canvas._print_image
+    assert preview is not None
+    assert (preview.width(), preview.height()) == (
+        int(printable.width()),
+        int(printable.height()),
+    )
+    assert win._ink_label.text().startswith("Tinte:")
+
+
+def test_threshold_is_disabled_while_dithering(qapp, tmp_path):
+    """Dithering ignoriert die Tintenmenge - das Feld sagt das auch."""
+    win = _temp_window(qapp, tmp_path)
+    assert win._threshold_spin.isEnabled() is True
+
+    win._dither_check.setChecked(True)
+    qapp.processEvents()
+    assert win._threshold_spin.isEnabled() is False
+    assert "ohne Wirkung" in win._threshold_label.text()
+
+    win._dither_check.setChecked(False)
+    qapp.processEvents()
+    assert win._threshold_spin.isEnabled() is True
+    assert win._threshold_label.text() == "Tintenmenge"
+
+
+def test_old_hq_setting_is_migrated(qapp, tmp_path):
+    """Bestehende Einstellungen (print/hq) werden einmalig uebersetzt."""
+    from PySide6.QtCore import QSettings
+
+    from ql_editor.settings import AppSettings
+
+    raw = QSettings(str(tmp_path / "migration.ini"), QSettings.Format.IniFormat)
+    raw.setValue("print/hq", False)
+    assert AppSettings(raw).print_quality == "standard"
+
+    raw.setValue("print/hq", True)
+    assert AppSettings(raw).print_quality == "high"
+
+    settings = AppSettings(raw)
+    settings.print_quality = "maximum"
+    assert raw.value("print/quality") == "maximum"
+    assert settings.print_quality == "maximum"
+
+
+def test_fresh_settings_want_the_maximum_quality(qapp, tmp_path):
+    from PySide6.QtCore import QSettings
+
+    from ql_editor.printer import QUALITY_MAXIMUM
+    from ql_editor.settings import AppSettings
+
+    raw = QSettings(str(tmp_path / "fresh.ini"), QSettings.Format.IniFormat)
+    assert AppSettings(raw).print_quality == QUALITY_MAXIMUM.key
