@@ -846,7 +846,7 @@ def test_icon_color_is_configurable(qapp):
 
 def test_toolbar_is_icon_only(qapp):
     from PySide6.QtCore import Qt
-    from PySide6.QtWidgets import QToolBar
+    from PySide6.QtWidgets import QToolBar, QWidgetAction
 
     from ql_editor.app import MainWindow
 
@@ -854,26 +854,54 @@ def test_toolbar_is_icon_only(qapp):
     bar = win.findChild(QToolBar)
     assert bar is not None
     assert bar.toolButtonStyle() == Qt.ToolButtonStyle.ToolButtonIconOnly
-    actions = [a for a in bar.actions() if not a.isSeparator()]
+    actions = [
+        a
+        for a in bar.actions()
+        if not a.isSeparator() and not isinstance(a, QWidgetAction)
+    ]
     assert actions
     assert all(not a.icon().isNull() for a in actions)
     assert all(a.toolTip() for a in actions)
+
+
+def test_no_menu_bar_but_hamburger_menu(qapp):
+    """Es gibt keine Menueleiste mehr - alle Befehle liegen im Hamburger-Menue."""
+    from PySide6.QtWidgets import QMenuBar, QToolBar, QToolButton, QWidgetAction
+
+    from ql_editor.app import MainWindow
+
+    win = MainWindow()
+    assert win.findChild(QMenuBar) is None
+
+    button = win.findChild(QToolButton, "main_menu_button")
+    assert button is not None
+    assert not button.icon().isNull()
+    assert button.toolTip()
+    assert button.popupMode() == QToolButton.ToolButtonPopupMode.InstantPopup
+
+    menu = button.menu()
+    assert menu is not None
+    items = [a for a in menu.actions() if not a.isSeparator()]
+    assert items
+    assert all(not a.icon().isNull() for a in items)
+    # Die Befehle werden mit der Toolbar geteilt (dieselben QActions).
+    bar_actions = {
+        a
+        for a in win.findChild(QToolBar).actions()
+        if not a.isSeparator() and not isinstance(a, QWidgetAction)
+    }
+    assert bar_actions <= set(items)
 
 
 def test_menu_actions_have_icons(qapp):
     from ql_editor.app import MainWindow
 
     win = MainWindow()
-    menus = [a.menu() for a in win.menuBar().actions() if a.menu() is not None]
-    assert len(menus) >= 4
-    for act in win.menuBar().actions():
-        if act.menu() is None:
-            continue
-        assert not act.icon().isNull()
-        for item in act.menu().actions():
-            if item.isSeparator():
-                continue
-            assert not item.icon().isNull()
+    menu = win._menu_button.menu()
+    assert menu is not None
+    items = [a for a in menu.actions() if not a.isSeparator()]
+    assert len(items) >= 10
+    assert all(not a.icon().isNull() for a in items)
 
 
 def test_context_menu_has_icons(qapp):

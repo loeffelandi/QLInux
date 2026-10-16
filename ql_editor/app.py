@@ -7,6 +7,11 @@ Aufbau:
 * rechts: Vorschau (monochrom) + Druckoptionen
 * Toolbar: Items einfuegen, Reihenfolge, Loeschen, Zoom, Drucken
 
+Es gibt **keine klassische Menueleiste**. Alle Befehle liegen in einem
+Hamburger-Menue (``main_menu_button``) links in der Toolbar - das wirkt
+moderner und ist unter Linux/Wayland die uebliche Loesung (einen globalen
+Menuebalken wie unter macOS gibt es hier nicht).
+
 Die GUI haelt keine eigene Wahrheit ueber Bandmasse: alles kommt aus
 :mod:`ql_editor.media`. Gerendert wird ueber :mod:`ql_editor.renderer`,
 gedruckt ueber :mod:`ql_editor.printer` (in einem Worker-Thread).
@@ -32,6 +37,7 @@ from PySide6.QtWidgets import (
     QScrollArea,
     QSpinBox,
     QSplitter,
+    QToolButton,
     QVBoxLayout,
     QWidget,
 )
@@ -104,7 +110,6 @@ class MainWindow(QMainWindow):
         self._build_docks()
         self._build_actions()
         self._build_toolbar()
-        self._build_menu()
 
         self._refresh_timer = QTimer(self)
         self._refresh_timer.setSingleShot(True)
@@ -298,6 +303,23 @@ class MainWindow(QMainWindow):
         bar.setMovable(False)
         bar.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonIconOnly)
         bar.setIconSize(QSize(22, 22))
+
+        # Moderner "App-Menue"-Knopf (Hamburger) statt klassischer Menueleiste.
+        self._menu_button = QToolButton(bar)
+        self._menu_button.setObjectName("main_menu_button")
+        self._menu_button.setIcon(icon("menu"))
+        self._menu_button.setToolTip("Menü")
+        self._menu_button.setAutoRaise(True)
+        self._menu_button.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        self._menu_button.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
+        self._menu_button.setMenu(self._build_main_menu())
+        # Das kleine "Aufklapp"-Dreieck passt nicht zu einem modernen Hamburger.
+        self._menu_button.setStyleSheet(
+            "QToolButton::menu-indicator { image: none; width: 0px; }"
+        )
+        bar.addWidget(self._menu_button)
+        bar.addSeparator()
+
         bar.addAction(self._act_add_text)
         bar.addAction(self._act_add_image)
         bar.addAction(self._act_add_barcode)
@@ -316,23 +338,41 @@ class MainWindow(QMainWindow):
         bar.addAction(self._act_print_preview)
         bar.addAction(self._act_print)
 
-    def _build_menu(self) -> None:
-        file_menu = self.menuBar().addMenu(icon("file"), "&Datei")
-        file_menu.addAction(self._act_print)
-        file_menu.addSeparator()
-        file_menu.addAction(self._act_quit)
-        edit_menu = self.menuBar().addMenu(icon("edit"), "&Bearbeiten")
-        edit_menu.addAction(self._act_delete)
-        edit_menu.addAction(self._act_front)
-        edit_menu.addAction(self._act_back)
-        view_menu = self.menuBar().addMenu(icon("view"), "&Ansicht")
-        view_menu.addAction(self._act_print_preview)
-        view_menu.addSeparator()
-        view_menu.addAction(self._act_zoom_out)
-        view_menu.addAction(self._act_zoom_fit)
-        view_menu.addAction(self._act_zoom_in)
-        help_menu = self.menuBar().addMenu(icon("help"), "&Hilfe")
-        help_menu.addAction(self._act_about)
+    def _build_main_menu(self) -> QMenu:
+        """Alle Befehle in einem einzigen Menue (Hamburger-Menue).
+
+        Die Befehle liegen bereits als :class:`QAction` vor und werden mit der
+        Toolbar geteilt - so bleiben Icons, Shortcuts und der Aktivierungs-
+        zustand automatisch synchron.
+        """
+        menu = QMenu(self)
+        menu.addSection("Einfügen")
+        for act in (
+            self._act_add_text,
+            self._act_add_image,
+            self._act_add_barcode,
+            self._act_add_qr,
+            self._act_add_line,
+            self._act_add_rect,
+        ):
+            menu.addAction(act)
+        menu.addSection("Bearbeiten")
+        for act in (self._act_front, self._act_back, self._act_delete):
+            menu.addAction(act)
+        menu.addSection("Ansicht")
+        for act in (
+            self._act_print_preview,
+            self._act_zoom_out,
+            self._act_zoom_fit,
+            self._act_zoom_in,
+        ):
+            menu.addAction(act)
+        menu.addSection("Drucken")
+        menu.addAction(self._act_print)
+        menu.addSeparator()
+        menu.addAction(self._act_about)
+        menu.addAction(self._act_quit)
+        return menu
 
     # ------------------------------------------------------------- Settings --
     def _apply_saved_settings(self) -> None:

@@ -101,8 +101,17 @@ offen ist, werden auch App-Tastenkürzel (Ctrl+P, Entf, ...) geschluckt.
 ### Bedienung (wie eine Desktop-App)
 Die Oberfläche ist **icon-basiert**: die Toolbar zeigt nur Icons (mit Tooltips),
 und jeder Menü- sowie Kontextmenü-Eintrag hat ein Icon. Die Icons werden zur
-Laufzeit gezeichnet (`ql_editor/icons.py`) und passen sich der Palette an
-(hell/dunkel) - es gibt keine externen Icon-Dateien.
+Laufzeit gezeichnet (`ql_editor/icons.py`), einheitlich in Strichstärke und
+Eckenradius, und passen sich der Palette an (hell/dunkel) - es gibt keine
+externen Icon-Dateien.
+
+Eine **klassische Menüleiste gibt es nicht**. Alle Befehle liegen in einem
+**Hamburger-Menü** (`main_menu_button`, links in der Toolbar): ein flaches
+Menü mit Abschnittsüberschriften (Einfügen / Bearbeiten / Ansicht / Drucken),
+Icons und Shortcuts. Hintergrund: Unter Linux/Wayland gibt es (anders als unter
+macOS) keinen globalen Menübalken; ein Menü-Knopf in der Toolbar ist dort die
+übliche, moderne Lösung. Die Einträge teilen sich die `QAction`s mit der
+Toolbar, bleiben also immer synchron.
 
 * **Doppelklick ins Leere** legt ein Textfeld an und startet die Bearbeitung.
 * **Doppelklick auf Text** editiert inline (Esc beendet).
