@@ -61,6 +61,13 @@ from .widgets import SmoothScrollArea, install_wheel_guard_recursive
 
 BARCODE_SYMBOLOGIES = ["code128", "code39", "ean13", "ean8", "upca", "itf", "codabar"]
 
+#: Standardbreiten der Seitenpanels in Pixeln.  Der Wert fuer rechts ist so
+#: gewaehlt, dass die Formularzeilen des Inspectors (z. B. "Symbologie",
+#: "Höhe (Dots)", "Größe (px)") einzeilig bleiben - darunter klappen die
+#: Beschriftungen um und das Panel wird unnoetig hoch.
+DEFAULT_LEFT_DOCK_WIDTH = 300
+DEFAULT_RIGHT_DOCK_WIDTH = 300
+
 
 class PrintWorker(QThread):
     """Rendert nichts, sondern konvertiert und sendet in einem Thread."""
@@ -183,8 +190,12 @@ class MainWindow(QMainWindow):
         self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, right)
         self._right_dock = right
 
-        # Grosszuegige Standardbreiten der Seitenpanels.
-        self.resizeDocks([left, right], [300, 380], Qt.Orientation.Horizontal)
+        # Standardbreiten an den Panels orientiert (siehe Konstanten oben).
+        self.resizeDocks(
+            [left, right],
+            [DEFAULT_LEFT_DOCK_WIDTH, DEFAULT_RIGHT_DOCK_WIDTH],
+            Qt.Orientation.Horizontal,
+        )
 
     def _build_print_panel(self) -> QWidget:
         widget = QWidget(self)

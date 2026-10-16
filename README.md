@@ -82,8 +82,9 @@ Im Vorschau-Modus ist die Bearbeitung gesperrt (Zoom/Pan bleiben möglich).
 Das Layout ist **responsiv**: Der Canvas passt sich der Fenstergröße an
 (solange kein manueller Zoom gesetzt ist), die Seitenpanels werden bei
 Platzmangel scrollbar und die Formulare brechen bei schmalem Fenster um.
-Die Seitenpanels starten mit großzügigen Standardbreiten (Band/Drucker 300 px,
-Eigenschaften 380 px) und das Fenster öffnet ohne gespeicherte Geometrie mit
+Die Seitenpanels starten mit knappen Standardbreiten (Band/Drucker 300 px,
+Eigenschaften 300 px - gerade so breit, dass die Formularzeilen des Inspectors
+einzeilig bleiben) und das Fenster öffnet ohne gespeicherte Geometrie mit
 1320 x 860 px.
 
 ### Dialoge als Sheet (statt eigenem Fenster)
