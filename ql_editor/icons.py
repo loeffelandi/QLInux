@@ -127,6 +127,26 @@ def _draw_menu(p: QPainter, color: QColor) -> None:
         _line(p, 4.5, y, 19.5, y)
 
 
+def _draw_panel_left(p: QPainter, color: QColor) -> None:
+    # Fenster mit hervorgehobenem linken Seitenpanel (ein-/ausblenden).
+    _stroke_only(p, color)
+    p.drawRoundedRect(QRectF(3.5, 5.0, 17.0, 14.0), _RADIUS, _RADIUS)
+    _fill_only(p, color)
+    p.drawRect(QRectF(5.3, 6.7, 5.0, 10.6))
+    _stroke_only(p, color, 1.4)
+    _line(p, 11.7, 6.7, 11.7, 17.3)
+
+
+def _draw_panel_right(p: QPainter, color: QColor) -> None:
+    # Fenster mit hervorgehobenem rechten Seitenpanel (ein-/ausblenden).
+    _stroke_only(p, color)
+    p.drawRoundedRect(QRectF(3.5, 5.0, 17.0, 14.0), _RADIUS, _RADIUS)
+    _fill_only(p, color)
+    p.drawRect(QRectF(13.7, 6.7, 5.0, 10.6))
+    _stroke_only(p, color, 1.4)
+    _line(p, 12.3, 6.7, 12.3, 17.3)
+
+
 def _draw_text(p: QPainter, color: QColor) -> None:
     _stroke_only(p, color, 1.9)
     _line(p, 5.5, 6.5, 18.5, 6.5)
@@ -295,6 +315,8 @@ _DRAW = {
     "qr": _draw_qr,
     "line": _draw_line,
     "rect": _draw_rect,
+    "panel_left": _draw_panel_left,
+    "panel_right": _draw_panel_right,
     "orient_across": _draw_orient_across,
     "orient_along": _draw_orient_along,
     "front": _draw_front,

@@ -151,6 +151,17 @@ Toolbar, bleiben also immer synchron.
 * **Mausrad** über einem Seitenpanel scrollt das Panel - auch wenn der Zeiger
   über einem Feld steht; ein Feld ändert seinen Wert nur, wenn es den Fokus
   hat (kein versehentliches Verstellen).
+* **Seitenpanels ein-/ausblenden** (kleine Bildschirme): Die ersten beiden
+  Toolbar-Knöpfe („Fenster mit gefülltem Seitenstreifen") schalten das linke
+  und das rechte Panel um - zusätzlich im Hamburger-Menü unter *Ansicht* und
+  per **`Ctrl+B`** (links) / **`Ctrl+Shift+B`** (rechts). Sind beide Panels
+  ausgeblendet, steht der Canvas in voller Fensterbreite zur Verfügung
+  (die effektive Mindestbreite des Fensters sinkt dadurch von ~730 auf 640 px).
+  Die Sichtbarkeit wird beim Beenden gemerkt und beim nächsten Start
+  wiederhergestellt. Bewusst *kein* Schließen-Kreuz in der Panel-Titelleiste:
+  Der Fusion-Knopf passt nicht zum eigenen, modernen Icon-Stil, und ein
+  versehentlich geschlossenes Panel wäre schlechter wiederzufinden - die
+  Umschalter in der Toolbar sind immer sichtbar und mit dem Menü synchron.
 * **Rechtsklick** öffnet das Kontextmenü (Einfügen, Reihenfolge, Löschen).
 * Der **Inspector** zeigt kontextabhängig die passenden Eigenschaften
   (Text/Schrift/Farbe, Barcode-Inhalt/Symbologie, QR-Inhalt, Position, Drehung).

@@ -299,6 +299,36 @@ class MainWindow(QMainWindow):
         self._act_print_preview.setShortcut("Ctrl+Shift+P")
         self._act_print_preview.toggled.connect(self._on_toggle_print_preview)
 
+        # Seitenpanels ein-/ausblenden (kleine Bildschirme). Beide Aktionen sind
+        # immer erreichbar (Toolbar + Menue) - so laesst sich ein versehentlich
+        # verstecktes Panel jederzeit zurueckholen.
+        self._act_panel_left = QAction(icon("panel_left"), "Panel links", self)
+        self._act_panel_left.setCheckable(True)
+        self._act_panel_left.setChecked(True)
+        self._act_panel_left.setToolTip(
+            "Panel links ein-/ausblenden (Strg+B)\nBand, Ausrichtung, Länge, Margins"
+        )
+        self._act_panel_left.setShortcut("Ctrl+B")
+        self._act_panel_left.toggled.connect(
+            lambda visible: self._on_toggle_panel(self._left_dock, visible)
+        )
+
+        self._act_panel_right = QAction(icon("panel_right"), "Panel rechts", self)
+        self._act_panel_right.setCheckable(True)
+        self._act_panel_right.setChecked(True)
+        self._act_panel_right.setToolTip(
+            "Panel rechts ein-/ausblenden (Strg+Shift+B)\nEigenschaften und Druckoptionen"
+        )
+        self._act_panel_right.setShortcut("Ctrl+Shift+B")
+        self._act_panel_right.toggled.connect(
+            lambda visible: self._on_toggle_panel(self._right_dock, visible)
+        )
+
+        # Haekchen auch dann synchron halten, wenn das Panel ueber den
+        # Schliessen-Knopf der Titelleiste versteckt wird.
+        self._left_dock.visibilityChanged.connect(self._act_panel_left.setChecked)
+        self._right_dock.visibilityChanged.connect(self._act_panel_right.setChecked)
+
         self._act_quit = QAction(icon("quit"), "Beenden", self)
         self._act_quit.setToolTip("Beenden (Strg+Q)")
         self._act_quit.setShortcut(QKeySequence.StandardKey.Quit)
@@ -329,6 +359,11 @@ class MainWindow(QMainWindow):
             "QToolButton::menu-indicator { image: none; width: 0px; }"
         )
         bar.addWidget(self._menu_button)
+        bar.addSeparator()
+
+        # "Chrome"-Gruppe: Sichtbarkeit der Seitenpanels (kleine Bildschirme).
+        bar.addAction(self._act_panel_left)
+        bar.addAction(self._act_panel_right)
         bar.addSeparator()
 
         bar.addAction(self._act_add_text)
@@ -376,6 +411,8 @@ class MainWindow(QMainWindow):
         menu.addSection("Ansicht")
         for act in (
             self._act_print_preview,
+            self._act_panel_left,
+            self._act_panel_right,
             self._act_zoom_out,
             self._act_zoom_fit,
             self._act_zoom_in,
@@ -389,6 +426,21 @@ class MainWindow(QMainWindow):
         return menu
 
     # ------------------------------------------------------------- Settings --
+    def _on_toggle_panel(self, dock: QDockWidget, visible: bool) -> None:
+        """Seitenpanel ein-/ausblenden.
+
+        Wird sowohl von den Toolbar-/Menue-Aktionen als auch (ueber
+        ``visibilityChanged``) vom Schliessen-Knopf der Titelleiste ausgeloest.
+        Der Zustand wird beim Schliessen des Fensters gesichert - hier bewusst
+        kein Settings-Zugriff, weil das Signal auch beim Abbau der Widgets
+        feuert.
+        """
+        dock.setVisible(visible)
+        if not visible:
+            # Der Fokus darf nicht in einem gerade verschwundenen Formularfeld
+            # landen - sonst veraendert das Mausrad dort Werte.
+            self._canvas.setFocus()
+
     def _apply_saved_settings(self) -> None:
         geometry = self._settings.restore_geometry()
         if geometry is not None:
@@ -403,6 +455,9 @@ class MainWindow(QMainWindow):
         last_label = self._settings.last_label
         if last_label:
             self._media_panel.select_label(last_label)
+        # Zuletzt gewaehlte Panel-Sichtbarkeit wiederherstellen (kleine Screens).
+        self._act_panel_left.setChecked(self._settings.panel_left_visible)
+        self._act_panel_right.setChecked(self._settings.panel_right_visible)
 
     # ---------------------------------------------------------- Media-Sync --
     def _on_media_changed(self) -> None:
@@ -742,6 +797,8 @@ class MainWindow(QMainWindow):
         self._settings.address = self._media_panel.address()
         self._settings.model = self._media_panel.model_id()
         self._settings.last_label = self._media_panel.label_id()
+        self._settings.panel_left_visible = self._act_panel_left.isChecked()
+        self._settings.panel_right_visible = self._act_panel_right.isChecked()
         self._settings.sync()
         super().closeEvent(event)
 

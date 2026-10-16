@@ -74,5 +74,31 @@ class AppSettings:
         value = self.value("window/geometry", None)
         return value if isinstance(value, QByteArray) else None
 
+    # -- Seitenpanels -------------------------------------------------------
+    @staticmethod
+    def _as_bool(value, default: bool = True) -> bool:
+        """QSettings liefert Booleans je nach Plattform/Backend auch als Text."""
+        if value is None:
+            return default
+        if isinstance(value, bool):
+            return value
+        return str(value).strip().lower() in {"1", "true", "yes", "on"}
+
+    @property
+    def panel_left_visible(self) -> bool:
+        return self._as_bool(self.value("view/panel_left", None), True)
+
+    @panel_left_visible.setter
+    def panel_left_visible(self, value: bool) -> None:
+        self.set_value("view/panel_left", bool(value))
+
+    @property
+    def panel_right_visible(self) -> bool:
+        return self._as_bool(self.value("view/panel_right", None), True)
+
+    @panel_right_visible.setter
+    def panel_right_visible(self, value: bool) -> None:
+        self.set_value("view/panel_right", bool(value))
+
 
 __all__ = ["AppSettings"]

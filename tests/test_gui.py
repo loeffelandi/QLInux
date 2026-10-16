@@ -1048,3 +1048,101 @@ def test_panel_result_shows_real_content_length(qapp):
     along = win._media_panel._size_label.text()
     assert across != along
     assert "längs des Bandes" == win._media_panel._orientation_label.text()
+
+
+# --------------------------------------------------------------------------- #
+# Seitenpanels ein-/ausblenden
+# --------------------------------------------------------------------------- #
+def test_panel_toggle_actions_present_and_checked(qapp):
+    from PySide6.QtWidgets import QToolBar
+
+    from ql_editor.app import MainWindow
+
+    win = MainWindow()
+    for act in (win._act_panel_left, win._act_panel_right):
+        assert act.isCheckable() and act.isChecked()
+        assert not act.icon().isNull()
+        assert act.toolTip()
+    assert win._act_panel_left.shortcut().toString() == "Ctrl+B"
+    assert win._act_panel_right.shortcut().toString() == "Ctrl+Shift+B"
+
+    bar = win.findChild(QToolBar)
+    bar_actions = [a for a in bar.actions() if not a.isSeparator()]
+    assert win._act_panel_left in bar_actions
+    assert win._act_panel_right in bar_actions
+    assert win._act_panel_left in win._menu_button.menu().actions()
+
+
+def test_hiding_panel_gives_canvas_more_room(qapp):
+    from ql_editor.app import MainWindow
+
+    win = MainWindow()
+    win.resize(1000, 700)
+    win.show()
+    qapp.processEvents()
+    before = win._canvas.width()
+    assert win._right_dock.isVisible()
+
+    win._act_panel_right.setChecked(False)
+    qapp.processEvents()
+    assert not win._right_dock.isVisible()
+    assert win._canvas.width() > before
+
+    win._act_panel_right.setChecked(True)
+    qapp.processEvents()
+    assert win._right_dock.isVisible()
+
+
+def test_both_panels_can_be_hidden(qapp):
+    from ql_editor.app import MainWindow
+
+    win = MainWindow()
+    win.resize(1000, 700)
+    win.show()
+    qapp.processEvents()
+
+    win._act_panel_left.setChecked(False)
+    win._act_panel_right.setChecked(False)
+    qapp.processEvents()
+    assert not win._left_dock.isVisible()
+    assert not win._right_dock.isVisible()
+    # Der Canvas bekommt die volle Breite und der Fokus bleibt dort.
+    assert win._canvas.width() == pytest.approx(win.width(), abs=4)
+    assert qapp.focusWidget() is win._canvas
+
+
+def test_hiding_panel_by_dock_keeps_action_in_sync(qapp):
+    from ql_editor.app import MainWindow
+
+    win = MainWindow()
+    win.show()
+    qapp.processEvents()
+    # Simuliert das Verstecken von aussen (z. B. Titelleiste/Programmcode).
+    win._left_dock.hide()
+    qapp.processEvents()
+    assert win._act_panel_left.isChecked() is False
+
+
+def test_panel_visibility_is_persisted(qapp):
+    from ql_editor.app import MainWindow
+
+    win = MainWindow()
+    win.show()
+    qapp.processEvents()
+    win._act_panel_right.setChecked(False)
+    win.close()
+    qapp.processEvents()
+
+    again = MainWindow()
+    again.show()
+    qapp.processEvents()
+    assert again._right_dock.isVisible() is False
+    assert again._act_panel_right.isChecked() is False
+    assert again._left_dock.isVisible() is True
+
+
+def test_panel_icons_available(qapp):
+    from ql_editor import icons
+
+    names = icons.available()
+    assert "panel_left" in names and "panel_right" in names
