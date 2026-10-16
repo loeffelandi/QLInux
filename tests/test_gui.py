@@ -661,3 +661,76 @@ def test_image_item_serialization_roundtrip(qapp):
     assert isinstance(restored, ImageItem)
     assert not restored.pixmap().isNull()
     assert restored.pixmap().width() == 40
+
+
+# --------------------------------------------------------------------------- #
+# Icons / icon-basiertes Menue
+# --------------------------------------------------------------------------- #
+def test_icons_render_for_all_names(qapp):
+    from ql_editor import icons
+
+    assert len(icons.available()) >= 15
+    for name in icons.available():
+        ic = icons.icon(name)
+        assert not ic.isNull()
+        assert not ic.pixmap(24, 24).isNull()
+
+
+def test_icon_unknown_name_raises(qapp):
+    from ql_editor import icons
+
+    with pytest.raises(KeyError):
+        icons.icon("gibt-es-nicht")
+
+
+def test_icon_color_is_configurable(qapp):
+    from PySide6.QtGui import QColor
+
+    from ql_editor import icons
+
+    red = icons.icon("print", QColor("#ff0000"))
+    assert not red.isNull()
+
+
+def test_toolbar_is_icon_only(qapp):
+    from PySide6.QtCore import Qt
+    from PySide6.QtWidgets import QToolBar
+
+    from ql_editor.app import MainWindow
+
+    win = MainWindow()
+    bar = win.findChild(QToolBar)
+    assert bar is not None
+    assert bar.toolButtonStyle() == Qt.ToolButtonStyle.ToolButtonIconOnly
+    actions = [a for a in bar.actions() if not a.isSeparator()]
+    assert actions
+    assert all(not a.icon().isNull() for a in actions)
+    assert all(a.toolTip() for a in actions)
+
+
+def test_menu_actions_have_icons(qapp):
+    from ql_editor.app import MainWindow
+
+    win = MainWindow()
+    menus = [a.menu() for a in win.menuBar().actions() if a.menu() is not None]
+    assert len(menus) >= 4
+    for act in win.menuBar().actions():
+        if act.menu() is None:
+            continue
+        assert not act.icon().isNull()
+        for item in act.menu().actions():
+            if item.isSeparator():
+                continue
+            assert not item.icon().isNull()
+
+
+def test_context_menu_has_icons(qapp):
+    from PySide6.QtCore import QPointF
+
+    from ql_editor.app import MainWindow
+
+    win = MainWindow()
+    menu = win._build_context_menu(QPointF(10, 10))
+    items = [a for a in menu.actions() if not a.isSeparator()]
+    assert items
+    assert all(not a.icon().isNull() for a in items)

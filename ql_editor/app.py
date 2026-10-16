@@ -17,7 +17,7 @@ from __future__ import annotations
 import sys
 
 from PIL import Image
-from PySide6.QtCore import QPointF, QRectF, QThread, QTimer, Qt, Signal
+from PySide6.QtCore import QPointF, QRectF, QSize, QThread, QTimer, Qt, Signal
 from PySide6.QtGui import QAction, QKeySequence
 from PySide6.QtWidgets import (
     QApplication,
@@ -40,6 +40,7 @@ from PySide6.QtWidgets import (
 
 from . import media
 from .canvas import LabelCanvas
+from .icons import icon
 from .inspector import InspectorPanel
 from .items import BarcodeItem, ImageItem, LineItem, QRItem, RectItem, TextItem
 from .media_panel import MediaPanel
@@ -85,6 +86,7 @@ class MainWindow(QMainWindow):
         super().__init__()
         self._settings = settings or AppSettings()
         self.setWindowTitle("QLInux - P-touch Editor")
+        self.setWindowIcon(icon("label"))
         self._adjusting = False
         self._print_worker: PrintWorker | None = None
 
@@ -186,7 +188,7 @@ class MainWindow(QMainWindow):
         self._dither_check = QCheckBox("Dithering (Floyd-Steinberg)")
         self._cut_check = QCheckBox("Nach dem Druck schneiden")
         self._cut_check.setChecked(True)
-        self._print_button = QPushButton("Drucken")
+        self._print_button = QPushButton(icon("print"), "Drucken")
 
         layout.addWidget(QLabel("Threshold"))
         layout.addWidget(self._threshold_spin)
@@ -200,51 +202,78 @@ class MainWindow(QMainWindow):
         return widget
 
     def _build_actions(self) -> None:
-        self._act_add_text = QAction("Text", self)
+        self._act_add_text = QAction(icon("text"), "Text", self)
+        self._act_add_text.setToolTip("Text einfügen (Doppelklick auf den Canvas)")
         self._act_add_text.triggered.connect(self._add_text)
-        self._act_add_image = QAction("Bild…", self)
+
+        self._act_add_image = QAction(icon("image"), "Bild…", self)
+        self._act_add_image.setToolTip("Bild einfügen")
         self._act_add_image.triggered.connect(self._add_image)
-        self._act_add_barcode = QAction("Barcode…", self)
+
+        self._act_add_barcode = QAction(icon("barcode"), "Barcode…", self)
+        self._act_add_barcode.setToolTip("Barcode einfügen")
         self._act_add_barcode.triggered.connect(self._add_barcode)
-        self._act_add_qr = QAction("QR-Code…", self)
+
+        self._act_add_qr = QAction(icon("qr"), "QR-Code…", self)
+        self._act_add_qr.setToolTip("QR-Code einfügen")
         self._act_add_qr.triggered.connect(self._add_qr)
-        self._act_add_line = QAction("Linie", self)
+
+        self._act_add_line = QAction(icon("line"), "Linie", self)
+        self._act_add_line.setToolTip("Linie einfügen")
         self._act_add_line.triggered.connect(self._add_line)
-        self._act_add_rect = QAction("Rahmen", self)
+
+        self._act_add_rect = QAction(icon("rect"), "Rahmen", self)
+        self._act_add_rect.setToolTip("Rahmen einfügen")
         self._act_add_rect.triggered.connect(self._add_rect)
 
-        self._act_front = QAction("In den Vordergrund", self)
+        self._act_front = QAction(icon("front"), "In den Vordergrund", self)
+        self._act_front.setToolTip("In den Vordergrund")
         self._act_front.triggered.connect(lambda: self._bump_z(+1))
-        self._act_back = QAction("In den Hintergrund", self)
+
+        self._act_back = QAction(icon("back"), "In den Hintergrund", self)
+        self._act_back.setToolTip("In den Hintergrund")
         self._act_back.triggered.connect(lambda: self._bump_z(-1))
-        self._act_delete = QAction("Löschen", self)
+
+        self._act_delete = QAction(icon("delete"), "Löschen", self)
+        self._act_delete.setToolTip("Löschen (Entf)")
         self._act_delete.setShortcut(QKeySequence.StandardKey.Delete)
         self._act_delete.triggered.connect(self._canvas.delete_selected)
 
-        self._act_zoom_fit = QAction("Zoom: Einpassen", self)
+        self._act_zoom_fit = QAction(icon("zoom_fit"), "Einpassen", self)
+        self._act_zoom_fit.setToolTip("Zoom: Einpassen (Ctrl+0)")
         self._act_zoom_fit.setShortcut("Ctrl+0")
         self._act_zoom_fit.triggered.connect(self._canvas.zoom_fit)
-        self._act_zoom_in = QAction("Zoom +", self)
+
+        self._act_zoom_in = QAction(icon("zoom_in"), "Vergrößern", self)
+        self._act_zoom_in.setToolTip("Vergrößern (Strg ++)")
         self._act_zoom_in.setShortcut(QKeySequence.StandardKey.ZoomIn)
         self._act_zoom_in.triggered.connect(self._canvas.zoom_in)
-        self._act_zoom_out = QAction("Zoom −", self)
+
+        self._act_zoom_out = QAction(icon("zoom_out"), "Verkleinern", self)
+        self._act_zoom_out.setToolTip("Verkleinern (Strg +-)")
         self._act_zoom_out.setShortcut(QKeySequence.StandardKey.ZoomOut)
         self._act_zoom_out.triggered.connect(self._canvas.zoom_out)
 
-        self._act_print = QAction("Drucken", self)
+        self._act_print = QAction(icon("print"), "Drucken", self)
+        self._act_print.setToolTip("Drucken (Ctrl+P)")
         self._act_print.setShortcut("Ctrl+P")
         self._act_print.triggered.connect(self._on_print)
 
-        self._act_quit = QAction("Beenden", self)
+        self._act_quit = QAction(icon("quit"), "Beenden", self)
+        self._act_quit.setToolTip("Beenden (Strg+Q)")
         self._act_quit.setShortcut(QKeySequence.StandardKey.Quit)
         self._act_quit.triggered.connect(self.close)
 
-        self._act_about = QAction("Über QLInux", self)
+        self._act_about = QAction(icon("about"), "Über QLInux", self)
+        self._act_about.setToolTip("Über QLInux")
         self._act_about.triggered.connect(self._show_about)
 
     def _build_toolbar(self) -> None:
         bar = self.addToolBar("Werkzeuge")
+        bar.setObjectName("main_toolbar")
         bar.setMovable(False)
+        bar.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonIconOnly)
+        bar.setIconSize(QSize(22, 22))
         bar.addAction(self._act_add_text)
         bar.addAction(self._act_add_image)
         bar.addAction(self._act_add_barcode)
@@ -259,22 +288,23 @@ class MainWindow(QMainWindow):
         bar.addAction(self._act_zoom_out)
         bar.addAction(self._act_zoom_fit)
         bar.addAction(self._act_zoom_in)
+        bar.addSeparator()
         bar.addAction(self._act_print)
 
     def _build_menu(self) -> None:
-        file_menu = self.menuBar().addMenu("&Datei")
+        file_menu = self.menuBar().addMenu(icon("file"), "&Datei")
         file_menu.addAction(self._act_print)
         file_menu.addSeparator()
         file_menu.addAction(self._act_quit)
-        edit_menu = self.menuBar().addMenu("&Bearbeiten")
+        edit_menu = self.menuBar().addMenu(icon("edit"), "&Bearbeiten")
         edit_menu.addAction(self._act_delete)
         edit_menu.addAction(self._act_front)
         edit_menu.addAction(self._act_back)
-        view_menu = self.menuBar().addMenu("&Ansicht")
+        view_menu = self.menuBar().addMenu(icon("view"), "&Ansicht")
         view_menu.addAction(self._act_zoom_out)
         view_menu.addAction(self._act_zoom_fit)
         view_menu.addAction(self._act_zoom_in)
-        help_menu = self.menuBar().addMenu("&Hilfe")
+        help_menu = self.menuBar().addMenu(icon("help"), "&Hilfe")
         help_menu.addAction(self._act_about)
 
     # ------------------------------------------------------------- Settings --
@@ -427,18 +457,23 @@ class MainWindow(QMainWindow):
             return
         self._add_item(TextItem(text, font_pixel_size=self._default_font_size()), scene_pos)
 
-    def _show_context_menu(self, global_pos, scene_pos: QPointF) -> None:
+    def _build_context_menu(self, scene_pos: QPointF) -> QMenu:
         menu = QMenu(self)
-        menu.addAction("Text einfügen", lambda: self._on_text_requested(scene_pos))
-        menu.addAction("Bild…", self._add_image)
-        menu.addAction("Barcode…", self._add_barcode)
-        menu.addAction("QR-Code…", self._add_qr)
+        menu.addAction(icon("text"), "Text einfügen", lambda: self._on_text_requested(scene_pos))
+        menu.addAction(icon("image"), "Bild…", self._add_image)
+        menu.addAction(icon("barcode"), "Barcode…", self._add_barcode)
+        menu.addAction(icon("qr"), "QR-Code…", self._add_qr)
+        menu.addAction(icon("line"), "Linie", self._add_line)
+        menu.addAction(icon("rect"), "Rahmen", self._add_rect)
         if self._canvas.selected_items():
             menu.addSeparator()
-            menu.addAction("In den Vordergrund", lambda: self._bump_z(+1))
-            menu.addAction("In den Hintergrund", lambda: self._bump_z(-1))
-            menu.addAction("Löschen", self._canvas.delete_selected)
-        menu.exec(global_pos)
+            menu.addAction(icon("front"), "In den Vordergrund", lambda: self._bump_z(+1))
+            menu.addAction(icon("back"), "In den Hintergrund", lambda: self._bump_z(-1))
+            menu.addAction(icon("delete"), "Löschen", self._canvas.delete_selected)
+        return menu
+
+    def _show_context_menu(self, global_pos, scene_pos: QPointF) -> None:
+        self._build_context_menu(scene_pos).exec(global_pos)
 
     def _add_image(self) -> None:
         path, _ = QFileDialog.getOpenFileName(

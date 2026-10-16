@@ -29,6 +29,7 @@ ql_editor/
   canvas.py      # QGraphicsScene mit fester px-Groesse       (M3)
   media_panel.py # Bandauswahl, Laenge, Auto-Length, Margins  (M3)
   preview.py     # monochrome 1-bit-Vorschau                  (M3)
+  icons.py       # programmatisch gezeichnete Vektor-Icons     (M3)
   templates.py   # Vorlagen (JSON + Assets)                   (M4)
   settings.py    # QSettings (Druckeradresse, letzte Auswahl) (M4)
   app.py         # QApplication / MainWindow                  (M3)
@@ -70,6 +71,11 @@ Das Layout ist **responsiv**: Der Canvas passt sich der Fenstergröße an
 Platzmangel scrollbar und die Formulare brechen bei schmalem Fenster um.
 
 ### Bedienung (wie eine Desktop-App)
+Die Oberfläche ist **icon-basiert**: die Toolbar zeigt nur Icons (mit Tooltips),
+und jeder Menü- sowie Kontextmenü-Eintrag hat ein Icon. Die Icons werden zur
+Laufzeit gezeichnet (`ql_editor/icons.py`) und passen sich der Palette an
+(hell/dunkel) - es gibt keine externen Icon-Dateien.
+
 * **Doppelklick ins Leere** legt ein Textfeld an und startet die Bearbeitung.
 * **Doppelklick auf Text** editiert inline (Esc beendet).
 * **Ziehen** verschiebt das Objekt; bei Mehrfachauswahl bewegt sich die

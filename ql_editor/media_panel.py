@@ -27,6 +27,7 @@ from PySide6.QtWidgets import (
 )
 
 from . import media
+from .icons import icon
 from .media import DEFAULT_MODEL, LabelSpec, LengthMode, Margins, ModelSpec
 from .printer import DEFAULT_ADDRESS
 
@@ -55,7 +56,8 @@ class MediaPanel(QWidget):
         printer_form.setRowWrapPolicy(QFormLayout.RowWrapPolicy.WrapLongRows)
         self._model_combo = QComboBox()
         self._address_edit = QLineEdit(DEFAULT_ADDRESS)
-        self._detect_button = QPushButton("Band erkennen")
+        self._detect_button = QPushButton(icon("detect"), "Band erkennen")
+        self._detect_button.setToolTip("Band am Drucker erkennen (Statusabfrage)")
         printer_form.addRow("Modell", self._model_combo)
         printer_form.addRow("Adresse", self._address_edit)
         printer_form.addRow("", self._detect_button)
