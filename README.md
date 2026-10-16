@@ -184,13 +184,14 @@ Toolbar, bleiben also immer synchron.
     QL-820NWB); sie braucht doppelt so viele Zeilen und druckt deshalb
     langsamer.
 * **Tintenmenge** (die Schwelle `-t` des brother_ql-Werkzeugs, Standard 70 %):
-  Der Drucker kennt nur Schwarz oder Weiß. Das Feld legt fest, **wie viel
-  Helligkeit noch als Tinte gedruckt wird**: 70 % heißt „alles, was dunkler als
-  70 % des Graubereichs ist, wird Tinte". Höher = kräftiger, hellgraue Kanten
-  bleiben erhalten; niedriger = feiner, hellgraue Kanten verschwinden. Für
-  Textetiketten ist der Standardwert gut - nachjustieren lohnt bei sehr dünnen
-  Schriften, feinen Grafiken oder ausgefransten Kanten. „Tinte: x %" zeigt
-  sofort, was der Wert bewirkt.
+  Der Drucker kennt nur Schwarz oder Weiß. Das Feld legt fest, **ab wann ein
+  Grauton Tinte wird** - 70 % heißt „alles ab etwa 30 % Schwärze wird Tinte".
+  Höher = mehr Tinte (auch hellgraue Ränder werden schwarz, kräftigere und
+  etwas breitere Schrift); niedriger = weniger Tinte (nur dunkle Punkte werden
+  schwarz, feiner - dünne Striche können ausfransen). Für Textetiketten ist der
+  Standardwert gut; nachjustieren lohnt bei sehr dünnen Schriften, feinen
+  Grafiken oder ausgefransten Kanten. „Tinte: x %" zeigt sofort, was der Wert
+  bewirkt.
 * **Graustufen (Dithering)**: für Fotos und Bilder - Grautöne werden gepunktet
   statt hart geschwellt. Dann ist die Tintenmenge **wirkungslos** (die
   Bibliothek ignoriert sie); das Feld wird ausgegraut, statt still nichts zu

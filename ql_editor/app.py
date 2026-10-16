@@ -294,12 +294,17 @@ class MainWindow(QMainWindow):
 
     def _threshold_tooltip(self) -> str:
         return (
-            "Wie viel Helligkeit als Tinte gedruckt wird (Schwelle \"-t\" von "
-            "brother_ql, Standard 70 %):\n"
-            "70 % = alles, was dunkler als 70 % des Graubereichs ist, wird Tinte.\n"
-            "höher = kräftiger/breitere Schrift, feine Kanten bleiben erhalten;\n"
-            "niedriger = feiner, hellgraue Kanten verschwinden.\n"
-            "Wirkt nur ohne Dithering - mit Dithering ignoriert der Drucker sie."
+            "Wie viel Tinte der Drucker setzt (Schwelle \"-t\" von brother_ql, "
+            "Standard 70 %).\n"
+            "Der Drucker kennt nur Schwarz oder Weiß - hier wird entschieden, ab "
+            "wann ein Grauton\n"
+            "(z. B. eine weiche Buchstabenkante) Tinte wird:\n"
+            "70 % = alles ab etwa 30 % Schwärze wird Tinte (gut für Text).\n"
+            "höher = mehr Tinte: auch hellgraue Ränder werden schwarz (kräftiger, "
+            "breitere Schrift).\n"
+            "niedriger = weniger Tinte: nur dunkle Punkte werden schwarz (feiner; "
+            "dünne Striche können ausfransen).\n"
+            "Wirkt nur ohne Dithering - mit Dithering ignoriert brother_ql den Wert."
         )
 
     def _on_dither_toggled(self) -> None:

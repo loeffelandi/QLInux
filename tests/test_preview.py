@@ -163,3 +163,27 @@ def test_reduce_for_display_averages_the_printed_dots():
 
     # Ohne Verkleinerung bleibt das Bild unangetastet.
     assert reduce_for_display(image, 1) is image
+
+
+def test_threshold_semantics_match_the_documented_cut():
+    """Die Tintenmenge ist ein Schnitt im Grauverlauf (so erklaert sie die UI).
+
+    70 %: alles ab Grauwert 179 (= rund 30 % Schwaeze) wird Tinte. Hoeher =
+    mehr Tinte, 100 % druckt alles, 0 % nur reines Schwarz.
+    """
+    from ql_editor.preview import binarize
+
+    def ink_at(gray: int, threshold: int) -> bool:
+        image = Image.new("L", (1, 1), gray)
+        preview = binarize(image, PreviewOptions(threshold=threshold))
+        return preview.getpixel((0, 0)) == 0  # 0 = Tinte
+
+    assert ink_at(179, 70) is True
+    assert ink_at(180, 70) is False
+    # Hoeher = mehr Tinte: mittleres Grau bei 90 % Tinte, bei 40 % nicht.
+    assert ink_at(128, 90) is True
+    assert ink_at(128, 40) is False
+    # Extreme.
+    assert ink_at(254, 100) is True
+    assert ink_at(254, 0) is False
+    assert ink_at(0, 0) is True
