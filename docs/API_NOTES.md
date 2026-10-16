@@ -149,8 +149,16 @@ Konsequenzen (in `printer.DPI_600_SCALE` / `canvas.render_printable(scale=…)`)
 
 Unterstuetzte Modelle stehen in `printer.DPI_600_MODELS` (QL-800, QL-810W,
 QL-820NWB; belegt ueber die Brother-Datenblaetter "High resolution mode:
-300 x 600 dpi"). `brother_ql` 0.9.4 fuehrt diese Faehigkeit nicht mit - daher
-die gepflegte Liste.
+300 x 600 dpi"). Fuer die uebrigen Modelle der Bibliothek nennen die
+Datenblaetter nur den 300-dpi-Druckkopf und keinen High-Resolution-Modus
+(QL-500/550/560/570/580N/650TD, QL-700/710W/720NW, QL-1050/1060N - geprueft).
+`brother_ql` 0.9.4 fuehrt diese Faehigkeit nicht mit - daher die gepflegte
+Liste.
+
+Die Aufloesung ist **keine** Qualitaetsstufe: `printer.resolution_options()`
+liefert nur Aufloesungen, und `pquality`/`hq` ("Qualitaet vor Tempo") ist ein
+eigener Schalter in der Oberflaeche. Abfragen laesst sich beides nicht - die
+Statusantwort (32 Byte) kennt nur Band und Fehler.
 
 ## Pillow-10-Patch
 

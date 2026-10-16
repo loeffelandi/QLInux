@@ -15,6 +15,7 @@ from ql_editor import media
 from ql_editor.canvas import ROTATE_OFFSET_PX, LabelCanvas
 from ql_editor.items import BarcodeItem, QRItem, TextItem, item_from_dict
 from ql_editor.media import get_label
+from ql_editor.printer import RESOLUTION_HIGH, RESOLUTION_STANDARD
 
 pytestmark = pytest.mark.usefixtures("qapp")
 
@@ -1200,8 +1201,10 @@ def test_orientation_changes_canvas_and_print_image(qapp):
     from ql_editor.app import MainWindow
 
     win = MainWindow()
-    # Qualitaet festnageln: hier geht es um die Ausrichtung, nicht um 600 dpi.
-    win._quality_combo.setCurrentIndex(win._quality_combo.findData("high"))
+    # Auflösung festnageln: hier geht es um die Ausrichtung, nicht um 600 dpi.
+    win._resolution_combo.setCurrentIndex(
+        win._resolution_combo.findData(RESOLUTION_STANDARD.key)
+    )
     win._new_text()
     win._canvas.cancel_editing()
     label = win._media_panel.label
@@ -1216,7 +1219,9 @@ def test_orientation_changes_canvas_and_print_image(qapp):
 
     # Im 600-dpi-Modus rendert die Designflaeche doppelt so fein - in beiden
     # Ausrichtungen, denn die feine Achse ist immer die Bandlaufrichtung.
-    win._quality_combo.setCurrentIndex(win._quality_combo.findData("maximum"))
+    win._resolution_combo.setCurrentIndex(
+        win._resolution_combo.findData(RESOLUTION_HIGH.key)
+    )
     assert win._for_print().size == (label.width_dots * 2, length * 2)
     win._media_panel.set_orientation(media.Orientation.ACROSS)
     assert win._for_print().size == (label.width_dots * 2, length * 2)
@@ -1884,29 +1889,32 @@ def _temp_window(qapp, tmp_path):
     return win
 
 
-def test_quality_is_forwarded_to_the_printer(qapp, tmp_path):
-    """Die gewaehlte Qualitaet bestimmt Druckauftrag und Renderfaktor."""
+def test_resolution_and_hq_are_forwarded_to_the_printer(qapp, tmp_path):
+    """Auflösung und HQ sind zwei Schalter - beide landen im Druckauftrag."""
     from ql_editor.printer import build_raster
 
     win = _temp_window(qapp, tmp_path)
     label = win._media_panel.label
     config = win._media_panel.printer_config()
 
-    # Der QL-820NWB kann 600 dpi - genau die maximale Stufe ist voreingestellt.
-    assert win._quality().key == "maximum"
-    assert win._quality().dpi_600 is True
+    # Vorgabe: die Standardauflösung des Druckkopfs, HQ an.
+    assert win._resolution().key == RESOLUTION_STANDARD.key
+    assert win._hq() is True
+    assert win._print_scale() == 1
+    assert win._for_print().width == label.width_dots
+
+    # 600 dpi nur in Bandlaufrichtung: doppelt so fein gerendert.
+    win._resolution_combo.setCurrentIndex(
+        win._resolution_combo.findData(RESOLUTION_HIGH.key)
+    )
+    qapp.processEvents()
+    assert win._resolution().scale == 2
     assert win._print_scale() == 2
     assert win._for_print().width == label.width_dots * 2
 
-    win._quality_combo.setCurrentIndex(win._quality_combo.findData("standard"))
-    qapp.processEvents()
-    assert win._quality().hq is False
-    assert win._print_scale() == 1
-    plain = win._for_print()
-    assert plain.width == label.width_dots
-
-    with_hq = build_raster(plain, label, config, hq=True)
-    without_hq = build_raster(plain, label, config, hq=False)
+    fine = win._for_print()
+    with_hq = build_raster(fine, label, config, hq=True, dpi_600=True)
+    without_hq = build_raster(fine, label, config, hq=False, dpi_600=True)
     assert with_hq != without_hq
 
 
@@ -1914,7 +1922,10 @@ def test_print_options_are_persisted(qapp, tmp_path):
     win = _temp_window(qapp, tmp_path)
     win._threshold_spin.setValue(88)
     win._dither_check.setChecked(True)
-    win._quality_combo.setCurrentIndex(win._quality_combo.findData("standard"))
+    win._resolution_combo.setCurrentIndex(
+        win._resolution_combo.findData(RESOLUTION_HIGH.key)
+    )
+    win._hq_check.setChecked(False)
     win._cut_check.setChecked(False)
     win.close()
     qapp.processEvents()
@@ -1922,45 +1933,77 @@ def test_print_options_are_persisted(qapp, tmp_path):
     again = _temp_window(qapp, tmp_path)
     assert again._threshold_spin.value() == 88
     assert again._dither_check.isChecked() is True
-    assert again._quality_combo.currentData() == "standard"
+    assert again._resolution_combo.currentData() == RESOLUTION_HIGH.key
+    assert again._hq_check.isChecked() is False
     assert again._cut_check.isChecked() is False
 
 
-def test_quality_options_follow_the_printer_model(qapp):
-    """Jedes Modell bietet nur, was es kann - die beste Stufe zuletzt."""
-    from ql_editor.printer import maximum_quality, quality_by_key, quality_options
+def test_resolution_options_follow_the_printer_model(qapp):
+    """Nur die Auflösungen, die der Druckkopf wirklich kann."""
+    from ql_editor.printer import (
+        maximum_resolution,
+        resolution_by_key,
+        resolution_options,
+    )
 
-    keys = [option.key for option in quality_options("QL-820NWB")]
-    assert keys == ["standard", "high", "maximum"]
-    assert maximum_quality("QL-820NWB").dpi_600 is True
+    keys = [option.key for option in resolution_options("QL-820NWB")]
+    assert keys == [RESOLUTION_STANDARD.key, RESOLUTION_HIGH.key]
+    assert maximum_resolution("QL-820NWB").label == "300 × 600 dpi"
+    assert maximum_resolution("QL-820NWB").scale == 2
 
-    # Der QL-500 hat weder Expanded-Mode noch 600-dpi-Kopf.
-    assert [option.key for option in quality_options("QL-500")] == ["standard", "high"]
-    assert maximum_quality("QL-500").key == "high"
+    # Alle uebrigen Modelle der Bibliothek haben nur den 300-dpi-Druckkopf -
+    # laut Datenblatt ohne High-Resolution-Modus.
+    for model_id in ("QL-500", "QL-570", "QL-700", "QL-720NW", "QL-1050", "QL-1060N"):
+        assert [option.key for option in resolution_options(model_id)] == [
+            RESOLUTION_STANDARD.key
+        ], model_id
+        assert maximum_resolution(model_id).label == "300 × 300 dpi"
 
-    # Eine nicht unterstuetzte Stufe faellt auf das Maximum des Modells zurueck.
-    assert quality_by_key("QL-500", "maximum").key == "high"
-    assert quality_by_key("QL-820NWB", "high").hq is True
+    # Eine nicht unterstuetzte Aufloesung faellt auf das Maximum des Modells zurueck.
+    assert (
+        resolution_by_key("QL-500", RESOLUTION_HIGH.key).key == RESOLUTION_STANDARD.key
+    )
+    assert resolution_by_key("QL-820NWB", RESOLUTION_HIGH.key).scale == 2
 
 
-def test_quality_combo_follows_a_model_change(qapp, tmp_path):
+def test_resolution_combo_follows_a_model_change(qapp, tmp_path):
     win = _temp_window(qapp, tmp_path)
-    assert win._quality().key == "maximum"
+    assert win._resolution().key == RESOLUTION_STANDARD.key
 
     combo = win._media_panel._model_combo
     combo.setCurrentIndex(combo.findData("QL-500"))
     qapp.processEvents()
+    assert [
+        win._resolution_combo.itemData(i) for i in range(win._resolution_combo.count())
+    ] == [RESOLUTION_STANDARD.key]
+    assert "300 × 300 dpi" in win._resolution_hint.text()
 
-    assert win._quality_combo.currentData() == "high"  # Maximum gibt es hier nicht
-    assert win._print_scale() == 1
-    assert "QL-500" in win._quality_hint.text()
-
-    # Zurueck zum QL-820NWB: die maximale Stufe ist wieder waehlbar.
+    # Zurueck zum QL-820NWB: 600 dpi ist wieder waehlbar.
     combo.setCurrentIndex(combo.findData("QL-820NWB"))
     qapp.processEvents()
-    assert "maximum" in [
-        win._quality_combo.itemData(i) for i in range(win._quality_combo.count())
+    assert RESOLUTION_HIGH.key in [
+        win._resolution_combo.itemData(i) for i in range(win._resolution_combo.count())
     ]
+
+    # Eine Aufloesung, die das neue Modell nicht kann, faellt auf 300 dpi zurueck.
+    win._resolution_combo.setCurrentIndex(
+        win._resolution_combo.findData(RESOLUTION_HIGH.key)
+    )
+    qapp.processEvents()
+    assert win._resolution().scale == 2
+    combo.setCurrentIndex(combo.findData("QL-500"))
+    qapp.processEvents()
+    assert win._resolution().scale == 1
+    assert "QL-500" in win._resolution_hint.text()
+
+
+def test_print_options_are_never_cut_off(qapp, tmp_path):
+    """Der Drucken-Knopf darf nicht hinter dem Scrollbalken verschwinden."""
+    win = _temp_window(qapp, tmp_path)
+    area = win._right_panel.content.widget(1)
+    assert area.minimumHeight() >= area.widget().sizeHint().height()
+    assert area.verticalScrollBar().maximum() == 0
+    assert win._print_button.isVisible()
 
 
 def test_print_preview_in_600dpi_is_reduced_to_canvas_size(qapp, tmp_path):
@@ -1970,7 +2013,9 @@ def test_print_preview_in_600dpi_is_reduced_to_canvas_size(qapp, tmp_path):
     auf die Canvas-Groesse gemittelt (sonst waere die Vorschau gestaucht).
     """
     win = _temp_window(qapp, tmp_path)
-    win._quality_combo.setCurrentIndex(win._quality_combo.findData("maximum"))
+    win._resolution_combo.setCurrentIndex(
+        win._resolution_combo.findData(RESOLUTION_HIGH.key)
+    )
     win._add_text()
     win._canvas.cancel_editing()
     win._canvas.set_print_preview(True)
@@ -2032,30 +2077,45 @@ def test_threshold_has_an_explanatory_tooltip(qapp, tmp_path):
     assert "40 %" in tooltip and "90 %" in tooltip  # waehlbare Spanne
 
 
-def test_old_hq_setting_is_migrated(qapp, tmp_path):
-    """Bestehende Einstellungen (print/hq) werden einmalig uebersetzt."""
+def test_old_settings_are_migrated(qapp, tmp_path):
+    """Bestehende Einstellungen (print/quality, print/hq) werden uebersetzt."""
     from PySide6.QtCore import QSettings
 
     from ql_editor.settings import AppSettings
 
     raw = QSettings(str(tmp_path / "migration.ini"), QSettings.Format.IniFormat)
     raw.setValue("print/hq", False)
-    assert AppSettings(raw).print_quality == "standard"
+    assert AppSettings(raw).hq is False
+    assert AppSettings(raw).print_resolution == RESOLUTION_STANDARD.key
 
     raw.setValue("print/hq", True)
-    assert AppSettings(raw).print_quality == "high"
+    assert AppSettings(raw).hq is True
 
+    # Die kombinierte "Qualitaet" einer aelteren Version: "maximum" war 600 dpi.
+    raw.remove("print/hq")
+    raw.setValue("print/quality", "maximum")
+    assert AppSettings(raw).print_resolution == RESOLUTION_HIGH.key
+    assert AppSettings(raw).hq is True
+
+    raw.setValue("print/quality", "standard")
+    assert AppSettings(raw).print_resolution == RESOLUTION_STANDARD.key
+    assert AppSettings(raw).hq is False
+
+    # Die neuen Schluessel gewinnen, sobald sie gesetzt sind.
     settings = AppSettings(raw)
-    settings.print_quality = "maximum"
-    assert raw.value("print/quality") == "maximum"
-    assert settings.print_quality == "maximum"
+    settings.print_resolution = RESOLUTION_STANDARD.key
+    settings.hq = True
+    assert raw.value("print/resolution") == RESOLUTION_STANDARD.key
+    assert raw.value("print/hq") is True
+    assert settings.print_resolution == RESOLUTION_STANDARD.key
+    assert settings.hq is True
 
 
-def test_fresh_settings_want_the_maximum_quality(qapp, tmp_path):
+def test_fresh_settings_use_the_standard_resolution(qapp, tmp_path):
     from PySide6.QtCore import QSettings
 
-    from ql_editor.printer import QUALITY_MAXIMUM
     from ql_editor.settings import AppSettings
 
     raw = QSettings(str(tmp_path / "fresh.ini"), QSettings.Format.IniFormat)
-    assert AppSettings(raw).print_quality == QUALITY_MAXIMUM.key
+    assert AppSettings(raw).print_resolution == RESOLUTION_STANDARD.key
+    assert AppSettings(raw).hq is True

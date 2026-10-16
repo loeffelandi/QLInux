@@ -11,7 +11,7 @@ from PySide6.QtCore import QByteArray, QSettings
 
 from .media import DEFAULT_MODEL
 from .preview import DEFAULT_THRESHOLD
-from .printer import DEFAULT_ADDRESS, QUALITY_MAXIMUM
+from .printer import DEFAULT_ADDRESS, RESOLUTION_HIGH, RESOLUTION_STANDARD
 
 _ORG = "QLInux"
 _APP = "QLInux"
@@ -97,25 +97,46 @@ class AppSettings:
         self.set_value("print/dither", bool(value))
 
     @property
-    def print_quality(self) -> str:
-        """Gewaehlte Druckqualitaet (Schluessel aus :mod:`ql_editor.printer`).
+    def print_resolution(self) -> str:
+        """Gewaehlte Druckaufloesung (Schluessel aus :mod:`ql_editor.printer`).
 
-        Ohne gespeicherte Wahl ist die **maximale** Stufe voreingestellt - die
-        Oberflaeche begrenzt sie auf das, was das gewaehlte Modell kann. Aeltere
-        Versionen kannten nur ein HQ-Haekchen; das wird einmalig uebersetzt,
-        damit bestehende Einstellungen nicht verloren gehen.
+        Ohne gespeicherte Wahl gilt die Standardaufloesung des Druckkopfs - die
+        Oberflaeche begrenzt sie zusaetzlich auf das, was das Modell kann.
+        Aeltere Versionen kannten eine kombinierte "Qualitaet" bzw. nur ein
+        HQ-Haekchen; beides wird einmalig uebersetzt, damit bestehende
+        Einstellungen nicht verloren gehen.
         """
-        value = self.value("print/quality", None)
+        value = self.value("print/resolution", None)
         if value is not None:
             return str(value)
-        legacy = self.value("print/hq", None)
-        if legacy is None:
-            return QUALITY_MAXIMUM.key
-        return "high" if self._as_bool(legacy, True) else "standard"
+        legacy_quality = self.value("print/quality", None)
+        if legacy_quality is not None:
+            # Alte Stufen: "maximum" war 600 dpi, "high"/"standard" 300 dpi.
+            return RESOLUTION_HIGH.key if legacy_quality == "maximum" else RESOLUTION_STANDARD.key
+        return RESOLUTION_STANDARD.key
 
-    @print_quality.setter
-    def print_quality(self, value: str) -> None:
-        self.set_value("print/quality", str(value))
+    @print_resolution.setter
+    def print_resolution(self, value: str) -> None:
+        self.set_value("print/resolution", str(value))
+
+    @property
+    def hq(self) -> bool:
+        """Qualitaet vor Tempo (brother_ql ``pquality``) - Vorgabe: an.
+
+        Ohne gespeicherten Wert entscheidet die Vorgeschichte: die kombinierte
+        "Qualitaet" hatte HQ bei "standard" aus, das alte Haekchen kam direkt.
+        """
+        value = self.value("print/hq", None)
+        if value is not None:
+            return self._as_bool(value, True)
+        legacy_quality = self.value("print/quality", None)
+        if legacy_quality is not None:
+            return legacy_quality != "standard"
+        return True
+
+    @hq.setter
+    def hq(self, value: bool) -> None:
+        self.set_value("print/hq", bool(value))
 
     @property
     def cut(self) -> bool:

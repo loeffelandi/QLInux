@@ -61,14 +61,15 @@ from .preview import (
     to_qimage,
 )
 from .printer import (
-    DPI_600_SCALE,
-    PrintQuality,
+    PrintResolution,
     PrinterError,
+    RESOLUTION_HIGH,
+    RESOLUTION_STANDARD,
     detect_label,
-    maximum_quality,
+    maximum_resolution,
     print_image,
-    quality_by_key,
-    quality_options,
+    resolution_by_key,
+    resolution_options,
 )
 from .settings import AppSettings
 from .sheet import ask_choice, ask_text, choose_file, show_message
@@ -197,10 +198,16 @@ class MainWindow(QMainWindow):
 
         splitter = QSplitter(Qt.Orientation.Vertical, self)
         splitter.addWidget(self._scroll_wrap(self._inspector))
-        splitter.addWidget(self._scroll_wrap(self._build_print_panel()))
+        print_area = self._scroll_wrap(self._build_print_panel())
+        # Die Druckoptionen sind eine feste Formularhoehe - sie muessen immer
+        # ganz sichtbar bleiben (der Drucken-Knopf darf nie hinter dem
+        # Scrollbalken verschwinden). Der Inspector darueber gibt dafuer nach;
+        # er scrollt selbst.
+        print_area.setMinimumHeight(print_area.sizeHint().height())
+        splitter.addWidget(print_area)
         splitter.setStretchFactor(0, 1)
         splitter.setStretchFactor(1, 0)
-        splitter.setSizes([300, 340])
+        splitter.setSizes([300, print_area.minimumHeight()])
         self._right_panel = OverlayPanel(
             "Eigenschaften & Druck",
             splitter,
@@ -219,24 +226,36 @@ class MainWindow(QMainWindow):
         layout.addWidget(title)
 
         hint = QLabel(
-            "Geht 1:1 an den Drucker; die Druckvorschau (Strg+Umschalt+P) zeigt "
-            "das Ergebnis in echten Druckpunkten."
+            "Die Druckvorschau (Strg+Umschalt+P) zeigt die gewählte Auflösung in "
+            "echten Druckpunkten."
         )
         hint.setWordWrap(True)
         hint.setStyleSheet("color:#777;")
         layout.addWidget(hint)
 
-        # Qualitaet: nur was das gewaehlte Modell kann - die maximale Stufe ist
-        # voreingestellt (siehe printer.quality_options).
-        quality_label = QLabel("Qualität")
-        self._quality_combo = QComboBox()
-        quality_label.setBuddy(self._quality_combo)
-        self._quality_hint = QLabel()
-        self._quality_hint.setWordWrap(True)
-        self._quality_hint.setStyleSheet("color:#777;")
-        layout.addWidget(quality_label)
-        layout.addWidget(self._quality_combo)
-        layout.addWidget(self._quality_hint)
+        # Aufloesung: nur was das gewaehlte Modell kann (die Liste kommt aus den
+        # Datenblaettern, siehe printer.resolution_options). Der High-Resolution-
+        # Modus ist bewusst *nicht* voreingestellt - er druckt langsamer.
+        resolution_label = QLabel("Auflösung")
+        self._resolution_combo = QComboBox()
+        resolution_label.setBuddy(self._resolution_combo)
+        self._resolution_hint = QLabel()
+        self._resolution_hint.setWordWrap(True)
+        self._resolution_hint.setStyleSheet("color:#777;")
+        layout.addWidget(resolution_label)
+        layout.addWidget(self._resolution_combo)
+        layout.addWidget(self._resolution_hint)
+
+        # Eigener Schalter: "Qualitaet vor Tempo" (brother_ql ``pquality``/hq).
+        # Das ist *keine* Aufloesung - deshalb getrennt vom Feld darueber.
+        self._hq_check = QCheckBox("Hohe Druckqualität (HQ)")
+        self._hq_check.setChecked(True)
+        self._hq_check.setToolTip(
+            "Der Drucker arbeitet dann mit Vorrang für Qualität statt Tempo "
+            "(das pquality-Flag aus der Brother-Rasterreferenz).\n"
+            "Die Auflösung ändert das nicht - die steht im Feld darüber."
+        )
+        layout.addWidget(self._hq_check)
 
         self._dither_check = QCheckBox("Graustufen (Dithering)")
         self._dither_check.setToolTip(
@@ -279,21 +298,26 @@ class MainWindow(QMainWindow):
         layout.addStretch(1)
         layout.addWidget(self._print_button)
 
-        self._quality_combo.currentIndexChanged.connect(self._on_quality_changed)
+        self._resolution_combo.currentIndexChanged.connect(self._on_resolution_changed)
         self._threshold_spin.valueChanged.connect(self._schedule_refresh)
         self._dither_check.toggled.connect(self._on_dither_toggled)
         self._print_button.clicked.connect(self._on_print)
-        self._sync_quality_options()
+        self._hq_check.toggled.connect(self._on_hq_toggled)
+        self._sync_resolution_options()
         return widget
 
-    def _on_quality_changed(self) -> None:
-        """Qualitaet gewechselt: Hinweis aktualisieren und neu rendern.
+    def _on_resolution_changed(self) -> None:
+        """Aufloesung gewechselt: Hinweis aktualisieren und neu rendern.
 
-        Der 600-dpi-Modus aendert den Renderfaktor - Vorschau und Tintenanteil
-        muessen also neu berechnet werden.
+        Der High-Resolution-Modus aendert den Renderfaktor - Vorschau und
+        Tintenanteil muessen also neu berechnet werden.
         """
-        self._update_quality_hint()
+        self._update_resolution_hint()
         self._schedule_refresh()
+
+    def _on_hq_toggled(self) -> None:
+        """HQ aendert nur ein Druckerflag - die Vorschau bleibt gleich."""
+        self._update_resolution_hint()
 
     def _threshold_tooltip(self) -> str:
         return (
@@ -327,49 +351,59 @@ class MainWindow(QMainWindow):
         self._threshold_label.setEnabled(active)
         self._threshold_label.setText("Tintenmenge" if active else "Tintenmenge (ohne Wirkung)")
 
-    def _sync_quality_options(self, prefer: str | None = None) -> None:
-        """Qualitaetsliste an das gewaehlte Modell anpassen.
+    def _sync_resolution_options(self, prefer: str | None = None) -> None:
+        """Aufloesungsliste an das gewaehlte Modell anpassen.
 
-        Die Auswahl bleibt erhalten, solange das Modell sie kann; sonst wird die
-        maximale Stufe des Modells gewaehlt (so ist immer die bestmoegliche
-        Qualitaet des angeschlossenen Druckers voreingestellt).
+        Die Auswahl bleibt erhalten, solange das Modell sie kann; sonst faellt
+        sie auf das zurueck, was das Modell hergibt. Es werden **nur** die
+        Aufloesungen angeboten, die der Druckkopf wirklich kann (Quelle:
+        Datenblaetter, siehe :func:`ql_editor.printer.resolution_options`).
 
         ``prefer`` ueberschreibt die Auswahl (beim Laden der Einstellungen).
         """
         model_id = self._media_panel.model_id()
-        options = quality_options(model_id)
-        wanted = prefer or self._quality_combo.currentData() or self._settings.print_quality
+        options = resolution_options(model_id)
+        wanted = prefer or self._resolution_combo.currentData() or self._settings.print_resolution
 
-        self._quality_combo.blockSignals(True)
-        self._quality_combo.clear()
+        self._resolution_combo.blockSignals(True)
+        self._resolution_combo.clear()
         for option in options:
-            self._quality_combo.addItem(option.label, option.key)
-        index = self._quality_combo.findData(wanted)
+            self._resolution_combo.addItem(option.label, option.key)
+        index = self._resolution_combo.findData(wanted)
         if index < 0:
-            index = self._quality_combo.findData(maximum_quality(model_id).key)
-        self._quality_combo.setCurrentIndex(max(0, index))
-        self._quality_combo.blockSignals(False)
+            index = self._resolution_combo.findData(RESOLUTION_STANDARD.key)
+        self._resolution_combo.setCurrentIndex(max(0, index))
+        self._resolution_combo.blockSignals(False)
 
-        chosen = quality_by_key(model_id, self._quality_combo.currentData())
-        self._quality_combo.setToolTip(f"{chosen.label}: {chosen.detail}.")
-        self._update_quality_hint()
+        chosen = self._resolution()
+        self._resolution_combo.setToolTip(f"{chosen.label}: {chosen.detail}.")
+        self._update_resolution_hint()
         self._sync_threshold_enabled()
 
-    def _update_quality_hint(self) -> None:
-        """Untertitel zur Qualitaetsauswahl: was dieses Modell hergibt."""
+    def _update_resolution_hint(self) -> None:
+        """Untertitel zur Aufloesung: was dieses Modell kann."""
         model_id = self._media_panel.model_id()
-        best = maximum_quality(model_id)
-        chosen = self._quality()
-        if chosen.key == best.key:
-            self._quality_hint.setText(f"{model_id}: maximale Qualität dieses Druckers.")
+        best = maximum_resolution(model_id)
+        chosen = self._resolution()
+        if chosen.key == RESOLUTION_HIGH.key:
+            text = "600 dpi nur in Bandlaufrichtung; quer bleiben es 300 dpi."
+        elif best.key == RESOLUTION_HIGH.key:
+            text = "Auch möglich: 300 × 600 dpi (feiner längs, druckt langsamer)."
         else:
-            self._quality_hint.setText(f"{model_id}: höchste Stufe ist „{best.label}“.")
+            text = f"{model_id}: 300 × 300 dpi - mehr kann dieser Druckkopf nicht."
+        if not self._hq_check.isChecked():
+            text += " Ohne HQ druckt der Drucker schneller."
+        self._resolution_hint.setText(text)
 
-    def _quality(self) -> PrintQuality:
-        """Die gewaehlte Druckqualitaet - auf die Faehigkeiten des Modells begrenzt."""
-        return quality_by_key(
-            self._media_panel.model_id(), self._quality_combo.currentData()
+    def _resolution(self) -> PrintResolution:
+        """Die gewaehlte Aufloesung - auf die Faehigkeiten des Modells begrenzt."""
+        return resolution_by_key(
+            self._media_panel.model_id(), self._resolution_combo.currentData()
         )
+
+    def _hq(self) -> bool:
+        """Qualitaet vor Tempo (brother_ql ``pquality``/``hq``)."""
+        return self._hq_check.isChecked()
 
     def _build_actions(self) -> None:
         self._act_add_text = QAction(icon("text"), "Text", self)
@@ -582,12 +616,13 @@ class MainWindow(QMainWindow):
         # Zuletzt gewaehlte Panel-Sichtbarkeit wiederherstellen (kleine Screens).
         self._act_panel_left.setChecked(self._settings.panel_left_visible)
         self._act_panel_right.setChecked(self._settings.panel_right_visible)
-        # Druckoptionen wiederherstellen (Tintenmenge, Dithering, Qualitaet,
-        # Schneiden). Die Qualitaet erst *nach* dem Modell - ihre Stufen haengen
-        # am Drucker.
+        # Druckoptionen wiederherstellen (Tintenmenge, Dithering, Aufloesung,
+        # HQ, Schneiden). Die Aufloesung erst *nach* dem Modell - ihre Liste
+        # haengt am Drucker.
         self._threshold_spin.setValue(self._settings.threshold)
         self._dither_check.setChecked(self._settings.dither)
-        self._sync_quality_options(prefer=self._settings.print_quality)
+        self._hq_check.setChecked(self._settings.hq)
+        self._sync_resolution_options(prefer=self._settings.print_resolution)
         self._cut_check.setChecked(self._settings.cut)
         self._schedule_refresh()
 
@@ -599,8 +634,8 @@ class MainWindow(QMainWindow):
         self._settings.last_label = self._media_panel.label_id()
         self._settings.address = self._media_panel.address()
         self._settings.model = self._media_panel.model_id()
-        # Ein anderes Modell hat andere Qualitaetsstufen.
-        self._sync_quality_options()
+        # Ein anderes Modell hat andere Aufloesungen.
+        self._sync_resolution_options()
         self._on_selection_changed()
         self._schedule_refresh()
 
@@ -652,8 +687,12 @@ class MainWindow(QMainWindow):
         return self._canvas.render_printable(rotate=rotate, scale=scale)
 
     def _print_scale(self) -> int:
-        """Renderfaktor fuer den Druck (1 = 300 dpi, 2 = 600-dpi-Modus)."""
-        return DPI_600_SCALE if self._quality().dpi_600 else 1
+        """Renderfaktor fuer den Druck (1 = 300 dpi, 2 = 600-dpi-Modus).
+
+        Die Vorschau rendert mit demselben Faktor - sie zeigt also genau das,
+        was in der gewaehlten Aufloesung an den Drucker geht.
+        """
+        return self._resolution().scale
 
     def _for_print(self) -> Image.Image:
         """Bild fuer den Drucker: immer exakt ``dots_printable[0]`` breit.
@@ -988,12 +1027,11 @@ class MainWindow(QMainWindow):
             return
         label = self._media_panel.label
         config = self._media_panel.printer_config()
-        quality = self._quality()
         options = {
             "threshold": self._threshold_spin.value(),
             "dither": self._dither_check.isChecked(),
-            "hq": quality.hq,
-            "dpi_600": quality.dpi_600,
+            "hq": self._hq(),
+            "dpi_600": self._resolution().dpi_600,
             "red": self._media_panel.use_red(),
             "cut": self._cut_check.isChecked(),
         }
@@ -1057,7 +1095,8 @@ class MainWindow(QMainWindow):
         self._settings.panel_right_visible = self._act_panel_right.isChecked()
         self._settings.threshold = self._threshold_spin.value()
         self._settings.dither = self._dither_check.isChecked()
-        self._settings.print_quality = self._quality().key
+        self._settings.print_resolution = self._resolution().key
+        self._settings.hq = self._hq()
         self._settings.cut = self._cut_check.isChecked()
         self._settings.sync()
         super().closeEvent(event)

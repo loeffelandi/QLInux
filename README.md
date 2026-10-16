@@ -16,7 +16,7 @@ Kein Browser-Tool, kein WebUSB.
 | M3 | PySide6-GUI (Canvas, Panel, Vorschau) | ✅ |
 | M3.x | Canvas-Editing, Icons, Druckvorschau, weiches Scrollen, Sheets | ✅ |
 | M3.11 | Einklappbare Overlay-Panels, Druckqualität, Vorschau in 1:1 | ✅ |
-| M3.12 | Druckqualität pro Modell (Standard/HQ/600 dpi), Tintenmenge erklärt | ✅ |
+| M3.12 | Auflösung pro Modell (300 × 300 / 300 × 600 dpi), HQ-Schalter, Tintenmenge erklärt | ✅ |
 | M4 | Vorlagen, Settings, `.deb`-Paket | ⏳ |
 
 ## Architektur
@@ -172,19 +172,29 @@ Toolbar, bleiben also immer synchron.
   über dem Canvas, beim Einschalten auf 1:1 (`Ctrl+1`); `Esc` beendet sie.
   Schwelle/Dithering wirken sofort, „Tinte: x %" zeigt den Anteil der
   bedruckten Fläche.
-* **Druckqualität** (rechts unter „Druckoptionen"): eine Liste mit genau den
-  Stufen, die der **gewählte Drucker** kann - die höchste ist voreingestellt.
-  * *Standard (schneller)*: ohne Qualitätsflag, der Drucker druckt zügiger.
-  * *Hoch (HQ)*: das Qualitätsflag `pquality` (kräftigere Kanten, langsamer) -
-    das kann jedes Modell.
-  * *Maximum (600 dpi)*: der High-Resolution-Modus des Druckers. Er setzt die
+* **Auflösung** (rechts unter „Druckoptionen"): eine Liste mit genau den
+  Auflösungen, die der **gewählte Drucker** kann. Was ein Drucker kann, steht in
+  seinen Datenblättern - abfragen lässt es sich nicht (die Statusantwort kennt
+  nur Band und Fehler), deshalb pflegt `ql_editor/printer.py` die Fähigkeit als
+  Tabelle (`DPI_600_MODELS`).
+  * *300 × 300 dpi*: die Standardauflösung des Druckkopfs (quer und in
+    Bandlaufrichtung 300 dpi) - Vorgabe.
+  * *300 × 600 dpi*: der **High-Resolution-Modus** des Druckers. Er setzt die
     Zeilen **in Bandlaufrichtung** mit halbem Abstand (600 statt 300 dpi), quer
-    zur Bandbreite bleibt es bei 300 dpi. Das Etikett wird dafür in beiden
-    Achsen mit doppelter Auflösung gerendert (echte Vektorpixel, kein
-    Hochskalieren) und behält seine Länge. Nur Modelle mit diesem Modus bieten
-    die Stufe an (`DPI_600_MODELS` in `ql_editor/printer.py`: QL-800, QL-810W,
-    QL-820NWB); sie braucht doppelt so viele Zeilen und druckt deshalb
-    langsamer.
+    zur Bandbreite bleibt es bei 300 dpi - deshalb steht dort bewusst nicht
+    einfach „600 dpi". Das Etikett wird dafür in beiden Achsen mit doppelter
+    Auflösung gerendert (echte Vektorpixel, kein Hochskalieren) und behält seine
+    Länge. Nur Modelle mit belegtem High-Resolution-Modus bieten die Auflösung
+    an (QL-800, QL-810W, QL-820NWB - die Datenblätter der übrigen Modelle nennen
+    nur den 300-dpi-Druckkopf); sie braucht doppelt so viele Zeilen und druckt
+    deshalb langsamer.
+  Die **Druckvorschau zeigt genau die gewählte Auflösung**: sie rendert mit
+  demselben Faktor wie der Druckpfad und mittelt das feinere 1-bit-Bild nur für
+  die Anzeige auf Canvas-Größe.
+* **Hohe Druckqualität (HQ)**: ein eigener Schalter, **keine** Auflösung. Er
+  setzt `pquality` - „Qualität vor Tempo". Der Drucker arbeitet dann langsamer
+  und setzt die Punkte gleichmäßiger; die Auflösung ändert er nicht. Das kann
+  jedes Modell, deshalb ist es ein Häkchen und keine Liste.
 * **Tintenmenge** (Standard 70 %, einstellbar von 40 % bis 90 %): Der Drucker
   kennt nur Schwarz oder Weiß - jede weiche Kante und jeder Grauton im Design
   muss zu einem von beidem werden. Das Feld ist der Schnitt: 70 % heißt „alles

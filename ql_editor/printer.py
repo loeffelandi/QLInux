@@ -38,49 +38,19 @@ _STATUS_RESPONSE_LEN = 32
 
 
 # --------------------------------------------------------------------------- #
-# Druckqualitaet (modellabhaengig)
+# Druckaufloesung (modellabhaengig) und Druckqualitaet (Schalter)
 # --------------------------------------------------------------------------- #
-@dataclass(frozen=True)
-class PrintQuality:
-    """Eine waehlbare Druckqualitaet - Abbildung auf ``convert()``-Schalter."""
-
-    key: str
-    label: str
-    detail: str
-    hq: bool
-    dpi_600: bool = False
-
-
-#: Stufen, die brother_ql kennt. "Maximum" gibt es nur bei passendem Druckkopf.
-QUALITY_STANDARD = PrintQuality(
-    "standard",
-    "Standard (schneller)",
-    "Qualitaetsflag aus - der Drucker druckt schneller",
-    hq=False,
-)
-QUALITY_HIGH = PrintQuality(
-    "high",
-    "Hoch (HQ)",
-    "feinste Stufe des Druckkopfs (pquality)",
-    hq=True,
-)
-QUALITY_MAXIMUM = PrintQuality(
-    "maximum",
-    "Maximum (600 dpi)",
-    "600 dpi in Bandlaufrichtung - feinste Stufe des Druckers",
-    hq=True,
-    dpi_600=True,
-)
-
 #: Modelle mit "High resolution mode" (600 dpi in Bandlaufrichtung, quer
 #: weiterhin 300 dpi). Belegt durch die Brother-Datenblaetter ("Print
-#: resolution: Standard 300x300 dpi / High resolution mode 300x600 dpi") und
-#: die Raster Command Reference der QL-800-Reihe: ``ESC i K``, Bit 7 -
-#: "1: It prints at 600 dpi in the paper length direction".
+#: resolution: Standard: 300 dpi x 300 dpi / High resolution mode: 300 dpi x
+#: 600 dpi") von QL-800, QL-810W und QL-820NWB und durch die Raster Command
+#: Reference der QL-800-Reihe: ``ESC i K``, Bit 7 - "1: It prints at 600 dpi in
+#: the paper length direction". Die Datenblaetter der uebrigen Modelle nennen
+#: nur den 300-dpi-Druckkopf und keinen High-Resolution-Modus.
 #:
 #: brother_ql 0.9.4 fuehrt diese Faehigkeit nicht mit, deshalb steht sie hier.
 #: Bewusst konservativ: nur Modelle mit belegtem High-Resolution-Modus. Ein
-#: neues Modell ist eine Zeile - die Stufe erscheint dann automatisch.
+#: neues Modell ist eine Zeile - die Aufloesung erscheint dann automatisch.
 DPI_600_MODELS = frozenset({"QL-800", "QL-810W", "QL-820NWB"})
 
 #: Renderfaktor fuer den 600-dpi-Modus: der Drucker setzt die Zeilen dann mit
@@ -90,31 +60,68 @@ DPI_600_MODELS = frozenset({"QL-800", "QL-810W", "QL-820NWB"})
 DPI_600_SCALE = 2
 
 
-def quality_options(model_id: str) -> tuple[PrintQuality, ...]:
-    """Waehlbare Druckqualitaeten fuer ein Modell - die beste Stufe steht zuletzt.
+@dataclass(frozen=True)
+class PrintResolution:
+    """Eine waehlbare Druckaufloesung - Abbildung auf ``convert()``-Schalter.
 
-    ``hq``/``pquality`` steckt im Standard-Kommando und geht bei jedem Modell
-    (brother_ql setzt das Flag immer). ``600 dpi`` verlangt den Expanded-Mode
-    **und** einen 600-dpi-Druckkopf.
+    ``scale`` ist der Renderfaktor (1 = 300 dpi, :data:`DPI_600_SCALE` = 600 dpi
+    in Bandlaufrichtung). Der Wert ist **keine** Qualitaetsstufe: wie sauber der
+    Druckkopf arbeitet, entscheidet er selbst - das Flag ``hq`` daneben stellt
+    nur "Qualitaet vor Tempo".
+    """
+
+    key: str
+    label: str
+    detail: str
+    scale: int = 1
+
+    @property
+    def dpi_600(self) -> bool:
+        """True, wenn die Bandlaufrichtung feiner gesetzt wird (``ESC i K``)."""
+        return self.scale > 1
+
+
+#: Die Aufloesungen des 300-dpi-Druckkopfs. "300 x 600 dpi" gibt es nur bei
+#: passendem Modell (siehe :data:`DPI_600_MODELS`).
+RESOLUTION_STANDARD = PrintResolution(
+    "standard",
+    "300 × 300 dpi",
+    "Standard des Druckkopfs - quer und in Bandlaufrichtung 300 dpi",
+)
+RESOLUTION_HIGH = PrintResolution(
+    "high",
+    "300 × 600 dpi",
+    "High-Resolution-Modus: quer 300 dpi, in Bandlaufrichtung 600 dpi - "
+    "feinere Zeilen, druckt langsamer",
+    scale=DPI_600_SCALE,
+)
+
+
+def resolution_options(model_id: str) -> tuple[PrintResolution, ...]:
+    """Waehlbare Aufloesungen fuer ein Modell - die hoechste steht zuletzt.
+
+    Was ein Drucker kann, steht in seinen Datenblaettern; abfragen laesst es
+    sich nicht (die Statusantwort kennt nur Band und Fehler). ``300 x 600 dpi``
+    verlangt den Expanded-Mode **und** den High-Resolution-Druckkopf.
     """
     model = get_model(model_id)
-    options = [QUALITY_STANDARD, QUALITY_HIGH]
+    options = [RESOLUTION_STANDARD]
     if model.expanded_mode and model_id in DPI_600_MODELS:
-        options.append(QUALITY_MAXIMUM)
+        options.append(RESOLUTION_HIGH)
     return tuple(options)
 
 
-def maximum_quality(model_id: str) -> PrintQuality:
-    """Die hoechste Qualitaet, die das Modell kann - Vorgabe der Oberflaeche."""
-    return quality_options(model_id)[-1]
+def maximum_resolution(model_id: str) -> PrintResolution:
+    """Die hoechste Aufloesung, die das Modell kann."""
+    return resolution_options(model_id)[-1]
 
 
-def quality_by_key(model_id: str, key: str) -> PrintQuality:
-    """Stufe per Schluessel; unbekannte Schluessel fallen auf das Maximum zurueck."""
-    for option in quality_options(model_id):
+def resolution_by_key(model_id: str, key: str) -> PrintResolution:
+    """Aufloesung per Schluessel; unbekannte Schluessel fallen auf das Maximum."""
+    for option in resolution_options(model_id):
         if option.key == key:
             return option
-    return maximum_quality(model_id)
+    return maximum_resolution(model_id)
 
 
 class PrinterError(RuntimeError):
