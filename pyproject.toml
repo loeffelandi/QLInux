@@ -1,0 +1,13 @@
+[project]
+name = "qlinux"
+version = "0.1.0"
+description = "P-touch-Editor-Klon fuer Brother QL-820NWB (native Linux-App)"
+requires-python = ">=3.10"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+# brother_ql 0.9.4 ruft intern `logger.warn` auf (deprecated). Das ist
+# Fremdcode und fuer uns nicht relevant - die Warnung wird unterdrueckt.
+filterwarnings = [
+    "ignore:The 'warn' method is deprecated:DeprecationWarning",
+]

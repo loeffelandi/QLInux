@@ -1,0 +1,15 @@
+# Laufzeit-Abhaengigkeiten (gepinnt, siehe docs/API_NOTES.md)
+#
+# WICHTIG: brother_ql ist bewusst auf 0.9.4 gepinnt.
+# Der Git-Master entfernt brother_ql.devicedependent und bricht die App.
+# Nach der Installation wird scripts/patch_brother_ql.py ausgefuehrt
+# (Pillow-10-Kompatibilitaet: Image.ANTIALIAS -> Image.LANCZOS).
+brother_ql==0.9.4
+Pillow==12.3.0
+
+# GUI
+PySide6==6.12.0
+
+# 2D-Codes
+qrcode==8.2
+python-barcode==0.16.1
