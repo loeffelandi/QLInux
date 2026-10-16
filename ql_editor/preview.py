@@ -21,7 +21,7 @@ from dataclasses import dataclass
 from PIL import Image, ImageOps
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QImage, QPixmap
-from PySide6.QtWidgets import QLabel, QVBoxLayout, QWidget
+from PySide6.QtWidgets import QLabel, QSizePolicy, QVBoxLayout, QWidget
 
 
 @dataclass(frozen=True)
@@ -114,7 +114,11 @@ class PreviewWidget(QWidget):
         self._info.setStyleSheet("color:#555; padding:4px;")
         self._canvas = QLabel("Noch nichts zu drucken")
         self._canvas.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self._canvas.setMinimumSize(160, 120)
+        self._canvas.setMinimumSize(120, 90)
+        # Wichtig: der QLabel darf seine Pixmap-Groesse NICHT als sizeHint an
+        # das Layout weitergeben, sonst waechst das Dock bei jedem Resize
+        # (Skalieren auf die eigene Groesse -> Feedback-Schleife).
+        self._canvas.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Ignored)
         self._canvas.setStyleSheet("background:#ffffff; border:1px solid #999;")
         layout = QVBoxLayout(self)
         layout.setContentsMargins(4, 4, 4, 4)

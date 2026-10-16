@@ -13,7 +13,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from PySide6.QtCore import QPoint, QPointF, QRectF, Qt
+from PySide6.QtCore import QPoint, QPointF, QRectF, Qt, Signal
 from PySide6.QtGui import QBrush, QColor, QFont, QPainter, QPen
 from PySide6.QtWidgets import QGraphicsScene, QGraphicsView, QWidget
 
@@ -23,6 +23,7 @@ from .media import LabelSpec, dots_to_mm, mm_to_dots
 RULER_WIDTH = 24
 MIN_ZOOM = 0.05
 MAX_ZOOM = 8.0
+HANDLE_SIZE_PX = 9
 
 
 class MmRuler(QWidget):
@@ -99,11 +100,26 @@ class MmRuler(QWidget):
 
 
 class LabelCanvas(QGraphicsView):
-    """Editor-Canvas mit fester Pixelgroesse."""
+    """Editor-Canvas mit fester Pixelgroesse.
+
+    Interaktion (Mac-App-Gefuehl):
+
+    * **Doppelklick ins Leere** -> ``text_requested`` (Textfeld anlegen/bearbeiten)
+    * **Doppelklick auf Item** -> Text wird inline editiert, andere Items werden
+      nur ausgewaehlt (Eigenschaften im Inspector)
+    * **Ziehen am Eckgriff** -> Groesse aendern (``resizable``-Items)
+    * **Pfeiltasten** -> verschieben (1 Dot, mit Shift 10), **Entf** -> loeschen
+    * **Rechtsklick** -> ``context_menu_requested``
+    """
+
+    text_requested = Signal(QPointF)
+    item_double_clicked = Signal(object)
+    context_menu_requested = Signal(QPoint, QPointF)
 
     def __init__(self, parent: QWidget | None = None):
         super().__init__(parent)
         self._scene = QGraphicsScene(self)
+        self._scene.setSceneRect(QRectF(0, 0, 554, 472))
         self.setScene(self._scene)
         self.setSceneRect(QRectF(0, 0, 554, 472))
         self.setRenderHint(QPainter.RenderHint.Antialiasing, True)
@@ -113,10 +129,14 @@ class LabelCanvas(QGraphicsView):
         self.setDragMode(QGraphicsView.DragMode.RubberBandDrag)
         self.setTransformationAnchor(QGraphicsView.ViewportAnchor.AnchorUnderMouse)
         self.setResizeAnchor(QGraphicsView.ViewportAnchor.AnchorViewCenter)
+        self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
 
         self._label: LabelSpec | None = None
         self._height_dots = 0
         self._needs_fit = True
+        self._resize_item = None
+        self._resize_start_size: tuple[float, float] = (0.0, 0.0)
+        self._resize_start_scene = QPointF()
 
         self._h_ruler = MmRuler(self, Qt.Orientation.Horizontal)
         self._v_ruler = MmRuler(self, Qt.Orientation.Vertical)
@@ -134,7 +154,9 @@ class LabelCanvas(QGraphicsView):
         )
         self._label = label
         self._height_dots = int(height_dots)
-        self.setSceneRect(QRectF(0, 0, label.width_dots, height_dots))
+        size = QRectF(0, 0, label.width_dots, height_dots)
+        self._scene.setSceneRect(size)
+        self.setSceneRect(size)
         self._h_ruler.set_total_mm(dots_to_mm(label.width_dots + 2 * label.side_border_dots))
         self._v_ruler.set_total_mm(dots_to_mm(height_dots))
         if size_changed:
@@ -229,6 +251,138 @@ class LabelCanvas(QGraphicsView):
         painter.setPen(pen)
         painter.drawRect(printable)
         painter.setPen(Qt.PenStyle.NoPen)
+
+    def drawForeground(self, painter: QPainter, rect: QRectF) -> None:  # noqa: N802
+        super().drawForeground(painter, rect)
+        # Auswahlrahmen + Eckgriff fuer genau ein ausgewaehltes, skalierbares Item.
+        for item in self.selected_items():
+            pen = QPen(QColor("#1f6feb"))
+            pen.setWidthF(0)
+            painter.setPen(pen)
+            painter.setBrush(Qt.BrushStyle.NoBrush)
+            painter.drawRect(item.sceneBoundingRect())
+        handle = self._handle_scene_rect()
+        if handle is not None:
+            painter.setBrush(QColor("#ffffff"))
+            pen = QPen(QColor("#1f6feb"))
+            pen.setWidthF(0)
+            painter.setPen(pen)
+            painter.drawRect(handle)
+
+    def _handle_scene_rect(self) -> QRectF | None:
+        selection = self.selected_items()
+        if len(selection) != 1 or not getattr(selection[0], "resizable", False):
+            return None
+        item = selection[0]
+        if getattr(item, "is_editing", False):
+            return None
+        br = item.sceneBoundingRect()
+        size = HANDLE_SIZE_PX / max(1e-6, self.transform().m11())
+        return QRectF(br.right() - size / 2, br.bottom() - size / 2, size, size)
+
+    def _top_serializable_item_at(self, view_pos: QPoint):
+        item = self.itemAt(view_pos)
+        while item is not None and not hasattr(item, "to_dict"):
+            item = item.parentItem()
+        return item
+
+    # -- Maus ---------------------------------------------------------------
+    def mousePressEvent(self, event) -> None:  # noqa: N802
+        if event.button() == Qt.MouseButton.LeftButton:
+            handle = self._handle_scene_rect()
+            if handle is not None and handle.contains(self.mapToScene(event.pos())):
+                item = self.selected_items()[0]
+                self._resize_item = item
+                self._resize_start_size = (item.boundingRect().width(), item.boundingRect().height())
+                self._resize_start_scene = self.mapToScene(event.pos())
+                event.accept()
+                return
+        super().mousePressEvent(event)
+
+    def mouseMoveEvent(self, event) -> None:  # noqa: N802
+        if self._resize_item is not None:
+            current = self.mapToScene(event.pos())
+            dw = current.x() - self._resize_start_scene.x()
+            dh = current.y() - self._resize_start_scene.y()
+            width = max(4.0, self._resize_start_size[0] + dw)
+            height = max(4.0, self._resize_start_size[1] + dh)
+            self._resize_item.apply_resize(width, height)
+            self.viewport().update()
+            event.accept()
+            return
+        # Cursor ueber dem Griff
+        handle = self._handle_scene_rect()
+        if handle is not None and handle.contains(self.mapToScene(event.pos())):
+            self.viewport().setCursor(Qt.CursorShape.SizeFDiagCursor)
+        else:
+            self.viewport().unsetCursor()
+        super().mouseMoveEvent(event)
+
+    def mouseReleaseEvent(self, event) -> None:  # noqa: N802
+        if self._resize_item is not None and event.button() == Qt.MouseButton.LeftButton:
+            self._resize_item = None
+            self.viewport().update()
+            event.accept()
+            return
+        super().mouseReleaseEvent(event)
+
+    def mouseDoubleClickEvent(self, event) -> None:  # noqa: N802
+        if event.button() != Qt.MouseButton.LeftButton:
+            super().mouseDoubleClickEvent(event)
+            return
+        item = self._top_serializable_item_at(event.pos())
+        if item is None:
+            self.text_requested.emit(self.mapToScene(event.pos()))
+        elif getattr(item, "kind", None) == "text":
+            item.start_editing()
+        else:
+            self._scene.clearSelection()
+            item.setSelected(True)
+            self.item_double_clicked.emit(item)
+        event.accept()
+
+    def contextMenuEvent(self, event) -> None:  # noqa: N802
+        self.context_menu_requested.emit(event.globalPos(), self.mapToScene(event.pos()))
+        event.accept()
+
+    # -- Tastatur -----------------------------------------------------------
+    def keyPressEvent(self, event) -> None:  # noqa: N802
+        focus = self._scene.focusItem()
+        if focus is not None and getattr(focus, "is_editing", False):
+            super().keyPressEvent(event)
+            return
+        key = event.key()
+        if key in (Qt.Key.Key_Delete, Qt.Key.Key_Backspace):
+            self.delete_selected()
+            event.accept()
+            return
+        step = 10.0 if event.modifiers() & Qt.KeyboardModifier.ShiftModifier else 1.0
+        dx = dy = 0.0
+        if key == Qt.Key.Key_Left:
+            dx = -step
+        elif key == Qt.Key.Key_Right:
+            dx = step
+        elif key == Qt.Key.Key_Up:
+            dy = -step
+        elif key == Qt.Key.Key_Down:
+            dy = step
+        if dx or dy:
+            for item in self.selected_items():
+                item.moveBy(dx, dy)
+            event.accept()
+            return
+        if key == Qt.Key.Key_Escape:
+            self.cancel_editing()
+            self._scene.clearSelection()
+            event.accept()
+            return
+        super().keyPressEvent(event)
+
+    def cancel_editing(self) -> None:
+        focus = self._scene.focusItem()
+        if focus is not None and getattr(focus, "is_editing", False):
+            focus.finish_editing()
+            focus.clearFocus()
 
     # -- Items --------------------------------------------------------------
     def add_item(self, item) -> None:

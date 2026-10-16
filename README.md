@@ -62,8 +62,18 @@ python -m ql_editor
 * **Mitte**: Canvas in exakter Bandbreite mit mm-Linealen; der **nicht
   bedruckbare Rand** (~1,5 mm je Seite) ist schraffiert, Items werden darauf
   begrenzt.
-* **Rechts**: monochrome 1-bit-Vorschau + Druckoptionen (Threshold, Dither,
-  Schnitt).
+* **Rechts**: Inspector (Eigenschaften des ausgewählten Objekts) + monochrome
+  1-bit-Vorschau + Druckoptionen (Threshold, Dither, Schnitt).
+
+### Bedienung (wie eine Desktop-App)
+* **Doppelklick ins Leere** legt ein Textfeld an und startet die Bearbeitung.
+* **Doppelklick auf Text** editiert inline (Esc beendet).
+* **Eckgriff ziehen** ändert die Größe des ausgewählten Objekts
+  (Text = Schriftgröße, QR bleibt quadratisch, Barcode = Höhe).
+* **Pfeiltasten** verschieben (mit Shift 10 Dots), **Entf** löscht.
+* **Rechtsklick** öffnet das Kontextmenü (Einfügen, Reihenfolge, Löschen).
+* Der **Inspector** zeigt kontextabhängig die passenden Eigenschaften
+  (Text/Schrift/Farbe, Barcode-Inhalt/Symbologie, QR-Inhalt, Position, Drehung).
 
 Headless-Druckpfad (ohne GUI) zum Testen:
 

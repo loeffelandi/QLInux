@@ -21,7 +21,17 @@ from typing import Any
 
 from PIL import Image
 from PySide6.QtCore import QPointF, QRectF, Qt
-from PySide6.QtGui import QBrush, QColor, QFont, QImage, QPainter, QPen, QPixmap
+from PySide6.QtGui import (
+    QBrush,
+    QColor,
+    QFont,
+    QImage,
+    QPainter,
+    QPen,
+    QPixmap,
+    QTextCursor,
+    QTransform,
+)
 from PySide6.QtWidgets import (
     QGraphicsItem,
     QGraphicsLineItem,
@@ -170,12 +180,67 @@ class TextItem(_ClampMixin, QGraphicsTextItem):
         self._italic = bool(value)
         self._apply_font()
 
+    def set_font_family(self, family: str) -> None:
+        self._font_family = family
+        self._apply_font()
+
+    @property
+    def font_family(self) -> str:
+        return self._font_family
+
+    @property
+    def font_pixel_size(self) -> int:
+        return self._font_pixel_size
+
+    @property
+    def bold(self) -> bool:
+        return self._bold
+
+    @property
+    def italic(self) -> bool:
+        return self._italic
+
+    @property
+    def color(self) -> str:
+        return self._color
+
     def set_text_color(self, color: str) -> None:
         self._color = color
         self.setDefaultTextColor(QColor(color))
 
     def set_text_width(self, width: float) -> None:
         self.setTextWidth(width if width > 0 else -1)
+
+    # -- Inline-Bearbeitung -------------------------------------------------
+    def start_editing(self) -> None:
+        """Doppelklick-Modus: Cursor setzen und gesamten Text vorauswaehlen."""
+        self.setTextInteractionFlags(Qt.TextInteractionFlag.TextEditorInteraction)
+        self.setFocus(Qt.FocusReason.MouseFocusReason)
+        cursor = self.textCursor()
+        cursor.select(QTextCursor.SelectionType.Document)
+        self.setTextCursor(cursor)
+
+    def finish_editing(self) -> None:
+        self.setTextInteractionFlags(Qt.TextInteractionFlag.NoTextInteraction)
+
+    @property
+    def is_editing(self) -> bool:
+        return self.textInteractionFlags() != Qt.TextInteractionFlag.NoTextInteraction
+
+    def focusOutEvent(self, event) -> None:  # noqa: N802
+        super().focusOutEvent(event)
+        self.finish_editing()
+
+    # -- Groesse ------------------------------------------------------------
+    resizable = True
+
+    def apply_resize(self, width: float, height: float) -> None:
+        rect = self.boundingRect()
+        if rect.height() > 0 and height > 0:
+            factor = height / rect.height()
+            self.set_font_pixel_size(max(4, round(self._font_pixel_size * factor)))
+        if width > 0:
+            self.set_text_width(width)
 
     @property
     def text_value(self) -> str:
@@ -237,7 +302,16 @@ class ImageItem(_ClampMixin, QGraphicsPixmapItem):
         return cls(pil_to_qpixmap(image))
 
     def set_scale(self, scale: float) -> None:
-        self.setTransform(self.transform().fromScale(scale, scale))
+        self.setTransform(QTransform().scale(scale, scale))
+
+    # -- Groesse ------------------------------------------------------------
+    resizable = True
+
+    def apply_resize(self, width: float, height: float) -> None:
+        base = self.boundingRect()
+        if base.width() <= 0 or base.height() <= 0:
+            return
+        self.setTransform(QTransform().scale(width / base.width(), height / base.height()))
 
     def to_dict(self) -> dict[str, Any]:
         d = self._base_dict()
@@ -260,7 +334,7 @@ class ImageItem(_ClampMixin, QGraphicsPixmapItem):
         item._source_path = d.get("source_path")
         sx = float(d.get("scale_x", 1.0))
         sy = float(d.get("scale_y", 1.0))
-        item.setTransform(item.transform().fromScale(sx, sy))
+        item.setTransform(QTransform().scale(sx, sy))
         item._apply_base(d)
         return item
 
@@ -299,6 +373,13 @@ class QRItem(_ClampMixin, QGraphicsPixmapItem):
     def set_size_dots(self, size: int) -> None:
         self._size_dots = max(20, int(size))
         self._regenerate()
+
+    # -- Groesse ------------------------------------------------------------
+    resizable = True
+
+    def apply_resize(self, width: float, height: float) -> None:
+        # QR-Codes bleiben quadratisch.
+        self.set_size_dots(int(max(20, min(width, height))))
 
     def to_dict(self) -> dict[str, Any]:
         d = self._base_dict()
@@ -360,6 +441,24 @@ class BarcodeItem(_ClampMixin, QGraphicsPixmapItem):
         self._height_dots = max(20, int(height))
         self._regenerate()
 
+    def set_show_text(self, show: bool) -> None:
+        self._show_text = bool(show)
+        self._regenerate()
+
+    @property
+    def value(self) -> str:
+        return self._value
+
+    @property
+    def symbology(self) -> str:
+        return self._symbology
+
+    # -- Groesse ------------------------------------------------------------
+    resizable = True  # nur Hoehe (Breite folgt dem Inhalt -> Scanbarkeit)
+
+    def apply_resize(self, width: float, height: float) -> None:
+        self.set_height_dots(int(max(20, height)))
+
     def to_dict(self) -> dict[str, Any]:
         d = self._base_dict()
         d.update(value=self._value, symbology=self._symbology, show_text=self._show_text, height_dots=self._height_dots)
@@ -401,6 +500,12 @@ class LineItem(_ClampMixin, QGraphicsLineItem):
         self._width_px = max(0.5, float(width_px))
         self._apply_pen()
 
+    # -- Groesse ------------------------------------------------------------
+    resizable = True
+
+    def apply_resize(self, width: float, height: float) -> None:
+        self.setLine(0.0, 0.0, max(1.0, width), height)
+
     def to_dict(self) -> dict[str, Any]:
         ln = self.line()
         d = self._base_dict()
@@ -441,6 +546,12 @@ class RectItem(_ClampMixin, QGraphicsRectItem):
     def set_filled(self, filled: bool) -> None:
         self._filled = bool(filled)
         self._apply_pen()
+
+    # -- Groesse ------------------------------------------------------------
+    resizable = True
+
+    def apply_resize(self, width: float, height: float) -> None:
+        self.setRect(QRectF(0.0, 0.0, max(1.0, width), max(1.0, height)))
 
     def to_dict(self) -> dict[str, Any]:
         r = self.rect()

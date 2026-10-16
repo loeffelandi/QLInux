@@ -17,7 +17,7 @@ from __future__ import annotations
 import sys
 
 from PIL import Image
-from PySide6.QtCore import QRectF, QThread, QTimer, Qt, Signal
+from PySide6.QtCore import QPointF, QRectF, QThread, QTimer, Qt, Signal
 from PySide6.QtGui import QAction, QKeySequence
 from PySide6.QtWidgets import (
     QApplication,
@@ -27,20 +27,22 @@ from PySide6.QtWidgets import (
     QInputDialog,
     QLabel,
     QMainWindow,
+    QMenu,
     QMessageBox,
     QPushButton,
     QSpinBox,
+    QSplitter,
     QVBoxLayout,
     QWidget,
 )
 
 from . import media
 from .canvas import LabelCanvas
+from .inspector import InspectorPanel
 from .items import BarcodeItem, ImageItem, LineItem, QRItem, RectItem, TextItem
 from .media_panel import MediaPanel
 from .preview import PreviewOptions, PreviewWidget
 from .printer import (
-    PrinterConnectionError,
     PrinterError,
     detect_label,
     print_image,
@@ -88,6 +90,7 @@ class MainWindow(QMainWindow):
 
         self._media_panel = MediaPanel(self)
         self._preview = PreviewWidget(self)
+        self._inspector = InspectorPanel(self)
 
         self._build_docks()
         self._build_actions()
@@ -101,6 +104,11 @@ class MainWindow(QMainWindow):
 
         self._media_panel.changed.connect(self._on_media_changed)
         self._media_panel.detect_requested.connect(self._on_detect_label)
+        self._canvas.text_requested.connect(self._on_text_requested)
+        self._canvas.item_double_clicked.connect(self._on_item_double_clicked)
+        self._canvas.context_menu_requested.connect(self._show_context_menu)
+        self._canvas.scene().selectionChanged.connect(self._on_selection_changed)
+        self._inspector.changed.connect(self._on_inspector_changed)
 
         # Gespeicherte Einstellungen anwenden.
         self._apply_saved_settings()
@@ -113,27 +121,37 @@ class MainWindow(QMainWindow):
         left.setFeatures(QDockWidget.DockWidgetFeature.DockWidgetMovable)
         self.addDockWidget(Qt.DockWidgetArea.LeftDockWidgetArea, left)
 
-        right = QDockWidget("Vorschau & Druck", self)
-        right.setWidget(self._build_print_panel())
+        right = QDockWidget("Eigenschaften & Vorschau", self)
         right.setFeatures(QDockWidget.DockWidgetFeature.DockWidgetMovable)
+        splitter = QSplitter(Qt.Orientation.Vertical, self)
+        splitter.addWidget(self._inspector)
+        splitter.addWidget(self._build_print_panel())
+        splitter.setStretchFactor(0, 0)
+        splitter.setStretchFactor(1, 1)
+        splitter.setSizes([240, 320])
+        right.setWidget(splitter)
         self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, right)
+        self._right_dock = right
 
     def _build_print_panel(self) -> QWidget:
         widget = QWidget(self)
         layout = QVBoxLayout(widget)
         layout.setContentsMargins(4, 4, 4, 4)
+
+        preview_title = QLabel("Vorschau (1:1 Druck)")
+        preview_title.setStyleSheet("color:#555; font-weight:600;")
+        layout.addWidget(preview_title)
         layout.addWidget(self._preview, 1)
 
         self._threshold_spin = QSpinBox()
         self._threshold_spin.setRange(0, 100)
         self._threshold_spin.setValue(70)
-        self._threshold_spin.setToolTip("Hoeher = mehr Pixel werden zu Tinte")
+        self._threshold_spin.setToolTip("Höher = mehr Pixel werden zu Tinte")
         self._dither_check = QCheckBox("Dithering (Floyd-Steinberg)")
         self._cut_check = QCheckBox("Nach dem Druck schneiden")
         self._cut_check.setChecked(True)
         self._print_button = QPushButton("Drucken")
 
-        row = QWidget()
         layout.addWidget(QLabel("Threshold"))
         layout.addWidget(self._threshold_spin)
         layout.addWidget(self._dither_check)
@@ -235,6 +253,7 @@ class MainWindow(QMainWindow):
         self._settings.last_label = self._media_panel.label_id()
         self._settings.address = self._media_panel.address()
         self._settings.model = self._media_panel.model_id()
+        self._on_selection_changed()
         self._schedule_refresh()
 
     def _recompute_canvas(self) -> None:
@@ -284,20 +303,65 @@ class MainWindow(QMainWindow):
         )
 
     # ------------------------------------------------------------- Items ----
-    def _default_item_pos(self):
+    def _default_item_pos(self) -> QPointF:
         margins = self._media_panel.margins()
-        return media.mm_to_dots(margins.left) + 10, media.mm_to_dots(margins.top) + 10
+        return QPointF(media.mm_to_dots(margins.left) + 10, media.mm_to_dots(margins.top) + 10)
 
-    def _add_item(self, item) -> None:
-        x, y = self._default_item_pos()
-        item.setPos(x, y)
+    def _default_font_size(self) -> int:
+        return max(16, int(self._canvas.height_dots * 0.25) or 40)
+
+    def _add_item(self, item, pos: QPointF | None = None) -> None:
+        item.setPos(pos if pos is not None else self._default_item_pos())
+        if isinstance(item, TextItem):
+            item.document().contentsChanged.connect(self._on_text_edited)
         self._canvas.add_item(item)
+        self._canvas.setFocus()
+        self._recompute_canvas()
+        self._schedule_refresh()
+        self._on_selection_changed()
+
+    def _new_text(self, pos: QPointF | None = None, text: str = "Text") -> TextItem:
+        item = TextItem(text, font_pixel_size=self._default_font_size())
+        self._add_item(item, pos)
+        item.start_editing()
+        return item
+
+    def _add_text(self) -> None:
+        self._new_text()
+
+    def _on_text_requested(self, scene_pos: QPointF) -> None:
+        self._new_text(scene_pos)
+
+    def _on_text_edited(self) -> None:
         self._recompute_canvas()
         self._schedule_refresh()
 
-    def _add_text(self) -> None:
-        item = TextItem("Text", font_pixel_size=max(20, int(self._canvas.height_dots * 0.2) or 40))
-        self._add_item(item)
+    def _on_selection_changed(self) -> None:
+        selection = self._canvas.selected_items()
+        item = selection[0] if len(selection) == 1 else None
+        allow_red = self._media_panel.model.two_color and self._media_panel.label.color.supports_red
+        self._inspector.set_item(item, allow_red=allow_red)
+
+    def _on_inspector_changed(self) -> None:
+        self._canvas.viewport().update()
+        self._recompute_canvas()
+        self._schedule_refresh()
+
+    def _on_item_double_clicked(self, item) -> None:
+        self._on_selection_changed()
+
+    def _show_context_menu(self, global_pos, scene_pos: QPointF) -> None:
+        menu = QMenu(self)
+        menu.addAction("Text einfügen", lambda: self._on_text_requested(scene_pos))
+        menu.addAction("Bild…", self._add_image)
+        menu.addAction("Barcode…", self._add_barcode)
+        menu.addAction("QR-Code…", self._add_qr)
+        if self._canvas.selected_items():
+            menu.addSeparator()
+            menu.addAction("In den Vordergrund", lambda: self._bump_z(+1))
+            menu.addAction("In den Hintergrund", lambda: self._bump_z(-1))
+            menu.addAction("Löschen", self._canvas.delete_selected)
+        menu.exec(global_pos)
 
     def _add_image(self) -> None:
         path, _ = QFileDialog.getOpenFileName(
@@ -428,8 +492,13 @@ def main(argv: list[str] | None = None) -> int:
     app = QApplication.instance() or QApplication(argv)
     app.setApplicationName("QLInux")
     window = MainWindow()
-    window.resize(1000, 640)
+    window.resize(1080, 700)
     window.show()
+    window.resizeDocks(
+        [window._right_dock],
+        [320],
+        Qt.Orientation.Horizontal,
+    )
     return app.exec()
 
 

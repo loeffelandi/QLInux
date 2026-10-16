@@ -164,3 +164,120 @@ def test_preview_widget_renders(qapp):
     widget.set_image(Image.new("RGB", (100, 50), "white"))
     assert widget._rendered is not None
     assert widget._rendered.size == (100, 50)
+
+
+def test_preview_widget_does_not_propagate_sizehint(qapp):
+    """Regression: die Vorschau darf das Dock nicht aufblaehen lassen."""
+    from PySide6.QtWidgets import QSizePolicy
+
+    from ql_editor.preview import PreviewWidget
+
+    widget = PreviewWidget()
+    policy = widget._canvas.sizePolicy()
+    assert policy.horizontalPolicy() == QSizePolicy.Policy.Ignored
+    assert policy.verticalPolicy() == QSizePolicy.Policy.Ignored
+
+
+# --------------------------------------------------------------------------- #
+# Inline-Bearbeitung / Interaktion
+# --------------------------------------------------------------------------- #
+def test_text_item_inline_editing(qapp):
+    canvas = LabelCanvas()
+    canvas.set_label(get_label("50"), 472)
+    item = TextItem("Hallo")
+    canvas.add_item(item)
+    assert item.is_editing is False
+    item.start_editing()
+    assert item.is_editing is True
+    item.finish_editing()
+    assert item.is_editing is False
+
+
+def test_apply_resize_for_all_types(qapp):
+    from PySide6.QtGui import QPixmap
+
+    from ql_editor.items import BarcodeItem, ImageItem, LineItem, QRItem, RectItem
+
+    qr = QRItem("x", 100)
+    qr.apply_resize(200, 180)
+    assert qr.boundingRect().width() == pytest.approx(180, abs=2)
+
+    rect = RectItem()
+    rect.apply_resize(150, 60)
+    assert rect.rect().width() == pytest.approx(150)
+    assert rect.rect().height() == pytest.approx(60)
+
+    line = LineItem()
+    line.apply_resize(120, 40)
+    assert line.line().x2() == pytest.approx(120)
+
+    image = ImageItem(QPixmap(40, 20))
+    image.apply_resize(80, 40)
+    assert image.sceneBoundingRect().width() == pytest.approx(80, abs=1)
+
+    barcode = BarcodeItem("ABC123", "code128", height_dots=100)
+    barcode.apply_resize(300, 200)
+    assert barcode.boundingRect().height() == pytest.approx(200, abs=3)
+
+    text = TextItem("Hi", font_pixel_size=40)
+    text.apply_resize(300, 80)
+    assert text.boundingRect().height() == pytest.approx(80, abs=8)
+
+
+def test_canvas_handle_only_for_single_resizable_item(qapp):
+    canvas = LabelCanvas()
+    canvas.set_label(get_label("50"), 472)
+    assert canvas._handle_scene_rect() is None
+
+    first = TextItem("a")
+    canvas.add_item(first)
+    assert canvas._handle_scene_rect() is not None
+
+    second = TextItem("b")
+    canvas.add_item(second)  # Auswahl wechselt auf second
+    first.setSelected(True)  # jetzt zwei ausgewaehlt
+    assert canvas._handle_scene_rect() is None
+
+
+def test_canvas_keyboard_delete_and_nudge(qapp):
+    from PySide6.QtCore import QEvent, Qt
+    from PySide6.QtGui import QKeyEvent
+
+    canvas = LabelCanvas()
+    canvas.set_label(get_label("50"), 472)
+    item = TextItem("x")
+    canvas.add_item(item)
+    item.setPos(50, 50)
+
+    nudge = QKeyEvent(QEvent.Type.KeyPress, Qt.Key.Key_Right, Qt.KeyboardModifier.NoModifier)
+    canvas.keyPressEvent(nudge)
+    assert item.pos().x() == pytest.approx(51)
+
+    delete = QKeyEvent(QEvent.Type.KeyPress, Qt.Key.Key_Delete, Qt.KeyboardModifier.NoModifier)
+    canvas.keyPressEvent(delete)
+    assert canvas.items_serialized() == []
+
+
+def test_inspector_shows_only_selected_kind(qapp):
+    from ql_editor.inspector import InspectorPanel
+    from ql_editor.items import QRItem
+
+    inspector = InspectorPanel()
+    inspector.set_item(TextItem("x"))
+    assert inspector._title.text() == "Text"
+    inspector.set_item(QRItem("y", 100))
+    assert inspector._title.text() == "QR-Code"
+    inspector.set_item(None)
+    assert inspector._title.text() == "Nichts ausgewählt"
+
+
+def test_mainwindow_double_click_creates_text(qapp):
+    from PySide6.QtCore import QPointF
+
+    from ql_editor.app import MainWindow
+
+    win = MainWindow()
+    win._on_text_requested(QPointF(30, 30))
+    texts = [i for i in win._canvas.scene().items() if isinstance(i, TextItem)]
+    assert len(texts) == 1
+    assert texts[0].is_editing is True
