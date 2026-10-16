@@ -24,12 +24,14 @@ from PySide6.QtWidgets import (
     QCheckBox,
     QDockWidget,
     QFileDialog,
+    QFrame,
     QInputDialog,
     QLabel,
     QMainWindow,
     QMenu,
     QMessageBox,
     QPushButton,
+    QScrollArea,
     QSpinBox,
     QSplitter,
     QVBoxLayout,
@@ -87,11 +89,17 @@ class MainWindow(QMainWindow):
         self._print_worker: PrintWorker | None = None
 
         self._canvas = LabelCanvas(self)
+        self._canvas.setMinimumSize(240, 180)
         self.setCentralWidget(self._canvas)
 
         self._media_panel = MediaPanel(self)
+        self._media_panel.setMinimumWidth(160)
         self._preview = PreviewWidget(self)
         self._inspector = InspectorPanel(self)
+        self._inspector.setMinimumWidth(160)
+
+        # Gesamtfenster darf klein werden, ohne dass etwas unbedienbar wird.
+        self.setMinimumSize(640, 460)
 
         self._build_docks()
         self._build_actions()
@@ -125,20 +133,32 @@ class MainWindow(QMainWindow):
         self._on_media_changed()
 
     # --------------------------------------------------------------- Aufbau --
+    @staticmethod
+    def _scroll_wrap(widget: QWidget) -> QScrollArea:
+        """Widget responsiv machen: bei Platzmangel scrollen statt zu blockieren."""
+        area = QScrollArea()
+        area.setWidgetResizable(True)
+        area.setFrameShape(QFrame.Shape.NoFrame)
+        area.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        area.setWidget(widget)
+        return area
+
     def _build_docks(self) -> None:
         left = QDockWidget("Band & Drucker", self)
-        left.setWidget(self._media_panel)
+        left.setWidget(self._scroll_wrap(self._media_panel))
         left.setFeatures(QDockWidget.DockWidgetFeature.DockWidgetMovable)
+        left.setMinimumWidth(180)
         self.addDockWidget(Qt.DockWidgetArea.LeftDockWidgetArea, left)
 
         right = QDockWidget("Eigenschaften & Vorschau", self)
         right.setFeatures(QDockWidget.DockWidgetFeature.DockWidgetMovable)
+        right.setMinimumWidth(180)
         splitter = QSplitter(Qt.Orientation.Vertical, self)
-        splitter.addWidget(self._inspector)
-        splitter.addWidget(self._build_print_panel())
+        splitter.addWidget(self._scroll_wrap(self._inspector))
+        splitter.addWidget(self._scroll_wrap(self._build_print_panel()))
         splitter.setStretchFactor(0, 0)
         splitter.setStretchFactor(1, 1)
-        splitter.setSizes([240, 320])
+        splitter.setSizes([260, 340])
         right.setWidget(splitter)
         self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, right)
         self._right_dock = right

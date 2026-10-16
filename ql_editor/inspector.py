@@ -84,6 +84,7 @@ class InspectorPanel(QWidget):
         form = QFormLayout(body)
         form.setContentsMargins(0, 0, 0, 0)
         form.setLabelAlignment(Qt.AlignmentFlag.AlignRight)
+        form.setRowWrapPolicy(QFormLayout.RowWrapPolicy.WrapLongRows)
 
         builder = {
             "text": self._build_text,

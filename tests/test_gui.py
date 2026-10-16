@@ -362,3 +362,49 @@ def test_canvas_zoom_actions_emit_zoom_changed(qapp):
     canvas.zoom_changed.connect(seen.append)
     canvas.zoom_in()
     assert seen and seen[-1] > 0
+
+
+# --------------------------------------------------------------------------- #
+# Responsivitaet
+# --------------------------------------------------------------------------- #
+def test_canvas_refits_on_window_resize(qapp):
+    from ql_editor.app import MainWindow
+
+    win = MainWindow()
+    win.resize(1300, 850)
+    win.show()
+    qapp.processEvents()
+    zoom_big = win._canvas.transform().m11()
+
+    win.resize(760, 560)
+    qapp.processEvents()
+    assert win._canvas._auto_fit is True
+    assert win._canvas.transform().m11() < zoom_big
+
+
+def test_manual_zoom_persists_across_resize(qapp):
+    from ql_editor.app import MainWindow
+
+    win = MainWindow()
+    win.resize(1300, 850)
+    win.show()
+    qapp.processEvents()
+    win._canvas.zoom_in()
+    win._canvas.zoom_in()
+    zoom = win._canvas.transform().m11()
+
+    win.resize(900, 700)
+    qapp.processEvents()
+    assert win._canvas._auto_fit is False
+    assert win._canvas.transform().m11() == pytest.approx(zoom)
+
+
+def test_side_panels_are_scrollable(qapp):
+    from PySide6.QtWidgets import QScrollArea
+
+    from ql_editor.app import MainWindow
+
+    win = MainWindow()
+    # linkes Panel + Inspector + Vorschau/Druck = mindestens 3 Scrollbereiche
+    assert len(win.findChildren(QScrollArea)) >= 3
+    assert win.minimumWidth() <= 760

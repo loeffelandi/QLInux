@@ -52,6 +52,7 @@ class MediaPanel(QWidget):
         # -- Drucker --------------------------------------------------------
         printer_box = QGroupBox("Drucker")
         printer_form = QFormLayout(printer_box)
+        printer_form.setRowWrapPolicy(QFormLayout.RowWrapPolicy.WrapLongRows)
         self._model_combo = QComboBox()
         self._address_edit = QLineEdit(DEFAULT_ADDRESS)
         self._detect_button = QPushButton("Band erkennen")
@@ -63,6 +64,7 @@ class MediaPanel(QWidget):
         # -- Band -----------------------------------------------------------
         media_box = QGroupBox("Band")
         media_form = QFormLayout(media_box)
+        media_form.setRowWrapPolicy(QFormLayout.RowWrapPolicy.WrapLongRows)
         self._band_combo = QComboBox()
         self._color_combo = QComboBox()
         self._color_combo.addItem("schwarz", "black")
@@ -77,6 +79,7 @@ class MediaPanel(QWidget):
         # -- Laenge ---------------------------------------------------------
         length_box = QGroupBox("Laenge")
         length_form = QFormLayout(length_box)
+        length_form.setRowWrapPolicy(QFormLayout.RowWrapPolicy.WrapLongRows)
         self._auto_check = QCheckBox("Auto Length (Inhalt)")
         self._auto_check.setChecked(True)
         self._length_spin = QDoubleSpinBox()
@@ -98,6 +101,7 @@ class MediaPanel(QWidget):
         # -- Margins --------------------------------------------------------
         margin_box = QGroupBox("Margins (mm)")
         margin_form = QFormLayout(margin_box)
+        margin_form.setRowWrapPolicy(QFormLayout.RowWrapPolicy.WrapLongRows)
         self._margin_spins: dict[str, QDoubleSpinBox] = {}
         for key, label in (("left", "links"), ("right", "rechts"), ("top", "oben"), ("bottom", "unten")):
             spin = QDoubleSpinBox()

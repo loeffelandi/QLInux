@@ -135,6 +135,7 @@ class LabelCanvas(QGraphicsView):
         self._label: LabelSpec | None = None
         self._height_dots = 0
         self._needs_fit = True
+        self._auto_fit = True
         self._resize_item = None
         self._resize_start_size: tuple[float, float] = (0.0, 0.0)
         self._resize_start_scene = QPointF()
@@ -197,6 +198,7 @@ class LabelCanvas(QGraphicsView):
         self.fitInView(self.tape_rect().adjusted(-8, -8, 8, 8), Qt.AspectRatioMode.KeepAspectRatio)
         self._clamp_zoom()
         self._needs_fit = False
+        self._auto_fit = True
         self._update_rulers()
         self._emit_zoom()
 
@@ -258,6 +260,7 @@ class LabelCanvas(QGraphicsView):
         target = max(MIN_ZOOM, min(MAX_ZOOM, current * factor))
         if abs(target - current) < 1e-6:
             return
+        self._auto_fit = False  # manueller Zoom bleibt bei Fenstergroesse erhalten
         self.scale(target / current, target / current)
         self._update_rulers()
         self._emit_zoom()
@@ -493,6 +496,10 @@ class LabelCanvas(QGraphicsView):
         self._h_ruler.setGeometry(vp.left(), 0, vp.width(), RULER_WIDTH)
         self._v_ruler.setGeometry(0, vp.top(), RULER_WIDTH, vp.height())
         self._update_rulers()
+        # Responsiv: solange kein manueller Zoom gesetzt ist, das Band an die
+        # neue Fenstergroesse anpassen.
+        if self._auto_fit:
+            self.fit_tape()
 
     def scrollContentsBy(self, dx: int, dy: int) -> None:  # noqa: N802
         super().scrollContentsBy(dx, dy)

@@ -65,6 +65,10 @@ python -m ql_editor
 * **Rechts**: Inspector (Eigenschaften des ausgewählten Objekts) + monochrome
   1-bit-Vorschau + Druckoptionen (Threshold, Dither, Schnitt).
 
+Das Layout ist **responsiv**: Der Canvas passt sich der Fenstergröße an
+(solange kein manueller Zoom gesetzt ist), die Seitenpanels werden bei
+Platzmangel scrollbar und die Formulare brechen bei schmalem Fenster um.
+
 ### Bedienung (wie eine Desktop-App)
 * **Doppelklick ins Leere** legt ein Textfeld an und startet die Bearbeitung.
 * **Doppelklick auf Text** editiert inline (Esc beendet).
