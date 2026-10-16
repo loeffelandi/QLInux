@@ -408,3 +408,256 @@ def test_side_panels_are_scrollable(qapp):
     # linkes Panel + Inspector + Vorschau/Druck = mindestens 3 Scrollbereiche
     assert len(win.findChildren(QScrollArea)) >= 3
     assert win.minimumWidth() <= 760
+
+
+# --------------------------------------------------------------------------- #
+# Moderne Maus-Bearbeitung: Verschieben, Groesse, Drehen, Snapping, Drag&Drop
+# --------------------------------------------------------------------------- #
+def _mouse_event(kind, canvas, scene_pos, button, buttons, mods):
+    from PySide6.QtCore import QEvent, QPointF
+    from PySide6.QtGui import QMouseEvent
+
+    vp = canvas.mapFromScene(scene_pos)
+    return QMouseEvent(kind, QPointF(vp), QPointF(vp), button, buttons, mods)
+
+
+def _press(canvas, scene_pos, mods=None):
+    from PySide6.QtCore import QEvent, Qt
+
+    mods = Qt.KeyboardModifier.NoModifier if mods is None else mods
+    canvas.mousePressEvent(
+        _mouse_event(QEvent.Type.MouseButtonPress, canvas, scene_pos, Qt.MouseButton.LeftButton, Qt.MouseButton.LeftButton, mods)
+    )
+
+
+def _drag_to(canvas, scene_pos, mods=None):
+    from PySide6.QtCore import QEvent, Qt
+
+    mods = Qt.KeyboardModifier.NoModifier if mods is None else mods
+    canvas.mouseMoveEvent(
+        _mouse_event(QEvent.Type.MouseMove, canvas, scene_pos, Qt.MouseButton.NoButton, Qt.MouseButton.LeftButton, mods)
+    )
+
+
+def _release(canvas, scene_pos):
+    from PySide6.QtCore import QEvent, Qt
+
+    canvas.mouseReleaseEvent(
+        _mouse_event(QEvent.Type.MouseButtonRelease, canvas, scene_pos, Qt.MouseButton.LeftButton, Qt.MouseButton.NoButton, Qt.KeyboardModifier.NoModifier)
+    )
+
+
+def _prepared_canvas(qapp):
+    canvas = LabelCanvas()
+    canvas.resize(800, 700)
+    canvas.show()
+    qapp.processEvents()
+    canvas.set_label(get_label("50"), 472)
+    return canvas
+
+
+def test_canvas_has_eight_handles_and_rotate(qapp):
+    canvas = _prepared_canvas(qapp)
+    item = TextItem("x", font_pixel_size=30)
+    canvas.add_item(item)
+
+    points = canvas._handle_points(item)
+    assert set(points) == {"nw", "n", "ne", "e", "se", "s", "sw", "w"}
+    assert canvas._handle_at(points["se"]) == ("se", item)
+    rotate = canvas._handle_at(canvas._rotate_handle_point(item))
+    assert rotate is not None and rotate[0] == "rotate"
+
+
+def test_canvas_drag_moves_item(qapp):
+    from PySide6.QtCore import QPointF
+
+    canvas = _prepared_canvas(qapp)
+    item = TextItem("x", font_pixel_size=30)
+    canvas.add_item(item)
+    item.setPos(40, 60)
+
+    changed: list[int] = []
+    canvas.items_changed.connect(lambda: changed.append(1))
+
+    before = QPointF(item.pos())
+    start = item.sceneBoundingRect().center()
+    target = QPointF(start.x() + 60, start.y() + 40)
+    _press(canvas, start)
+    _drag_to(canvas, target)
+    _release(canvas, target)
+
+    assert item.pos().x() - before.x() == pytest.approx(60, abs=7)
+    assert item.pos().y() - before.y() == pytest.approx(40, abs=7)
+    assert changed == [1]
+
+
+def test_canvas_resize_nw_keeps_opposite_corner(qapp):
+    from PySide6.QtCore import QPointF
+
+    canvas = _prepared_canvas(qapp)
+    item = TextItem("x", font_pixel_size=30)
+    canvas.add_item(item)
+    item.setPos(60, 80)
+    canvas._scene.clearSelection()
+    item.setSelected(True)
+    qapp.processEvents()
+
+    b0 = item.sceneBoundingRect()
+    nw = canvas._handle_points(item)["nw"]
+    target = QPointF(nw.x() - 25, nw.y() - 18)
+    _press(canvas, nw)
+    _drag_to(canvas, target)
+    _release(canvas, target)
+
+    b1 = item.sceneBoundingRect()
+    assert b1.right() == pytest.approx(b0.right(), abs=1.5)
+    assert b1.bottom() == pytest.approx(b0.bottom(), abs=1.5)
+    assert b1.width() > b0.width()
+
+
+def test_canvas_resize_se_keeps_top_left(qapp):
+    from PySide6.QtCore import QPointF
+
+    canvas = _prepared_canvas(qapp)
+    item = TextItem("x", font_pixel_size=30)
+    canvas.add_item(item)
+    item.setPos(60, 80)
+    canvas._scene.clearSelection()
+    item.setSelected(True)
+    qapp.processEvents()
+
+    b0 = item.sceneBoundingRect()
+    se = canvas._handle_points(item)["se"]
+    target = QPointF(se.x() + 20, se.y() + 15)
+    _press(canvas, se)
+    _drag_to(canvas, target)
+    _release(canvas, target)
+
+    b1 = item.sceneBoundingRect()
+    assert b1.left() == pytest.approx(b0.left(), abs=0.5)
+    assert b1.top() == pytest.approx(b0.top(), abs=0.5)
+    assert b1.width() > b0.width()
+
+
+def test_canvas_rotate_handle(qapp):
+    from PySide6.QtCore import QPointF
+
+    canvas = _prepared_canvas(qapp)
+    item = TextItem("x", font_pixel_size=30)
+    canvas.add_item(item)
+    item.setPos(100, 120)
+    canvas._scene.clearSelection()
+    item.setSelected(True)
+    qapp.processEvents()
+
+    assert item.rotation() == pytest.approx(0)
+    center = item.mapToScene(item.boundingRect().center())
+    handle = canvas._rotate_handle_point(item)
+    _press(canvas, handle)
+    _drag_to(canvas, QPointF(center.x() + 120, center.y()))
+    _release(canvas, QPointF(center.x() + 120, center.y()))
+
+    assert item.rotation() == pytest.approx(90, abs=12)
+
+
+def test_canvas_move_snaps_to_center_with_guide(qapp):
+    from PySide6.QtCore import QPointF
+
+    canvas = _prepared_canvas(qapp)
+    other = TextItem("a", font_pixel_size=20)
+    canvas.add_item(other)
+    other.setPos(30, 30)
+
+    item = TextItem("b", font_pixel_size=20)
+    canvas.add_item(item)
+    item.setPos(30, 200)
+    canvas._scene.clearSelection()
+    item.setSelected(True)
+    qapp.processEvents()
+
+    center_y = canvas.sceneRect().center().y()
+    start = item.sceneBoundingRect().center()
+    target = QPointF(start.x(), center_y - 2)
+    _press(canvas, start)
+    _drag_to(canvas, target)
+    axes = {axis for axis, _ in canvas._guides}
+    _release(canvas, target)
+
+    assert "h" in axes
+    assert item.sceneBoundingRect().center().y() == pytest.approx(center_y, abs=0.6)
+
+
+def test_canvas_small_drag_does_not_stick_to_own_edges(qapp):
+    """Regression: ein bewegtess Item darf nicht an seiner eigenen alten Kante einrasten."""
+    from PySide6.QtCore import QPointF
+
+    canvas = _prepared_canvas(qapp)
+    item = TextItem("x", font_pixel_size=30)
+    canvas.add_item(item)
+    item.setPos(120, 130)
+
+    start = item.sceneBoundingRect().center()
+    target = QPointF(start.x() + 3, start.y() + 3)
+    _press(canvas, start)
+    _drag_to(canvas, target)
+    _release(canvas, target)
+
+    assert item.pos().x() == pytest.approx(123, abs=1.5)
+    assert item.pos().y() == pytest.approx(133, abs=1.5)
+
+
+def test_mainwindow_drop_image_and_text(qapp, tmp_path):
+    from PySide6.QtCore import QMimeData, QPointF, QUrl, Qt
+    from PySide6.QtGui import QDropEvent
+    from PIL import Image as PILImage
+
+    from ql_editor.app import MainWindow
+    from ql_editor.items import ImageItem
+
+    win = MainWindow()
+    win.resize(1000, 700)
+    win.show()
+    qapp.processEvents()
+    canvas = win._canvas
+
+    path = tmp_path / "bild.png"
+    PILImage.new("RGB", (40, 30), "black").save(path)
+
+    mime = QMimeData()
+    mime.setUrls([QUrl.fromLocalFile(str(path))])
+    ev = QDropEvent(
+        QPointF(300, 200), Qt.DropAction.CopyAction, mime,
+        Qt.MouseButton.LeftButton, Qt.KeyboardModifier.NoModifier,
+    )
+    canvas.dropEvent(ev)
+    images = [i for i in canvas.scene().items() if isinstance(i, ImageItem)]
+    assert len(images) == 1
+    # am Mauszeiger zentriert
+    center = images[0].sceneBoundingRect().center()
+    assert center.x() == pytest.approx(canvas.mapToScene(300, 200).x(), abs=2)
+
+    mime2 = QMimeData()
+    mime2.setText("Hallo Welt")
+    ev2 = QDropEvent(
+        QPointF(120, 200), Qt.DropAction.CopyAction, mime2,
+        Qt.MouseButton.LeftButton, Qt.KeyboardModifier.NoModifier,
+    )
+    canvas.dropEvent(ev2)
+    texts = [i.to_dict().get("text") for i in canvas.scene().items() if getattr(i, "kind", None) == "text"]
+    assert "Hallo Welt" in texts
+
+
+def test_image_item_serialization_roundtrip(qapp):
+    """Regression: Pixmap-Serialisierung muss ohne BytesIO funktionieren."""
+    from PySide6.QtGui import QPixmap
+
+    from ql_editor.items import ImageItem
+
+    item = ImageItem(QPixmap(40, 20))
+    data = item.to_dict()
+    assert data["data_b64"]
+
+    restored = item_from_dict(data)
+    assert isinstance(restored, ImageItem)
+    assert not restored.pixmap().isNull()
+    assert restored.pixmap().width() == 40

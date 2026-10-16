@@ -72,8 +72,19 @@ Platzmangel scrollbar und die Formulare brechen bei schmalem Fenster um.
 ### Bedienung (wie eine Desktop-App)
 * **Doppelklick ins Leere** legt ein Textfeld an und startet die Bearbeitung.
 * **Doppelklick auf Text** editiert inline (Esc beendet).
-* **Eckgriff ziehen** ändert die Größe des ausgewählten Objekts
-  (Text = Schriftgröße, QR bleibt quadratisch, Barcode = Höhe).
+* **Ziehen** verschiebt das Objekt; bei Mehrfachauswahl bewegt sich die
+  ganze Auswahl gemeinsam. Objekte **rasten magnetisch** an Bandkanten,
+  Bandmitte und anderen Objekten ein - die Einrastlinien werden während
+  des Ziehens angezeigt (an Objekten/Zentren/Seiten).
+* **8 Anfasser** (Ecken + Kanten) am ausgewählten Objekt ändern Größe und
+  Proportion; die **gegenüberliegende Kante bleibt verankert**. Der runde
+  Griff **über** dem Objekt dreht es (Shift rastet auf 15°).
+  (Text = Schriftgröße, QR bleibt quadratisch, Barcode = Höhe.)
+* **Mehrfachauswahl**: Gummiband auf freier Fläche, **Ctrl + Klick**
+  schaltet einzelne Objekte zur Auswahl hinzu/ab.
+* **Drag & Drop**: Bilddateien aus dem Dateimanager auf den Canvas ziehen
+  (werden am Mauszeiger zentriert); Textabwürfe (z. B. aus einem Editor)
+  legen ein Textfeld an.
 * **Pfeiltasten** verschieben (mit Shift 10 Dots), **Entf** löscht.
 * **Mausrad** über dem Canvas: scrollt, wenn es etwas zu scrollen gibt,
   sonst zoomt es; **Ctrl + Rad** zoomt immer, **Shift + Rad** scrollt

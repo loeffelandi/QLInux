@@ -116,7 +116,13 @@ class MainWindow(QMainWindow):
         self._canvas.text_requested.connect(self._on_text_requested)
         self._canvas.item_double_clicked.connect(self._on_item_double_clicked)
         self._canvas.context_menu_requested.connect(self._show_context_menu)
+        self._canvas.items_changed.connect(self._on_items_changed)
+        self._canvas.image_dropped.connect(self._on_image_dropped)
+        self._canvas.text_dropped.connect(self._on_text_dropped)
         self._canvas.scene().selectionChanged.connect(self._on_selection_changed)
+        # Direkte Canvas-Aenderungen (Ziehen, Groesse, Drehen) aktualisieren die
+        # Vorschau live; die Bandgroesse wird erst am Ende der Geste neu berechnet.
+        self._canvas.scene().changed.connect(self._on_scene_changed)
         self._inspector.changed.connect(self._on_inspector_changed)
 
         # Rad-Ereignisse duerfen keine Werte in Feldern aendern (auch nicht in
@@ -392,6 +398,34 @@ class MainWindow(QMainWindow):
 
     def _on_item_double_clicked(self, item) -> None:
         self._on_selection_changed()
+
+    def _on_scene_changed(self, *args) -> None:
+        """Live-Vorschau waehrend direkter Manipulation (entprellt)."""
+        if not self._adjusting:
+            self._schedule_refresh()
+
+    def _on_items_changed(self) -> None:
+        """Nach Abschluss einer Geste: Bandgroesse + Inspector aktualisieren."""
+        self._canvas.viewport().update()
+        self._recompute_canvas()
+        self._schedule_refresh()
+        self._on_selection_changed()
+
+    def _on_image_dropped(self, path: str, scene_pos: QPointF) -> None:
+        try:
+            item = ImageItem.from_file(path)
+        except ValueError as exc:
+            QMessageBox.warning(self, "Bild", str(exc))
+            return
+        rect = item.boundingRect()
+        pos = QPointF(scene_pos.x() - rect.width() / 2, scene_pos.y() - rect.height() / 2)
+        self._add_item(item, pos)
+
+    def _on_text_dropped(self, text: str, scene_pos: QPointF) -> None:
+        text = text.strip()
+        if not text:
+            return
+        self._add_item(TextItem(text, font_pixel_size=self._default_font_size()), scene_pos)
 
     def _show_context_menu(self, global_pos, scene_pos: QPointF) -> None:
         menu = QMenu(self)

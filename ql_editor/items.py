@@ -16,11 +16,10 @@ wird in ein ``QPixmap`` umgewandelt.
 from __future__ import annotations
 
 import base64
-import io
 from typing import Any
 
 from PIL import Image
-from PySide6.QtCore import QPointF, QRectF, Qt
+from PySide6.QtCore import QBuffer, QIODevice, QPointF, QRectF, Qt
 from PySide6.QtGui import (
     QBrush,
     QColor,
@@ -315,10 +314,13 @@ class ImageItem(_ClampMixin, QGraphicsPixmapItem):
 
     def to_dict(self) -> dict[str, Any]:
         d = self._base_dict()
-        buf = io.BytesIO()
+        buf = QBuffer()
+        buf.open(QIODevice.OpenModeFlag.WriteOnly)
         self.pixmap().toImage().save(buf, "PNG")
+        raw = bytes(buf.data())
+        buf.close()
         d.update(
-            data_b64=base64.b64encode(buf.getvalue()).decode("ascii"),
+            data_b64=base64.b64encode(raw).decode("ascii"),
             source_path=self._source_path,
             scale_x=self.transform().m11(),
             scale_y=self.transform().m22(),
