@@ -55,4 +55,9 @@ Git-Master entfernt `brother_ql.devicedependent` und bricht die App).
 * Zielauflosung 300 dpi: `dots = mm * 300 / 25.4`.
 * Das gerenderte Bild ist **immer exakt `dots_printable[0]` px breit**, damit
   `brother_ql` den Resize-Pfad ueberspringt (kein Qualitaetsverlust).
+* **Laengen-Semantik** (`ql_editor.media.LengthMode`): Das Laengenfeld meint
+  standardmaessig das **fertige Etikett** (`FINISHED`) inkl. Vorschub/Schnittrand.
+  Bei Endlosband fuegt der Drucker `2*feed_margin + CUT_OFFSET_DOTS`
+  (~7 mm) hinzu; der Inhalt wird entsprechend reduziert. Mit `CONTENT` gilt
+  stattdessen 1:1 der bedruckte Inhalt (z. B. 40 mm -> Canvas 554x472 px).
 * Details und verifizierte API-Signaturen: siehe [`docs/API_NOTES.md`](docs/API_NOTES.md).

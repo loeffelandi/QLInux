@@ -38,6 +38,16 @@ DOTS_PER_MM: float = DPI / MM_PER_INCH  # ~ 11.811
 #: Standardmodell dieser Installation.
 DEFAULT_MODEL: str = "QL-820NWB"
 
+#: Zusaetzlicher Schnittversatz (Dots) fuer Endlosband.
+#:
+#: Der QL-820NWB kann den Vorschub nicht auf 0 setzen: ``convert()`` sendet
+#: ``feed_margin`` als Rand und das Band muss vor dem Schnitt bis zur Schneide
+#: (hinter dem Druckkopf) vorgeschoben werden. Empirisch ergibt sich fuer ein
+#: 50-mm-Endlosband bei 40 mm Inhalt eine Gesamtlaenge von ~47 mm, also
+#: ``2 * feed_margin(35) + 13 = 83 Dots ≈ 7,0 mm``. Der Wert ist bewusst als
+#: Konstante gefuehrt und nach einer Messung leicht nachjustierbar.
+CUT_OFFSET_DOTS: int = 13
+
 
 # --------------------------------------------------------------------------- #
 # Masseinheiten
@@ -335,6 +345,46 @@ def has_two_color_support(model_identifier: str) -> bool:
 
 
 # --------------------------------------------------------------------------- #
+# Laengen-Semantik und Druckerrand
+# --------------------------------------------------------------------------- #
+class LengthMode(str, Enum):
+    """Bedeutung der eingegebenen Laenge bei Endlosband.
+
+    * ``CONTENT``  - die Laenge ist der **bedruckte Inhalt** (Canvas-Hoehe 1:1).
+      Das fertige Etikett ist dann ``Inhalt + Druckerrand``.
+    * ``FINISHED`` - die Laenge ist das **fertige Etikett** inklusive
+      Druckerrand (Vorschub + Schnitt). Der Inhalt wird entsprechend reduziert.
+    """
+
+    CONTENT = "content"
+    FINISHED = "finished"
+
+
+def printer_extra_dots(label: LabelSpec) -> int:
+    """Zusaetzliche Laenge (Dots), die der Drucker bei Endlosband hinzufuegt.
+
+    Bei Die-cut/Rund ist die Etikettenlaenge physisch fixiert -> 0.
+    """
+    if not label.is_endless:
+        return 0
+    return 2 * label.feed_margin + CUT_OFFSET_DOTS
+
+
+def content_dots_for_finished_length(
+    label: LabelSpec, model: ModelSpec, finished_length_mm: float
+) -> int:
+    """Rechne eine gewuenschte Gesamtlaenge in die noetige Inhaltshoehe um."""
+    total = mm_to_dots(float(finished_length_mm))
+    content = total - printer_extra_dots(label)
+    return model.clamp_length_dots(max(content, model.min_max_length_dots[0]))
+
+
+def finished_length_mm(label: LabelSpec, content_dots: int) -> float:
+    """Gesamtlaenge (mm) eines Etiketts mit ``content_dots`` bedruckter Hoehe."""
+    return dots_to_mm(content_dots + printer_extra_dots(label))
+
+
+# --------------------------------------------------------------------------- #
 # Canvas-Groesse
 # --------------------------------------------------------------------------- #
 def canvas_size_dots(
@@ -344,6 +394,7 @@ def canvas_size_dots(
     auto_length: bool = True,
     fixed_length_mm: float | None = None,
     content_length_dots: int = 0,
+    length_mode: LengthMode = LengthMode.CONTENT,
 ) -> tuple[int, int]:
     """Berechne die Canvas-Groesse ``(breite_dots, hoehe_dots)``.
 
@@ -353,6 +404,13 @@ def canvas_size_dots(
       (``dots_printable[1]``); ``auto_length``/``fixed_length_mm`` werden ignoriert.
     * Bei Endlosband bestimmt ``auto_length`` (Inhalt) bzw. ``fixed_length_mm``
       die Hoehe; das Ergebnis wird auf die Modellgrenzen geklemmt.
+
+    ``length_mode`` steuert die Bedeutung von ``fixed_length_mm``:
+
+    * ``CONTENT``  - ``fixed_length_mm`` = bedruckter Inhalt (Canvas = 1:1).
+      ``50 mm endlos`` + ``40 mm`` ergibt exakt ``554 x 472`` px (DoD #2).
+    * ``FINISHED`` - ``fixed_length_mm`` = fertiges Etikett inkl. Druckerrand;
+      der Inhalt wird um :func:`printer_extra_dots` reduziert.
     """
     width = label.width_dots
 
@@ -366,7 +424,10 @@ def canvas_size_dots(
     else:
         if fixed_length_mm is None:
             raise ValueError("fixed_length_mm ist erforderlich, wenn auto_length=False")
-        height = model.clamp_length_dots(mm_to_dots(float(fixed_length_mm)))
+        if length_mode is LengthMode.FINISHED:
+            height = content_dots_for_finished_length(label, model, fixed_length_mm)
+        else:
+            height = model.clamp_length_dots(mm_to_dots(float(fixed_length_mm)))
 
     return width, height
 
@@ -381,8 +442,10 @@ __all__ = [
     "MM_PER_INCH",
     "DOTS_PER_MM",
     "DEFAULT_MODEL",
+    "CUT_OFFSET_DOTS",
     "Kind",
     "Color",
+    "LengthMode",
     "Margins",
     "LabelSpec",
     "ModelSpec",
@@ -395,6 +458,9 @@ __all__ = [
     "get_model",
     "labels_for_model",
     "has_two_color_support",
+    "printer_extra_dots",
+    "content_dots_for_finished_length",
+    "finished_length_mm",
     "canvas_size_dots",
     "length_bounds_mm",
 ]

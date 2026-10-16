@@ -133,3 +133,54 @@ def test_default_margins_from_feed_margin():
     assert isinstance(margins, Margins)
     assert margins.left == 0.0 and margins.right == 0.0
     assert margins.top == pytest.approx(label.feed_margin_mm)
+
+
+# --- Laengen-Kompensation (Gesamtlaenge statt Inhalt) ---
+def test_printer_extra_dots_for_endless():
+    # 2 * feed_margin(35) + CUT_OFFSET_DOTS(13) = 83 Dots ~ 7,0 mm
+    assert media.printer_extra_dots(get_label("50")) == 83
+    assert media.dots_to_mm(83) == pytest.approx(7.03, abs=0.05)
+
+
+def test_printer_extra_dots_zero_for_die_cut():
+    assert media.printer_extra_dots(get_label("62x100")) == 0
+    assert media.printer_extra_dots(get_label("d24")) == 0
+
+
+def test_finished_length_mode_reduces_content():
+    label = get_label("50")
+    model = get_model(MODEL)
+    # 40 mm Gesamtlaenge -> 472 - 83 = 389 Dots Inhalt, Breite bleibt 554.
+    size = media.canvas_size_dots(
+        label, model, auto_length=False, fixed_length_mm=40,
+        length_mode=media.LengthMode.FINISHED,
+    )
+    assert size == (554, 389)
+
+
+def test_content_mode_is_unchanged_dod2():
+    label = get_label("50")
+    model = get_model(MODEL)
+    size = media.canvas_size_dots(
+        label, model, auto_length=False, fixed_length_mm=40,
+        length_mode=media.LengthMode.CONTENT,
+    )
+    assert size == (554, 472)
+
+
+def test_finished_length_roundtrip():
+    label = get_label("50")
+    model = get_model(MODEL)
+    content = media.content_dots_for_finished_length(label, model, 40)
+    assert content == 389
+    assert media.finished_length_mm(label, content) == pytest.approx(40.0, abs=0.1)
+
+
+def test_finished_length_mode_ignored_for_die_cut():
+    label = get_label("62x100")
+    model = get_model(MODEL)
+    size = media.canvas_size_dots(
+        label, model, auto_length=False, fixed_length_mm=40,
+        length_mode=media.LengthMode.FINISHED,
+    )
+    assert size == (696, 1109)

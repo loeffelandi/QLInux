@@ -89,6 +89,11 @@ def main(argv=None) -> int:
     parser.add_argument("--backend", default="network")
     parser.add_argument("--label", default="50")
     parser.add_argument("--length-mm", type=float, default=40.0)
+    parser.add_argument(
+        "--length-mode", choices=[m.value for m in media.LengthMode],
+        default=media.LengthMode.FINISHED.value,
+        help="finished = Gesamtlaenge inkl. Druckerrand (Default), content = nur Inhalt",
+    )
     parser.add_argument("--auto", action="store_true", help="Auto-Laenge (Ignore --length-mm)")
     parser.add_argument("--text", default="QLInux")
     parser.add_argument("--qr", default=None, help="QR-Code-Inhalt")
@@ -106,11 +111,16 @@ def main(argv=None) -> int:
 
     label = media.get_label(args.label)
     model = media.get_model(args.model)
+    length_mode = media.LengthMode(args.length_mode)
     width, height = media.canvas_size_dots(
-        label, model, auto_length=args.auto, fixed_length_mm=args.length_mm
+        label, model, auto_length=args.auto, fixed_length_mm=args.length_mm,
+        length_mode=length_mode,
     )
     print(f"Band:   {label.identifier}  ({label.display_name})")
-    print(f"Canvas: {width} x {height} px  ({media.dots_to_mm(width):.1f} x {media.dots_to_mm(height):.1f} mm)")
+    print(f"Modus:  Laenge = {'Gesamt (inkl. Druckerrand)' if length_mode is media.LengthMode.FINISHED else 'Inhalt'}")
+    print(f"Canvas: {width} x {height} px  ({media.dots_to_mm(width):.1f} x {media.dots_to_mm(height):.1f} mm Inhalt)")
+    total_mm = media.finished_length_mm(label, height) if label.is_endless else media.dots_to_mm(height)
+    print(f"Gesamt: ~{total_mm:.1f} mm fertiges Etikett")
 
     scene = build_scene(label, height, args.text, args.qr, args.font_size, args.margin_mm)
     image = render_for_label(scene, label, height)
