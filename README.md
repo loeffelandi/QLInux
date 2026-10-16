@@ -133,8 +133,10 @@ Toolbar, bleiben also immer synchron.
   **leer und ohne Markierung**: der Cursor blinkt, getippt wird sofort der
   eigene Text. Bleibt das Feld leer (Klick daneben oder `Esc`), wird es wieder
   verworfen, statt als unsichtbares Objekt liegen zu bleiben.
-* **Doppelklick auf Text** editiert inline: der Cursor steht an der geklickten
-  Stelle, der Text bleibt unmarkiert (nichts wird überschrieben). `Esc` beendet.
+* **Doppelklick auf Text** editiert inline und **markiert den ganzen Text**
+  (zum Ersetzen/Umbenennen) - auch bei einem Doppelklick im bereits offenen
+  Feld. Ein *einfacher* Klick im offenen Feld setzt den Cursor genau.
+  `Esc` beendet die Bearbeitung.
 * **Ziehen** verschiebt das Objekt; bei Mehrfachauswahl bewegt sich die
   ganze Auswahl gemeinsam. Objekte **rasten magnetisch** an Bandkanten,
   Bandmitte und anderen Objekten ein - die Einrastlinien werden während

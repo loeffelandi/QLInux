@@ -1040,12 +1040,11 @@ class LabelCanvas(QGraphicsView):
             super().mouseDoubleClickEvent(event)
             return
         item = self._top_serializable_item_at(self._event_pos(event))
-        scene_pos = self.mapToScene(self._event_pos(event))
         if item is None:
-            self.text_requested.emit(scene_pos)
+            self.text_requested.emit(self.mapToScene(self._event_pos(event)))
         elif getattr(item, "kind", None) == "text":
-            # Cursor dorthin, wo geklickt wurde (kein Vorauswaehlen des Textes).
-            item.start_editing(item.mapFromScene(scene_pos))
+            # Oeffnet das Feld und markiert den Text (im offenen Feld ebenso).
+            item.start_editing()
         else:
             self._scene.clearSelection()
             item.setSelected(True)

@@ -245,7 +245,7 @@ def test_text_item_inline_editing(qapp):
     assert item.is_editing is False
     item.start_editing()
     assert item.is_editing is True
-    assert item.textCursor().hasSelection() is False
+    assert item.textCursor().hasSelection() is True  # Doppelklick markiert alles
     item.finish_editing()
     assert item.is_editing is False
 
@@ -269,7 +269,7 @@ def test_escape_ends_inline_editing(qapp):
 
 
 def test_new_text_is_empty_and_not_selected(qapp):
-    """Doppelklick legt ein leeres Feld an - kein markierter Platzhaltertext."""
+    """Doppelklick legt ein leeres Feld an - nichts ist markiert."""
     from PySide6.QtCore import QPointF
 
     from ql_editor.app import MainWindow
@@ -282,27 +282,55 @@ def test_new_text_is_empty_and_not_selected(qapp):
 
     assert item.is_editing is True
     assert item.toPlainText() == ""
-    assert item.textCursor().hasSelection() is False
+    assert item.textCursor().hasSelection() is False  # leeres Feld: nichts zu markieren
     # Sofort tippen schreibt den eigenen Text.
     item.textCursor().insertText("Hallo")
     assert item.toPlainText() == "Hallo"
 
 
-def test_editing_existing_text_does_not_select_everything(qapp):
-    """Doppelklick in ein bestehendes Feld setzt nur den Cursor."""
-    from PySide6.QtCore import QPointF
+def test_double_click_selects_existing_text(qapp):
+    """Im offenen Text markiert der Doppelklick weiterhin alles."""
+    from PySide6.QtCore import QEvent, QPointF, Qt
 
     canvas = _prepared_canvas(qapp)
     item = TextItem("Hallo Band", font_pixel_size=40)
     canvas.add_item(item)
     item.setPos(40, 40)
-    item.start_editing(QPointF(20, 10))
+    canvas.cancel_editing()
 
+    click = item.mapToScene(QPointF(120, 20))
+    canvas.mouseDoubleClickEvent(
+        _mouse_event(
+            QEvent.Type.MouseButtonDblClick,
+            canvas,
+            click,
+            Qt.MouseButton.LeftButton,
+            Qt.MouseButton.LeftButton,
+            Qt.KeyboardModifier.NoModifier,
+        )
+    )
+    cursor = item.textCursor()
     assert item.is_editing is True
-    assert item.textCursor().hasSelection() is False
-    before = len(item.toPlainText())
-    item.textCursor().insertText("X")
-    assert len(item.toPlainText()) == before + 1  # anhaengen statt ersetzen
+    assert cursor.hasSelection() is True
+    assert cursor.selectedText() == "Hallo Band"
+
+    # Tippen ersetzt den markierten Text (Umbenennen-Verhalten).
+    cursor.insertText("Neu")
+    assert item.toPlainText() == "Neu"
+
+    # Zweiter Doppelklick im offenen Feld markiert wieder alles.
+    canvas.mouseDoubleClickEvent(
+        _mouse_event(
+            QEvent.Type.MouseButtonDblClick,
+            canvas,
+            item.mapToScene(QPointF(20, 20)),
+            Qt.MouseButton.LeftButton,
+            Qt.MouseButton.LeftButton,
+            Qt.KeyboardModifier.NoModifier,
+        )
+    )
+    assert item.textCursor().hasSelection() is True
+    assert item.textCursor().selectedText() == "Neu"
 
 
 def test_empty_text_field_is_discarded_when_editing_ends(qapp):
@@ -335,33 +363,6 @@ def test_text_field_with_content_survives_editing(qapp):
     qapp.processEvents()
     texts = [i for i in win._canvas.scene().items() if isinstance(i, TextItem)]
     assert [i.toPlainText() for i in texts] == ["Bleibt"]
-
-
-def test_double_click_in_text_puts_cursor_at_click(qapp):
-    """Doppelklick ins Feld: Cursor an die geklickte Stelle, nichts markiert."""
-    from PySide6.QtCore import QEvent, QPointF, Qt
-
-    canvas = _prepared_canvas(qapp)
-    item = TextItem("Hallo Band", font_pixel_size=40)
-    canvas.add_item(item)
-    item.setPos(40, 40)
-    canvas.cancel_editing()
-
-    click = item.mapToScene(QPointF(120, 20))
-    canvas.mouseDoubleClickEvent(
-        _mouse_event(
-            QEvent.Type.MouseButtonDblClick,
-            canvas,
-            click,
-            Qt.MouseButton.LeftButton,
-            Qt.MouseButton.LeftButton,
-            Qt.KeyboardModifier.NoModifier,
-        )
-    )
-    cursor = item.textCursor()
-    assert item.is_editing is True
-    assert cursor.hasSelection() is False
-    assert 0 < cursor.position() < len(item.toPlainText())
 
 
 def test_double_click_on_empty_canvas_requests_new_text(qapp):

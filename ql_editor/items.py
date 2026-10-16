@@ -237,29 +237,20 @@ class TextItem(_ClampMixin, QGraphicsTextItem):
         self.setTextWidth(width if width > 0 else -1)
 
     # -- Inline-Bearbeitung -------------------------------------------------
-    def start_editing(self, item_pos: QPointF | None = None) -> None:
-        """Bearbeitung starten - **ohne** den Text vorauszuwaehlen.
+    def start_editing(self) -> None:
+        """Doppelklick: Bearbeitung starten und den Text **vorauswaehlen**.
 
-        Ein Doppelklick soll nichts ueberschreiben: der Cursor landet an der
-        geklickten Stelle, sonst am Ende des Textes. Innerhalb eines Feldes in
-        Bearbeitung setzt ein einfacher Klick den Cursor genau - die Canvas
-        laesst Klicks auf ein Feld in Bearbeitung durch.
+        Die Vorauswahl ist gewollt - ein Doppelklick oeffnet das Feld zum
+        Ersetzen (wie "Umbenennen"), ein Doppelklick im bereits offenen Feld
+        markiert ebenfalls alles, ein *einfacher* Klick setzt den Cursor genau.
+        Ein **neu** angelegtes Feld ist leer: dort gibt es nichts zu markieren,
+        deshalb stoert die Vorauswahl beim Erstellen nicht mehr.
         """
         self.setTextInteractionFlags(Qt.TextInteractionFlag.TextEditorInteraction)
         self.setFocus(Qt.FocusReason.MouseFocusReason)
         cursor = self.textCursor()
-        cursor.clearSelection()
-        index = self._index_at(item_pos) if item_pos is not None else -1
-        if index >= 0:
-            cursor.setPosition(index)
-        else:
-            cursor.movePosition(QTextCursor.MoveOperation.End)
+        cursor.select(QTextCursor.SelectionType.Document)
         self.setTextCursor(cursor)
-
-    def _index_at(self, item_pos: QPointF) -> int:
-        """Zeichenposition unter ``item_pos`` (Item-Koordinaten) oder ``-1``."""
-        index = self.document().documentLayout().hitTest(item_pos, Qt.HitTestAccuracy.FuzzyHit)
-        return int(index)
 
     def finish_editing(self) -> None:
         was_editing = self.is_editing
