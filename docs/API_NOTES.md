@@ -27,6 +27,18 @@ python scripts/verify_api.py
 > (`192.168.178.62:9100`). Der Druckpfad ist daher gegen die Bibliothek
 > unit-getestet, aber nicht live gegen den Drucker.
 
+### Live-Statusabfrage (Readback)
+
+Port `9100` des QL-820NWB ist offen (TCP-Connect erfolgreich), liefert aber
+**keine Statusantwort** auf `ESC i S` (`1B 69 53`) - weder allein noch nach
+`ESC @` / Moduswechsel. Das deckt sich mit der Notiz in
+`brother_ql.backends.helpers.send`, dass das Netzwerk-Backend kein Readback
+unterstuetzt.
+
+Konsequenz fuer die App: die Funktion "Band erkennen" versucht die Abfrage
+(`ql_editor.printer.detect_label`) und faellt bei fehlender Antwort **sauber
+auf manuelle Auswahl zurueck** (Rueckgabe ``None``, kein Absturz).
+
 ## Abweichungen zur Aufgabenbeschreibung (wichtig!)
 
 Die Aufgabenbeschreibung nennt eine aeltere API-Oberflaeche. Real vorhanden ist:

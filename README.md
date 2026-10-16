@@ -12,7 +12,7 @@ Kein Browser-Tool, kein WebUSB.
 | Meilenstein | Inhalt | Status |
 | --- | --- | --- |
 | M1 | Setup, API-Verifikation, Datenmodell | ✅ |
-| M2 | Rendering-Kern + Druck-Wrapper (headless) | ⏳ |
+| M2 | Rendering-Kern + Druck-Wrapper (headless) | ✅ |
 | M3 | PySide6-GUI (Canvas, Panel, Vorschau) | ⏳ |
 | M4 | Vorlagen, Settings, `.deb`-Paket | ⏳ |
 

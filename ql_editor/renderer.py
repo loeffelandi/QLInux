@@ -1,0 +1,136 @@
+"""Rendering: Qt-Szene -> ``PIL.Image`` in exakter Zielbreite.
+
+Kernprinzip (siehe docs/API_NOTES.md): Das gerenderte Bild ist **immer exakt
+``dots_printable[0]`` Pixel breit**. Nur dann ueberspringt
+:func:`brother_ql.conversion.convert` den Resize-Pfad (kein Qualitaetsverlust,
+keine Warnung) und die Pixel werden 1:1 auf den Druckkopf abgebildet.
+
+Dieses Modul ist bewusst *duenn*: es kennt weder Items noch Drucker. Es
+rendert eine beliebige ``QGraphicsScene`` verlustfrei in ein ``PIL.Image``.
+
+Fuer Tests laeuft es headless mit ``QT_QPA_PLATFORM=offscreen``.
+"""
+
+from __future__ import annotations
+
+from typing import Protocol
+
+from PIL import Image
+from PySide6.QtCore import QRectF, Qt
+from PySide6.QtGui import QImage, QPainter
+
+from .media import DPI, LabelSpec
+
+# QImage/QPainter erwarten Dots-per-Meter; 300 dpi = 300 / 0.0254 * 1000.
+_DOTS_PER_METER = int(round(DPI * 1000.0 / 25.4))
+
+
+class RenderError(RuntimeError):
+    """Fehler beim Rendern (falsche Groesse, ungueltige Szene)."""
+
+
+class RenderableScene(Protocol):
+    """Minimal-Interface einer Szene (erfuellt von ``QGraphicsScene``)."""
+
+    def sceneRect(self) -> QRectF:  # pragma: no cover - structural typing
+        ...
+
+    def render(self, painter: QPainter, target: QRectF, source: QRectF) -> None:  # pragma: no cover
+        ...
+
+
+def qimage_to_pil(qimage: QImage) -> Image.Image:
+    """Konvertiere ein ``QImage`` verlustfrei in ein ``PIL.Image`` (RGB).
+
+    Beruecksichtigt die Zeilen-Ausrichtung (``bytesPerLine``) korrekt.
+    """
+    if qimage.isNull():
+        raise RenderError("QImage ist leer (isNull).")
+    rgb = qimage.convertToFormat(QImage.Format.Format_RGB888)
+    width, height = rgb.width(), rgb.height()
+    stride = rgb.bytesPerLine()
+    # constBits() liefert einen Puffer der Groesse stride*height; wir kopieren
+    # ihn, da die QImage danach zerstoert werden kann.
+    buffer = bytes(rgb.constBits())
+    expected = stride * height
+    if len(buffer) < expected:
+        raise RenderError(
+            f"QImage-Puffer zu klein: {len(buffer)} < {expected} Bytes."
+        )
+    return Image.frombytes("RGB", (width, height), buffer, "raw", "RGB", stride, 1)
+
+
+def render_scene_to_image(
+    scene: RenderableScene,
+    width_dots: int,
+    height_dots: int,
+    *,
+    background: Qt.GlobalColor = Qt.GlobalColor.white,
+    antialias: bool = True,
+) -> Image.Image:
+    """Rendere ``scene`` in ein ``PIL.Image`` der Groesse ``width_dots`` x ``height_dots``.
+
+    Die Szene wird 1:1 abgebildet (``source = sceneRect``, ``target = Bild``).
+    """
+    if width_dots <= 0 or height_dots <= 0:
+        raise RenderError(
+            f"Ungueltige Canvas-Groesse: {width_dots} x {height_dots} Dots."
+        )
+
+    image = QImage(width_dots, height_dots, QImage.Format.Format_RGB32)
+    image.setDotsPerMeterX(_DOTS_PER_METER)
+    image.setDotsPerMeterY(_DOTS_PER_METER)
+    image.fill(background)
+
+    painter = QPainter(image)
+    try:
+        if antialias:
+            painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+            painter.setRenderHint(QPainter.RenderHint.TextAntialiasing, True)
+            painter.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform, True)
+        source = scene.sceneRect()
+        if source.isNull() or source.width() <= 0 or source.height() <= 0:
+            raise RenderError("sceneRect der Szene ist leer oder ungueltig.")
+        target = QRectF(0, 0, width_dots, height_dots)
+        scene.render(painter, target, source)
+    finally:
+        painter.end()
+
+    return qimage_to_pil(image)
+
+
+def assert_exact_label_width(image: Image.Image, label: LabelSpec) -> None:
+    """Stelle sicher, dass ``image`` exakt ``label.dots_printable[0]`` breit ist.
+
+    :raises RenderError: bei Abweichung - die Fehlermeldung nennt Soll und Ist.
+    """
+    expected = label.width_dots
+    if image.width != expected:
+        raise RenderError(
+            f"Bildbreite {image.width} px entspricht nicht der Bandbreite "
+            f"{expected} px (Band {label.identifier!r}). Das wuerde brother_ql "
+            f"zum Resize zwingen."
+        )
+
+
+def render_for_label(
+    scene: RenderableScene, label: LabelSpec, height_dots: int
+) -> Image.Image:
+    """Rendere ``scene`` exakt in der Breite von ``label`` und pruefe das Ergebnis.
+
+    Bequemer Einstiegspunkt fuer den Druckpfad. Die Breite wird *nicht*
+    angepasst, sondern verifiziert - eine fehlerhafte Szene soll auffallen.
+    """
+    image = render_scene_to_image(scene, label.width_dots, height_dots)
+    assert_exact_label_width(image, label)
+    return image
+
+
+__all__ = [
+    "RenderError",
+    "RenderableScene",
+    "qimage_to_pil",
+    "render_scene_to_image",
+    "render_for_label",
+    "assert_exact_label_width",
+]

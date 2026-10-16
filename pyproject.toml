@@ -10,4 +10,5 @@ testpaths = ["tests"]
 # Fremdcode und fuer uns nicht relevant - die Warnung wird unterdrueckt.
 filterwarnings = [
     "ignore:The 'warn' method is deprecated:DeprecationWarning",
+    "ignore:Image.Image.getdata is deprecated:DeprecationWarning",
 ]
