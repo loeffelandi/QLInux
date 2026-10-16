@@ -115,6 +115,7 @@ class LabelCanvas(QGraphicsView):
     text_requested = Signal(QPointF)
     item_double_clicked = Signal(object)
     context_menu_requested = Signal(QPoint, QPointF)
+    zoom_changed = Signal(float)
 
     def __init__(self, parent: QWidget | None = None):
         super().__init__(parent)
@@ -137,6 +138,9 @@ class LabelCanvas(QGraphicsView):
         self._resize_item = None
         self._resize_start_size: tuple[float, float] = (0.0, 0.0)
         self._resize_start_scene = QPointF()
+        self._pan_active = False
+        self._pan_start = QPoint()
+        self._pan_origin = (0, 0)
 
         self._h_ruler = MmRuler(self, Qt.Orientation.Horizontal)
         self._v_ruler = MmRuler(self, Qt.Orientation.Vertical)
@@ -145,13 +149,17 @@ class LabelCanvas(QGraphicsView):
         self._v_ruler.show()
 
     # -- Setup --------------------------------------------------------------
-    def set_label(self, label: LabelSpec, height_dots: int) -> None:
-        """Setze Band + Canvas-Hoehe. Die Breite ist immer ``label.width_dots``."""
-        size_changed = (
-            self._label is None
-            or label.width_dots != self.sceneRect().width()
-            or int(height_dots) != self._height_dots
-        )
+    def set_label(self, label: LabelSpec, height_dots: int, refit: bool | None = None) -> None:
+        """Setze Band + Canvas-Hoehe. Die Breite ist immer ``label.width_dots``.
+
+        ``refit``:
+            ``None`` (Default) passt nur bei einem Bandwechsel (Breiten-
+            aenderung) oder beim ersten Setzen ein. So bleibt ein vom Nutzer
+            gewaehlter Zoom beim Editieren (Auto-Length waechst) erhalten und
+            der Canvas wird scrollbar.
+        """
+        first = self._label is None
+        width_changed = first or round(self.sceneRect().width()) != round(label.width_dots)
         self._label = label
         self._height_dots = int(height_dots)
         size = QRectF(0, 0, label.width_dots, height_dots)
@@ -159,7 +167,9 @@ class LabelCanvas(QGraphicsView):
         self.setSceneRect(size)
         self._h_ruler.set_total_mm(dots_to_mm(label.width_dots + 2 * label.side_border_dots))
         self._v_ruler.set_total_mm(dots_to_mm(height_dots))
-        if size_changed:
+        if refit is None:
+            refit = width_changed
+        if refit:
             self._needs_fit = True
             self.fit_tape()
         self._update_rulers()
@@ -188,6 +198,10 @@ class LabelCanvas(QGraphicsView):
         self._clamp_zoom()
         self._needs_fit = False
         self._update_rulers()
+        self._emit_zoom()
+
+    def _emit_zoom(self) -> None:
+        self.zoom_changed.emit(self.transform().m11() * 100.0)
 
     def _clamp_zoom(self) -> None:
         current = self.transform().m11()
@@ -199,23 +213,60 @@ class LabelCanvas(QGraphicsView):
         super().showEvent(event)
         if self._needs_fit:
             self.fit_tape()
+        self._emit_zoom()
 
-    # -- Zoom (begrenzt) ----------------------------------------------------
+    # -- Zoom / Scrollen ----------------------------------------------------
     def wheelEvent(self, event) -> None:  # noqa: N802
-        if event.modifiers() & Qt.KeyboardModifier.ControlModifier:
-            factor = 1.15 if event.angleDelta().y() > 0 else 1 / 1.15
-            self.zoom_by(factor)
+        """Adaptiv: scrollen, wenn es etwas zu scrollen gibt, sonst zoomen.
+
+        * **Ctrl + Rad**  -> immer zoomen
+        * **Shift + Rad** -> horizontal scrollen
+        * **Rad**         -> vertikal scrollen; ist nichts zu scrollen (alles
+          sichtbar), wird gezoomt - so tut das Rad nie „nichts".
+        """
+        mods = event.modifiers()
+        delta = event.angleDelta()
+        dy = delta.y()
+        dx = delta.x()
+
+        if mods & Qt.KeyboardModifier.ControlModifier:
+            if dy:
+                self.zoom_by(1.15 if dy > 0 else 1 / 1.15)
             event.accept()
-        else:
+            return
+
+        vbar = self.verticalScrollBar()
+        hbar = self.horizontalScrollBar()
+
+        if mods & Qt.KeyboardModifier.ShiftModifier:
+            step = dy or dx
+            if hbar.maximum() > 0:
+                hbar.setValue(hbar.value() - step)
+                event.accept()
+                return
+
+        if vbar.maximum() > 0 or hbar.maximum() > 0:
             super().wheelEvent(event)
+            return
+
+        if dy:
+            self.zoom_by(1.15 if dy > 0 else 1 / 1.15)
+        event.accept()
 
     def zoom_by(self, factor: float) -> None:
         current = self.transform().m11()
-        target = max(0.01, min(MAX_ZOOM, current * factor))
+        target = max(MIN_ZOOM, min(MAX_ZOOM, current * factor))
         if abs(target - current) < 1e-6:
             return
         self.scale(target / current, target / current)
         self._update_rulers()
+        self._emit_zoom()
+
+    def zoom_in(self) -> None:
+        self.zoom_by(1.25)
+
+    def zoom_out(self) -> None:
+        self.zoom_by(1 / 1.25)
 
     def zoom_fit(self) -> None:
         self.fit_tape()
@@ -288,6 +339,16 @@ class LabelCanvas(QGraphicsView):
 
     # -- Maus ---------------------------------------------------------------
     def mousePressEvent(self, event) -> None:  # noqa: N802
+        if event.button() == Qt.MouseButton.MiddleButton:
+            self._pan_active = True
+            self._pan_start = event.pos()
+            self._pan_origin = (
+                self.horizontalScrollBar().value(),
+                self.verticalScrollBar().value(),
+            )
+            self.viewport().setCursor(Qt.CursorShape.ClosedHandCursor)
+            event.accept()
+            return
         if event.button() == Qt.MouseButton.LeftButton:
             handle = self._handle_scene_rect()
             if handle is not None and handle.contains(self.mapToScene(event.pos())):
@@ -300,6 +361,12 @@ class LabelCanvas(QGraphicsView):
         super().mousePressEvent(event)
 
     def mouseMoveEvent(self, event) -> None:  # noqa: N802
+        if self._pan_active:
+            delta = event.pos() - self._pan_start
+            self.horizontalScrollBar().setValue(self._pan_origin[0] - delta.x())
+            self.verticalScrollBar().setValue(self._pan_origin[1] - delta.y())
+            event.accept()
+            return
         if self._resize_item is not None:
             current = self.mapToScene(event.pos())
             dw = current.x() - self._resize_start_scene.x()
@@ -319,6 +386,11 @@ class LabelCanvas(QGraphicsView):
         super().mouseMoveEvent(event)
 
     def mouseReleaseEvent(self, event) -> None:  # noqa: N802
+        if self._pan_active and event.button() == Qt.MouseButton.MiddleButton:
+            self._pan_active = False
+            self.viewport().unsetCursor()
+            event.accept()
+            return
         if self._resize_item is not None and event.button() == Qt.MouseButton.LeftButton:
             self._resize_item = None
             self.viewport().update()

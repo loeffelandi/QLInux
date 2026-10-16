@@ -71,6 +71,10 @@ python -m ql_editor
 * **Eckgriff ziehen** ändert die Größe des ausgewählten Objekts
   (Text = Schriftgröße, QR bleibt quadratisch, Barcode = Höhe).
 * **Pfeiltasten** verschieben (mit Shift 10 Dots), **Entf** löscht.
+* **Mausrad** über dem Canvas: scrollt, wenn es etwas zu scrollen gibt,
+  sonst zoomt es; **Ctrl + Rad** zoomt immer, **Shift + Rad** scrollt
+  horizontal, **mittlere Maustaste ziehen** verschiebt den Ausschnitt.
+  Zusätzlich: Zoom −/Einpassen/+ in der Toolbar (Ctrl+0 = einpassen).
 * **Rechtsklick** öffnet das Kontextmenü (Einfügen, Reihenfolge, Löschen).
 * Der **Inspector** zeigt kontextabhängig die passenden Eigenschaften
   (Text/Schrift/Farbe, Barcode-Inhalt/Symbologie, QR-Inhalt, Position, Drehung).

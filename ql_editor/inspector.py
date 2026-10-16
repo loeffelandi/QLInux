@@ -26,6 +26,8 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from .widgets import install_wheel_guard_recursive
+
 BARCODE_SYMBOLOGIES = ["code128", "code39", "ean13", "ean8", "upca", "itf", "codabar"]
 
 
@@ -97,6 +99,7 @@ class InspectorPanel(QWidget):
         self._build_common(item, form)
         self._root.addWidget(body)
         self._root.addStretch(1)
+        install_wheel_guard_recursive(body)
 
     # -- Typ-spezifisch -----------------------------------------------------
     def _build_text(self, item, form: QFormLayout) -> None:

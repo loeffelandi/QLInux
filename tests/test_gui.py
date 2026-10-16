@@ -281,3 +281,84 @@ def test_mainwindow_double_click_creates_text(qapp):
     texts = [i for i in win._canvas.scene().items() if isinstance(i, TextItem)]
     assert len(texts) == 1
     assert texts[0].is_editing is True
+
+
+# --------------------------------------------------------------------------- #
+# Scrollen / Zoomen / Wheel-Guard
+# --------------------------------------------------------------------------- #
+def _wheel_event(modifiers, dy, dx=0, x=100, y=100):
+    from PySide6.QtCore import QPoint, QPointF, Qt
+    from PySide6.QtGui import QWheelEvent
+
+    pos = QPointF(x, y)
+    return QWheelEvent(
+        pos, pos, QPoint(dx, dy), QPoint(dx, dy),
+        Qt.MouseButton.NoButton, modifiers, Qt.ScrollPhase.NoScrollPhase, False,
+    )
+
+
+def test_wheel_guard_prevents_unfocused_change(qapp):
+    from PySide6.QtCore import Qt
+    from PySide6.QtWidgets import QSpinBox, QVBoxLayout, QWidget
+
+    from ql_editor.widgets import install_wheel_guard_recursive
+
+    host = QWidget()
+    layout = QVBoxLayout(host)
+    spin = QSpinBox()
+    spin.setRange(0, 100)
+    spin.setValue(10)
+    layout.addWidget(spin)
+    install_wheel_guard_recursive(host)
+
+    qapp.sendEvent(spin, _wheel_event(Qt.KeyboardModifier.NoModifier, 120))
+    assert spin.value() == 10
+
+
+def test_canvas_wheel_zooms_when_nothing_to_scroll(qapp):
+    from PySide6.QtCore import Qt
+
+    canvas = LabelCanvas()
+    canvas.resize(600, 600)
+    canvas.set_label(get_label("50"), 472)
+    before = canvas.transform().m11()
+    canvas.wheelEvent(_wheel_event(Qt.KeyboardModifier.NoModifier, 120))
+    assert canvas.transform().m11() > before
+
+
+def test_canvas_wheel_scrolls_when_zoomed(qapp):
+    from PySide6.QtCore import Qt
+
+    canvas = LabelCanvas()
+    canvas.resize(300, 300)
+    canvas.show()
+    qapp.processEvents()
+    canvas.set_label(get_label("50"), 1400, refit=False)
+    canvas.zoom_by(2.0)
+    qapp.processEvents()
+
+    vbar = canvas.verticalScrollBar()
+    assert vbar.maximum() > 0
+    before = vbar.value()
+    canvas.wheelEvent(_wheel_event(Qt.KeyboardModifier.NoModifier, -120))
+    assert vbar.value() != before
+
+
+def test_set_label_height_change_keeps_zoom(qapp):
+    canvas = LabelCanvas()
+    canvas.resize(600, 600)
+    canvas.set_label(get_label("50"), 472)
+    canvas.zoom_by(2.0)
+    zoom = canvas.transform().m11()
+    canvas.set_label(get_label("50"), 900)  # nur Hoehe -> kein Refit
+    assert canvas.transform().m11() == pytest.approx(zoom)
+
+
+def test_canvas_zoom_actions_emit_zoom_changed(qapp):
+    canvas = LabelCanvas()
+    canvas.resize(600, 600)
+    canvas.set_label(get_label("50"), 472)
+    seen: list[float] = []
+    canvas.zoom_changed.connect(seen.append)
+    canvas.zoom_in()
+    assert seen and seen[-1] > 0

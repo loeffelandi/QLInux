@@ -49,6 +49,7 @@ from .printer import (
 )
 from .renderer import render_scene_to_image
 from .settings import AppSettings
+from .widgets import install_wheel_guard_recursive
 
 BARCODE_SYMBOLOGIES = ["code128", "code39", "ean13", "ean8", "upca", "itf", "codabar"]
 
@@ -109,6 +110,15 @@ class MainWindow(QMainWindow):
         self._canvas.context_menu_requested.connect(self._show_context_menu)
         self._canvas.scene().selectionChanged.connect(self._on_selection_changed)
         self._inspector.changed.connect(self._on_inspector_changed)
+
+        # Rad-Ereignisse duerfen keine Werte in Feldern aendern (auch nicht in
+        # den dynamisch erzeugten Inspector-Feldern - die sichern sich selbst).
+        install_wheel_guard_recursive(self)
+
+        self._zoom_label = QLabel("Zoom 100 %")
+        self._zoom_label.setToolTip("Mausrad über dem Canvas zoomt bzw. scrollt")
+        self.statusBar().addPermanentWidget(self._zoom_label)
+        self._canvas.zoom_changed.connect(self._on_zoom_changed)
 
         # Gespeicherte Einstellungen anwenden.
         self._apply_saved_settings()
@@ -188,6 +198,12 @@ class MainWindow(QMainWindow):
         self._act_zoom_fit = QAction("Zoom: Einpassen", self)
         self._act_zoom_fit.setShortcut("Ctrl+0")
         self._act_zoom_fit.triggered.connect(self._canvas.zoom_fit)
+        self._act_zoom_in = QAction("Zoom +", self)
+        self._act_zoom_in.setShortcut(QKeySequence.StandardKey.ZoomIn)
+        self._act_zoom_in.triggered.connect(self._canvas.zoom_in)
+        self._act_zoom_out = QAction("Zoom −", self)
+        self._act_zoom_out.setShortcut(QKeySequence.StandardKey.ZoomOut)
+        self._act_zoom_out.triggered.connect(self._canvas.zoom_out)
 
         self._act_print = QAction("Drucken", self)
         self._act_print.setShortcut("Ctrl+P")
@@ -214,7 +230,9 @@ class MainWindow(QMainWindow):
         bar.addAction(self._act_back)
         bar.addAction(self._act_delete)
         bar.addSeparator()
+        bar.addAction(self._act_zoom_out)
         bar.addAction(self._act_zoom_fit)
+        bar.addAction(self._act_zoom_in)
         bar.addAction(self._act_print)
 
     def _build_menu(self) -> None:
@@ -227,7 +245,9 @@ class MainWindow(QMainWindow):
         edit_menu.addAction(self._act_front)
         edit_menu.addAction(self._act_back)
         view_menu = self.menuBar().addMenu("&Ansicht")
+        view_menu.addAction(self._act_zoom_out)
         view_menu.addAction(self._act_zoom_fit)
+        view_menu.addAction(self._act_zoom_in)
         help_menu = self.menuBar().addMenu("&Hilfe")
         help_menu.addAction(self._act_about)
 
@@ -346,6 +366,9 @@ class MainWindow(QMainWindow):
         self._canvas.viewport().update()
         self._recompute_canvas()
         self._schedule_refresh()
+
+    def _on_zoom_changed(self, percent: float) -> None:
+        self._zoom_label.setText(f"Zoom {percent:.0f} %")
 
     def _on_item_double_clicked(self, item) -> None:
         self._on_selection_changed()
