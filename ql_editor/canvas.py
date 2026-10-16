@@ -31,6 +31,7 @@ from PySide6.QtWidgets import QGraphicsScene, QGraphicsView, QWidget
 
 from . import items as items_mod
 from .media import LabelSpec, dots_to_mm, mm_to_dots
+from .widgets import SmoothScroller, wheel_deltas
 
 RULER_WIDTH = 24
 MIN_ZOOM = 0.05
@@ -157,6 +158,13 @@ class LabelCanvas(QGraphicsView):
         self.setResizeAnchor(QGraphicsView.ViewportAnchor.AnchorViewCenter)
         self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
         self.setAcceptDrops(True)
+        # Hintergrund (Band, Schraffur) cachen -> fluessigeres Scrollen.
+        self.setCacheMode(QGraphicsView.CacheModeFlag.CacheBackground)
+        self._v_scroller = SmoothScroller(self, self.verticalScrollBar())
+        self._h_scroller = SmoothScroller(self, self.horizontalScrollBar())
+        # Zieht man die Scrollbar selbst, darf keine Animation dagegenlaufen.
+        self.verticalScrollBar().sliderPressed.connect(self._v_scroller.stop)
+        self.horizontalScrollBar().sliderPressed.connect(self._h_scroller.stop)
 
         self._label: LabelSpec | None = None
         self._height_dots = 0
@@ -294,11 +302,9 @@ class LabelCanvas(QGraphicsView):
         self._emit_zoom()
 
     def wheelEvent(self, event) -> None:  # noqa: N802
-        """Adaptiv: scrollen, wenn es etwas zu scrollen gibt, sonst zoomen."""
+        """Adaptiv: weich scrollen, wenn es etwas zu scrollen gibt, sonst zoomen."""
         mods = event.modifiers()
-        delta = event.angleDelta()
-        dy = delta.y()
-        dx = delta.x()
+        dx, dy = wheel_deltas(event)
 
         if mods & Qt.KeyboardModifier.ControlModifier:
             if dy:
@@ -308,16 +314,19 @@ class LabelCanvas(QGraphicsView):
 
         vbar = self.verticalScrollBar()
         hbar = self.horizontalScrollBar()
+        vmax = vbar.maximum()
+        hmax = hbar.maximum()
 
-        if mods & Qt.KeyboardModifier.ShiftModifier:
-            step = dy or dx
-            if hbar.maximum() > 0:
-                hbar.setValue(hbar.value() - step)
-                event.accept()
-                return
+        if mods & Qt.KeyboardModifier.ShiftModifier and hmax > 0:
+            dx, dy = (dy or dx), 0.0
 
-        if vbar.maximum() > 0 or hbar.maximum() > 0:
-            super().wheelEvent(event)
+        if vmax > 0 or hmax > 0:
+            # Rad nach oben -> Inhalt nach unten -> Wert verkleinern.
+            if vmax > 0:
+                self._v_scroller.scroll_by(-dy)
+            if hmax > 0:
+                self._h_scroller.scroll_by(-dx)
+            event.accept()
             return
 
         if dy:

@@ -409,6 +409,8 @@ def test_canvas_wheel_zooms_when_nothing_to_scroll(qapp):
 
 
 def test_canvas_wheel_scrolls_when_zoomed(qapp):
+    import time
+
     from PySide6.QtCore import Qt
 
     canvas = LabelCanvas()
@@ -423,7 +425,75 @@ def test_canvas_wheel_scrolls_when_zoomed(qapp):
     assert vbar.maximum() > 0
     before = vbar.value()
     canvas.wheelEvent(_wheel_event(Qt.KeyboardModifier.NoModifier, -120))
+
+    # Weiches Scrollen laeuft animiert -> kurz den Event-Loop bedienen.
+    deadline = time.monotonic() + 2.0
+    while vbar.value() == before and time.monotonic() < deadline:
+        qapp.processEvents()
+        time.sleep(0.01)
     assert vbar.value() != before
+
+
+def test_smooth_scroll_area_wheel_scrolls_and_guard_keeps_value(qapp):
+    """Rad ueber einem Feld scrollt das Panel, ohne den Feldwert zu aendern."""
+    import time
+
+    from PySide6.QtCore import Qt
+    from PySide6.QtWidgets import QSpinBox, QVBoxLayout, QWidget
+
+    from ql_editor.widgets import SmoothScrollArea, install_wheel_guard_recursive
+
+    content = QWidget()
+    layout = QVBoxLayout(content)
+    first = QSpinBox()
+    first.setRange(0, 100)
+    first.setValue(10)
+    layout.addWidget(first)
+    others = []
+    for _ in range(40):
+        spin = QSpinBox()
+        others.append(spin)
+        layout.addWidget(spin)
+
+    area = SmoothScrollArea()
+    area.setWidgetResizable(True)
+    area.resize(200, 120)
+    area.setWidget(content)
+    area.show()
+    qapp.processEvents()
+    install_wheel_guard_recursive(content)
+
+    target = others[5]  # nicht das Fokus-Widget
+    target.clearFocus()
+    assert not target.hasFocus()
+
+    vbar = area.verticalScrollBar()
+    assert vbar.maximum() > 0
+    before = vbar.value()
+    qapp.sendEvent(target, _wheel_event(Qt.KeyboardModifier.NoModifier, -120))
+
+    deadline = time.monotonic() + 2.0
+    while vbar.value() == before and time.monotonic() < deadline:
+        qapp.processEvents()
+        time.sleep(0.01)
+    assert vbar.value() != before  # Panel scrollt
+    assert target.value() == 0     # Feldwert bleibt
+
+
+def test_side_panels_use_smooth_scroll_area(qapp):
+    from ql_editor.app import MainWindow
+    from ql_editor.widgets import SmoothScrollArea
+
+    win = MainWindow()
+    assert len(win.findChildren(SmoothScrollArea)) >= 3
+
+
+def test_default_dock_widths_are_roomy(qapp):
+    from ql_editor.app import MainWindow
+
+    win = MainWindow()
+    assert win._left_dock.minimumWidth() >= 200
+    assert win._right_dock.minimumWidth() >= 240
 
 
 def test_set_label_height_change_keeps_zoom(qapp):

@@ -2,21 +2,131 @@
 
 * :func:`install_wheel_guard` verhindert, dass ein Steuerelement (Spinbox,
   Combobox, ...) seinen Wert aendert, waehrend man nur mit dem Mausrad
-  darueber faehrt. Geaendert wird nur, wenn das Feld den Fokus hat - das ist
-  das uebliche, wenig ueberraschende Verhalten in Desktop-Apps.
+  darueber faehrt. Statt das Ereignis zu schlucken, wird es an den umgebenden
+  Scrollbereich weitergereicht - so scrollt das Panel, wie man es erwartet.
+* :class:`SmoothScrollArea` und :class:`SmoothScroller` sorgen fuer weiches,
+  animiertes Scrollen (wie auf dem Mac) statt harter Spruenge pro Raste.
 """
 
 from __future__ import annotations
 
-from PySide6.QtCore import QEvent, QObject, Qt
+from PySide6.QtCore import (
+    QEasingCurve,
+    QEvent,
+    QObject,
+    QPropertyAnimation,
+    Qt,
+)
+from PySide6.QtWidgets import QAbstractScrollArea, QScrollArea
+
+#: Pixel, die eine Mausrad-Raste (120 Einheiten) scrollt.
+WHEEL_PIXELS_PER_NOTCH = 64
+#: Dauer der Scroll-Animation in Millisekunden.
+SMOOTH_SCROLL_MS = 160
+
+
+def wheel_deltas(event) -> tuple[float, float]:
+    """(dx, dy) in Pixeln aus einem Rad-Ereignis.
+
+    Trackpads liefern ``pixelDelta()`` (feine Werte) - die werden bevorzugt,
+    damit das Scrollen fluessig bleibt; sonst wird ``angleDelta()`` in Pixel
+    umgerechnet. Positiv = Rad nach oben/rechts.
+    """
+    pixel = event.pixelDelta()
+    if not pixel.isNull():
+        return float(pixel.x()), float(pixel.y())
+    angle = event.angleDelta()
+    return (
+        angle.x() / 120.0 * WHEEL_PIXELS_PER_NOTCH,
+        angle.y() / 120.0 * WHEEL_PIXELS_PER_NOTCH,
+    )
+
+
+class SmoothScroller(QObject):
+    """Animiert den Wert einer Scrollbar fuer weiches Rad-Scrollen."""
+
+    def __init__(self, parent: QObject, bar, duration: int = SMOOTH_SCROLL_MS):
+        super().__init__(parent)
+        self._bar = bar
+        self._anim = QPropertyAnimation(bar, b"value", self)
+        self._anim.setDuration(duration)
+        self._anim.setEasingCurve(QEasingCurve.Type.OutCubic)
+
+    def scroll_by(self, delta_px: float) -> None:
+        """Scrolle relativ um ``delta_px`` (positiv = Wert erhoehen)."""
+        if not delta_px:
+            return
+        running = self._anim.state() == QPropertyAnimation.State.Running
+        # Bei laufender Animation vom *Ziel* aufaddieren, damit schnelles
+        # Radeln nicht ins Leere laeuft.
+        base = float(self._anim.endValue()) if running else float(self._bar.value())
+        target = max(
+            float(self._bar.minimum()),
+            min(float(self._bar.maximum()), base + delta_px),
+        )
+        self._anim.stop()
+        self._anim.setStartValue(float(self._bar.value()))
+        self._anim.setEndValue(target)
+        self._anim.start()
+
+    def stop(self) -> None:
+        self._anim.stop()
+
+
+class SmoothScrollArea(QScrollArea):
+    """``QScrollArea`` mit weichem, animiertem Mausrad-Scrollen."""
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self._v = SmoothScroller(self, self.verticalScrollBar())
+        self._h = SmoothScroller(self, self.horizontalScrollBar())
+        self.verticalScrollBar().sliderPressed.connect(self._v.stop)
+        self.horizontalScrollBar().sliderPressed.connect(self._h.stop)
+
+    def smooth_scroll_by(self, dx: float, dy: float) -> None:
+        """Scrolle um (dx, dy) Pixel (positiv = nach unten/rechts)."""
+        if self.verticalScrollBar().maximum() > 0:
+            self._v.scroll_by(dy)
+        if self.horizontalScrollBar().maximum() > 0:
+            self._h.scroll_by(dx)
+
+    def wheelEvent(self, event) -> None:  # noqa: N802
+        vmax = self.verticalScrollBar().maximum()
+        hmax = self.horizontalScrollBar().maximum()
+        if vmax <= 0 and hmax <= 0:
+            super().wheelEvent(event)
+            return
+        dx, dy = wheel_deltas(event)
+        if event.modifiers() & Qt.KeyboardModifier.ShiftModifier and hmax > 0:
+            dx, dy = (dy or dx), 0.0
+        # Rad nach oben -> Inhalt nach unten -> Wert verkleinern.
+        self.smooth_scroll_by(-dx, -dy)
+        event.accept()
+
+
+def _scroll_area_ancestor(widget) -> QAbstractScrollArea | None:
+    parent = widget.parentWidget()
+    while parent is not None:
+        if isinstance(parent, QAbstractScrollArea):
+            return parent
+        parent = parent.parentWidget()
+    return None
 
 
 class _WheelGuard(QObject):
-    """Event-Filter: schluckt Rad-Ereignisse ohne Fokus."""
+    """Event-Filter: leitet Rad-Ereignisse ohne Fokus an den Scrollbereich."""
 
     def eventFilter(self, obj, event) -> bool:  # noqa: N802
         if event.type() == QEvent.Type.Wheel and not obj.hasFocus():
-            return True  # nicht an das Widget weiterreichen -> Wert bleibt
+            area = _scroll_area_ancestor(obj)
+            if area is not None:
+                dx, dy = wheel_deltas(event)
+                if hasattr(area, "smooth_scroll_by"):
+                    area.smooth_scroll_by(-dx, -dy)
+                else:
+                    vbar = area.verticalScrollBar()
+                    vbar.setValue(int(round(vbar.value() - dy)))
+            return True  # Wert des Feldes bleibt unveraendert
         return super().eventFilter(obj, event)
 
 
@@ -47,4 +157,11 @@ def install_wheel_guard_recursive(root) -> None:
         install_wheel_guard(widget)
 
 
-__all__ = ["install_wheel_guard", "install_wheel_guard_recursive"]
+__all__ = [
+    "install_wheel_guard",
+    "install_wheel_guard_recursive",
+    "SmoothScrollArea",
+    "SmoothScroller",
+    "wheel_deltas",
+    "WHEEL_PIXELS_PER_NOTCH",
+]

@@ -77,6 +77,9 @@ Im Vorschau-Modus ist die Bearbeitung gesperrt (Zoom/Pan bleiben möglich).
 Das Layout ist **responsiv**: Der Canvas passt sich der Fenstergröße an
 (solange kein manueller Zoom gesetzt ist), die Seitenpanels werden bei
 Platzmangel scrollbar und die Formulare brechen bei schmalem Fenster um.
+Die Seitenpanels starten mit großzügigen Standardbreiten (Band/Drucker 300 px,
+Eigenschaften 380 px) und das Fenster öffnet ohne gespeicherte Geometrie mit
+1320 x 860 px.
 
 ### Bedienung (wie eine Desktop-App)
 Die Oberfläche ist **icon-basiert**: die Toolbar zeigt nur Icons (mit Tooltips),
@@ -102,10 +105,14 @@ Laufzeit gezeichnet (`ql_editor/icons.py`) und passen sich der Palette an
 * **Pfeiltasten** verschieben (mit Shift 10 Dots), **Entf** löscht.
 * **Druckvorschau** (Auge-Symbol, `Ctrl+Shift+P`): zeigt die echte 1-bit-Ausgabe
   über dem Canvas; `Esc` beendet sie. Threshold/Dither wirken sofort.
-* **Mausrad** über dem Canvas: scrollt, wenn es etwas zu scrollen gibt,
-  sonst zoomt es; **Ctrl + Rad** zoomt immer, **Shift + Rad** scrollt
-  horizontal, **mittlere Maustaste ziehen** verschiebt den Ausschnitt.
+* **Mausrad** über dem Canvas: scrollt weich (animiert), wenn es etwas zu
+  scrollen gibt, sonst zoomt es; **Ctrl + Rad** zoomt immer, **Shift + Rad**
+  scrollt horizontal, **mittlere Maustaste ziehen** verschiebt den Ausschnitt.
+  Trackpads werden über `pixelDelta` fein unterstützt.
   Zusätzlich: Zoom −/Einpassen/+ in der Toolbar (Ctrl+0 = einpassen).
+* **Mausrad** über einem Seitenpanel scrollt das Panel - auch wenn der Zeiger
+  über einem Feld steht; ein Feld ändert seinen Wert nur, wenn es den Fokus
+  hat (kein versehentliches Verstellen).
 * **Rechtsklick** öffnet das Kontextmenü (Einfügen, Reihenfolge, Löschen).
 * Der **Inspector** zeigt kontextabhängig die passenden Eigenschaften
   (Text/Schrift/Farbe, Barcode-Inhalt/Symbologie, QR-Inhalt, Position, Drehung).

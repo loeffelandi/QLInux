@@ -52,7 +52,7 @@ from .printer import (
 )
 from .renderer import render_scene_to_image
 from .settings import AppSettings
-from .widgets import install_wheel_guard_recursive
+from .widgets import SmoothScrollArea, install_wheel_guard_recursive
 
 BARCODE_SYMBOLOGIES = ["code128", "code39", "ean13", "ean8", "upca", "itf", "codabar"]
 
@@ -95,9 +95,9 @@ class MainWindow(QMainWindow):
         self.setCentralWidget(self._canvas)
 
         self._media_panel = MediaPanel(self)
-        self._media_panel.setMinimumWidth(160)
+        self._media_panel.setMinimumWidth(220)
         self._inspector = InspectorPanel(self)
-        self._inspector.setMinimumWidth(160)
+        self._inspector.setMinimumWidth(240)
 
         # Gesamtfenster darf klein werden, ohne dass etwas unbedienbar wird.
         self.setMinimumSize(640, 460)
@@ -140,11 +140,18 @@ class MainWindow(QMainWindow):
         self._apply_saved_settings()
         self._on_media_changed()
 
+        # Fokus auf dem Canvas: kein Formularfeld ist anfangs "aktiv", damit das
+        # Mausrad über den Panels scrollt statt Werte zu veraendern.
+        self._canvas.setFocus()
+
     # --------------------------------------------------------------- Aufbau --
     @staticmethod
     def _scroll_wrap(widget: QWidget) -> QScrollArea:
-        """Widget responsiv machen: bei Platzmangel scrollen statt zu blockieren."""
-        area = QScrollArea()
+        """Widget responsiv machen: bei Platzmangel scrollen statt zu blockieren.
+
+        Verwendet :class:`SmoothScrollArea` fuer weiches Mausrad-Scrollen.
+        """
+        area = SmoothScrollArea()
         area.setWidgetResizable(True)
         area.setFrameShape(QFrame.Shape.NoFrame)
         area.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
@@ -155,21 +162,25 @@ class MainWindow(QMainWindow):
         left = QDockWidget("Band & Drucker", self)
         left.setWidget(self._scroll_wrap(self._media_panel))
         left.setFeatures(QDockWidget.DockWidgetFeature.DockWidgetMovable)
-        left.setMinimumWidth(180)
+        left.setMinimumWidth(220)
         self.addDockWidget(Qt.DockWidgetArea.LeftDockWidgetArea, left)
+        self._left_dock = left
 
-        right = QDockWidget("Eigenschaften & Vorschau", self)
+        right = QDockWidget("Eigenschaften & Druck", self)
         right.setFeatures(QDockWidget.DockWidgetFeature.DockWidgetMovable)
-        right.setMinimumWidth(180)
+        right.setMinimumWidth(260)
         splitter = QSplitter(Qt.Orientation.Vertical, self)
         splitter.addWidget(self._scroll_wrap(self._inspector))
         splitter.addWidget(self._scroll_wrap(self._build_print_panel()))
         splitter.setStretchFactor(0, 1)
         splitter.setStretchFactor(1, 0)
-        splitter.setSizes([420, 240])
+        splitter.setSizes([380, 220])
         right.setWidget(splitter)
         self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, right)
         self._right_dock = right
+
+        # Grosszuegige Standardbreiten der Seitenpanels.
+        self.resizeDocks([left, right], [300, 380], Qt.Orientation.Horizontal)
 
     def _build_print_panel(self) -> QWidget:
         widget = QWidget(self)
@@ -329,6 +340,8 @@ class MainWindow(QMainWindow):
         geometry = self._settings.restore_geometry()
         if geometry is not None:
             self.restoreGeometry(geometry)
+        else:
+            self.resize(1320, 860)
         model = self._settings.model
         index = self._media_panel._model_combo.findData(model)
         if index >= 0:
