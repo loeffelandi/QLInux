@@ -121,8 +121,7 @@ def build_about_content() -> QWidget:
         _body(
             tr(
                 "QLInux steht unter der GNU General Public License, Version 3 "
-                "oder später (GPL-3.0-or-later) - so offen wie die "
-                "Bibliothek, auf der es aufbaut."
+                "oder später (GPL-3.0-or-later)."
             )
         )
     )

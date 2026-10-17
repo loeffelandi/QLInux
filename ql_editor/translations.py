@@ -50,9 +50,9 @@ EN: dict[str, str] = {
         "The panel offers the ones that fit the selected model."
     ),
     "Freie Software": "Free software",
-    "QLInux steht unter der GNU General Public License, Version 3 oder später (GPL-3.0-or-later) - so offen wie die Bibliothek, auf der es aufbaut.": (
+    "QLInux steht unter der GNU General Public License, Version 3 oder später (GPL-3.0-or-later).": (
         "QLInux is released under the GNU General Public License, version 3 or "
-        "later (GPL-3.0-or-later) – as open as the library it builds on."
+        "later (GPL-3.0-or-later)."
     ),
     "Lizenztext": "License text",
     "Dank an": "Thanks to",
