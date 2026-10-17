@@ -132,6 +132,10 @@ python -m ql_editor
   eines USB-Geräts wird das **Modell** nachgezogen, wenn es sich aus der
   USB-Kennung ableiten lässt (`usb://0x04f9:0x2042` bzw. über `sysfs`
   auch `/dev/usb/lp1` → QL-700); ohne Kennung bleibt die Modellwahl stehen.
+  Das passiert auch dann, wenn die Adresse schon gewählt ist: stand der
+  Drucker beim Start noch nicht am Kabel, zieht das Modell beim nächsten
+  Suchen nach (sonst würde mit falschem Modell gerastert - QL-700 statt
+  QL-820NWB ist eine andere Auflösung und ein anderer Befehlssatz).
   Ein gerade nicht angeschlossenes Gerät bleibt in der Liste („nicht
   angeschlossen“), damit die gespeicherte Adresse nicht verloren geht.
   Achtung: die Adresse gilt für **alles** - druckst du über USB, läuft auch

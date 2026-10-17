@@ -759,8 +759,13 @@ class MediaPanel(QWidget):
         if apply_single:
             self._apply_usb_selection()
         else:
-            # Auch ohne neues Geraet: die Rechte koennen sich geaendert haben
-            # (Regel eingerichtet, Drucker umgesteckt).
+            # Auch ohne neue Auswahl zieht das Modell nach: stand der Drucker
+            # beim Start noch nicht am Kabel (oder wurde getauscht), verraet
+            # erst jetzt die USB-Kennung, welcher Drucker wirklich haengt - mit
+            # falschem Modell waere der Rasterauftrag falsch (QL-700 statt
+            # QL-820NWB: 300 dpi, andere Befehle). Die Rechte koennen sich
+            # ebenfalls geaendert haben (Regel eingerichtet, Drucker umgesteckt).
+            self._apply_model_for_address(self._usb_combo.currentData() or "")
             self._sync_access()
         return list(devices)
 
@@ -870,7 +875,12 @@ class MediaPanel(QWidget):
         ``True``, wenn sich die Adresse geaendert hat.
         """
         address = (address or "").strip()
-        if not address or address == self.address():
+        if not address:
+            return False
+        if address == self.address():
+            # Schon gewaehlt: nur das Modell nachziehen - das kann fehlen, wenn
+            # der Drucker beim Start noch nicht am Kabel stand.
+            self._apply_model_for_address(address)
             return False
         index = self._ensure_usb_entry(address)
         self._adjusting = True

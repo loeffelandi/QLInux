@@ -404,6 +404,50 @@ def test_media_panel_migrates_a_stored_libusb_address(qapp, monkeypatch):
     assert "nicht angeschlossen" not in panel._usb_combo.currentText()
 
 
+def test_media_panel_pulls_the_model_when_the_printer_shows_up_later(qapp, monkeypatch):
+    """Drucker erst nach dem Start angesteckt: das Modell zieht beim Suchen nach."""
+    from ql_editor import media_panel as media_panel_module
+    from ql_editor.media_panel import MediaPanel
+
+    # Beim Start haengt der Drucker noch nicht am Kabel - das Modell bleibt
+    # also stehen, wie es in den Einstellungen stand.
+    monkeypatch.setattr(media_panel_module, "usb_printers", lambda: [])
+    monkeypatch.setattr(media_panel_module, "model_for_address", lambda address: None)
+    panel = MediaPanel()
+    panel.set_address("/dev/usb/lp1")
+    panel.set_model("QL-800")
+
+    # Jetzt steckt er am Kabel - und die USB-Kennung verraet das Modell.
+    monkeypatch.setattr(media_panel_module, "usb_printers", lambda: ["/dev/usb/lp1"])
+    monkeypatch.setattr(
+        media_panel_module, "model_for_address", lambda address: "QL-700"
+    )
+    panel.refresh_usb_devices()
+
+    assert panel.model_id() == "QL-700"
+    assert panel.address() == "/dev/usb/lp1"
+
+
+def test_media_panel_pulls_the_model_for_an_already_selected_device(qapp, monkeypatch):
+    """Auch ohne Adresswechsel zieht das Modell nach (Suchen im Hauptfenster)."""
+    from ql_editor import media_panel as media_panel_module
+    from ql_editor.media_panel import MediaPanel
+
+    monkeypatch.setattr(media_panel_module, "usb_printers", lambda: ["/dev/usb/lp1"])
+    monkeypatch.setattr(media_panel_module, "model_for_address", lambda address: None)
+    panel = MediaPanel()
+    panel.set_address("/dev/usb/lp1")
+    panel.set_model("QL-800")
+
+    monkeypatch.setattr(
+        media_panel_module, "model_for_address", lambda address: "QL-700"
+    )
+
+    # Adresse bleibt (False = unveraendert), das Modell aber zieht nach.
+    assert panel.select_usb_device("/dev/usb/lp1") is False
+    assert panel.model_id() == "QL-700"
+
+
 def test_media_panel_offers_access_help_when_rights_are_missing(qapp, monkeypatch):
     """Ohne Rechte am Geraet steht im Panel, was zu tun ist."""
     from ql_editor import media_panel as media_panel_module
