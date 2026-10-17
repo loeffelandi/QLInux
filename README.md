@@ -22,6 +22,7 @@ Kein Browser-Tool, kein WebUSB.
 | M3.15 | USB-Rechte: udev-Regel (`uaccess`), Hinweis + „Zugriff einrichten“ im Panel, Helfer für die Installation | ✅ |
 | M3.16 | Zweisprachig DE/EN: Texte in `i18n`/`translations`, Umschalter im Menü, Oberfläche wird neu aufgebaut | ✅ |
 | M3.17 | Lineale wie im P-touch Editor (Einheit, mm-Beschriftung, Größe am Etikett); USB: ein Eintrag pro Drucker, Kernel-Weg bevorzugt, Druck über beide Wege verifiziert | ✅ |
+| M3.18 | Mausrad scrollt (Zoom nur mit Strg/Zoomgeste); Panels klappen bei schmalem Fenster automatisch ein; Lineale über die volle Länge mit 1/5/10-mm-Strichen und grauem Etikettenstreifen | ✅ |
 | M4 | Vorlagen, Settings, `.deb`-Paket | ⏳ |
 
 ## Architektur
@@ -166,7 +167,11 @@ python -m ql_editor
   `/dev/usb/lp1` bis zum Umstecken weg.
 * **Mitte**: Canvas in exakter Bandbreite mit mm-Linealen; der **nicht
   bedruckbare Rand** (~1,5 mm je Seite) ist schraffiert, Items werden darauf
-  begrenzt. Um die Designfläche liegt eine **Arbeitsfläche** (8 mm Rand,
+  begrenzt. Die Lineale beschriften die **ganze Länge** (nicht nur das Etikett -
+  vor dem Etikett stehen negative mm-Werte) mit einer Strich-Hierarchie
+  1 mm / 5 mm / beschriftet, die sich dem Zoom anpasst; den Etikettenbereich
+  unterlegt ein **grauer Streifen** (wie im P-touch Editor, sichtbar an der
+  Etikettengröße). Um die Designfläche liegt eine **Arbeitsfläche** (8 mm Rand,
   zusätzlich alles, was übersteht): dadurch gibt es **Scrollbalken in beide
   Richtungen** und auch sehr breite Objekte bleiben mit der Maus erreichbar,
   ohne herauszoomen zu müssen. Die Renderquelle bleibt davon unberührt - die

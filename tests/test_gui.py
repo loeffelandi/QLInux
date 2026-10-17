@@ -423,6 +423,92 @@ def test_ruler_totals_match_the_label_size(qapp):
     assert canvas._v_ruler.total_mm == pytest.approx(49.95, abs=0.05)
 
 
+def _shown_canvas(qapp, width=700, height=500):
+    canvas = LabelCanvas()
+    canvas.resize(width, height)
+    canvas.show()
+    qapp.processEvents()
+    canvas.set_label(get_label("50"), 472)
+    canvas.fit_tape()
+    qapp.processEvents()
+    return canvas
+
+
+def test_ruler_ticks_cover_the_whole_visible_length(qapp):
+    """Das Lineal beschriftet die ganze Laenge - nicht nur das Etikett."""
+    canvas = _shown_canvas(qapp)
+
+    for ruler in (canvas._h_ruler, canvas._v_ruler):
+        low, high = ruler._visible_mm_range()
+        # Auch ausserhalb des Etiketts: davor negativ, dahinter ueber die
+        # Etikettengroesse hinaus.
+        assert low < 0
+        assert high > ruler.total_mm
+
+
+def test_ruler_label_step_follows_the_zoom(qapp):
+    """Die Strich-Hierarchie haelt die Beschriftung auseinander (kein Geklebbe)."""
+    from ql_editor.canvas import RULER_MIN_LABEL_PX, RULER_MIN_TICK_PX
+
+    canvas = _shown_canvas(qapp)
+
+    for zoom in (0.1, 0.3, 0.6, 1.0, 1.5, 3.0):
+        canvas.zoom_by(zoom / canvas.transform().m11())
+        qapp.processEvents()
+        for ruler in (canvas._h_ruler, canvas._v_ruler):
+            px_per_mm = ruler._px_per_mm()
+            minor, medium, major = ruler._steps()
+            assert minor * px_per_mm >= RULER_MIN_TICK_PX - 1e-6
+            assert major * px_per_mm >= RULER_MIN_LABEL_PX - 1e-6
+            # Beschriftete Striche liegen auf dem feinen Raster.
+            assert abs(major / minor - round(major / minor)) < 1e-6
+            if minor <= 1.0:
+                assert medium == 5.0
+            else:
+                assert medium == major
+
+
+def test_ruler_label_band_marks_the_label(qapp):
+    """Grauer Streifen auf dem Lineal: so gross ist das Etikett."""
+    from ql_editor.canvas import RULER_WIDTH
+
+    canvas = _shown_canvas(qapp)
+
+    for ruler, along_axis in ((canvas._h_ruler, "width"), (canvas._v_ruler, "height")):
+        band = ruler.label_band_rect()
+        assert not band.isEmpty()
+        expected = ruler.total_mm * ruler._px_per_mm()
+        if along_axis == "width":
+            assert band.height() == RULER_WIDTH
+            assert band.width() == pytest.approx(expected, abs=2)
+            assert 0 <= band.left() < band.right() <= ruler.width()
+        else:
+            assert band.width() == RULER_WIDTH
+            assert band.height() == pytest.approx(expected, abs=2)
+            assert 0 <= band.top() < band.bottom() <= ruler.height()
+
+    # Bei ALONG tauschen die Achsen - der Streifen wandert mit.
+    across = canvas._h_ruler.label_band_rect().width()
+    canvas.set_label(get_label("50"), 472, orientation=media.Orientation.ALONG)
+    canvas.fit_tape()
+    qapp.processEvents()
+    assert canvas._h_ruler.label_band_rect().width() < across
+
+
+def test_ruler_paints_when_zoomed_far_out(qapp):
+    """Auch bei grobem Strich-Raster (stark herausgezoomt) sauber zeichnen."""
+    canvas = _shown_canvas(qapp, width=600, height=400)
+    canvas.zoom_by(0.15)
+    qapp.processEvents()
+
+    minor, _medium, major = canvas._h_ruler._steps()
+    assert minor > 1.0  # nur noch zwei Strich-Ebenen
+    assert _medium == major
+    assert not canvas._h_ruler.grab().isNull()
+    assert not canvas._v_ruler.grab().isNull()
+    assert not canvas.grab().isNull()
+
+
 def test_items_are_clamped_to_printable_area(qapp):
     canvas = LabelCanvas()
     canvas.set_label(get_label("50"), 472)

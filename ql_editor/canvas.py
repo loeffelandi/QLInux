@@ -46,6 +46,7 @@ from .i18n import tr
 from .icons import cursor
 from .renderer import render_scene_to_image
 from .media import (
+    DOTS_PER_MM,
     LabelSpec,
     Orientation,
     canvas_size_for_orientation,
@@ -57,6 +58,24 @@ from .widgets import SmoothScroller, wheel_deltas
 RULER_WIDTH = 24
 #: Schriftgroesse der Lineal-Beschriftung (Bildschirmpixel).
 RULER_FONT_PX = 9
+#: Farben der Lineale.
+RULER_BACKGROUND = "#fafafa"
+#: Unterlegter Streifen: der Bereich, den das Etikett einnimmt.
+RULER_LABEL_BACKGROUND = "#e4e4e4"
+RULER_LINE_COLOR = "#bbbbbb"
+RULER_TICK_MAJOR_COLOR = "#999999"
+RULER_TICK_MINOR_COLOR = "#cccccc"
+RULER_TEXT_COLOR = "#555555"
+#: Abstand, den Lineal-Striche mindestens haben sollen (Bildschirmpixel).
+RULER_MIN_TICK_PX = 5.0
+#: Abstand, den beschriftete Striche mindestens haben sollen (Bildschirmpixel).
+RULER_MIN_LABEL_PX = 26.0
+#: Ziel-Abstand der mittleren Striche in Millimetern (Strich-Hierarchie 1/5/10).
+RULER_MEDIUM_MM = 5.0
+#: Erlaubte Strich-Schrittweiten in Millimetern (aufsteigend).
+RULER_STEPS = (1.0, 2.0, 5.0, 10.0, 20.0, 50.0, 100.0, 200.0, 500.0)
+#: Sicherheitsgrenze fuer die Anzahl gezeichneter Striche.
+MAX_RULER_TICKS = 4000
 #: Schriftgroesse der Groessen-Angabe am Etikett (Bildschirmpixel).
 SIZE_LABEL_FONT_PX = 11
 #: Abstand der Groessen-Angabe zum Etikett (Bildschirmpixel).
@@ -150,6 +169,19 @@ def size_label_text(value_mm: float, decimals: int) -> str:
     return tr("{value} mm").format(value=QLocale().toString(value_mm, "f", decimals))
 
 
+def nice_ruler_step(px_per_mm: float, min_px: float) -> float:
+    """Kleinste glatte mm-Schrittweite, die mindestens ``min_px`` Pixel belegt."""
+    for step in RULER_STEPS:
+        if step * px_per_mm >= min_px:
+            return step
+    return RULER_STEPS[-1]
+
+
+def _is_multiple(value: float, step: float) -> bool:
+    """Liegt ``value`` (fast) auf einem Vielfachen von ``step``?"""
+    return abs(value / step - round(value / step)) < 1e-6
+
+
 class RulerCorner(QWidget):
     """Ecke zwischen den beiden Linealen - traegt die Einheit."""
 
@@ -160,30 +192,42 @@ class RulerCorner(QWidget):
 
     def paintEvent(self, event) -> None:  # noqa: N802
         painter = QPainter(self)
-        painter.fillRect(self.rect(), QColor("#fafafa"))
-        painter.setPen(QPen(QColor("#bbbbbb")))
+        painter.fillRect(self.rect(), QColor(RULER_BACKGROUND))
+        painter.setPen(QPen(QColor(RULER_LINE_COLOR)))
         painter.drawLine(self.rect().topRight(), self.rect().bottomRight())
         painter.drawLine(self.rect().bottomLeft(), self.rect().bottomRight())
         font = QFont()
         font.setPixelSize(RULER_FONT_PX)
         painter.setFont(font)
-        painter.setPen(QPen(QColor("#555555")))
+        painter.setPen(QPen(QColor(RULER_TEXT_COLOR)))
         painter.drawText(self.rect(), Qt.AlignmentFlag.AlignCenter, tr("mm"))
         painter.end()
 
 
 class MmRuler(QWidget):
-    """Lineal in Millimetern, synchron zum Viewport eines :class:`LabelCanvas`."""
+    """Lineal in Millimetern, synchron zum sichtbaren Ausschnitt des Canvas.
+
+    Beschriftet wird die **ganze** Laenge des Lineals - also das, was gerade zu
+    sehen ist, nicht nur das Etikett. Die Schrittweiten richten sich nach dem
+    Zoom (1 mm fein, 5 mm mittel, dann die beschrifteten Striche), damit die
+    Striche in jeder Darstellung so aussehen wie im P-touch Editor. Den Bereich,
+    den das Etikett einnimmt, unterlegt ein grauer Streifen - so ist auf einen
+    Blick zu sehen, wie gross das Etikett ist.
+    """
 
     def __init__(self, view: "LabelCanvas", orientation: Qt.Orientation):
         super().__init__(view)
         self._view = view
         self._orientation = orientation
         self._total_mm = 0.0
-        self.setFixedHeight(RULER_WIDTH) if orientation == Qt.Orientation.Horizontal else self.setFixedWidth(RULER_WIDTH)
+        if orientation == Qt.Orientation.Horizontal:
+            self.setFixedHeight(RULER_WIDTH)
+        else:
+            self.setFixedWidth(RULER_WIDTH)
         self.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
 
     def set_total_mm(self, total_mm: float) -> None:
+        """Etikettenlaenge auf diesem Lineal in mm (fuer die graue Unterlegung)."""
         self._total_mm = total_mm
         self.update()
 
@@ -192,19 +236,77 @@ class MmRuler(QWidget):
         """Beschriftete Gesamtlaenge des Lineals in mm."""
         return self._total_mm
 
+    # -- Geometrie ----------------------------------------------------------
     def _scene_to_widget(self, scene_pt: QPointF) -> QPoint:
         """Szenenkoordinate -> Koordinate in diesem Lineal-Widget."""
         vp_pt = self._view.mapFromScene(scene_pt)
         view_pt = self._view.viewport().mapTo(self._view, vp_pt)
         return self.mapFrom(self._view, view_pt)
 
+    def _position_px(self, mm: float) -> float:
+        """Bildschirmposition (Bildschirmpixel) des mm-Werts auf diesem Lineal.
+
+        Die Millimeter werden direkt in Szenendots umgerechnet (nicht ueber
+        :func:`mm_to_dots`): vor dem Etikett liegt die Arbeitsflaeche, dort sind
+        die Werte negativ.
+        """
+        horizontal = self._orientation == Qt.Orientation.Horizontal
+        dots = mm * DOTS_PER_MM
+        scene_pt = QPointF(dots, 0.0) if horizontal else QPointF(0.0, dots)
+        widget_pt = self._scene_to_widget(scene_pt)
+        return float(widget_pt.x()) if horizontal else float(widget_pt.y())
+
+    def _visible_mm_range(self) -> tuple[float, float]:
+        """mm-Bereich, den das Lineal gerade abdeckt (Szenenkoordinaten)."""
+        rect = self._view.mapToScene(self._view.viewport().rect()).boundingRect()
+        if self._orientation == Qt.Orientation.Horizontal:
+            return dots_to_mm(rect.left()), dots_to_mm(rect.right())
+        return dots_to_mm(rect.top()), dots_to_mm(rect.bottom())
+
+    def _px_per_mm(self) -> float:
+        """Wie viele Bildschirmpixel ein Millimeter gerade belegt."""
+        return abs(self._view.transform().m11()) * DOTS_PER_MM
+
+    def _steps(self) -> tuple[float, float, float]:
+        """(fein, mittel, beschriftet) Strich-Schrittweiten in mm.
+
+        Die drei Ebenen liegen aufeinander (fein teilt beschriftet), damit kein
+        Strich uebersprungen wird. Ist das feine Raster groeber als 1 mm (stark
+        herausgezoomt), gibt es nur zwei Ebenen - dafuer sitzen die Striche dann
+        weiter auseinander als im P-touch Editor ueblich.
+        """
+        px_per_mm = self._px_per_mm()
+        minor = nice_ruler_step(px_per_mm, RULER_MIN_TICK_PX)
+        major = nice_ruler_step(px_per_mm, RULER_MIN_LABEL_PX)
+        major = math.ceil(major / minor) * minor
+        medium = RULER_MEDIUM_MM if minor <= 1.0 else major
+        return minor, medium, major
+
+    def label_band_rect(self) -> QRectF:
+        """Bereich des Lineals, den das Etikett einnimmt (grau unterlegt)."""
+        if self._total_mm <= 0:
+            return QRectF()
+        start = self._position_px(0.0)
+        end = self._position_px(self._total_mm)
+        low, high = min(start, end), max(start, end)
+        if self._orientation == Qt.Orientation.Horizontal:
+            band = QRectF(low, 0.0, high - low, float(self.height()))
+        else:
+            band = QRectF(0.0, low, float(self.width()), high - low)
+        return band.intersected(QRectF(self.rect()))
+
+    # -- Darstellung --------------------------------------------------------
     def paintEvent(self, event) -> None:  # noqa: N802
-        if self._total_mm <= 0 or self.width() <= 0 or self.height() <= 0:
+        if self.width() <= 0 or self.height() <= 0:
             return
         horizontal = self._orientation == Qt.Orientation.Horizontal
         painter = QPainter(self)
-        painter.fillRect(self.rect(), QColor("#fafafa"))
-        painter.setPen(QPen(QColor("#bbbbbb")))
+        painter.fillRect(self.rect(), QColor(RULER_BACKGROUND))
+        band = self.label_band_rect()
+        if not band.isEmpty():
+            painter.fillRect(band, QColor(RULER_LABEL_BACKGROUND))
+
+        painter.setPen(QPen(QColor(RULER_LINE_COLOR)))
         if horizontal:
             painter.drawLine(self.rect().bottomLeft(), self.rect().bottomRight())
         else:
@@ -214,56 +316,46 @@ class MmRuler(QWidget):
         font.setPixelSize(RULER_FONT_PX)
         painter.setFont(font)
 
-        # Schrittweite der Beschriftung abhaengig vom Zoom waehlen.
-        step = self._label_step_mm()
-        mm = 0.0
-        guard = 0
-        while mm <= self._total_mm + 1e-6 and guard < 5000:
-            guard += 1
-            scene_pt = QPointF(mm_to_dots(mm), 0) if horizontal else QPointF(0, mm_to_dots(mm))
-            widget_pt = self._scene_to_widget(scene_pt)
-            pos = widget_pt.x() if horizontal else widget_pt.y()
-            major = abs(mm / step - round(mm / step)) < 1e-6
-            medium = abs(mm / 5.0 - round(mm / 5.0)) < 1e-6
-            if major:
-                tick = RULER_WIDTH // 2
-            elif medium:
-                tick = RULER_WIDTH // 2 - 2
-            else:
-                tick = RULER_WIDTH // 3
-            painter.setPen(QPen(QColor("#999999" if major else "#cccccc")))
-            if horizontal:
-                painter.drawLine(pos, self.height() - tick, pos, self.height())
-            else:
-                painter.drawLine(self.width() - tick, pos, self.width(), pos)
-            if not major:
-                mm += 1.0
-                continue
-            # Beschriftung immer in Millimetern - die Einheit steht in der Ecke.
-            painter.setPen(QPen(QColor("#555555")))
-            label = f"{mm:.0f}"
-            if horizontal:
-                painter.drawText(pos + 2, self.height() - RULER_WIDTH // 2 - 1, label)
-            else:
-                # Wie im P-touch Editor laengs der Achse gedreht.
-                painter.save()
-                painter.translate(RULER_WIDTH // 2, pos - 2)
-                painter.rotate(-90)
-                painter.drawText(0, 0, label)
-                painter.restore()
-            mm += 1.0
+        minor, medium, major = self._steps()
+        low_mm, high_mm = self._visible_mm_range()
+        mm = math.floor(low_mm / minor) * minor
+        ticks = 0
+        while mm <= high_mm + 1e-6 and ticks < MAX_RULER_TICKS:
+            ticks += 1
+            self._draw_tick(painter, mm, medium=medium, major=major)
+            mm += minor
         painter.end()
 
-    def _label_step_mm(self) -> float:
-        """Beschriftungsabstand so waehlen, dass Labels nicht ueberlappen."""
-        if self._total_mm <= 0:
-            return 10.0
-        span = (self.width() if self._orientation == Qt.Orientation.Horizontal else self.height())
-        for step in (1, 2, 5, 10, 20, 50):
-            px = span * (step / self._total_mm)
-            if px >= 28:
-                return float(step)
-        return 100.0
+    def _draw_tick(self, painter: QPainter, mm: float, medium: float, major: float) -> None:
+        """Einen Strich samt Beschriftung zeichnen (Position kommt aus der Szene)."""
+        horizontal = self._orientation == Qt.Orientation.Horizontal
+        pos = self._position_px(mm)
+        labelled = _is_multiple(mm, major)
+        if labelled:
+            tick = RULER_WIDTH // 2
+        elif _is_multiple(mm, medium):
+            tick = RULER_WIDTH // 2 - 2
+        else:
+            tick = RULER_WIDTH // 3
+        painter.setPen(QPen(QColor(RULER_TICK_MAJOR_COLOR if labelled else RULER_TICK_MINOR_COLOR)))
+        if horizontal:
+            painter.drawLine(QPointF(pos, float(self.height() - tick)), QPointF(pos, float(self.height())))
+        else:
+            painter.drawLine(QPointF(float(self.width() - tick), pos), QPointF(float(self.width()), pos))
+        if not labelled:
+            return
+        # Beschriftung immer in Millimetern - die Einheit steht in der Ecke.
+        painter.setPen(QPen(QColor(RULER_TEXT_COLOR)))
+        label = f"{int(round(mm))}"
+        if horizontal:
+            painter.drawText(QPointF(pos + 2, float(self.height() - RULER_WIDTH // 2 - 1)), label)
+        else:
+            # Wie im P-touch Editor laengs der Achse gedreht.
+            painter.save()
+            painter.translate(RULER_WIDTH // 2, pos - 2)
+            painter.rotate(-90)
+            painter.drawText(0, 0, label)
+            painter.restore()
 
 
 class LabelCanvas(QGraphicsView):
