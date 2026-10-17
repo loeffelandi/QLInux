@@ -1,0 +1,48 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>ql-editor</id>
+  <name>QLInux</name>
+  <summary>Labels for Brother QL printers</summary>
+  <summary xml:lang="de">Etiketten für Brother-QL-Drucker</summary>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>GPL-3.0-or-later</project_license>
+  <developer id="io.github.loeffelandi">
+    <name>loeffelandi</name>
+  </developer>
+  <description>
+    <p>QLInux designs labels on a real canvas (text, images, barcodes, QR codes), shows an exact monochrome print preview and prints straight to the printer, over the network or USB.</p>
+    <p xml:lang="de">QLInux entwirft Etiketten auf einer echten Arbeitsfläche (Text, Bilder, Barcodes, QR-Codes), zeigt eine exakte einfarbige Druckvorschau und druckt direkt auf den Drucker, über das Netzwerk oder USB.</p>
+  </description>
+  <launchable type="desktop-id">ql-editor.desktop</launchable>
+  <url type="homepage">https://github.com/loeffelandi/QLInux</url>
+  <url type="bugtracker">https://github.com/loeffelandi/QLInux/issues</url>
+  <categories>
+    <category>Graphics</category>
+  </categories>
+  <screenshots>
+    <screenshot type="default">
+      <image>https://raw.githubusercontent.com/loeffelandi/QLInux/main/assets/screenshot-main.png</image>
+    </screenshot>
+    <screenshot>
+      <image>https://raw.githubusercontent.com/loeffelandi/QLInux/main/assets/screenshot-print.png</image>
+    </screenshot>
+  </screenshots>
+  <releases>
+    <release version="0.2.0" date="2026-10-17">
+      <description>
+        <p>Several labels as tabs in one window, align menu in the toolbar, undo and redo icons, and Brother .lbx import. Several fixes for printing, rotation, large images and the inspector.</p>
+      </description>
+    </release>
+    <release version="0.1.1" date="2026-10-17">
+      <description>
+        <p>Fixes for cutting, margins and the save/open dialog, plus a stacked right panel when there is room.</p>
+      </description>
+    </release>
+    <release version="0.1.0" date="2026-10-17">
+      <description>
+        <p>First release.</p>
+      </description>
+    </release>
+  </releases>
+  <content_rating type="oars-1.1"/>
+</component>

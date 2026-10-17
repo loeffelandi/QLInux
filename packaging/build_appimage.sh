@@ -45,6 +45,9 @@ install -m 0755 "$ROOT/packaging/ql-editor" "$APPDIR/usr/bin/ql-editor"
 install -m 0644 "$ROOT/packaging/ql-editor.desktop" "$APPDIR/ql-editor.desktop"
 install -m 0644 "$ROOT/packaging/ql-editor.desktop" \
     "$APPDIR/usr/share/applications/ql-editor.desktop"
+mkdir -p "$APPDIR/usr/share/metainfo"
+install -m 0644 "$ROOT/packaging/ql-editor.metainfo.xml" \
+    "$APPDIR/usr/share/metainfo/ql-editor.metainfo.xml"
 install -m 0644 "$ROOT/assets/ql-editor.png" "$APPDIR/ql-editor.png"
 install -m 0644 "$ROOT/assets/ql-editor.png" \
     "$APPDIR/usr/share/icons/hicolor/256x256/apps/ql-editor.png"
