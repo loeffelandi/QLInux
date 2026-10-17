@@ -435,21 +435,25 @@ class LabelCanvas(QGraphicsView):
     def suspend_text_caret(self) -> Iterator[None]:
         """Waehrend des Renderns die Textmarke ausblenden.
 
-        ``QGraphicsTextItem`` malt beim Bearbeiten den Cursor mit. Die Szene
+        ``QGraphicsTextItem`` malt beim Bearbeiten die Textmarke mit. Die Szene
         wird 1:1 gerendert - die Textmarke landete damit als duenne Linie in
-        Druckvorschau und Etikett. Waehrend des Renderns wird die Texteingabe
-        kurz abgeschaltet und danach samt Fokus wiederhergestellt, so dass die
-        Bearbeitung (Cursorposition, Auswahl, Tippen) unberuehrt bleibt.
+        Druckvorschau und Etikett. Ausgeblendet wird **im Item selbst**
+        (:meth:`~ql_editor.items.TextItem.set_caret_hidden`); die Bearbeitung
+        bleibt dabei unberuehrt (Cursorposition, Auswahl, Tippen).
+
+        Frueher wurden hier die Interaktionsflags umgeschaltet - das nimmt dem
+        Feld aber den Fokus, beendet die Bearbeitung und liess ein frisch
+        angelegtes, noch leeres Textfeld sofort wieder verschwinden (der
+        Refresh nach dem Anlegen rendert die Vorschau).
         """
         editing = [item for item in self._scene.items() if getattr(item, "is_editing", False)]
         for item in editing:
-            item.setTextInteractionFlags(Qt.TextInteractionFlag.NoTextInteraction)
+            item.set_caret_hidden(True)
         try:
             yield
         finally:
             for item in editing:
-                item.setTextInteractionFlags(Qt.TextInteractionFlag.TextEditorInteraction)
-                item.setFocus(Qt.FocusReason.OtherFocusReason)
+                item.set_caret_hidden(False)
 
     def render_printable(self, *, rotate: bool = False, scale: int = 1) -> Image.Image:
         """Die bedruckbare Flaeche 1:1 als ``PIL.Image`` rendern.

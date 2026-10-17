@@ -165,7 +165,10 @@ Toolbar, bleiben also immer synchron.
 * **Doppelklick auf Text** editiert inline und **markiert den ganzen Text**
   (zum Ersetzen/Umbenennen) - auch bei einem Doppelklick im bereits offenen
   Feld. Ein *einfacher* Klick im offenen Feld setzt den Cursor genau.
-  `Esc` beendet die Bearbeitung.
+  `Esc` beendet die Bearbeitung. Textmarke und Markierung bleiben aus dem
+  Druckbild heraus (sie werden nur fürs Rendern ausgeblendet, die Bearbeitung
+  läuft weiter) und mit dem Schließen des Feldes ist die Markierung zu Ende -
+  sonst landete sie als Block im Etikett.
 * **Ziehen** verschiebt das Objekt; bei Mehrfachauswahl bewegt sich die
   ganze Auswahl gemeinsam. Objekte **rasten magnetisch** an Bandkanten,
   Bandmitte und anderen Objekten ein - die Einrastlinien werden während

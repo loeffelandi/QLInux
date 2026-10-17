@@ -857,6 +857,11 @@ class MainWindow(QMainWindow):
     def _discard_text_if_empty(self, item: TextItem) -> None:
         if item.scene() is None or str(item.toPlainText()).strip():
             return
+        # Laeuft die Bearbeitung inzwischen wieder (z. B. nach einem Refresh,
+        # der die Textmarke ausblendet), bleibt das Feld stehen - verworfen
+        # wird nur, was wirklich nicht mehr in Bearbeitung ist.
+        if item.is_editing:
+            return
         self._canvas.remove_item(item)
         self._on_items_changed()
 

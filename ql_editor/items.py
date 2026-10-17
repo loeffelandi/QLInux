@@ -182,8 +182,41 @@ class TextItem(_ClampMixin, QGraphicsTextItem):
         self._bold = False
         self._italic = False
         self._color = "black"
+        self._caret_hidden = False
         self.setTextWidth(-1)
         self._apply_font()
+
+    def paint(self, painter: QPainter, option, widget=None) -> None:  # noqa: N802
+        """Text malen - beim Rendern ohne Textmarke und ohne Auswahl.
+
+        ``QGraphicsTextItem`` malt im Bearbeitungsmodus die blinkende Textmarke
+        mit; die Szene wird 1:1 gerendert, sie landete damit in Vorschau und
+        Etikett. Waehrend des Renderns (``set_caret_hidden``) wird deshalb nur
+        der Dokumentinhalt gezeichnet.
+
+        Der naheliegende Weg ueber die Interaktionsflags ist bewusst **nicht**
+        gewaehlt: ``NoTextInteraction`` nimmt dem Feld den Fokus, beendet damit
+        die Bearbeitung und liess ein frisch angelegtes (noch leeres) Textfeld
+        sofort wieder verschwinden.
+        """
+        if not self._caret_hidden:
+            super().paint(painter, option, widget)
+            return
+        painter.save()
+        self.document().drawContents(painter, option.exposedRect)
+        painter.restore()
+
+    def set_caret_hidden(self, hidden: bool) -> None:
+        """Textmarke (und Auswahl) fuers Rendern ausblenden - ohne Fokus anzutasten."""
+        hidden = bool(hidden)
+        if hidden == self._caret_hidden:
+            return
+        self._caret_hidden = hidden
+        self.update()
+
+    @property
+    def caret_hidden(self) -> bool:
+        return self._caret_hidden
 
     def _apply_font(self) -> None:
         font = QFont(self._font_family)
@@ -256,6 +289,12 @@ class TextItem(_ClampMixin, QGraphicsTextItem):
         was_editing = self.is_editing
         self.setTextInteractionFlags(Qt.TextInteractionFlag.NoTextInteraction)
         if was_editing:
+            # Eine stehengebliebene Textmarkierung wird sonst weitergemalt -
+            # im 1-bit-Bild als Block, also im Etikett. Beim Schliessen des
+            # Feldes ist die Auswahl zu Ende.
+            cursor = self.textCursor()
+            cursor.clearSelection()
+            self.setTextCursor(cursor)
             self.editing_finished.emit()
 
     @property

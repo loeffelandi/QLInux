@@ -406,6 +406,85 @@ def test_text_field_with_content_survives_editing(qapp):
     assert [i.toPlainText() for i in texts] == ["Bleibt"]
 
 
+def _force_focus(window):
+    """Fenster und Canvas wirklich fokussieren (offscreen sonst nicht).
+
+    Genau dieser Fokus ist der Unterschied: ``setTextInteractionFlags`` nimmt
+    einem **fokussierten** Feld den Fokus - ohne Fokus passiert nichts.
+    """
+    import warnings
+
+    from PySide6.QtWidgets import QApplication
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", DeprecationWarning)
+        QApplication.setActiveWindow(window)
+    window.setFocus()
+    QApplication.processEvents()
+
+
+def test_rendering_does_not_discard_a_new_text_field(qapp, tmp_path):
+    """Regression: der Refresh nach dem Anlegen verwarf das leere Textfeld.
+
+    ``LabelCanvas.suspend_text_caret`` blendet die Textmarke fuers Rendern aus.
+    Frueher geschah das ueber die Interaktionsflags (``NoTextInteraction``) -
+    das nimmt dem Feld den Fokus, beendet die Bearbeitung, und die App warf das
+    gerade angelegte (noch leere) Feld sofort wieder weg. Jetzt blendet das
+    Item die Marke selbst aus; Fokus und Bearbeitung bleiben unberuehrt.
+    """
+    from PySide6.QtCore import QPointF
+
+    win = _temp_window(qapp, tmp_path)
+    _force_focus(win)
+    item = win._new_text(QPointF(60, 60))
+    finished: list[bool] = []
+    item.editing_finished.connect(lambda: finished.append(True))
+
+    # Genau das, was der Refresh-Timer nach dem Anlegen tut.
+    for _ in range(3):
+        win._refresh_now()
+        qapp.processEvents()
+
+    assert finished == []
+    assert item.is_editing is True
+    assert item.scene() is not None
+    assert win._canvas.scene().focusItem() is item
+
+
+def test_suspend_text_caret_leaves_focus_and_editing_alone(qapp):
+    """Textmarke ausblenden ohne die Interaktionsflags anzufassen."""
+    canvas = _prepared_canvas(qapp)
+    item = TextItem("Hallo", font_pixel_size=40)
+    canvas.add_item(item)
+    item.setPos(30, 30)
+    item.start_editing()
+
+    with canvas.suspend_text_caret():
+        assert item.caret_hidden is True
+        assert item.is_editing is True
+        assert canvas.scene().focusItem() is item
+
+    assert item.caret_hidden is False
+    assert item.is_editing is True
+    assert canvas.scene().focusItem() is item
+
+
+def test_render_has_no_caret_and_no_selection(qapp):
+    """Das Druckbild enthaelt weder Textmarke noch Auswahl."""
+    canvas = _prepared_canvas(qapp)
+    item = TextItem("Hallo", font_pixel_size=40)
+    canvas.add_item(item)
+    item.setPos(30, 30)
+    canvas.cancel_editing()
+    idle = canvas.render_printable()
+
+    item.start_editing()  # markiert alles und setzt die Textmarke
+    assert item.textCursor().hasSelection() is True
+    editing = canvas.render_printable()
+
+    assert editing.tobytes() == idle.tobytes()
+
+
 def test_double_click_on_empty_canvas_requests_new_text(qapp):
     from PySide6.QtCore import QEvent, QPointF, Qt
 
