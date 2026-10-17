@@ -3005,7 +3005,7 @@ class MainWindow(QMainWindow):
             worker.finished.connect(lambda worker=worker: _forget_orphan(worker))
 
     def closeEvent(self, event) -> None:  # noqa: N802
-        if not self._accept_close:
+        if not self._accept_close and self.isVisible():
             dirty = [tab for tab in self._ordered_tabs() if tab.is_dirty()]
             if dirty:
                 event.ignore()

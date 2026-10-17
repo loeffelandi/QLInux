@@ -4239,6 +4239,8 @@ def test_closing_the_window_saves_each_modified_tab(qapp, tmp_path):
     from ql_editor.items import TextItem
 
     win = _temp_window(qapp, tmp_path)
+    win.show()
+    qapp.processEvents()
     first = tmp_path / "eins.qlx"
     second = tmp_path / "zwei.qlx"
     win._save_document_to(str(first))
