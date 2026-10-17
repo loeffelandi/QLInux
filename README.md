@@ -52,7 +52,19 @@ The model list even appears in the app: *menu → About QLInux*.
 - A Brother QL printer, reachable over the network or via USB
 - Everything else is pinned in `requirements.txt`
 
-## Install (from source)
+## Install
+
+**Ready to run (AppImage):** download the latest
+[`QLInux-*.x86_64.AppImage`](https://github.com/loeffelandi/QLInux/releases/latest)
+(≈ 68 MB, the Qt runtime is included), make it executable and start it — no
+installation, no root:
+
+```bash
+chmod +x QLInux-*-x86_64.AppImage
+./QLInux-*-x86_64.AppImage
+```
+
+**From source:**
 
 ```bash
 git clone https://github.com/loeffelandi/QLInux.git
@@ -62,11 +74,11 @@ bash scripts/bootstrap_venv.sh     # creates .venv, installs pinned deps,
 .venv/bin/python -m ql_editor
 ```
 
-One command builds a **single-file AppImage** (no installation, no root):
-see below. A `.deb` is not
-planned — PySide6 and `python-barcode` are not in the distribution archives, so
-a package would have to carry the whole Qt runtime anyway; the AppImage does
-exactly that, just without root.
+Releases carry a **single-file AppImage** — build it yourself with one command
+(no installation, no root). A `.deb` is deliberately not planned: PySide6 and
+`python-barcode` are not in the distribution archives, so a package would have
+to carry the whole Qt runtime anyway; the AppImage does exactly that, just
+without root.
 
 ## AppImage
 
