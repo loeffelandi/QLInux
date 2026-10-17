@@ -1973,6 +1973,54 @@ def test_image_item_serialization_roundtrip(qapp):
     assert restored.pixmap().width() == 40
 
 
+def test_rotation_cannot_push_object_past_the_printable_edge(qapp, tmp_path):
+    """Gedreht wird nur, solange das Objekt innerhalb der bedruckbaren Flaeche bleibt."""
+    import math
+
+    from PySide6.QtCore import QPointF
+    from PySide6.QtGui import QColor, QImage
+
+    from ql_editor.items import ImageItem
+
+    path = tmp_path / "p.png"
+    source = QImage(900, 1200, QImage.Format.Format_RGB32)
+    source.fill(QColor("blue"))
+    assert source.save(str(path))
+
+    win = _temp_window(qapp, tmp_path)
+    canvas = win._canvas
+    item = ImageItem.from_file(str(path))
+    win._add_item(item)
+    item.apply_resize(260, 347)
+    canvas.keep_inside_printable(item)
+    assert canvas._inside_printable(item)
+
+    center = item.mapToScene(item.boundingRect().center())
+    for angle in range(0, 91, 10):
+        canvas._op_item = item
+        canvas._op_start_rotation = 0.0
+        canvas._op_rotate_start = 0.0
+        canvas._op_rotate_center = center
+        rad = math.radians(angle)
+        canvas._do_rotate(QPointF(center.x() + 100 * math.cos(rad), center.y() + 100 * math.sin(rad)))
+        assert canvas._inside_printable(item), angle
+
+    # Ein Bild, das die ganze Breite fuellt, ragt schon bei kleinem Winkel ueber den Rand.
+    wide = ImageItem.from_file(str(path))
+    win._add_item(wide)
+    canvas.keep_inside_printable(wide)
+    assert canvas._inside_printable(wide)
+    center = wide.mapToScene(wide.boundingRect().center())
+    canvas._op_item = wide
+    canvas._op_start_rotation = 0.0
+    canvas._op_rotate_start = 0.0
+    canvas._op_rotate_center = center
+    canvas._do_rotate(QPointF(center.x() + 100, center.y() + 100))
+    assert canvas._inside_printable(wide)
+    win.close()
+    qapp.processEvents()
+
+
 def test_webp_with_alpha_loads_and_stays_transparent_on_print(qapp, tmp_path):
     """WebP mit Transparenz: laden, und transparente Stellen werden auf dem Band weiss."""
     from PySide6.QtGui import QColor, QImage

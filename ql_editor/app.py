@@ -1683,6 +1683,7 @@ class MainWindow(QMainWindow):
             self._canvas.add_item(item)
             self._canvas.setFocus()
             self._recompute_canvas()
+            self._canvas.keep_inside_printable(item)
             self._schedule_refresh()
             self._on_selection_changed()
         finally:
