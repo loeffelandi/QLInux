@@ -1144,7 +1144,7 @@ def test_canvas_refits_on_window_resize(qapp):
     qapp.processEvents()
     zoom_big = win._canvas.transform().m11()
 
-    win.resize(760, 560)
+    win.resize(900, 620)
     qapp.processEvents()
     assert win._canvas._auto_fit is True
     assert win._canvas.transform().m11() < zoom_big
@@ -1783,7 +1783,7 @@ def test_collapsing_panel_gives_canvas_more_room(qapp):
     from ql_editor.panels import STRIP_WIDTH
 
     win = MainWindow()
-    win.resize(1000, 700)
+    win.resize(1300, 700)
     win.show()
     qapp.processEvents()
     before = win._canvas.width()
@@ -1811,7 +1811,7 @@ def test_both_panels_can_be_collapsed(qapp):
     from ql_editor.panels import STRIP_WIDTH
 
     win = MainWindow()
-    win.resize(1000, 700)
+    win.resize(1300, 700)
     win.show()
     qapp.processEvents()
 
@@ -1822,6 +1822,118 @@ def test_both_panels_can_be_collapsed(qapp):
     qapp.processEvents()
     # Der Canvas bekommt alles bis auf die beiden Streifen.
     assert win._canvas.width() == pytest.approx(win.width() - 2 * STRIP_WIDTH, abs=4)
+
+
+def _settle(win, qapp) -> None:
+    """Panel-Animationen beenden und die Ereignisse durchlaufen lassen."""
+    win._left_panel.finish_animation()
+    win._right_panel.finish_animation()
+    qapp.processEvents()
+
+
+def test_small_window_hides_right_panel_then_left(qapp):
+    """Kleines Fenster: erst verschwindet der Inspector, dann die Bandauswahl."""
+    from ql_editor.app import MainWindow
+    from ql_editor.panels import AUTO_COLLAPSE_LEFT_PX, AUTO_COLLAPSE_RIGHT_PX
+
+    win = MainWindow()
+    win.resize(AUTO_COLLAPSE_RIGHT_PX + 120, 700)
+    win.show()
+    _settle(win, qapp)
+    assert win._left_panel.docked is True
+    assert win._right_panel.docked is True
+
+    # Erste Stufe: nur das rechte Panel.
+    win.resize(AUTO_COLLAPSE_RIGHT_PX - 120, 700)
+    _settle(win, qapp)
+    assert win._right_panel.docked is False
+    assert win._right_panel.auto_collapsed is True
+    assert win._left_panel.docked is True
+    assert win._right_panel.content.isVisible() is False
+
+    # Zweite Stufe: auch das linke.
+    win.resize(AUTO_COLLAPSE_LEFT_PX - 120, 700)
+    _settle(win, qapp)
+    assert win._left_panel.docked is False
+    assert win._left_panel.auto_collapsed is True
+
+    # Wieder breit: beide kommen zurueck, die Nutzerwahl war nie weg.
+    win.resize(AUTO_COLLAPSE_RIGHT_PX + 120, 700)
+    _settle(win, qapp)
+    assert win._left_panel.docked is True
+    assert win._right_panel.docked is True
+    assert win._act_panel_left.isChecked() is True
+    assert win._act_panel_right.isChecked() is True
+
+
+def test_auto_collapse_keeps_user_setting(qapp):
+    """Die Automatik aendert die Nutzerwahl (Menue, Settings) nicht."""
+    from ql_editor.app import MainWindow
+    from ql_editor.panels import AUTO_COLLAPSE_LEFT_PX
+
+    win = MainWindow()
+    win.resize(AUTO_COLLAPSE_LEFT_PX - 120, 700)
+    win.show()
+    _settle(win, qapp)
+
+    assert win._right_panel.docked is False
+    assert win._right_panel.wanted_docked is True
+    assert win._act_panel_right.isChecked() is True
+
+
+def test_auto_collapsed_panel_still_peeks(qapp):
+    """Der Streifen bleibt bedienbar: Hover klappt das Panel ueber dem Canvas auf."""
+    from ql_editor.app import MainWindow
+    from ql_editor.panels import AUTO_COLLAPSE_LEFT_PX, STRIP_WIDTH
+
+    win = MainWindow()
+    win.resize(AUTO_COLLAPSE_LEFT_PX - 120, 700)
+    win.show()
+    _settle(win, qapp)
+    canvas_width = win._canvas.width()
+
+    win._right_panel.set_hovered(True)
+    _settle(win, qapp)
+    assert win._right_panel.peeking is True
+    assert win._right_panel.content.isVisible() is True
+    assert win._canvas.width() == canvas_width
+    assert win._right_panel.canvas_reserved == STRIP_WIDTH
+
+
+def test_panel_arrow_opens_auto_collapsed_panel(qapp):
+    """Im kleinen Fenster oeffnet der Pfeil das Panel trotzdem - bewusst."""
+    from ql_editor.app import MainWindow
+    from ql_editor.panels import AUTO_COLLAPSE_RIGHT_PX
+
+    win = MainWindow()
+    win.resize(AUTO_COLLAPSE_RIGHT_PX - 120, 700)
+    win.show()
+    _settle(win, qapp)
+    assert win._right_panel.docked is False
+
+    win._right_panel._button.click()
+    _settle(win, qapp)
+    assert win._right_panel.docked is True
+    assert win._right_panel.auto_collapsed is False
+    # Die Nutzerwahl bleibt aus: der Pfeil ist kein "Panel abschalten".
+    assert win._right_panel.wanted_docked is True
+
+
+def test_window_keeps_canvas_minimum_width(qapp):
+    """Das Fenster laesst sich nicht schmaler ziehen, als Canvas und Streifen brauchen."""
+    from ql_editor.app import MainWindow
+    from ql_editor.panels import STRIP_WIDTH
+
+    win = MainWindow()
+    win.resize(1300, 800)
+    win.show()
+    qapp.processEvents()
+    floor = win._canvas.minimumWidth() + 2 * STRIP_WIDTH
+    assert win._host.minimumWidth() == floor
+
+    win.resize(120, 200)
+    qapp.processEvents()
+    assert win._host.width() >= floor
 
 
 def test_panel_arrow_keeps_action_in_sync(qapp):
@@ -1880,6 +1992,7 @@ def test_docked_panel_does_not_peek(qapp):
     from ql_editor.app import MainWindow
 
     win = MainWindow()
+    win.resize(1300, 800)
     win.show()
     qapp.processEvents()
     win._left_panel.set_hovered(True)
@@ -1891,6 +2004,7 @@ def test_panel_visibility_is_persisted(qapp):
     from ql_editor.app import MainWindow
 
     win = MainWindow()
+    win.resize(1300, 800)
     win.show()
     qapp.processEvents()
     win._act_panel_right.setChecked(False)
@@ -1898,6 +2012,8 @@ def test_panel_visibility_is_persisted(qapp):
     qapp.processEvents()
 
     again = MainWindow()
+    # Bewusst breit: die Automatik fuer schmale Fenster soll hier nicht greifen.
+    again.resize(1300, 800)
     again.show()
     qapp.processEvents()
     assert again._right_panel.docked is False
@@ -2261,7 +2377,7 @@ def test_print_preview_zooms_to_1_1_and_restores(qapp):
     from ql_editor.app import MainWindow
 
     win = MainWindow()
-    win.resize(1100, 700)
+    win.resize(1200, 700)
     win.show()
     qapp.processEvents()
     before = win._canvas.transform().m11()

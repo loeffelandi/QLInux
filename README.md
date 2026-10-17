@@ -360,6 +360,17 @@ Panel-Sichtbarkeit bleiben dabei erhalten.
   Fensterbreite (die effektive Mindestbreite des Fensters sinkt dadurch von
   ~730 auf 640 px). Der Zustand wird beim Beenden gemerkt und beim nächsten
   Start wiederhergestellt.
+* **Automatisch bei schmalem Fenster**: Wird das Fenster zu schmal für einen
+  brauchbaren Canvas, klappt der Host Panels von selbst ein - zuerst das
+  **rechte** (unter 1120 px Fensterbreite), bei noch weniger Platz auch das
+  **linke** (unter 842 px). Schwelle ist eine bequeme Canvas-Breite von 520 px
+  (`CANVAS_COMFORT_PX` in `ql_editor/panels.py`); die Panels bleiben über
+  Streifen und Hover-Overlay erreichbar. Die **Nutzerwahl bleibt gespeichert**:
+  Wird das Fenster wieder breit, sind beide Panels wie vorher offen (Menü,
+  Shortcut und Einstellungen werden von der Automatik nicht verändert).
+  Wer im schmalen Fenster bewusst aufklappt (Pfeil), behält es, bis die
+  Schwelle wieder überschritten wird. Das Fenster lässt sich außerdem nicht
+  mehr so weit schrumpfen, dass der Canvas verschwindet.
 * **Rechtsklick** öffnet das Kontextmenü (Einfügen, Reihenfolge, Löschen).
 * Der **Inspector** zeigt kontextabhängig die passenden Eigenschaften
   (Text/Schrift/Farbe, Barcode-Inhalt/Symbologie, QR-Inhalt, Position, Drehung).

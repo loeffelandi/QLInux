@@ -48,6 +48,13 @@ PANEL_MIN_WIDTH = 170
 BUTTON_SIZE = 20
 #: Dauer der Ein-/Ausklapp-Animation in Millisekunden.
 ANIMATION_MS = 150
+#: So breit sollte der Canvas zum Arbeiten mindestens bleiben. Wird das
+#: Fenster schmaler, klappt der Host Panels von selbst ein.
+CANVAS_COMFORT_PX = 520
+#: Ab dieser Fensterbreite verschwindet das rechte Panel (Canvas + 2 Panels).
+AUTO_COLLAPSE_RIGHT_PX = CANVAS_COMFORT_PX + 2 * PANEL_WIDTH
+#: Noch schmaler: dann klappt auch das linke Panel ein (Canvas + Panel + Streifen).
+AUTO_COLLAPSE_LEFT_PX = CANVAS_COMFORT_PX + PANEL_WIDTH + STRIP_WIDTH
 
 
 class OverlayPanel(QWidget):
@@ -55,7 +62,9 @@ class OverlayPanel(QWidget):
 
     Der Zustand ``docked`` ist die Nutzerentscheidung (Pfeil, Menue,
     Shortcut, Settings); ``peeking`` ist der fluechtige Hover-Zustand des
-    eingeklappten Panels.
+    eingeklappten Panels. Zusaetzlich kann der Host ein Panel bei zu schmalem
+    Fenster **automatisch** einklappen (:meth:`set_auto_collapsed`) - die
+    Nutzerentscheidung bleibt dabei gespeichert.
     """
 
     #: Die sichtbare Breite hat sich geaendert (Animation) -> Host neu layouten.
@@ -74,6 +83,8 @@ class OverlayPanel(QWidget):
         self._title = title
         self._side = side
         self._docked = True
+        self._auto_collapsed = False
+        self._auto_override = False
         self._peeking = False
         self._width = float(PANEL_WIDTH)
         self._expanded = float(PANEL_WIDTH)
@@ -115,13 +126,31 @@ class OverlayPanel(QWidget):
 
     @property
     def docked(self) -> bool:
-        """``True``: Panel ist offen und nimmt dem Canvas Platz weg."""
+        """``True``: Panel ist offen und nimmt dem Canvas Platz weg.
+
+        Bei automatisch eingeklappten Panels (kleines Fenster) ``False`` -
+        die Nutzerwahl bleibt aber in :attr:`wanted_docked` erhalten.
+        """
+        return self._is_open()
+
+    @property
+    def wanted_docked(self) -> bool:
+        """Nutzerwahl: so soll das Panel sein, wenn Platz da ist."""
         return self._docked
+
+    @property
+    def auto_collapsed(self) -> bool:
+        """``True``: nur wegen eines zu kleinen Fensters eingeklappt."""
+        return self._auto_collapsed
 
     @property
     def peeking(self) -> bool:
         """``True``: Panel liegt gerade als Hover-Overlay ueber dem Canvas."""
         return self._peeking
+
+    def _is_open(self) -> bool:
+        """Effektiv offen: Nutzerwahl *und* nicht automatisch eingeklappt."""
+        return self._docked and not self._auto_collapsed
 
     def set_docked(self, docked: bool) -> None:
         """Panel offen (angedockt) oder eingeklappt zeigen."""
@@ -137,8 +166,39 @@ class OverlayPanel(QWidget):
         self._update_button()
         self.docked_changed.emit(docked)
 
+    def set_auto_collapsed(self, collapsed: bool) -> None:
+        """Zu kleines Fenster: Panel einklappen, ohne die Nutzerwahl zu aendern.
+
+        Anders als :meth:`set_docked` wird hier kein ``docked_changed``
+        gemeldet - die Einstellung bleibt also gespeichert und das Panel klappt
+        beim Vergroessern von selbst wieder auf. Wer im kleinen Fenster bewusst
+        aufklappt (Pfeil), behaelt das, bis die Schwelle wieder ueberschritten
+        wird.
+        """
+        collapsed = bool(collapsed)
+        if not collapsed:
+            self._auto_override = False
+        elif self._auto_override:
+            return
+        if collapsed == self._auto_collapsed:
+            return
+        self._auto_collapsed = collapsed
+        if collapsed:
+            self._peeking = False
+        self._sync_content_visibility()
+        self._animate_to(self._target_width())
+        self._update_button()
+
     def toggle_docked(self) -> None:
-        """Pfeil im Panel: zwischen offen und eingeklappt wechseln."""
+        """Pfeil im Panel: zwischen offen und eingeklappt wechseln.
+
+        In einem zu schmalen Fenster klappt der Pfeil das Panel trotzdem auf -
+        die Automatik greift erst wieder, wenn das Fenster groesser wird.
+        """
+        if self._auto_collapsed:
+            self.set_auto_collapsed(False)
+            self._auto_override = True
+            return
         self.set_docked(not self._docked)
 
     @property
@@ -153,7 +213,7 @@ class OverlayPanel(QWidget):
         Beim Peek nur der Streifen - das aufgeklappte Panel liegt dann *ueber*
         dem Canvas und verschiebt ihn nicht.
         """
-        if self._docked:
+        if self._is_open():
             return self.visible_width
         return STRIP_WIDTH
 
@@ -172,12 +232,12 @@ class OverlayPanel(QWidget):
         if width == int(self._expanded):
             return
         self._expanded = float(width)
-        if self._docked or self._peeking:
+        if self._is_open() or self._peeking:
             self._anim.stop()
             self._set_visible_width(self._target_width())
 
     def _target_width(self) -> float:
-        if self._docked or self._peeking:
+        if self._is_open() or self._peeking:
             return self._expanded
         return float(STRIP_WIDTH)
 
@@ -216,7 +276,7 @@ class OverlayPanel(QWidget):
 
     def _sync_content_visibility(self) -> None:
         """Inhalt nur zeigen, wenn das Panel (fast) offen ist."""
-        self._content.setVisible(self._docked or self._peeking or self._width > STRIP_WIDTH + 1)
+        self._content.setVisible(self._is_open() or self._peeking or self._width > STRIP_WIDTH + 1)
 
     # -- Hover --------------------------------------------------------------
     def enterEvent(self, event) -> None:  # noqa: N802
@@ -238,7 +298,7 @@ class OverlayPanel(QWidget):
             if self._peeking and not self._content_has_focus():
                 self._set_peeking(False)
             return
-        if not self._docked and not self._peeking:
+        if not self._is_open() and not self._peeking:
             self._set_peeking(True)
 
     def _on_focus_changed(self, old: QWidget | None, new: QWidget | None) -> None:
@@ -294,13 +354,14 @@ class OverlayPanel(QWidget):
         self._button.raise_()
 
     def _update_button(self) -> None:
+        open_ = self._is_open()
         if self._side == Qt.Edge.LeftEdge:
-            name = "chevron_left" if self._docked else "chevron_right"
+            name = "chevron_left" if open_ else "chevron_right"
         else:
-            name = "chevron_right" if self._docked else "chevron_left"
+            name = "chevron_right" if open_ else "chevron_left"
         self._button.setIcon(icon(name))
         shortcut = "Strg+B" if self._side == Qt.Edge.LeftEdge else "Strg+Umschalt+B"
-        if self._docked:
+        if open_:
             self._button.setToolTip(
                 tr("{panel} einklappen ({shortcut})").format(
                     panel=self._title, shortcut=shortcut
@@ -370,6 +431,10 @@ class PanelHost(QWidget):
         canvas.setParent(self)
         self._left: OverlayPanel | None = None
         self._right: OverlayPanel | None = None
+        # Der Host setzt die Geometrien direkt - ohne eigene Mindestbreite
+        # liesse sich das Fenster so weit schrumpfen, dass der Canvas
+        # verschwindet.
+        self.setMinimumWidth(canvas.minimumWidth() + 2 * STRIP_WIDTH)
 
     @property
     def canvas(self) -> QWidget:
@@ -397,8 +462,24 @@ class PanelHost(QWidget):
 
     def resizeEvent(self, event) -> None:  # noqa: N802
         super().resizeEvent(event)
+        self._apply_auto_collapse()
         self._update_expanded_widths()
         self._relayout()
+
+    def _apply_auto_collapse(self) -> None:
+        """Schmales Fenster: erst das rechte Panel einklappen, dann das linke.
+
+        Reihenfolge ergibt sich aus den Schwellen: :data:`AUTO_COLLAPSE_RIGHT_PX`
+        liegt ueber :data:`AUTO_COLLAPSE_LEFT_PX`, also verschwindet zuerst das
+        rechte Panel (Inspector) und erst bei noch weniger Platz auch das linke
+        (Bandauswahl). Die Nutzerwahl bleibt gespeichert; der Streifen mit Pfeil
+        bleibt sichtbar, sodass der Inhalt per Hover-Overlay erreichbar ist.
+        """
+        width = self.width()
+        if self._left is not None:
+            self._left.set_auto_collapsed(width < AUTO_COLLAPSE_LEFT_PX)
+        if self._right is not None:
+            self._right.set_auto_collapsed(width < AUTO_COLLAPSE_RIGHT_PX)
 
     def _update_expanded_widths(self) -> None:
         """Offene Panels so breit machen, wie es das Fenster zulaesst.
@@ -429,4 +510,11 @@ class PanelHost(QWidget):
             self._right.setGeometry(width - panel_width, 0, panel_width, height)
 
 
-__all__ = ["OverlayPanel", "PanelHost", "PANEL_WIDTH", "STRIP_WIDTH"]
+__all__ = [
+    "OverlayPanel",
+    "PanelHost",
+    "PANEL_WIDTH",
+    "STRIP_WIDTH",
+    "AUTO_COLLAPSE_LEFT_PX",
+    "AUTO_COLLAPSE_RIGHT_PX",
+]
