@@ -69,6 +69,8 @@ ICON_COLORS: dict[str, str] = {
     "rect": "#597697",
     # Datei und Vorlagen
     "open": "#5D5553",       # Zusatzfarbe warmgrau
+    "new": "#5D5553",
+    "close": "#5D5553",
     "save": "#5D5553",
     "save_as": "#5D5553",
     "label": "#976E41",      # Zusatzfarbe orange
@@ -378,6 +380,33 @@ def _draw_about(p: QPainter, color: QColor) -> None:
     _line(p, 12.0, 11.2, 12.0, 16.6)
 
 
+def _draw_new(p: QPainter, color: QColor) -> None:
+    """Leeres Blatt mit Plus - neues Etikett."""
+    _stroke_only(p, color, 1.7)
+    _poly(
+        p,
+        (
+            (5.0, 3.5),
+            (12.2, 3.5),
+            (16.2, 7.5),
+            (16.2, 20.5),
+            (5.0, 20.5),
+            (5.0, 3.5),
+        ),
+    )
+    _line(p, 12.2, 3.5, 12.2, 7.5)
+    _line(p, 12.2, 7.5, 16.2, 7.5)
+    _line(p, 8.2, 13.2, 13.0, 13.2)
+    _line(p, 10.6, 10.8, 10.6, 15.6)
+
+
+def _draw_close(p: QPainter, color: QColor) -> None:
+    """Kreuz - Reiter schließen."""
+    _stroke_only(p, color, 1.8)
+    _line(p, 7.0, 7.0, 17.0, 17.0)
+    _line(p, 17.0, 7.0, 7.0, 17.0)
+
+
 def _draw_open(p: QPainter, color: QColor) -> None:
     """Aufgeklappter Ordner - "Datei öffnen"."""
     _stroke_only(p, color, 1.7)
@@ -638,6 +667,8 @@ _DRAW = {
     "preview": _draw_preview,
     "rotate": _draw_rotate,
     "language": _draw_language,
+    "new": _draw_new,
+    "close": _draw_close,
     "open": _draw_open,
     "save": _draw_save,
     "save_as": _draw_save_as,

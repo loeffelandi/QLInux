@@ -6,6 +6,7 @@ Aufbau:
 * mitte: :class:`~ql_editor.canvas.LabelCanvas` (feste Pixelgroesse, Lineale)
 * rechts: Vorschau (monochrom) + Druckoptionen
 * Toolbar: Items einfuegen, Reihenfolge, Loeschen, Zoom, Drucken
+* Reiter: mehrere Etiketten in einem Fenster (Canvas, Band, Undo je Reiter)
 
 Es gibt **keine klassische Menueleiste**. Alle Befehle liegen in einem
 Hamburger-Menue (``main_menu_button``) links in der Toolbar - das wirkt
@@ -45,6 +46,7 @@ from PySide6.QtGui import (
     QFontMetrics,
     QIcon,
     QKeySequence,
+    QUndoGroup,
     QUndoStack,
 )
 from PySide6.QtWidgets import (
@@ -60,6 +62,8 @@ from PySide6.QtWidgets import (
     QScrollArea,
     QSpinBox,
     QSplitter,
+    QStackedWidget,
+    QTabBar,
     QToolButton,
     QVBoxLayout,
     QWidget,
@@ -115,7 +119,7 @@ from .printer import (
 )
 from .settings import AppSettings
 from .adaptive import AdaptivePages
-from .sheet import ask_choice, ask_text, choose_file, save_file, show_message
+from .sheet import ask_choice, ask_save, ask_text, choose_file, save_file, show_message
 from .widgets import SmoothScrollArea, install_wheel_guard_recursive
 
 BARCODE_SYMBOLOGIES = ["code128", "code39", "ean13", "ean8", "upca", "itf", "codabar"]
@@ -241,6 +245,35 @@ def _signed_dots(mm: float) -> float:
 INSPECTOR_MIN_PX = 240
 
 
+class LabelTab:
+    """Ein offenes Etikett: eigener Canvas, Undo-Stapel und Dateizustand.
+
+    Band und Ränder liegen im gemeinsamen Panel und werden beim Wechsel
+    hierher geschrieben. Die Druckeradresse gehört nicht dazu.
+    """
+
+    def __init__(self, window: QWidget) -> None:
+        self.canvas = LabelCanvas()
+        self.canvas.setMinimumSize(240, 180)
+        self.undo = QUndoStack(window)
+        self.path = ""
+        self.document_dirty = False
+        self.media: dict[str, Any] = {}
+        self.history_before: dict[str, Any] | None = None
+        self.media_prev: dict[str, Any] | None = None
+        self.margin_prev: dict[str, float] = {}
+        self.margin_base: tuple[float, float] = (0.0, 0.0)
+        self.preview_view: tuple[float, QPointF] | None = None
+
+    def is_dirty(self) -> bool:
+        """Inhalt geändert - unabhängig von der Druckeradresse."""
+        try:
+            stack_dirty = not self.undo.isClean()
+        except RuntimeError:
+            stack_dirty = False
+        return self.document_dirty or stack_dirty
+
+
 class MainWindow(QMainWindow):
     def __init__(self, settings: AppSettings | None = None):
         super().__init__()
@@ -266,20 +299,27 @@ class MainWindow(QMainWindow):
         self._access_retry = QTimer(self)
         self._access_retry.setInterval(ACCESS_RETRY_MS)
         self._access_retry.timeout.connect(self._check_usb_access)
-        #: Ansicht (Zoom + Mittelpunkt) vor dem Einschalten der Druckvorschau.
-        self._preview_view: tuple[float, QPointF] | None = None
-        self._undo_stack = QUndoStack(self)
-        self._history_before: dict[str, Any] | None = None
         self._history_suppress = False
-        #: Medienwerte vor der letzten Aenderung - Bezug fuer den Band-Befehl.
-        self._media_prev: dict[str, Any] | None = None
-        #: Stern unabhaengig vom Undo-Stapel (Druckeradresse gehoert dem Rechner).
+        #: Stern unabhängig vom Undo-Stapel (Druckeradresse gehört dem Rechner).
         self._address_dirty = False
+        self._tab_ids: dict[int, LabelTab] = {}
+        self._active: LabelTab | None = None
+        self._undo_group = QUndoGroup(self)
+        #: Sprachwechsel übernimmt das Etikett - dabei nicht nach dem Speichern fragen.
+        self._accept_close = False
+        self._close_prompt = False
 
-        self._canvas = LabelCanvas(self)
-        self._canvas.setMinimumSize(240, 180)
-        self._host = PanelHost(self._canvas, self)
-        self.setCentralWidget(self._host)
+        self._canvas_stack = QStackedWidget()
+        self._canvas_stack.setMinimumSize(240, 180)
+        self._host = PanelHost(self._canvas_stack, self)
+        self._tab_chrome = self._build_tab_chrome()
+        shell = QWidget()
+        shell_layout = QVBoxLayout(shell)
+        shell_layout.setContentsMargins(0, 0, 0, 0)
+        shell_layout.setSpacing(0)
+        shell_layout.addWidget(self._tab_chrome)
+        shell_layout.addWidget(self._host, 1)
+        self.setCentralWidget(shell)
 
         self._media_panel = MediaPanel(self)
         self._media_panel.setMinimumWidth(220)
@@ -299,6 +339,15 @@ class MainWindow(QMainWindow):
         self._refresh_timer.timeout.connect(self._refresh_now)
         self._detect_worker: DetectLabelWorker | None = None
 
+        self._zoom_label = QLabel(tr("Zoom 100 %"))
+        self._zoom_label.setToolTip(
+            tr("Mausrad scrollt – Strg + Mausrad (oder Zoomgeste) zoomt")
+        )
+        self.statusBar().addPermanentWidget(self._zoom_label)
+
+        # Erstes Etikett, bevor Medien-Signale den Undo-Stapel anfassen.
+        self._create_tab()
+
         self._media_panel.changed.connect(self._on_media_changed)
         self._media_panel.margins_reset.connect(self._sync_margin_base)
         self._margin_prev = {
@@ -316,18 +365,6 @@ class MainWindow(QMainWindow):
         self._media_panel.usb_search_requested.connect(self._on_usb_search)
         self._media_panel.network_search_requested.connect(self._on_network_search)
         self._media_panel.usb_permission_requested.connect(self._on_usb_permission)
-        self._canvas.text_requested.connect(self._on_text_requested)
-        self._canvas.item_double_clicked.connect(self._on_item_double_clicked)
-        self._canvas.context_menu_requested.connect(self._show_context_menu)
-        self._canvas.items_changed.connect(self._on_items_changed)
-        self._canvas.gesture_begun.connect(self._capture_history)
-        self._canvas.image_dropped.connect(self._on_image_dropped)
-        self._canvas.text_dropped.connect(self._on_text_dropped)
-        self._canvas.print_preview_exit_requested.connect(self._exit_print_preview)
-        self._canvas.scene().selectionChanged.connect(self._on_selection_changed)
-        # Direkte Canvas-Aenderungen (Ziehen, Groesse, Drehen) aktualisieren die
-        # Vorschau live; die Bandgroesse wird erst am Ende der Geste neu berechnet.
-        self._canvas.scene().changed.connect(self._on_scene_changed)
         self._inspector.changed.connect(self._on_inspector_changed)
         self._inspector.edit_begun.connect(self._capture_history)
         self._inspector.edit_committed.connect(
@@ -336,31 +373,24 @@ class MainWindow(QMainWindow):
         self._inspector.rejected.connect(
             lambda message: self.statusBar().showMessage(message, 8000)
         )
-        self._undo_stack.cleanChanged.connect(self._on_undo_clean_changed)
-        # Adresswechsel setzt den Stern unabhaengig vom Undo-Stapel.
+        # Adresswechsel setzt den Stern unabhängig vom Undo-Stapel.
         self._media_panel.changed.connect(self._on_media_panel_dirty)
 
-        # Rad-Ereignisse duerfen keine Werte in Feldern aendern (auch nicht in
+        # Rad-Ereignisse dürfen keine Werte in Feldern ändern (auch nicht in
         # den dynamisch erzeugten Inspector-Feldern - die sichern sich selbst).
         install_wheel_guard_recursive(self)
-
-        self._zoom_label = QLabel(tr("Zoom 100 %"))
-        self._zoom_label.setToolTip(
-            tr("Mausrad scrollt – Strg + Mausrad (oder Zoomgeste) zoomt")
-        )
-        self.statusBar().addPermanentWidget(self._zoom_label)
-        self._canvas.zoom_changed.connect(self._on_zoom_changed)
 
         # Gespeicherte Einstellungen anwenden.
         self._apply_saved_settings()
         self._on_media_changed()
         self._sync_margin_base()
         self._sync_media_prev()
-        # Startzustand ist sauber - Medien-Sync oben zaehlt nicht als Bearbeitung.
+        # Startzustand ist sauber - Medien-Sync oben zählt nicht als Bearbeitung.
         self._document_dirty = False
         self._address_dirty = False
         self._undo_stack.clear()
         self._undo_stack.setClean()
+        self._stash_active()
         self._update_window_title()
 
         # Fokus auf dem Canvas: kein Formularfeld ist anfangs "aktiv", damit das
@@ -380,6 +410,34 @@ class MainWindow(QMainWindow):
         area.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
         area.setWidget(widget)
         return area
+
+    def _build_tab_chrome(self) -> QWidget:
+        """Reiterleiste über dem Canvas, plus ein Knopf für ein neues Etikett."""
+        bar = QWidget()
+        layout = QHBoxLayout(bar)
+        layout.setContentsMargins(6, 2, 6, 0)
+        layout.setSpacing(2)
+        self._tab_bar = QTabBar(bar)
+        self._tab_bar.setObjectName("label_tab_bar")
+        self._tab_bar.setDocumentMode(True)
+        self._tab_bar.setExpanding(False)
+        self._tab_bar.setTabsClosable(True)
+        self._tab_bar.setMovable(True)
+        self._tab_bar.setElideMode(Qt.TextElideMode.ElideMiddle)
+        self._tab_bar.setDrawBase(True)
+        self._tab_bar.currentChanged.connect(self._on_tab_index_changed)
+        self._tab_bar.tabCloseRequested.connect(self._on_tab_close_requested)
+        self._tab_plus = QToolButton(bar)
+        self._tab_plus.setObjectName("tab_new_button")
+        self._tab_plus.setIcon(icon("new"))
+        self._tab_plus.setToolTip(tr("Neues Etikett (Strg+N)"))
+        self._tab_plus.setAutoRaise(True)
+        self._tab_plus.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        self._tab_plus.clicked.connect(self._on_file_new)
+        layout.addWidget(self._tab_bar)
+        layout.addWidget(self._tab_plus)
+        layout.addStretch(1)
+        return bar
 
     def _build_panels(self) -> None:
         """Seitenpanels als einklappbare Overlays ueber dem Canvas.
@@ -705,11 +763,11 @@ class MainWindow(QMainWindow):
         self._act_add_rect.setToolTip(tr("Rahmen einfügen"))
         self._act_add_rect.triggered.connect(self._add_rect)
 
-        self._act_undo = self._undo_stack.createUndoAction(self, tr("Rückgängig"))
+        self._act_undo = self._undo_group.createUndoAction(self, tr("Rückgängig"))
         self._act_undo.setIcon(icon("undo"))
         self._act_undo.setToolTip(tr("Rückgängig (Strg+Z)"))
         self._act_undo.setShortcut(QKeySequence.StandardKey.Undo)
-        self._act_redo = self._undo_stack.createRedoAction(self, tr("Wiederholen"))
+        self._act_redo = self._undo_group.createRedoAction(self, tr("Wiederholen"))
         self._act_redo.setIcon(icon("redo"))
         self._act_redo.setToolTip(tr("Wiederholen (Strg+Umschalt+Z)"))
         self._act_redo.setShortcut(QKeySequence.StandardKey.Redo)
@@ -755,17 +813,17 @@ class MainWindow(QMainWindow):
         self._act_zoom_fit = QAction(icon("zoom_fit"), tr("Einpassen"), self)
         self._act_zoom_fit.setToolTip(tr("Zoom: Einpassen (Ctrl+0)"))
         self._act_zoom_fit.setShortcut("Ctrl+0")
-        self._act_zoom_fit.triggered.connect(self._canvas.zoom_fit)
+        self._act_zoom_fit.triggered.connect(lambda: self._canvas.zoom_fit())
 
         self._act_zoom_in = QAction(icon("zoom_in"), tr("Vergrößern"), self)
         self._act_zoom_in.setToolTip(tr("Vergrößern (Strg ++)"))
         self._act_zoom_in.setShortcut(QKeySequence.StandardKey.ZoomIn)
-        self._act_zoom_in.triggered.connect(self._canvas.zoom_in)
+        self._act_zoom_in.triggered.connect(lambda: self._canvas.zoom_in())
 
         self._act_zoom_out = QAction(icon("zoom_out"), tr("Verkleinern"), self)
         self._act_zoom_out.setToolTip(tr("Verkleinern (Strg +-)"))
         self._act_zoom_out.setShortcut(QKeySequence.StandardKey.ZoomOut)
-        self._act_zoom_out.triggered.connect(self._canvas.zoom_out)
+        self._act_zoom_out.triggered.connect(lambda: self._canvas.zoom_out())
 
         self._act_zoom_100 = QAction(icon("zoom_100"), tr("1:1"), self)
         self._act_zoom_100.setToolTip(
@@ -773,7 +831,7 @@ class MainWindow(QMainWindow):
             "so wie der Drucker sie setzt")
         )
         self._act_zoom_100.setShortcut("Ctrl+1")
-        self._act_zoom_100.triggered.connect(self._canvas.zoom_100)
+        self._act_zoom_100.triggered.connect(lambda: self._canvas.zoom_100())
 
         self._act_print = QAction(icon("print"), tr("Drucken"), self)
         self._act_print.setToolTip(tr("Drucken (Ctrl+P)"))
@@ -824,6 +882,11 @@ class MainWindow(QMainWindow):
         self._act_about.triggered.connect(self._show_about)
 
         # Datei: ein Etikett ist eine Datei (JSON, .qlx) - nicht nur ein Fenster.
+        self._act_file_new = QAction(icon("new"), tr("Neu"), self)
+        self._act_file_new.setToolTip(tr("Neues Etikett (Strg+N)"))
+        self._act_file_new.setShortcut(QKeySequence.StandardKey.New)
+        self._act_file_new.triggered.connect(self._on_file_new)
+
         self._act_file_open = QAction(icon("open"), tr("Öffnen…"), self)
         self._act_file_open.setToolTip(tr("Etikett öffnen (Strg+O)"))
         self._act_file_open.setShortcut(QKeySequence.StandardKey.Open)
@@ -839,9 +902,19 @@ class MainWindow(QMainWindow):
         self._act_file_save_as.setShortcut(QKeySequence.StandardKey.SaveAs)
         self._act_file_save_as.triggered.connect(self._on_file_save_as)
 
-        # Der Dateiname steht im Fenstertitel; ein Stern markiert Aenderungen.
-        self._document_path = ""
-        self._document_dirty = False
+        self._act_tab_close = QAction(icon("close"), tr("Reiter schließen"), self)
+        self._act_tab_close.setToolTip(tr("Reiter schließen (Strg+W)"))
+        self._act_tab_close.setShortcut(QKeySequence.StandardKey.Close)
+        self._act_tab_close.triggered.connect(self._on_close_current_tab)
+
+        self._act_tab_next = QAction(self)
+        self._act_tab_next.setShortcut(QKeySequence.StandardKey.NextChild)
+        self._act_tab_next.triggered.connect(self._on_next_tab)
+        self._act_tab_prev = QAction(self)
+        self._act_tab_prev.setShortcut(QKeySequence.StandardKey.PreviousChild)
+        self._act_tab_prev.triggered.connect(self._on_previous_tab)
+        self.addAction(self._act_tab_next)
+        self.addAction(self._act_tab_prev)
 
     def _build_toolbar(self) -> None:
         bar = self.addToolBar("Werkzeuge")
@@ -867,6 +940,7 @@ class MainWindow(QMainWindow):
         bar.addSeparator()
 
         # Datei-Gruppe direkt nach dem Burger: Öffnen, Speichern, Vorlage laden.
+        bar.addAction(self._act_file_new)
         bar.addAction(self._act_file_open)
         bar.addAction(self._act_file_save)
         bar.addWidget(self._build_template_button(bar))
@@ -919,9 +993,11 @@ class MainWindow(QMainWindow):
         menu = QMenu(self)
         menu.addSection(tr("Datei"))
         for act in (
+            self._act_file_new,
             self._act_file_open,
             self._act_file_save,
             self._act_file_save_as,
+            self._act_tab_close,
         ):
             menu.addAction(act)
         self._build_template_menu(menu)
@@ -1026,8 +1102,11 @@ class MainWindow(QMainWindow):
     def _apply_template(self, data: dict, message: str) -> None:
         """Vorlage anwenden - bewusst als *neues* Etikett ohne Dateinamen.
 
-        Sonst wuerde „Speichern" das zuletzt geoeffnete Etikett ueberschreiben.
+        Sonst würde „Speichern" das zuletzt geöffnete Etikett überschreiben.
+        Liegt schon ein Etikett im Fenster, bekommt die Vorlage einen eigenen Reiter.
         """
+        if not self._can_reuse_current():
+            self._create_tab()
         self._apply_document(data)
         self._document_path = ""
         self._document_dirty = True
@@ -1101,12 +1180,28 @@ class MainWindow(QMainWindow):
         window.setWindowState(self.windowState())
         window.show()
         _remember_window(window)
+        # Das Etikett lebt im neuen Fenster weiter - nicht als ungespeichert nachfragen.
+        self._accept_close = True
         self.close()
 
     def _state(self) -> dict[str, Any]:
         """Bedienzustand fuer einen Neuaufbau der Oberflaeche (Sprachwechsel)."""
+        self._stash_active()
+        tabs = [
+            {
+                "media": deepcopy(tab.media),
+                "items": tab.canvas.items_serialized(),
+                "path": tab.path,
+                "document_dirty": tab.is_dirty(),
+                "preview": tab.canvas.print_preview,
+            }
+            for tab in self._ordered_tabs()
+        ]
+        active = self._index_of(self._active) if self._active is not None else 0
         return {
             "media": self._media_panel.state(),
+            "tabs": tabs,
+            "active": active,
             "items": self._canvas.items_serialized(),
             "preview": self._act_print_preview.isChecked(),
             "threshold": self._threshold_spin.value(),
@@ -1137,23 +1232,23 @@ class MainWindow(QMainWindow):
             self._cut_combo.setCurrentIndex(cut_mode)
         # Erst wenn beide Werte stehen: „Nur am Ende" haengt an der Kopienzahl.
         self._sync_cut_options()
-        self._canvas.load_items(list(state.get("items") or []))
-        self._wire_loaded_text_items()
-        self._sync_margin_base()
-        self._sync_media_prev()
-        self._undo_stack.clear()
-        self._recompute_canvas()
-        self._schedule_refresh()
-        if state.get("preview"):
-            self._act_print_preview.setChecked(True)
-        self._document_path = str(state.get("document_path") or "")
+        specs = state.get("tabs")
+        if not specs:
+            specs = [
+                {
+                    "media": dict(state.get("media") or {}),
+                    "items": list(state.get("items") or []),
+                    "path": str(state.get("document_path") or ""),
+                    "document_dirty": bool(state.get("document_dirty")),
+                    "preview": bool(state.get("preview")),
+                }
+            ]
+        self._replace_tabs(list(specs), int(state.get("active") or 0))
         self._address_dirty = bool(state.get("address_dirty", False))
-        if state.get("document_dirty"):
-            self._document_dirty = True
-            self._undo_stack.resetClean()
+        if self._canvas.print_preview and not self._act_print_preview.isChecked():
+            self._act_print_preview.setChecked(True)
         else:
-            self._document_dirty = False
-            self._undo_stack.setClean()
+            self._sync_preview_action()
         self._update_window_title()
         self._canvas.setFocus()
 
@@ -1681,10 +1776,13 @@ class MainWindow(QMainWindow):
         """Nach ``load_items`` (Öffnen, Undo, Sprachwechsel) neu verdrahten.
 
         ``item_from_dict`` erzeugt frische Objekte - ohne diesen Schritt
-        wuerde ein spaeter bearbeitetes Textfeld weder im Undo landen noch
-        leer aufgeraeumt.
+        würde ein später bearbeitetes Textfeld weder im Undo landen noch
+        leer aufgeräumt.
         """
-        for item in self._canvas.scene().items():
+        self._wire_canvas_text(self._canvas)
+
+    def _wire_canvas_text(self, canvas: LabelCanvas) -> None:
+        for item in canvas.scene().items():
             self._wire_text_item(item)
 
     def _new_text(self, pos: QPointF | None = None, text: str = "") -> TextItem:
@@ -2232,6 +2330,402 @@ class MainWindow(QMainWindow):
         if path.exists():
             self.setWindowIcon(QIcon(str(path)))
 
+    # --------------------------------------------------------------- Reiter --
+    def _require_tab(self) -> LabelTab:
+        tab = self._active
+        if tab is None:
+            raise RuntimeError("kein offenes Etikett")
+        return tab
+
+    @property
+    def _canvas(self) -> LabelCanvas:
+        return self._require_tab().canvas
+
+    @property
+    def _undo_stack(self) -> QUndoStack:
+        return self._require_tab().undo
+
+    @property
+    def _document_path(self) -> str:
+        return self._require_tab().path
+
+    @_document_path.setter
+    def _document_path(self, value: str) -> None:
+        self._require_tab().path = value
+
+    @property
+    def _document_dirty(self) -> bool:
+        return self._require_tab().document_dirty
+
+    @_document_dirty.setter
+    def _document_dirty(self, value: bool) -> None:
+        self._require_tab().document_dirty = value
+
+    @property
+    def _history_before(self) -> dict[str, Any] | None:
+        return self._require_tab().history_before
+
+    @_history_before.setter
+    def _history_before(self, value: dict[str, Any] | None) -> None:
+        self._require_tab().history_before = value
+
+    @property
+    def _media_prev(self) -> dict[str, Any] | None:
+        return self._require_tab().media_prev
+
+    @_media_prev.setter
+    def _media_prev(self, value: dict[str, Any] | None) -> None:
+        self._require_tab().media_prev = value
+
+    @property
+    def _margin_prev(self) -> dict[str, float]:
+        return self._require_tab().margin_prev
+
+    @_margin_prev.setter
+    def _margin_prev(self, value: dict[str, float]) -> None:
+        self._require_tab().margin_prev = value
+
+    @property
+    def _margin_base(self) -> tuple[float, float]:
+        return self._require_tab().margin_base
+
+    @_margin_base.setter
+    def _margin_base(self, value: tuple[float, float]) -> None:
+        self._require_tab().margin_base = value
+
+    @property
+    def _preview_view(self) -> tuple[float, QPointF] | None:
+        return self._require_tab().preview_view
+
+    @_preview_view.setter
+    def _preview_view(self, value: tuple[float, QPointF] | None) -> None:
+        self._require_tab().preview_view = value
+
+    def _ordered_tabs(self) -> list[LabelTab]:
+        return [self._tab_at(index) for index in range(self._tab_bar.count())]
+
+    def _tab_at(self, index: int) -> LabelTab:
+        return self._tab_ids[int(self._tab_bar.tabData(index))]
+
+    def _index_of(self, tab: LabelTab) -> int:
+        for index in range(self._tab_bar.count()):
+            if self._tab_at(index) is tab:
+                return index
+        return -1
+
+    def _caption(self, tab: LabelTab) -> str:
+        name = Path(tab.path).name if tab.path else tr("Unbenannt")
+        return f"{name}*" if tab.is_dirty() else name
+
+    def _refresh_tab_captions(self) -> None:
+        if not hasattr(self, "_tab_bar"):
+            return
+        for index, tab in enumerate(self._ordered_tabs()):
+            caption = self._caption(tab)
+            if self._tab_bar.tabText(index) != caption:
+                self._tab_bar.setTabText(index, caption)
+            tip = tab.path or tr("Unbenannt")
+            self._tab_bar.setTabToolTip(index, tip)
+
+    def _bind_tab(self, tab: LabelTab) -> None:
+        canvas = tab.canvas
+        canvas.text_requested.connect(self._on_text_requested)
+        canvas.item_double_clicked.connect(self._on_item_double_clicked)
+        canvas.context_menu_requested.connect(self._show_context_menu)
+        canvas.items_changed.connect(self._on_items_changed)
+        canvas.gesture_begun.connect(self._capture_history)
+        canvas.image_dropped.connect(self._on_image_dropped)
+        canvas.text_dropped.connect(self._on_text_dropped)
+        canvas.print_preview_exit_requested.connect(self._exit_print_preview)
+        canvas.zoom_changed.connect(self._on_zoom_changed)
+        canvas.scene().selectionChanged.connect(self._on_selection_changed)
+        canvas.scene().changed.connect(self._on_scene_changed)
+        tab.undo.cleanChanged.connect(self._on_undo_clean_changed)
+
+    def _unbind_tab(self, tab: LabelTab) -> None:
+        canvas = tab.canvas
+        pairs = (
+            (canvas.text_requested, self._on_text_requested),
+            (canvas.item_double_clicked, self._on_item_double_clicked),
+            (canvas.context_menu_requested, self._show_context_menu),
+            (canvas.items_changed, self._on_items_changed),
+            (canvas.gesture_begun, self._capture_history),
+            (canvas.image_dropped, self._on_image_dropped),
+            (canvas.text_dropped, self._on_text_dropped),
+            (canvas.print_preview_exit_requested, self._exit_print_preview),
+            (canvas.zoom_changed, self._on_zoom_changed),
+            (canvas.scene().selectionChanged, self._on_selection_changed),
+            (canvas.scene().changed, self._on_scene_changed),
+            (tab.undo.cleanChanged, self._on_undo_clean_changed),
+        )
+        for signal, slot in pairs:
+            try:
+                signal.disconnect(slot)
+            except (RuntimeError, TypeError):
+                continue
+
+    def _stash_active(self) -> None:
+        """Band des sichtbaren Etiketts merken, bevor ein anderes nach vorn kommt."""
+        tab = self._active
+        if tab is None:
+            return
+        tab.media = deepcopy(dict(self._media_panel.media_state()))
+
+    def _create_tab(self, *, switch: bool = True) -> LabelTab:
+        tab = LabelTab(self)
+        self._canvas_stack.addWidget(tab.canvas)
+        self._undo_group.addStack(tab.undo)
+        self._tab_bar.blockSignals(True)
+        index = self._tab_bar.addTab(self._caption(tab))
+        self._tab_ids[id(tab)] = tab
+        self._tab_bar.setTabData(index, id(tab))
+        self._tab_bar.blockSignals(False)
+        if switch:
+            self._show_tab(tab)
+        return tab
+
+    def _show_tab(self, tab: LabelTab) -> None:
+        index = self._index_of(tab)
+        if index < 0:
+            return
+        if self._tab_bar.currentIndex() != index:
+            self._tab_bar.setCurrentIndex(index)
+        else:
+            self._activate_tab(tab)
+
+    def _on_tab_index_changed(self, index: int) -> None:
+        if index < 0 or index >= self._tab_bar.count():
+            return
+        self._activate_tab(self._tab_at(index))
+
+    def _activate_tab(self, tab: LabelTab) -> None:
+        if tab is self._active:
+            self._update_window_title()
+            return
+        previous = self._active
+        if previous is not None:
+            previous.canvas.cancel_editing()
+            self._stash_active()
+            self._unbind_tab(previous)
+        self._active = tab
+        self._undo_group.setActiveStack(tab.undo)
+        self._canvas_stack.setCurrentWidget(tab.canvas)
+        self._bind_tab(tab)
+        self._adjusting = True
+        self._history_suppress = True
+        try:
+            if tab.media:
+                self._media_panel.apply_media_state(tab.media)
+            self._sync_margin_base()
+        finally:
+            self._adjusting = False
+            self._history_suppress = False
+        self._sync_media_prev()
+        self._recompute_canvas()
+        self._on_selection_changed()
+        self._sync_preview_action()
+        self._update_zoom_label()
+        self._schedule_refresh()
+        self._update_window_title()
+        tab.canvas.setFocus()
+
+    def _sync_preview_action(self) -> None:
+        action = self._act_print_preview
+        action.blockSignals(True)
+        action.setChecked(self._canvas.print_preview)
+        action.blockSignals(False)
+
+    def _discard_tabs(self) -> None:
+        if self._active is not None:
+            self._unbind_tab(self._active)
+            self._active = None
+        self._tab_bar.blockSignals(True)
+        while self._tab_bar.count():
+            self._tab_bar.removeTab(0)
+        self._tab_bar.blockSignals(False)
+        for tab in list(self._tab_ids.values()):
+            self._undo_group.removeStack(tab.undo)
+            self._canvas_stack.removeWidget(tab.canvas)
+            tab.canvas.hide()
+            tab.canvas.deleteLater()
+            tab.undo.deleteLater()
+        self._tab_ids.clear()
+
+    def _replace_tabs(self, specs: list[Mapping[str, Any]], active_index: int) -> None:
+        """Alle Reiter aus einem gespeicherten Zustand neu aufbauen."""
+        self._discard_tabs()
+        created: list[tuple[LabelTab, Mapping[str, Any]]] = []
+        for spec in specs:
+            tab = self._create_tab(switch=False)
+            tab.media = dict(spec.get("media") or {})
+            tab.path = str(spec.get("path") or "")
+            tab.canvas.load_items(list(spec.get("items") or []))
+            self._wire_canvas_text(tab.canvas)
+            if spec.get("preview"):
+                tab.canvas.set_print_preview(True)
+            created.append((tab, spec))
+        if not created:
+            self._create_tab()
+            return
+        index = min(max(0, active_index), len(created) - 1)
+        self._show_tab(created[index][0])
+        for tab, spec in created:
+            if spec.get("document_dirty"):
+                tab.document_dirty = True
+                tab.undo.resetClean()
+            else:
+                tab.document_dirty = False
+                tab.undo.setClean()
+        self._update_window_title()
+
+    def _can_reuse_current(self) -> bool:
+        """Frisches Fenster: das leere Etikett nehmen statt einen zweiten Reiter."""
+        tabs = self._ordered_tabs()
+        if len(tabs) != 1 or self._active is None:
+            return False
+        tab = self._active
+        return not tab.path and not tab.is_dirty() and not tab.canvas.items_serialized()
+
+    def _tab_with_path(self, path: str) -> LabelTab | None:
+        try:
+            wanted = str(Path(path).resolve())
+        except OSError:
+            wanted = path
+        for tab in self._ordered_tabs():
+            if not tab.path:
+                continue
+            try:
+                current = str(Path(tab.path).resolve())
+            except OSError:
+                current = tab.path
+            if current == wanted:
+                return tab
+        return None
+
+    def _on_next_tab(self) -> None:
+        count = self._tab_bar.count()
+        if count < 2:
+            return
+        self._tab_bar.setCurrentIndex((self._tab_bar.currentIndex() + 1) % count)
+
+    def _on_previous_tab(self) -> None:
+        count = self._tab_bar.count()
+        if count < 2:
+            return
+        self._tab_bar.setCurrentIndex((self._tab_bar.currentIndex() - 1) % count)
+
+    def _on_close_current_tab(self) -> None:
+        if self._active is not None:
+            self._request_close_tab(self._active)
+
+    def _on_tab_close_requested(self, index: int) -> None:
+        if 0 <= index < self._tab_bar.count():
+            self._request_close_tab(self._tab_at(index))
+
+    def _request_close_tab(self, tab: LabelTab) -> None:
+        if not tab.is_dirty():
+            self._remove_tab(tab)
+            return
+        self._show_tab(tab)
+
+        def _saved() -> None:
+            self._remove_tab(tab)
+
+        self._ask_about_tab(tab, on_save=_saved, on_discard=_saved, on_cancel=lambda: None)
+
+    def _ask_about_tab(self, tab: LabelTab, *, on_save, on_discard, on_cancel) -> None:
+        name = Path(tab.path).name if tab.path else tr("Unbenannt")
+
+        def _chosen(choice: str) -> None:
+            if choice == "save":
+                self._show_tab(tab)
+                self._on_file_save(on_saved=on_save, on_cancel=on_cancel)
+            elif choice == "discard":
+                on_discard()
+            else:
+                on_cancel()
+
+        ask_save(
+            self,
+            title=tr("Etikett schließen"),
+            text=tr("Änderungen an „{name}“ speichern?").format(name=name),
+            on_choice=_chosen,
+        )
+
+    def _remove_tab(self, tab: LabelTab) -> None:
+        ordered = self._ordered_tabs()
+        if len(ordered) <= 1:
+            self._blank_tab(tab)
+            return
+        index = self._index_of(tab)
+        was_active = tab is self._active
+        neighbor = None
+        if was_active:
+            neighbor = ordered[index - 1] if index > 0 else ordered[index + 1]
+            self._unbind_tab(tab)
+            self._active = None
+        self._tab_bar.blockSignals(True)
+        self._tab_bar.removeTab(index)
+        self._tab_bar.blockSignals(False)
+        self._tab_ids.pop(id(tab), None)
+        self._undo_group.removeStack(tab.undo)
+        self._canvas_stack.removeWidget(tab.canvas)
+        tab.canvas.hide()
+        tab.canvas.deleteLater()
+        tab.undo.deleteLater()
+        if was_active and neighbor is not None:
+            self._show_tab(neighbor)
+        else:
+            self._update_window_title()
+
+    def _blank_tab(self, tab: LabelTab) -> None:
+        """Letzten Reiter leeren, statt das Fenster zu schließen."""
+        self._show_tab(tab)
+        self._adjusting = True
+        self._history_suppress = True
+        try:
+            if tab.canvas.print_preview:
+                tab.canvas.set_print_preview(False)
+                tab.canvas.set_print_image(None)
+            tab.canvas.load_items([])
+            tab.path = ""
+            tab.document_dirty = False
+            tab.history_before = None
+            tab.preview_view = None
+            tab.undo.clear()
+            tab.undo.setClean()
+        finally:
+            self._adjusting = False
+            self._history_suppress = False
+        self._wire_loaded_text_items()
+        self._sync_margin_base()
+        self._sync_media_prev()
+        self._stash_active()
+        self._recompute_canvas()
+        self._on_selection_changed()
+        self._sync_preview_action()
+        self._update_window_title()
+        self._schedule_refresh()
+        tab.canvas.setFocus()
+
+    def _prompt_close(self, tabs: list[LabelTab]) -> None:
+        pending = [tab for tab in tabs if tab.is_dirty()]
+        if not pending:
+            self._close_prompt = False
+            self._accept_close = True
+            self.close()
+            return
+        tab = pending[0]
+
+        def _cancel() -> None:
+            self._close_prompt = False
+
+        def _continue() -> None:
+            self._prompt_close(pending[1:])
+
+        self._show_tab(tab)
+        self._ask_about_tab(tab, on_save=_continue, on_discard=_continue, on_cancel=_cancel)
+
     # ------------------------------------------------------------- Dateien --
     def _document_data(self) -> dict:
         """Aktuelles Design als Dokumentdaten (Band/Design + Objekte)."""
@@ -2259,6 +2753,7 @@ class MainWindow(QMainWindow):
         self._history_before = None
         self._recompute_canvas()
         self._schedule_refresh()
+        self._stash_active()
         self._update_window_title()
 
     def _set_document_path(self, path: str) -> None:
@@ -2282,6 +2777,7 @@ class MainWindow(QMainWindow):
 
     def _update_window_title(self) -> None:
         try:
+            self._refresh_tab_captions()
             base = tr("QLInux - P-touch Editor")
             dirty = self._is_document_dirty()
             if not self._document_path and not dirty:
@@ -2297,6 +2793,19 @@ class MainWindow(QMainWindow):
         except RuntimeError:
             # Fenster oder Undo-Stapel schon freigegeben (Teardown).
             return
+
+    def _on_file_new(self, _checked: bool = False) -> None:
+        """Leeres Etikett im neuen Reiter. Das Band des aktuellen Etiketts bleibt."""
+        media = deepcopy(dict(self._media_panel.media_state()))
+        tab = self._create_tab(switch=False)
+        tab.media = media
+        self._show_tab(tab)
+        tab.undo.clear()
+        tab.undo.setClean()
+        tab.document_dirty = False
+        tab.history_before = None
+        self._update_window_title()
+        self._canvas.setFocus()
 
     def _on_file_open(self) -> None:
         """„Öffnen…": Datei waehlen und laden."""
@@ -2321,11 +2830,21 @@ class MainWindow(QMainWindow):
         except document.DocumentError as exc:
             show_message(self, "critical", tr("Etikett öffnen"), str(exc))
             return
-        self._apply_document(data)
         name = Path(path).name
+        if not imported:
+            existing = self._tab_with_path(path)
+            if existing is not None:
+                self._show_tab(existing)
+                self.statusBar().showMessage(
+                    tr("Etikett bereits geöffnet: {name}").format(name=name), 8000
+                )
+                return
+        if not self._can_reuse_current():
+            self._create_tab()
+        self._apply_document(data)
         if imported:
             # Nicht als .lbx-Pfad merken: „Speichern" würde JSON hineinschreiben.
-            # Das Fenster bleibt „Unbenannt*", der nächste Speicherdialog fragt
+            # Der Reiter bleibt „Unbenannt*", der nächste Speicherdialog fragt
             # nach einer .qlx.
             self._document_path = ""
             self._document_dirty = True
@@ -2347,14 +2866,48 @@ class MainWindow(QMainWindow):
             tr("Etikett geöffnet: {name}").format(name=name), 8000
         )
 
-    def _on_file_save(self) -> None:
+    def _on_file_save(
+        self,
+        on_saved: Any = None,
+        on_cancel: Any = None,
+    ) -> None:
         """„Speichern": ohne Dateinamen erst nach ihm fragen."""
+        if not callable(on_saved):
+            on_saved = None
+        if not callable(on_cancel):
+            on_cancel = None
         if not self._document_path:
-            self._on_file_save_as()
+            self._on_file_save_as(on_saved=on_saved, on_cancel=on_cancel)
             return
-        self._save_document_to(self._document_path)
+        if self._save_document_to(self._document_path):
+            if on_saved is not None:
+                on_saved()
+        elif on_cancel is not None:
+            on_cancel()
 
-    def _on_file_save_as(self) -> None:
+    def _on_file_save_as(
+        self,
+        on_saved: Any = None,
+        on_cancel: Any = None,
+    ) -> None:
+        if not callable(on_saved):
+            on_saved = None
+        if not callable(on_cancel):
+            on_cancel = None
+
+        def _chosen(path: str | None) -> None:
+            if not path:
+                if on_cancel is not None:
+                    on_cancel()
+                return
+            if not path.endswith(document.DOCUMENT_SUFFIX):
+                path += document.DOCUMENT_SUFFIX
+            if self._save_document_to(path):
+                if on_saved is not None:
+                    on_saved()
+            elif on_cancel is not None:
+                on_cancel()
+
         save_file(
             self,
             caption=tr("Etikett speichern"),
@@ -2367,7 +2920,7 @@ class MainWindow(QMainWindow):
                 if self._document_path
                 else f"{tr('Unbenannt')}{document.DOCUMENT_SUFFIX}"
             ),
-            on_selected=self._save_document_chosen,
+            on_selected=_chosen,
         )
 
     def _save_document_chosen(self, path: str | None) -> None:
@@ -2377,18 +2930,19 @@ class MainWindow(QMainWindow):
             path += document.DOCUMENT_SUFFIX
         self._save_document_to(path)
 
-    def _save_document_to(self, path: str) -> None:
+    def _save_document_to(self, path: str) -> bool:
         """Design schreiben - ohne Dialog (auch fuer Tests und „Speichern")."""
         try:
             document.save(path, self._document_data())
         except document.DocumentError as exc:
             show_message(self, "critical", tr("Etikett speichern"), str(exc))
-            return
+            return False
         self._settings.document_dir = str(Path(path).parent)
         self._set_document_path(path)
         self.statusBar().showMessage(
             tr("Etikett gespeichert: {name}").format(name=Path(path).name), 8000
         )
+        return True
 
     # -------------------------------------------------------------- Close ---
     def _disconnect_worker(self, worker: QThread | None, slots: list[tuple]) -> None:
@@ -2412,6 +2966,17 @@ class MainWindow(QMainWindow):
             worker.finished.connect(lambda worker=worker: _forget_orphan(worker))
 
     def closeEvent(self, event) -> None:  # noqa: N802
+        if not self._accept_close:
+            dirty = [tab for tab in self._ordered_tabs() if tab.is_dirty()]
+            if dirty:
+                event.ignore()
+                if not self._close_prompt:
+                    self._close_prompt = True
+                    self._prompt_close(dirty)
+                return
+        self._finish_close(event)
+
+    def _finish_close(self, event) -> None:
         # Laufende Suche abbrechen, damit kein Thread das geschlossene
         # Fenster anspricht.
         self._network_cancel.set()
