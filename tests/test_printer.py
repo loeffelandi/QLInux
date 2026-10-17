@@ -30,6 +30,10 @@ from ql_editor.printer import (
 
 CONFIG = PrinterConfig(model="QL-820NWB", address="tcp://192.168.178.62:9100")
 
+#: Befehl "print-media and print-quality" (``ESC i z``) - genau einmal pro
+#: Etikett im Datenstrom, also gut zum Zaehlen der Kopien.
+_MEDIA_QUALITY = b"\x1b\x69\x7a"
+
 
 # --------------------------------------------------------------------------- #
 # Konfiguration / Validierung
@@ -180,10 +184,69 @@ def test_build_raster_red_rejected_for_mono_label():
         build_raster(img, label, CONFIG, red=True)
 
 
-def test_build_raster_no_cut_option():
+def test_build_raster_cut_none_sends_no_cut_commands():
     label = get_label("50")
     img = Image.new("RGB", (label.width_dots, 472), "white")
-    data = build_raster(img, label, CONFIG, cut=False)
+    data = build_raster(img, label, CONFIG, cut_mode=printer.CUT_NONE)
+    assert len(data) > 0
+    assert b"\x1b\x69\x41" not in data  # kein "cut each * labels"
+
+
+def test_build_raster_copies_repeat_the_label():
+    label = get_label("50")
+    img = Image.new("RGB", (label.width_dots, 472), "white")
+    one = build_raster(img, label, CONFIG)
+    three = build_raster(img, label, CONFIG, copies=3)
+    assert three.count(_MEDIA_QUALITY) == 3
+    assert one.count(_MEDIA_QUALITY) == 1
+
+
+def test_build_raster_cut_each_is_the_default():
+    label = get_label("50")
+    img = Image.new("RGB", (label.width_dots, 472), "white")
+    data = build_raster(img, label, CONFIG, copies=3)
+    assert data.count(b"\x1b\x69\x41\x01") == 3  # Schnitt nach jedem Etikett
+    assert b"\x1b\x69\x4d\x40" in data  # Auto Cut ist an
+
+
+def test_build_raster_cut_at_end_counts_the_copies():
+    label = get_label("50")
+    img = Image.new("RGB", (label.width_dots, 472), "white")
+    data = build_raster(img, label, CONFIG, copies=3, cut_mode=printer.CUT_AT_END)
+    assert data.count(b"\x1b\x69\x41\x03") == 3
+    assert b"\x1b\x69\x41\x01" not in data
+
+
+def test_build_raster_cut_at_end_single_copy_stays_unchanged():
+    label = get_label("50")
+    img = Image.new("RGB", (label.width_dots, 472), "white")
+    data = build_raster(img, label, CONFIG, copies=1, cut_mode=printer.CUT_AT_END)
+    assert data.count(b"\x1b\x69\x41\x01") == 1
+
+
+@pytest.mark.parametrize("copies", [0, -1, printer.COPIES_MAX + 1])
+def test_build_raster_rejects_impossible_copies(copies):
+    label = get_label("50")
+    img = Image.new("RGB", (label.width_dots, 472), "white")
+    with pytest.raises(PrinterError):
+        build_raster(img, label, CONFIG, copies=copies)
+
+
+def test_build_raster_rejects_unknown_cut_mode():
+    label = get_label("50")
+    img = Image.new("RGB", (label.width_dots, 472), "white")
+    with pytest.raises(PrinterError):
+        build_raster(img, label, CONFIG, cut_mode="vielleicht")
+
+
+def test_build_raster_without_a_cutter_needs_cut_none():
+    """Der QL-500 hat keine Schneideeinrichtung - das wird gesagt, nicht ignoriert."""
+    label = get_label("29")
+    img = Image.new("RGB", (label.width_dots, 472), "white")
+    config = PrinterConfig(model="QL-500", address=CONFIG.address)
+    with pytest.raises(PrinterError):
+        build_raster(img, label, config, cut_mode=printer.CUT_EACH)
+    data = build_raster(img, label, config, cut_mode=printer.CUT_NONE)
     assert len(data) > 0
 
 

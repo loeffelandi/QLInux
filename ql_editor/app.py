@@ -36,7 +36,7 @@ from PySide6.QtCore import (
     Qt,
     Signal,
 )
-from PySide6.QtGui import QAction, QActionGroup, QKeySequence
+from PySide6.QtGui import QAction, QActionGroup, QFontMetrics, QKeySequence
 from PySide6.QtWidgets import (
     QApplication,
     QCheckBox,
@@ -83,6 +83,10 @@ from .preview import (
     to_qimage,
 )
 from .printer import (
+    COPIES_MAX,
+    CUT_AT_END,
+    CUT_EACH,
+    CUT_NONE,
     PrintResolution,
     PrinterError,
     RESOLUTION_HIGH,
@@ -107,6 +111,9 @@ ACCESS_RETRY_MS = 400
 ACCESS_RETRY_COUNT = 8
 #: So lange darf eine abgebrochene Netzwerksuche beim Schliessen nachlaufen.
 NETWORK_CANCEL_WAIT_MS = 1000
+#: Zugabe auf die reine Textbreite der Beschriftungsspalte in den
+#: Druckoptionen (Kopien / Zuschnitt) - sonst schneidet die Schrift ab.
+ROW_LABEL_EXTRA_PX = 8
 
 
 class PrintWorker(QThread):
@@ -370,14 +377,62 @@ class MainWindow(QMainWindow):
         threshold_row.addWidget(self._threshold_spin)
         threshold_row.addWidget(self._ink_label, 1)
 
-        self._cut_check = QCheckBox(tr("Nach dem Druck schneiden"))
-        self._cut_check.setChecked(True)
+        # Kopien und Zuschnitt in je einer Zeile (Beschriftung links): die
+        # Druckoptionen haben eine feste Formularhoehe, und zwei Zeilen sparen
+        # zwei Reihen gegenueber "Beschriftung ueber Feld".
+        self._copies_label = QLabel(tr("Kopien"))
+        self._copies_spin = QSpinBox()
+        self._copies_spin.setRange(1, COPIES_MAX)
+        self._copies_spin.setValue(1)
+        self._copies_label.setBuddy(self._copies_spin)
+        self._copies_spin.setToolTip(
+            tr("Wie oft dieses Etikett gedruckt wird - als ein Auftrag.")
+        )
+        self._copies_label.setToolTip(self._copies_spin.toolTip())
+
+        self._cut_label = QLabel(tr("Zuschnitt"))
+        self._cut_combo = QComboBox()
+        self._cut_label.setBuddy(self._cut_combo)
+        for mode, text in (
+            (CUT_EACH, tr("Nach jeder Kopie")),
+            (CUT_AT_END, tr("Nur am Ende")),
+            (CUT_NONE, tr("Nicht schneiden")),
+        ):
+            self._cut_combo.addItem(text, mode)
+        self._cut_combo.setCurrentIndex(self._cut_combo.findData(CUT_EACH))
+        self._cut_combo.setToolTip(
+            tr("Nach jeder Kopie: einzelne Etiketten.\n"
+               "Nur am Ende: die Kopien hängen zusammen und werden zuletzt "
+               "getrennt.\nNicht schneiden: der Streifen bleibt am Band.")
+        )
+        self._cut_label.setToolTip(self._cut_combo.toolTip())
+
+        # Gemeinsame Beschriftungsspalte, damit beide Felder gleich anfangen.
+        metrics = QFontMetrics(self.font())
+        label_width = max(
+            metrics.horizontalAdvance(self._copies_label.text()),
+            metrics.horizontalAdvance(self._cut_label.text()),
+        ) + ROW_LABEL_EXTRA_PX
+        for label in (self._copies_label, self._cut_label):
+            label.setFixedWidth(label_width)
+
+        copies_row = QHBoxLayout()
+        copies_row.setContentsMargins(0, 0, 0, 0)
+        copies_row.addWidget(self._copies_label)
+        copies_row.addWidget(self._copies_spin, 1)
+
+        cut_row = QHBoxLayout()
+        cut_row.setContentsMargins(0, 0, 0, 0)
+        cut_row.addWidget(self._cut_label)
+        cut_row.addWidget(self._cut_combo, 1)
+
         self._print_button = QPushButton(icon("print"), tr("Drucken"))
 
         layout.addWidget(self._dither_check)
         layout.addWidget(self._threshold_label)
         layout.addLayout(threshold_row)
-        layout.addWidget(self._cut_check)
+        layout.addLayout(copies_row)
+        layout.addLayout(cut_row)
         layout.addStretch(1)
         layout.addWidget(self._print_button)
 
@@ -741,7 +796,8 @@ class MainWindow(QMainWindow):
             "dither": self._dither_check.isChecked(),
             "hq": self._hq_check.isChecked(),
             "resolution": self._resolution().key,
-            "cut": self._cut_check.isChecked(),
+            "copies": self._copies_spin.value(),
+            "cut_mode": self._cut_combo.currentData(),
         }
 
     def apply_state(self, state: Mapping[str, Any]) -> None:
@@ -751,7 +807,10 @@ class MainWindow(QMainWindow):
         self._dither_check.setChecked(bool(state.get("dither", False)))
         self._hq_check.setChecked(bool(state.get("hq", False)))
         self._sync_resolution_options(prefer=str(state.get("resolution") or ""))
-        self._cut_check.setChecked(bool(state.get("cut", False)))
+        self._copies_spin.setValue(int(state.get("copies", 1)))
+        cut_mode = self._cut_combo.findData(str(state.get("cut_mode") or CUT_EACH))
+        if cut_mode >= 0:
+            self._cut_combo.setCurrentIndex(cut_mode)
         self._canvas.load_items(list(state.get("items") or []))
         self._recompute_canvas()
         self._schedule_refresh()
@@ -779,7 +838,8 @@ class MainWindow(QMainWindow):
         dither = self._settings.dither
         hq = self._settings.hq
         resolution = self._settings.print_resolution
-        cut = self._settings.cut
+        copies = self._settings.copies
+        cut_mode = self._settings.cut_mode
 
         if geometry is not None:
             self.restoreGeometry(geometry)
@@ -795,13 +855,16 @@ class MainWindow(QMainWindow):
         self._act_panel_left.setChecked(panel_left)
         self._act_panel_right.setChecked(panel_right)
         # Druckoptionen wiederherstellen (Tintenmenge, Dithering, Aufloesung,
-        # HQ, Schneiden). Die Aufloesung erst *nach* dem Modell - ihre Liste
-        # haengt am Drucker.
+        # HQ, Kopien, Zuschnitt). Die Aufloesung erst *nach* dem Modell - ihre
+        # Liste haengt am Drucker.
         self._threshold_spin.setValue(threshold)
         self._dither_check.setChecked(dither)
         self._hq_check.setChecked(hq)
         self._sync_resolution_options(prefer=resolution)
-        self._cut_check.setChecked(cut)
+        self._copies_spin.setValue(copies)
+        index = self._cut_combo.findData(cut_mode)
+        if index >= 0:
+            self._cut_combo.setCurrentIndex(index)
         self._schedule_refresh()
 
     # ---------------------------------------------------------- Media-Sync --
@@ -1242,17 +1305,24 @@ class MainWindow(QMainWindow):
             )
             return
         label = self._media_panel.label
+        copies = self._copies_spin.value()
         options = {
             "threshold": self._threshold_spin.value(),
             "dither": self._dither_check.isChecked(),
             "hq": self._hq(),
             "dpi_600": self._resolution().dpi_600,
             "red": self._media_panel.use_red(),
-            "cut": self._cut_check.isChecked(),
+            "copies": copies,
+            "cut_mode": self._cut_combo.currentData(),
         }
         self._print_button.setEnabled(False)
+        message = (
+            tr("Sende {count} Kopien an {address}…")
+            if copies > 1
+            else tr("Sende an {address}…")
+        )
         self.statusBar().showMessage(
-            tr("Sende an {address}…").format(address=config.address)
+            message.format(count=copies, address=config.address)
         )
         self._print_worker = PrintWorker(image, label, config, options)
         self._print_worker.succeeded.connect(self._on_print_succeeded)
@@ -1485,7 +1555,8 @@ class MainWindow(QMainWindow):
         self._settings.dither = self._dither_check.isChecked()
         self._settings.print_resolution = self._resolution().key
         self._settings.hq = self._hq()
-        self._settings.cut = self._cut_check.isChecked()
+        self._settings.copies = self._copies_spin.value()
+        self._settings.cut_mode = self._cut_combo.currentData()
         self._settings.sync()
         super().closeEvent(event)
 

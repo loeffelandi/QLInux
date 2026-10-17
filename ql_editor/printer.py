@@ -68,6 +68,33 @@ DPI_600_MODELS = frozenset({"QL-800", "QL-810W", "QL-820NWB"})
 DPI_600_SCALE = 2
 
 
+# --------------------------------------------------------------------------- #
+# Kopien und Zuschnitt
+# --------------------------------------------------------------------------- #
+#: Zuschnitt nach jedem Etikett (Vorgabe des Druckers).
+CUT_EACH = "each"
+#: Alle Kopien haengen zusammen, Schnitt erst nach der letzten.
+CUT_AT_END = "end"
+#: Nicht schneiden - der Streifen bleibt am Band.
+CUT_NONE = "none"
+#: Waehlbare Zuschnittarten (Reihenfolge = Reihenfolge in der Oberflaeche).
+CUT_MODES = (CUT_EACH, CUT_AT_END, CUT_NONE)
+
+#: Hoechste Kopienzahl pro Auftrag. Der Wert steht als ein Byte im Befehl
+#: "cut each * labels" (:data:`_CUT_EVERY`, 1-255), und ein Auftrag ist ein
+#: zusammenhaengender Datenstrom - mehr als das hier sind keine Kopien am Stueck.
+COPIES_MAX = 99
+
+#: Befehl "cut each * labels" (``ESC i A {n}``): der Drucker schneidet nach
+#: je ``n`` Etiketten, wirksam bei eingeschaltetem Auto Cut (``ESC i M``).
+#: ``convert()`` schreibt dort fest ``1`` (Schnitt nach jedem Etikett) - fuer
+#: :data:`CUT_AT_END` muss die Zahl der Kopien dort stehen.
+_CUT_EVERY = b"\x1b\x69\x41"
+
+#: Parameterbyte von ``convert()`` fuer "Schnitt nach einem Etikett".
+_CUT_EVERY_ONE = b"\x01"
+
+
 @dataclass(frozen=True)
 class PrintResolution:
     """Eine waehlbare Druckaufloesung - Abbildung auf ``convert()``-Schalter.
@@ -577,7 +604,8 @@ def build_raster(
     compress: bool = True,
     red: bool = False,
     rotate: int | str = 0,
-    cut: bool = True,
+    cut_mode: str = CUT_EACH,
+    copies: int = 1,
     dpi_600: bool = False,
     hq: bool = True,
 ) -> bytes:
@@ -588,6 +616,11 @@ def build_raster(
     Mit ``dpi_600=True`` muss ``image`` ``DPI_600_SCALE`` mal so gross sein
     (siehe :data:`DPI_600_SCALE`); ``convert()`` setzt dann das High-Resolution-
     Bit und erwartet genau diese Groesse.
+
+    ``copies`` druckt dasselbe Bild mehrfach in **einem** Auftrag (ein
+    Datenstrom, eine Verbindung). ``cut_mode`` bestimmt, wann der Drucker
+    schneidet: :data:`CUT_EACH` nach jedem Etikett, :data:`CUT_AT_END` erst
+    nach dem letzten, :data:`CUT_NONE` gar nicht.
     """
     validate_for_print(
         image, label, red=red, scale=DPI_600_SCALE if dpi_600 else 1
@@ -600,20 +633,22 @@ def build_raster(
                 model=config.model
             )
         )
+    _validate_copies(copies)
+    _validate_cut_mode(cut_mode, model)
 
     qlr = BrotherQLRaster(model=config.model)
     qlr.exception_on_warning = True  # Warnungen als Fehler sichtbar machen
     try:
         convert(
             qlr=qlr,
-            images=[image],
+            images=[image] * copies,
             label=label.identifier,
             rotate=rotate,
             threshold=threshold,
             dither=dither,
             compress=compress,
             red=red,
-            cut=cut,
+            cut=cut_mode != CUT_NONE,
             dpi_600=dpi_600,
             hq=hq,
         )
@@ -624,7 +659,52 @@ def build_raster(
             tr("Konvertierung fehlgeschlagen: {error}").format(error=exc)
         ) from exc
 
-    return bytes(qlr.data)
+    data = bytes(qlr.data)
+    if cut_mode == CUT_AT_END and copies > 1:
+        data = _set_cut_every(data, copies)
+    return data
+
+
+def _validate_copies(copies: int) -> None:
+    """Kopienzahl pruefen (die Oberflaeche begrenzt sie schon)."""
+    if isinstance(copies, bool) or not isinstance(copies, int) or copies < 1:
+        raise PrinterError(tr("Kopienzahl muss mindestens 1 sein."))
+    if copies > COPIES_MAX:
+        raise PrinterError(
+            tr("Höchstens {max} Kopien pro Auftrag.").format(max=COPIES_MAX)
+        )
+
+
+def _validate_cut_mode(cut_mode: str, model) -> None:
+    """Zuschnitt pruefen - auch gegen das, was der Drucker kann."""
+    if cut_mode not in CUT_MODES:
+        raise PrinterError(
+            tr("Unbekannter Zuschnitt: {mode!r}").format(mode=cut_mode)
+        )
+    if cut_mode != CUT_NONE and not model.cutting:
+        raise PrinterError(
+            tr(
+                "Modell {model!r} hat keine Schneideeinrichtung - "
+                "Zuschnitt auf „{none}“ stellen."
+            ).format(model=model.identifier, none=tr("Nicht schneiden"))
+        )
+
+
+def _set_cut_every(data: bytes, pages: int) -> bytes:
+    """Schnitt erst nach ``pages`` Etiketten einstellen (siehe :data:`_CUT_EVERY`).
+
+    ``convert()`` schreibt in jeden Etikett-Block fest ``ESC i A 1``. Fuer
+    "erst am Ende" wird dieser Zaehler in *allen* Bloecken ersetzt: der Drucker
+    schneidet dann erst nach der letzten Kopie, der Streifen kommt
+    zusammenhaengend heraus (die Kopien haengen aneinander).
+
+    Modelle ohne Schnittsteuerung kennen den Befehl nicht - dann bleibt der
+    Datenstrom unveraendert (``_validate_cut_mode`` hat das schon gemeldet).
+    """
+    parts = data.split(_CUT_EVERY + _CUT_EVERY_ONE)
+    if len(parts) == 1:
+        return data
+    return (_CUT_EVERY + bytes([pages & 0xFF])).join(parts)
 
 
 # --------------------------------------------------------------------------- #
@@ -779,6 +859,11 @@ def _match_labels(width_mm: int, length_mm: int, *, endless: bool) -> list[Label
 
 __all__ = [
     "ADDRESS_EXAMPLES",
+    "COPIES_MAX",
+    "CUT_AT_END",
+    "CUT_EACH",
+    "CUT_MODES",
+    "CUT_NONE",
     "DEFAULT_ADDRESS",
     "NETWORK_PORT",
     "PrinterError",

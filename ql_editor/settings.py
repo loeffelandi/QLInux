@@ -11,7 +11,15 @@ from PySide6.QtCore import QByteArray, QSettings
 
 from .media import DEFAULT_MODEL
 from .preview import DEFAULT_THRESHOLD
-from .printer import DEFAULT_ADDRESS, RESOLUTION_HIGH, RESOLUTION_STANDARD
+from .printer import (
+    COPIES_MAX,
+    CUT_EACH,
+    CUT_MODES,
+    CUT_NONE,
+    DEFAULT_ADDRESS,
+    RESOLUTION_HIGH,
+    RESOLUTION_STANDARD,
+)
 
 _ORG = "QLInux"
 _APP = "QLInux"
@@ -139,12 +147,34 @@ class AppSettings:
         self.set_value("print/hq", bool(value))
 
     @property
-    def cut(self) -> bool:
-        return self._as_bool(self.value("print/cut", None), True)
+    def copies(self) -> int:
+        """Kopien pro Auftrag (1 … :data:`COPIES_MAX`)."""
+        value = self._as_int(self.value("print/copies", None), 1)
+        return min(max(value, 1), COPIES_MAX)
 
-    @cut.setter
-    def cut(self, value: bool) -> None:
-        self.set_value("print/cut", bool(value))
+    @copies.setter
+    def copies(self, value: int) -> None:
+        self.set_value("print/copies", int(value))
+
+    @property
+    def cut_mode(self) -> str:
+        """Zuschnitt (:data:`ql_editor.printer.CUT_MODES`).
+
+        Aeltere Versionen kannten nur ein Haekchen "Nach dem Druck schneiden";
+        das wird einmalig uebersetzt, damit bestehende Einstellungen nicht
+        verloren gehen (aus = nicht schneiden, an = nach jedem Etikett).
+        """
+        value = self.value("print/cut_mode", None)
+        if value is not None and str(value) in CUT_MODES:
+            return str(value)
+        legacy = self.value("print/cut", None)
+        if legacy is not None:
+            return CUT_EACH if self._as_bool(legacy, True) else CUT_NONE
+        return CUT_EACH
+
+    @cut_mode.setter
+    def cut_mode(self, value: str) -> None:
+        self.set_value("print/cut_mode", str(value))
 
     # -- Sprache ------------------------------------------------------------
     @property

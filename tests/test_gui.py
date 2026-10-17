@@ -2909,6 +2909,8 @@ def test_resolution_and_hq_are_forwarded_to_the_printer(qapp, tmp_path):
 
 
 def test_print_options_are_persisted(qapp, tmp_path):
+    from ql_editor.printer import CUT_AT_END
+
     win = _temp_window(qapp, tmp_path)
     win._threshold_spin.setValue(88)
     win._dither_check.setChecked(True)
@@ -2916,7 +2918,8 @@ def test_print_options_are_persisted(qapp, tmp_path):
         win._resolution_combo.findData(RESOLUTION_HIGH.key)
     )
     win._hq_check.setChecked(False)
-    win._cut_check.setChecked(False)
+    win._copies_spin.setValue(4)
+    win._cut_combo.setCurrentIndex(win._cut_combo.findData(CUT_AT_END))
     win.close()
     qapp.processEvents()
 
@@ -2925,7 +2928,40 @@ def test_print_options_are_persisted(qapp, tmp_path):
     assert again._dither_check.isChecked() is True
     assert again._resolution_combo.currentData() == RESOLUTION_HIGH.key
     assert again._hq_check.isChecked() is False
-    assert again._cut_check.isChecked() is False
+    assert again._copies_spin.value() == 4
+    assert again._cut_combo.currentData() == CUT_AT_END
+
+
+def test_print_options_reach_the_print_job(qapp, tmp_path, monkeypatch):
+    """Kopien und Zuschnitt kommen wirklich im Auftrag an (bis in die Schicht)."""
+    from PySide6.QtCore import QObject, Signal
+
+    from ql_editor import app as app_module
+    from ql_editor.printer import CUT_AT_END
+
+    captured: dict = {}
+
+    class FakeWorker(QObject):
+        succeeded = Signal(dict)
+        failed = Signal(str)
+        finished = Signal()
+
+        def __init__(self, image, label, config, options):
+            super().__init__()
+            captured.update(options)
+
+        def start(self) -> None:
+            pass
+
+    monkeypatch.setattr(app_module, "PrintWorker", FakeWorker)
+    win = _temp_window(qapp, tmp_path)
+    win._copies_spin.setValue(3)
+    win._cut_combo.setCurrentIndex(win._cut_combo.findData(CUT_AT_END))
+    win._on_print()
+    assert captured["copies"] == 3
+    assert captured["cut_mode"] == CUT_AT_END
+    win.close()
+    qapp.processEvents()
 
 
 def test_connection_and_address_are_persisted(qapp, tmp_path):
@@ -3303,6 +3339,7 @@ def test_media_panel_state_round_trip(qapp):
 def test_language_switch_keeps_content_and_media(qapp, tmp_path):
     """DE -> EN: neues Fenster mit englischen Texten, Inhalt bleibt."""
     from ql_editor import app as app_module, i18n
+    from ql_editor import printer as printer_module
     from ql_editor.items import TextItem
     from ql_editor.media import Orientation
 
@@ -3311,6 +3348,10 @@ def test_language_switch_keeps_content_and_media(qapp, tmp_path):
     win._media_panel.set_orientation(Orientation.ALONG)
     win._media_panel._auto_check.setChecked(False)
     win._media_panel._length_spin.setValue(55.0)
+    win._copies_spin.setValue(3)
+    win._cut_combo.setCurrentIndex(
+        win._cut_combo.findData(printer_module.CUT_AT_END)
+    )
 
     win.switch_language("en")
     qapp.processEvents()
@@ -3328,6 +3369,9 @@ def test_language_switch_keeps_content_and_media(qapp, tmp_path):
     assert new._media_panel.orientation() is Orientation.ALONG
     assert new._media_panel.auto_length() is False
     assert new._media_panel.length_mm() == pytest.approx(55.0)
+    assert new._copies_spin.value() == 3
+    assert new._cut_combo.currentData() == printer_module.CUT_AT_END
+    assert new._cut_combo.currentText() == "Only at the end"
 
     new.close()
     qapp.processEvents()

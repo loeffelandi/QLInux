@@ -14,8 +14,11 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-# Muss *vor* dem ersten Qt-Import gesetzt sein.
-os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+# Muss *vor* dem ersten Qt-Import gesetzt sein. Absichtlich hart gesetzt:
+# laeuft pytest in einer Desktop-Sitzung, waere QT_QPA_PLATFORM dort schon
+# gesetzt (z. B. "wayland;xcb") und ginge fuer jeden Test ein echtes Fenster
+# auf. Wer wirklich auf dem Bildschirm testen will, setzt QLINUX_TEST_PLATFORM.
+os.environ["QT_QPA_PLATFORM"] = os.environ.get("QLINUX_TEST_PLATFORM", "offscreen")
 
 
 @pytest.fixture(scope="session")

@@ -167,6 +167,44 @@ liefert nur Aufloesungen, und `pquality`/`hq` ("Qualitaet vor Tempo") ist ein
 eigener Schalter in der Oberflaeche. Abfragen laesst sich beides nicht - die
 Statusantwort (32 Byte) kennt nur Band und Fehler.
 
+## Schneiden und Kopien (`ESC i M`, `ESC i A`, `ESC i K`)
+
+Quelle: Brother *Raster Command Reference* der QL-800-Reihe
+(`https://download.brother.com/welcome/docp100278/cv_ql800_eng_raster_101.pdf`).
+Maßgeblich sind drei Kommandos:
+
+| Kommando | Bedeutung | `brother_ql` 0.9.4 |
+| --- | --- | --- |
+| `ESC i M {n}` | Autocut: Bit 7 = schneiden, Bit 6 = "halber Schnitt" | `add_autocut(enable)` |
+| `ESC i A {n}` | "cut each \* labels": nach je `n` Etiketten schneiden (1-255, Default 1); wirkt **nur** bei Autocut | `add_cut_every(n)` |
+| `ESC i K {n}` | Expanded Mode: Bit 4 = "Cut at End" (Default 1) | `add_expanded_mode(cut_at_end=…)` |
+
+Daraus folgen die drei Zuschnitt-Betriebsarten (`printer.CUT_MODES`):
+
+* **Nach jeder Kopie** (`CUT_EACH`): Autocut an, `ESC i A 1` - Einzeletiketten.
+* **Nur am Ende** (`CUT_AT_END`): Autocut an, `ESC i A {kopien}` - die Kopien
+  bleiben zusammen und werden zuletzt getrennt.
+* **Nicht schneiden** (`CUT_NONE`): Autocut aus (das Band bleibt am Streifen).
+
+Falle: `brother_ql.convert()` schreibt `ESC i A 1` fest verdrahtet
+(`kwargs['cut']` steuert nur Autocut). Fuer "Nur am Ende" wird der Wert deshalb
+**nach** dem Konvertieren im fertigen Bytestrom ersetzt:
+`printer._set_cut_every(instructions, copies)` tauscht die drei Bytes
+`ESC i A 01` gegen `ESC i A {copies}` (Sequenz ist in `reader.OPCODES` als
+`cut-every` dokumentiert und im Strom eindeutig).
+
+Kopien laufen als **ein** Auftrag: `images=[image] * copies` - ein
+Datenstrom, eine Verbindung. Einzelne `print_image()`-Aufrufe pro Kopie
+wuerden bei TCP 9100 nacheinander verbinden; ohne Rueckkanal ist der Drucker
+dazwischen unter Umstaenden noch beschaeftigt.
+
+Modelle **ohne** Schneideeinrichtung (`ModelSpec.cutting is False`, z. B.
+QL-500) vertragen das Autocut-Kommando nicht: `brother_ql`
+`raster.py: add_autocut` ruft `unsupported()` → `BrotherQLUnsupportedCmd`,
+das `convert()` schluckt - der Druck ginge still ohne Schnitt durch.
+`printer.build_raster()` meldet deshalb jeden Zuschnitt außer `CUT_NONE` bei
+solchen Modellen als sichtbaren `PrinterError`.
+
 ## Anschluesse und Status-Rueckkanal
 
 `brother_ql.backends.guess_backend()` leitet das Backend aus der Kennung ab:

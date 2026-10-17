@@ -252,7 +252,19 @@ EN: dict[str, str] = {
     "Tintenmenge (ohne Wirkung)": "Ink amount (no effect)",
     "Graustufen (Dithering)": "Grayscale (dithering)",
     "Hohe Druckqualität (HQ)": "High print quality (HQ)",
-    "Nach dem Druck schneiden": "Cut after printing",
+    "Kopien": "Copies",
+    "Wie oft dieses Etikett gedruckt wird - als ein Auftrag.": (
+        "How many times this label is printed - as one job."
+    ),
+    "Zuschnitt": "Cutting",
+    "Nach jeder Kopie": "After each copy",
+    "Nur am Ende": "Only at the end",
+    "Nicht schneiden": "Do not cut",
+    "Nach jeder Kopie: einzelne Etiketten.\nNur am Ende: die Kopien hängen zusammen und werden zuletzt getrennt.\nNicht schneiden: der Streifen bleibt am Band.": (
+        "After each copy: separate labels.\n"
+        "Only at the end: the copies stay together and are separated last.\n"
+        "Do not cut: the strip stays attached to the tape."
+    ),
     "Tinte: –": "Ink: –",
     "Tinte: {value} %": "Ink: {value} %",
     "600 dpi nur in Bandlaufrichtung; quer bleiben es 300 dpi.": (
@@ -318,6 +330,7 @@ EN: dict[str, str] = {
     ),
     "Kein Zugriff auf {address}.": "No access to {address}.",
     "Sende an {address}…": "Sending to {address}…",
+    "Sende {count} Kopien an {address}…": "Sending {count} copies to {address}…",
     "Druckauftrag gesendet (outcome={outcome}).": (
         "Print job sent (outcome={outcome})."
     ),
@@ -375,6 +388,12 @@ EN: dict[str, str] = {
         "Model {model!r} does not support red printing."
     ),
     "Konvertierung fehlgeschlagen: {error}": "Conversion failed: {error}",
+    "Kopienzahl muss mindestens 1 sein.": "There has to be at least one copy.",
+    "Höchstens {max} Kopien pro Auftrag.": "At most {max} copies per job.",
+    "Unbekannter Zuschnitt: {mode!r}": "Unknown cutting: {mode!r}",
+    "Modell {model!r} hat keine Schneideeinrichtung - Zuschnitt auf „{none}“ stellen.": (
+        "Model {model!r} has no cutter - set cutting to “{none}”."
+    ),
     "Senden fehlgeschlagen: {error}": "Sending failed: {error}",
     "Drucker {address!r} nicht erreichbar: {error}": (
         "Printer {address!r} not reachable: {error}"
