@@ -353,6 +353,19 @@ class MediaPanel(QWidget):
         if address and address != self._address_edit.text():
             self._address_edit.setText(address)
 
+    def set_model(self, model_id: str) -> bool:
+        """Modell setzen (z. B. nach einer USB-Suche).
+
+        ``False``, wenn das Modell unbekannt ist oder schon gewaehlt war - der
+        Aufrufer muss also nicht selbst vergleichen. Ein Wechsel zieht die
+        Bandliste nach und meldet :attr:`changed`.
+        """
+        index = self._model_combo.findData(model_id)
+        if index < 0 or index == self._model_combo.currentIndex():
+            return False
+        self._model_combo.setCurrentIndex(index)
+        return True
+
     def apply_label_defaults(self, label: LabelSpec) -> None:
         """Setze Margin-Startwerte aus ``feed_margin`` des Bandes."""
         margins = label.default_margins()

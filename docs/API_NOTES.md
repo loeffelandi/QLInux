@@ -198,6 +198,56 @@ Seriennummer also `int("0x2015_C5Z315686", 16)` → `ValueError`. Die Kennung au
 der Liste ist damit **nicht** rueckuebersetzbar; `printer.usb_devices()` kuerzt
 sie deshalb auf `usb://0x04f9:0x2015` (Seriennummer weg).
 
+### USB-Kennung → Modell
+
+`brother_ql` 0.9.4 kennt **keine** USB-Kennungen: `ModelSpec` hat kein
+`usb_identifiers`, das pyusb-Backend filtert nur auf Hersteller `0x04f9` und
+Interface-Klasse 7. Die Zuordnung pflegt deshalb `printer.USB_MODELS`; Quelle
+ist die lokale `usb.ids`-Datenbank (`/usr/share/misc/usb.ids`, Paket
+`usb.ids`). Nur Modelle der Bibliothek sind aufgefuehrt; der QL-580N fehlt,
+weil `usb.ids` fuer ihn keine Kennung nennt, und die Massenspeicher-Modi
+(z. B. QL-700 als `0x2049`) fehlen bewusst - dort wird nicht gedruckt.
+
+| Kennung | Modell | Kennung | Modell |
+| --- | --- | --- | --- |
+| `04f9:2015` | QL-500 | `04f9:202a` | QL-1060N |
+| `04f9:2016` | QL-550 | `04f9:2042` | QL-700 |
+| `04f9:201b` | QL-650TD | `04f9:2043` | QL-710W |
+| `04f9:2020` | QL-1050 | `04f9:2044` | QL-720NW |
+| `04f9:2027` | QL-560 | `04f9:209b` | QL-800 |
+| `04f9:2028` | QL-570 | `04f9:209c` | QL-810W |
+| | | `04f9:209d` | QL-820NWB |
+
+Auch beim Kernel-Geraet (`/dev/usb/lp1`) ist das Modell ableitbar, ohne dass
+pyusb oeffnen muss: `usblp` legt `/sys/class/usbmisc/lpN` an, dessen
+`device`-Verweis auf das USB-Interface zeigt; eine Ebene darueber liegt das
+Geraet mit `idVendor`/`idProduct`. Am QL-700 geprueft:
+
+```console
+$ cat /sys/class/usbmisc/lp1/device/../idVendor   # 04f9
+$ cat /sys/class/usbmisc/lp1/device/../idProduct  # 2042  -> QL-700
+```
+
+`printer.usb_id_for_path()` macht genau das (`sysfs_root` ist fuer Tests
+injizierbar); `printer.model_for_address()` vereint beide Wege und liefert fuer
+Netzwerkadressen bewusst `None` - welcher Drucker dort antwortet, verraet die
+reine TCP-Druckschnittstelle nicht.
+
+### Rechtelage am QL-700 (gemessen)
+
+Beide USB-Wege scheitern ohne Systemrechte, und zwar unterschiedlich:
+
+| Adresse | Backend | Fehler | Ursache |
+| --- | --- | --- | --- |
+| `/dev/usb/lp1` | `linux_kernel` | `[Errno 13] Permission denied` | `crw-rw---- root:lp`, Nutzer nicht in `lp` |
+| `usb://0x04f9:0x2042` | `pyusb` | `Access denied (insufficient permissions)` | libusb braucht udev-Regel |
+
+Die Geräteerkennung selbst funktioniert in beiden Faellen (sie oeffnet das
+Geraet nicht). Abhilfe: `sudo usermod -aG lp "$USER"` (Kernel-Weg, empfohlen)
+oder eine udev-Regel fuer libusb. `pyusb` haengt beim Oeffnen den Kernel-Treiber
+ab und bindet ihn nicht wieder an - `/dev/usb/lp1` ist danach bis zum Umstecken
+weg; der Kernel-Weg hat dieses Problem nicht.
+
 ## Pillow-10-Patch
 
 Von Haus aus nutzt `conversion.py` Zeile 112 `Image.ANTIALIAS` (in Pillow ≥ 10

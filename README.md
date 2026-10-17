@@ -17,6 +17,7 @@ Kein Browser-Tool, kein WebUSB.
 | M3.x | Canvas-Editing, Icons, Druckvorschau, weiches Scrollen, Sheets | ✅ |
 | M3.11 | Einklappbare Overlay-Panels, Druckqualität, Vorschau in 1:1 | ✅ |
 | M3.12 | Auflösung pro Modell (300 × 300 / 300 × 600 dpi), HQ-Schalter, Tintenmenge erklärt | ✅ |
+| M3.13 | USB: Backend aus Adresse, Gerätesuche, Modell aus USB-Kennung, Rechtelage dokumentiert | ✅ |
 | M4 | Vorlagen, Settings, `.deb`-Paket | ⏳ |
 
 ## Architektur
@@ -88,8 +89,33 @@ python -m ql_editor
   Unter dem Feld steht, was aus der Adresse folgt und ob dort eine
   Statusabfrage möglich ist. **„USB suchen"** sucht angeschlossene
   USB-Drucker und trägt die Adresse ein (mehrere Treffer → Auswahl).
+  Dabei wird auch das **Modell** nachgezogen, wenn es sich aus der
+  USB-Kennung ableiten lässt (`usb://0x04f9:0x2042` bzw. über `sysfs`
+  auch `/dev/usb/lp1` → QL-700); sonst bleibt die Auswahl stehen und die
+  Meldung sagt, dass das Modell von Hand zu wählen ist.
   Achtung: die Adresse gilt für **alles** - druckst du über USB, läuft auch
   der Druckauftrag über USB.
+* **USB braucht Systemrechte** - ohne sie findet „USB suchen" den Drucker
+  zwar (das ist reine Geräteerkennung), aber Drucken und Band-Erkennung
+  scheitern. Beide Wege am QL-700 nachgemessen:
+
+  | Weg | Fehler ohne Rechte | Abhilfe |
+  | --- | --- | --- |
+  | `/dev/usb/lp1` (Kernel) | `[Errno 13] Permission denied` | Mitgliedschaft in der Gruppe `lp` |
+  | `usb://0x04f9:0x2042` (libusb) | `Access denied (insufficient permissions)` | udev-Regel für libusb |
+
+  ```bash
+  # Weg 1 (empfohlen: kein Treiberstreit, Rückkanal bleibt) - danach neu anmelden
+  sudo usermod -aG lp "$USER"
+
+  # Weg 2 (Alternative, libusb direkt) - braucht zusaetzlich eine udev-Regel
+  # /etc/udev/rules.d/99-brother-ql.rules
+  SUBSYSTEM=="usb", ATTR{idVendor}=="04f9", MODE="0666", GROUP="plugdev"
+  ```
+
+  Der Kernel-Weg ist zu bevorzugen: `pyusb` hängt den Kernel-Treiber ab
+  (`detach_kernel_driver`) und bindet ihn **nicht** wieder an - danach ist
+  `/dev/usb/lp1` bis zum Umstecken weg.
 * **Mitte**: Canvas in exakter Bandbreite mit mm-Linealen; der **nicht
   bedruckbare Rand** (~1,5 mm je Seite) ist schraffiert, Items werden darauf
   begrenzt. Um die Designfläche liegt eine **Arbeitsfläche** (8 mm Rand,

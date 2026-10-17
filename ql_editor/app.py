@@ -67,9 +67,11 @@ from .printer import (
     RESOLUTION_STANDARD,
     detect_label,
     maximum_resolution,
+    model_for_address,
     print_image,
     resolution_by_key,
     resolution_options,
+    usb_device_label,
     usb_devices,
 )
 from .settings import AppSettings
@@ -1084,18 +1086,36 @@ class MainWindow(QMainWindow):
         if len(devices) == 1:
             self._apply_usb_address(devices[0])
             return
+        # Beschriftung mit Backend und (falls ableitbar) Modell - die Zuordnung
+        # zurueck laeuft ueber den Text, deshalb sind die Labels eindeutig
+        # (die Adresse steht drin).
+        labels = {usb_device_label(address): address for address in devices}
         ask_choice(
             self,
             title="USB suchen",
             label="Gefundene Drucker",
-            items=devices,
-            on_ok=self._apply_usb_address,
+            items=list(labels),
+            on_ok=lambda text: self._apply_usb_address(labels.get(text, text)),
         )
 
     def _apply_usb_address(self, address: str) -> None:
+        """Gefundenen USB-Drucker uebernehmen - samt Modell, wenn ableitbar.
+
+        Am USB kann ein anderes Modell haengen als im Panel gewaehlt (z. B.
+        QL-700 statt QL-820NWB). Die USB-Kennung verraet es; das Modell gehoert
+        damit zur Adresse. Unbekannt bleibt unbekannt - dann sagt die Meldung,
+        dass das Modell von Hand zu waehlen ist.
+        """
         self._media_panel.set_address(address)
+        model = model_for_address(address)
+        if model is None:
+            hint = " Modell bitte im Panel wählen (nicht ableitbar)."
+        elif self._media_panel.set_model(model):
+            hint = f" Modell auf {model} gesetzt."
+        else:
+            hint = ""
         self.statusBar().showMessage(
-            f"USB-Drucker übernommen: {address} – Band erkennen ist damit möglich.",
+            f"USB-Drucker übernommen: {address}.{hint} Band erkennen ist damit möglich.",
             8000,
         )
 

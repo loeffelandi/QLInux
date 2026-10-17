@@ -429,3 +429,60 @@ def test_detect_label_respects_model_restriction(monkeypatch):
         ),
     )
     assert detect_label(CONFIG) is None
+
+
+# --------------------------------------------------------------------------- #
+# USB-Kennung -> Modell
+# --------------------------------------------------------------------------- #
+def test_usb_id_from_identifier():
+    assert printer.usb_id_from_identifier("usb://0x04f9:0x2042") == "04f9:2042"
+    # Serialnummer (mit Unterstrich) und Pfadform werden toleriert.
+    assert printer.usb_id_from_identifier("usb://0x04f9:0x2015_C5Z315686") == "04f9:2015"
+    assert printer.usb_id_from_identifier("usb://0x04f9:0x2015/SN") == "04f9:2015"
+    assert printer.usb_id_from_identifier("/dev/usb/lp0") is None
+    assert printer.usb_id_from_identifier("usb://kaputt") is None
+    assert printer.usb_id_from_identifier("usb://0xzz:0x2042") is None
+
+
+def test_usb_id_for_path_reads_sysfs(tmp_path):
+    # Layout wie im echten sysfs: class/usbmisc/lp1/device -> Interface-Verzeichnis,
+    # eine Ebene darueber liegt das Geraet mit idVendor/idProduct.
+    interface = tmp_path / "devices" / "1-9:1.0"
+    interface.mkdir(parents=True)
+    (tmp_path / "devices" / "idVendor").write_text("04f9\n")
+    (tmp_path / "devices" / "idProduct").write_text("2042\n")
+    (tmp_path / "class" / "usbmisc" / "lp1").mkdir(parents=True)
+    (tmp_path / "class" / "usbmisc" / "lp1" / "device").symlink_to(interface)
+
+    assert printer.usb_id_for_path("/dev/usb/lp1", sysfs_root=str(tmp_path)) == "04f9:2042"
+    assert printer.usb_id_for_path("file:///dev/usb/lp1", sysfs_root=str(tmp_path)) == "04f9:2042"
+    assert printer.usb_id_for_path("/dev/usb/lp7", sysfs_root=str(tmp_path)) is None
+
+
+def test_model_for_address():
+    assert printer.model_for_address("usb://0x04f9:0x2042") == "QL-700"
+    assert printer.model_for_address("usb://0x04f9:0x209d") == "QL-820NWB"
+    assert printer.model_for_address("usb://0x04f9:0x9999") is None
+    # Netzwerk verraet kein Modell - und /dev/usb/lp0 gibt es hier nicht.
+    assert printer.model_for_address("tcp://192.168.178.62:9100") is None
+    assert printer.model_for_address("/dev/usb/lp0") is None
+
+
+def test_usb_models_are_known_to_the_library():
+    from ql_editor import media
+
+    known = {model.identifier for model in media.all_models()}
+    assert set(printer.USB_MODELS.values()) <= known
+
+
+def test_usb_device_label_names_backend_and_model():
+    assert printer.usb_device_label("usb://0x04f9:0x2042") == (
+        "usb://0x04f9:0x2042  (libusb, QL-700)"
+    )
+    assert printer.usb_device_label("/dev/usb/lp0") == (
+        "/dev/usb/lp0  (Kernel-Anschluss)"
+    )
+    # Kein USB - dann keine irrefuehrende Beschriftung.
+    assert printer.usb_device_label("tcp://192.168.178.62:9100") == (
+        "tcp://192.168.178.62:9100"
+    )

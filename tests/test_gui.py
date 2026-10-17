@@ -83,6 +83,33 @@ def test_usb_search_applies_the_only_printer_found(qapp, tmp_path, monkeypatch):
     assert win._media_panel.printer_config().backend == "pyusb"
 
 
+def test_usb_search_switches_the_model_from_the_usb_id(qapp, tmp_path, monkeypatch):
+    """Am USB haengt ein anderes Modell - die Kennung zieht das Modell nach."""
+    from ql_editor import app as app_module
+
+    win = _temp_window(qapp, tmp_path)
+    win._media_panel.set_model("QL-820NWB")
+    monkeypatch.setattr(app_module, "usb_devices", lambda: ["usb://0x04f9:0x2042"])
+
+    win._on_usb_search()
+
+    assert win._media_panel.address() == "usb://0x04f9:0x2042"
+    assert win._media_panel.model_id() == "QL-700"
+    assert win._media_panel.printer_config().model == "QL-700"
+
+
+def test_usb_search_keeps_the_model_when_it_is_unknown(qapp, tmp_path, monkeypatch):
+    from ql_editor import app as app_module
+
+    win = _temp_window(qapp, tmp_path)
+    win._media_panel.set_model("QL-820NWB")
+    monkeypatch.setattr(app_module, "usb_devices", lambda: ["usb://0x04f9:0x9999"])
+
+    win._on_usb_search()
+
+    assert win._media_panel.model_id() == "QL-820NWB"
+
+
 def test_media_panel_finished_vs_content(qapp):
     from ql_editor.media_panel import MediaPanel
     from ql_editor.media import LengthMode

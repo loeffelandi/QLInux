@@ -15,6 +15,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 import glob
 import logging
+from pathlib import Path
 import time
 
 from PIL import Image
@@ -200,6 +201,91 @@ def usb_devices() -> list[str]:
         if path not in found:
             found.append(path)
     return found
+
+
+#: USB-Kennungen (Hersteller:Produkt) der Modelle, die ``brother_ql`` kennt.
+#:
+#: Quelle: ``usb.ids``-Datenbank (Paket ``usb.ids``, ``/usr/share/misc/usb.ids``).
+#: ``brother_ql`` 0.9.4 fuehrt selbst keine USB-Kennungen - ``ModelSpec`` hat
+#: kein ``usb_identifiers``. Nur Modelle der Bibliothek sind aufgefuehrt; der
+#: QL-580N fehlt, weil ``usb.ids`` fuer ihn keine Kennung nennt, und die
+#: Massenspeicher-Modi (z. B. QL-700 als ``0x2049``) fehlen bewusst - dort wird
+#: nicht gedruckt.
+USB_MODELS: dict[str, str] = {
+    "04f9:2015": "QL-500",
+    "04f9:2016": "QL-550",
+    "04f9:201b": "QL-650TD",
+    "04f9:2020": "QL-1050",
+    "04f9:2027": "QL-560",
+    "04f9:2028": "QL-570",
+    "04f9:202a": "QL-1060N",
+    "04f9:2042": "QL-700",
+    "04f9:2043": "QL-710W",
+    "04f9:2044": "QL-720NW",
+    "04f9:209b": "QL-800",
+    "04f9:209c": "QL-810W",
+    "04f9:209d": "QL-820NWB",
+}
+
+
+def usb_id_from_identifier(identifier: str) -> str | None:
+    """USB-Kennung ``"04f9:2042"`` aus ``usb://0x04f9:0x2042[_serial]``."""
+    head = identifier.strip().removeprefix("usb://").split("/")[0].split("_")[0]
+    vendor, sep, product = head.partition(":")
+    if not sep:
+        return None
+    try:
+        return f"{int(vendor, 16):04x}:{int(product, 16):04x}"
+    except ValueError:
+        return None
+
+
+def usb_id_for_path(path: str, *, sysfs_root: str = "/sys") -> str | None:
+    """USB-Kennung eines Kernel-Druckergeraets (``/dev/usb/lp1``) ueber sysfs.
+
+    ``usblp`` legt ``/sys/class/usbmisc/lpN`` an; dessen ``device``-Verweis zeigt
+    auf das USB-Interface, eine Ebene darueber liegt das Geraet mit
+    ``idVendor``/``idProduct``. Ohne Kernel-Treiber gibt es diesen Weg nicht -
+    dann bleibt nur die pyusb-Adresse.
+    """
+    name = path.strip().removeprefix("file://").rsplit("/", 1)[-1]
+    try:
+        interface = (Path(sysfs_root) / "class" / "usbmisc" / name / "device").resolve()
+        vendor = (interface.parent / "idVendor").read_text().strip()
+        product = (interface.parent / "idProduct").read_text().strip()
+    except OSError:
+        return None
+    if not vendor or not product:
+        return None
+    return f"{vendor.lower()}:{product.lower()}"
+
+
+def model_for_address(address: str) -> str | None:
+    """Modell zu einer USB-Adresse - ``None``, wenn es nicht ableitbar ist.
+
+    Netzwerkadressen liefern bewusst ``None``: welcher Drucker dort antwortet,
+    verraet die reine TCP-Druckschnittstelle nicht.
+    """
+    address = address.strip()
+    if backend_for_address(address) not in READBACK_BACKENDS:
+        return None
+    usb_id = (
+        usb_id_from_identifier(address)
+        if address.startswith("usb://")
+        else usb_id_for_path(address)
+    )
+    return USB_MODELS.get(usb_id) if usb_id else None
+
+
+def usb_device_label(address: str) -> str:
+    """Beschriftung eines USB-Geraets fuer die Auswahlliste der USB-Suche."""
+    backend = backend_for_address(address)
+    if backend not in READBACK_BACKENDS:
+        return address
+    kind = "Kernel-Anschluss" if backend == "linux_kernel" else "libusb"
+    model = model_for_address(address)
+    suffix = f", {model}" if model else ""
+    return f"{address}  ({kind}{suffix})"
 
 
 @dataclass(frozen=True)
