@@ -126,14 +126,14 @@ def test_length_is_clamped_to_model_bounds():
     assert canvas_size_dots(label, model, auto_length=True, content_length_dots=10_000_000)[1] == hi
 
 
-def test_default_margins_from_feed_margin():
+def test_default_margins_are_zero():
+    """Ränder stehen standardmaessig auf 0 - Vorschub und Seitenrand sind
+    schon automatisch drin (Bandbreite und Bandlaenge), nicht als Rand."""
     label = get_label("50")
-    assert label.feed_margin == 35
+    assert label.feed_margin == 35  # der Vorschub ist vorhanden ...
     margins = label.default_margins()
     assert isinstance(margins, Margins)
-    assert margins.left == 0.0 and margins.right == 0.0
-    assert margins.top == pytest.approx(label.feed_margin_mm)
-    assert margins.bottom == pytest.approx(label.feed_margin_mm)
+    assert margins == Margins(left=0.0, right=0.0, top=0.0, bottom=0.0)  # ... aber kein Rand
 
 
 # --- Laengen-Kompensation (Gesamtlaenge statt Inhalt) ---

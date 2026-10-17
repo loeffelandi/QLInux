@@ -249,14 +249,14 @@ class LabelSpec:
 
     # -- Voreinstellungen ---------------------------------------------------
     def default_margins(self) -> Margins:
-        """Startwerte fuer die Margin-Felder.
+        """Startwerte fuer die Margin-Felder: alles 0 mm.
 
-        Der ``feed_margin`` der Bibliothek ist der physische Vorschub vor
-        dem Schnitt; er wird als Startwert fuer oben/unten verwendet.
-        Links/rechts starten bei 0 mm (Design-Raender sind Nutzerentscheidung).
+        Der Vorschub (``feed_margin``) und der nicht bedruckbare Seitenrand
+        sind schon automatisch drin - ``brother_ql`` fuegt den Vorschub im
+        Datenstrom ein, und die Bandbreite ist um den Seitenrand verkleinert.
+        Ein zusaetzlicher Rand ist eine bewusste Entscheidung des Nutzers.
         """
-        fm = self.feed_margin_mm
-        return Margins(left=0.0, right=0.0, top=fm, bottom=fm)
+        return Margins(left=0.0, right=0.0, top=0.0, bottom=0.0)
 
 
 @dataclass(frozen=True)

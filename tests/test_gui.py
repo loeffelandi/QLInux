@@ -665,9 +665,7 @@ def test_media_panel_margins_from_feed_margin(qapp):
 
     panel = MediaPanel()
     margins = panel.margins()
-    assert margins.left == 0.0 and margins.right == 0.0
-    # Der Spinbox rundet auf 1 Nachkommastelle.
-    assert margins.top == pytest.approx(get_label("50").feed_margin_mm, abs=0.1)
+    assert margins.left == margins.right == margins.top == margins.bottom == 0.0
 
 
 # --------------------------------------------------------------------------- #
