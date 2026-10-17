@@ -35,6 +35,7 @@ from PySide6.QtWidgets import (
 )
 
 from . import media
+from .discovery import NetworkPrinter, discover_network_printers
 from .i18n import tr
 from .icons import icon
 from .media import (
@@ -84,6 +85,9 @@ HINT_STYLE = "color:#6b7280;"
 #: werden abgeschnitten (der volle Text steht im Tooltip) - so bleibt die
 #: Feldspalte schmal und das Panel behaelt seine Breite.
 USB_COMBO_MIN_CHARS = 12
+#: Rolle, unter der ein Listeneintrag sein Modell traegt (Netzwerksuche).
+#: Achtung: nicht ``UserRole`` - die traegt schon die Adresse des Eintrags.
+MODEL_ROLE = Qt.ItemDataRole.UserRole + 1
 
 
 def usb_placeholder() -> str:
@@ -99,6 +103,7 @@ class MediaPanel(QWidget):
     changed = Signal()
     detect_requested = Signal()
     usb_search_requested = Signal()
+    network_search_requested = Signal()
     usb_permission_requested = Signal()
 
     def __init__(self, parent: QWidget | None = None):
@@ -115,6 +120,9 @@ class MediaPanel(QWidget):
         self._adjusting = False
         # Rechte am gewaehlten USB-Geraet (True/False, None = unklar/kein USB).
         self.access_allowed: bool | None = None
+        # Zuletzt gefundene Netzwerk-Drucker und ob gerade gesucht wird.
+        self._network_found: list[NetworkPrinter] = []
+        self._network_searching = False
         self._build_ui()
         self._populate_models()
         self._populate_bands()
@@ -188,6 +196,26 @@ class MediaPanel(QWidget):
             ).format(port=NETWORK_PORT)
         )
 
+        # Netzwerk-Drucker im Netz suchen (mDNS + SNMP) - so muss niemand eine
+        # IP kennen. Die Liste fuellt sich beim Umschalten auf Netzwerk und
+        # ueber den Knopf; das Feld darunter bleibt fuer Handeingabe.
+        self._net_combo = QComboBox()
+        self._net_combo.setSizeAdjustPolicy(
+            QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon
+        )
+        self._net_combo.setMinimumContentsLength(USB_COMBO_MIN_CHARS)
+        self._net_combo.setToolTip(
+            tr("Gefundene Netzwerk-Drucker. Die Auswahl setzt IP-Adresse und – "
+            "wenn das Gerät sein Modell meldet – auch das Modell.")
+        )
+        self._net_button = QPushButton(icon("detect"), tr("Suchen"))
+        self._net_button.setToolTip(
+            tr("Netzwerk nach Druckern durchsuchen (mDNS und SNMP).")
+        )
+        self._net_hint = QLabel()
+        self._net_hint.setWordWrap(True)
+        self._net_hint.setStyleSheet(HINT_STYLE)
+
         self._usb_combo = QComboBox()
         # Lange Geraetenamen duerfen das Panel nicht breiter machen; der volle
         # Text steht weiterhin im Tooltip des Eintrags.
@@ -247,6 +275,7 @@ class MediaPanel(QWidget):
         # so fragt der Programmstart nicht ungefragt libusb ab.
         self._conn_buttons[CONNECTION_NETWORK].setChecked(True)
         self._host_edit.setText(network_host(DEFAULT_ADDRESS))
+        self._rebuild_network_list()
         self._sync_connection_rows()
 
         # -- Band -----------------------------------------------------------
@@ -323,9 +352,11 @@ class MediaPanel(QWidget):
             spin.valueChanged.connect(self._on_media_changed)
         self._detect_button.clicked.connect(self.detect_requested.emit)
         self._usb_button.clicked.connect(self.usb_search_requested.emit)
+        self._net_button.clicked.connect(self.network_search_requested.emit)
         self._access_button.clicked.connect(self.usb_permission_requested.emit)
         self._host_edit.textChanged.connect(self._on_host_changed)
         self._usb_combo.currentIndexChanged.connect(self._on_usb_combo_changed)
+        self._net_combo.currentIndexChanged.connect(self._on_net_combo_changed)
         for mode, button in self._conn_buttons.items():
             button.toggled.connect(
                 lambda checked, value=mode: self._on_connection_toggled(value, checked)
@@ -343,19 +374,19 @@ class MediaPanel(QWidget):
         return label
 
     def _build_host_page(self) -> QWidget:
-        """Seite „Netzwerk“: IP-Adresse (der Port wird automatisch ergaenzt)."""
+        """Seite „Netzwerk“: gefundene Drucker waehlen oder die IP tippen."""
         page = QWidget()
         form = QFormLayout(page)
         form.setContentsMargins(0, 0, 0, 0)
         form.setRowWrapPolicy(QFormLayout.RowWrapPolicy.WrapLongRows)
         form.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.AllNonFixedFieldsGrow)
-        hint = QLabel(
-            tr("Der Port {port} wird automatisch ergänzt.").format(port=NETWORK_PORT)
-        )
-        hint.setWordWrap(True)
-        hint.setStyleSheet(HINT_STYLE)
+        # Wie am USB: erst die Liste, dann der Knopf in eigener Zeile (daneben
+        # waere die Feldspalte im Panel zu eng).
+        form.addRow(self._printer_label(tr("Gerät")), self._net_combo)
+        form.addRow("", self._net_button)
         form.addRow(self._printer_label(tr("IP-Adresse")), self._host_edit)
-        form.addRow("", hint)
+        form.addRow("", self._net_hint)
+        self._sync_network_hint()
         return page
 
     def _build_usb_page(self) -> QWidget:
@@ -662,6 +693,7 @@ class MediaPanel(QWidget):
             self._conn_buttons[mode].setChecked(True)
             if mode == CONNECTION_NETWORK:
                 self._host_edit.setText(network_host(address))
+                self._rebuild_network_list()
             else:
                 index = self._ensure_usb_entry(address)
                 self._usb_combo.setCurrentIndex(index)
@@ -736,6 +768,100 @@ class MediaPanel(QWidget):
         """Rechte am gewaehlten Geraet neu pruefen (z. B. nach dem Einrichten)."""
         self._sync_access()
         return self.access_allowed
+
+    def refresh_network_devices(
+        self, printers: list[NetworkPrinter] | None = None
+    ) -> list[NetworkPrinter]:
+        """Gefundene Netzwerk-Drucker uebernehmen und die Liste fuellen.
+
+        Ohne ``printers`` wird selbst gesucht
+        (:func:`ql_editor.discovery.discover_network_printers`) - das blockiert
+        bis zu zwei Sekunden, im Fenster laeuft die Suche deshalb im
+        Hintergrund. Die aktuelle Adresse bleibt erhalten; wurde sie nicht
+        gefunden, steht sie als „Handeingabe“ in der Liste. Ist noch gar keine
+        Adresse gesetzt und wird genau ein Drucker gefunden, wird er
+        gleich uebernommen (wie am USB).
+        """
+        if printers is None:
+            try:
+                printers = discover_network_printers()
+            except Exception as exc:  # pragma: no cover - haengt am Netz
+                logger.info("Netzwerksuche fehlgeschlagen: %s", exc)
+                printers = []
+        self._network_found = list(printers)
+        self._rebuild_network_list()
+        self._sync_network_hint(len(self._network_found))
+        if not self.address() and len(self._network_found) == 1:
+            self._apply_network_selection()
+        return list(self._network_found)
+
+    def set_network_searching(self, searching: bool) -> None:
+        """Suche laeuft: Knopf sperren und es in der Statuszeile zeigen."""
+        self._network_searching = searching
+        self._net_button.setEnabled(not searching)
+        self._sync_network_hint()
+
+    def _sync_network_hint(self, found: int | None = None) -> None:
+        """Statuszeile der Netzwerk-Seite: Suche, Ergebnis oder Hinweis."""
+        if self._network_searching:
+            text = tr("Suche läuft …")
+        elif found == 0:
+            text = tr("Keine Netzwerk-Drucker gefunden.")
+        else:
+            text = tr("Der Port {port} wird automatisch ergänzt.").format(
+                port=NETWORK_PORT
+            )
+        self._net_hint.setText(text)
+
+    def _rebuild_network_list(self) -> None:
+        """Liste aus den zuletzt gefundenen Druckern neu aufbauen.
+
+        Die aktuelle Adresse steht als „Handeingabe“ darin, solange sie nicht
+        gefunden wurde - so bleibt sie sichtbar und auswaehlbar, egal ob sie
+        getippt oder aus den Einstellungen geladen wurde.
+        """
+        current = self.address()
+        self._net_combo.blockSignals(True)
+        try:
+            self._net_combo.clear()
+            for printer in self._network_found:
+                self._net_combo.addItem(printer.label(), printer.address)
+                index = self._net_combo.count() - 1
+                if printer.model_id:
+                    self._net_combo.setItemData(index, printer.model_id, MODEL_ROLE)
+                self._net_combo.setItemData(
+                    index, printer.detail(), Qt.ItemDataRole.ToolTipRole
+                )
+            index = self._net_combo.findData(current) if current else -1
+            if index < 0 and current:
+                self._net_combo.addItem(tr("Handeingabe"), current)
+                index = self._net_combo.count() - 1
+            elif index < 0 and self._net_combo.count():
+                index = 0
+            self._net_combo.setCurrentIndex(index)
+        finally:
+            self._net_combo.blockSignals(False)
+
+    def _apply_network_selection(self) -> None:
+        """Gewaehlten Netzwerk-Drucker uebernehmen - Modell zieht nach."""
+        address = self._net_combo.currentData() or ""
+        model = self._net_combo.itemData(self._net_combo.currentIndex(), MODEL_ROLE)
+        if address:
+            self._adjusting = True
+            try:
+                self._host_edit.setText(network_host(address))
+            finally:
+                self._adjusting = False
+        if model:
+            self.set_model(model)
+        self._sync_connection_rows()
+        self.changed.emit()
+
+    def _request_network_search(self) -> None:
+        """Suche anfordern (das Hauptfenster sucht im Hintergrund)."""
+        if self._network_searching:
+            return
+        self.network_search_requested.emit()
 
     def select_usb_device(self, address: str) -> bool:
         """USB-Geraet auswaehlen und uebernehmen (Adresse + Modell).
@@ -829,11 +955,18 @@ class MediaPanel(QWidget):
 
     # ----------------------------------------------------------- Slots -----
     def _on_host_changed(self) -> None:
-        """IP/Name getippt: Zeilen nachziehen und Aenderung melden."""
+        """IP/Name getippt: Liste und Zeilen nachziehen, Aenderung melden."""
         if self._adjusting:
             return
+        self._rebuild_network_list()
         self._sync_connection_rows()
         self.changed.emit()
+
+    def _on_net_combo_changed(self) -> None:
+        """Nutzer hat einen gefundenen Netzwerk-Drucker gewaehlt."""
+        if self._adjusting:
+            return
+        self._apply_network_selection()
 
     def _on_usb_combo_changed(self) -> None:
         """Nutzer hat ein USB-Geraet gewaehlt."""
@@ -852,6 +985,10 @@ class MediaPanel(QWidget):
             # Beim Wechsel auf USB gleich nachsehen, was angeschlossen ist -
             # so muss niemand wissen, dass es den "Suchen"-Knopf gibt.
             self.refresh_usb_devices()
+        else:
+            # Netzwerk: im Hintergrund suchen (mDNS + SNMP). Das dauert rund
+            # eine Sekunde und gehoert deshalb nicht in den Klickpfad.
+            self._request_network_search()
         self._sync_connection_rows()
         self.changed.emit()
 

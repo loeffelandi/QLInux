@@ -20,6 +20,7 @@ gedruckt ueber :mod:`ql_editor.printer` (in einem Worker-Thread).
 from __future__ import annotations
 
 import sys
+import threading
 from pathlib import Path
 from typing import Any, Mapping
 
@@ -57,6 +58,7 @@ from PySide6.QtWidgets import (
 from . import access
 from . import media
 from .canvas import LabelCanvas
+from .discovery import discover_network_printers
 from .i18n import (
     DEFAULT_LANGUAGE,
     LANGUAGES,
@@ -103,6 +105,8 @@ PERMISSION_TIMEOUT_MS = 90_000
 #: (in Schritten von ACCESS_RETRY_MS) werden die Rechte nachgefasst.
 ACCESS_RETRY_MS = 400
 ACCESS_RETRY_COUNT = 8
+#: So lange darf eine abgebrochene Netzwerksuche beim Schliessen nachlaufen.
+NETWORK_CANCEL_WAIT_MS = 1000
 
 
 class PrintWorker(QThread):
@@ -131,6 +135,24 @@ class PrintWorker(QThread):
             self.succeeded.emit(status)
 
 
+class NetworkSearchWorker(QThread):
+    """Sucht Drucker im Netzwerk (mDNS + SNMP) abseits der Oberflaeche."""
+
+    succeeded = Signal(list)
+
+    def __init__(self, cancel: threading.Event, parent=None):
+        super().__init__(parent)
+        self._cancel = cancel
+
+    def run(self) -> None:  # noqa: D401
+        printers = []
+        try:
+            printers = discover_network_printers(cancel=self._cancel)
+        except Exception as exc:  # pragma: no cover - defensiv
+            logger.info("Netzwerksuche fehlgeschlagen: %s", exc)
+        self.succeeded.emit(printers)
+
+
 #: Das aktuelle Hauptfenster. Beim Sprachwechsel entsteht ein neues Fenster;
 #: diese Referenz haelt es am Leben - ein Fenster ohne Elternteil wird sonst
 #: vom Garbage Collector eingesammelt.
@@ -150,6 +172,10 @@ class MainWindow(QMainWindow):
         self.setWindowIcon(icon("label"))
         self._adjusting = False
         self._print_worker: PrintWorker | None = None
+        # Netzwerksuche im Hintergrund (mDNS + SNMP); ``_network_cancel``
+        # bricht sie beim Schliessen des Fensters ab.
+        self._network_worker: NetworkSearchWorker | None = None
+        self._network_cancel = threading.Event()
         # Passwort-Dialog des Systems (pkexec + Helfer), siehe _on_usb_permission.
         self._permission_process = QProcess(self)
         self._permission_process.finished.connect(self._on_permission_finished)
@@ -190,6 +216,7 @@ class MainWindow(QMainWindow):
         self._media_panel.changed.connect(self._on_media_changed)
         self._media_panel.detect_requested.connect(self._on_detect_label)
         self._media_panel.usb_search_requested.connect(self._on_usb_search)
+        self._media_panel.network_search_requested.connect(self._on_network_search)
         self._media_panel.usb_permission_requested.connect(self._on_usb_permission)
         self._canvas.text_requested.connect(self._on_text_requested)
         self._canvas.item_double_clicked.connect(self._on_item_double_clicked)
@@ -1304,6 +1331,44 @@ class MainWindow(QMainWindow):
         )
 
     # ------------------------------------------------------------- Detect ---
+    def _on_network_search(self) -> None:
+        """Netzwerk nach Druckern durchsuchen (im Hintergrund)."""
+        if self._network_worker is not None and self._network_worker.isRunning():
+            return
+        self._network_cancel.clear()
+        self._media_panel.set_network_searching(True)
+        self.statusBar().showMessage(tr("Netzwerk wird durchsucht …"), 4000)
+        self._network_worker = NetworkSearchWorker(self._network_cancel, self)
+        self._network_worker.succeeded.connect(self._on_network_found)
+        self._network_worker.finished.connect(self._on_network_search_done)
+        self._network_worker.start()
+
+    def _on_network_found(self, printers: list) -> None:
+        """Gefundene Drucker in die Liste uebernehmen und kurz melden."""
+        found = self._media_panel.refresh_network_devices(printers)
+        if not found:
+            self.statusBar().showMessage(
+                tr("Keine Netzwerk-Drucker gefunden."), 8000
+            )
+            return
+        if len(found) == 1:
+            self.statusBar().showMessage(
+                tr("Netzwerk-Drucker gefunden: {device}").format(
+                    device=found[0].host
+                ),
+                8000,
+            )
+            return
+        self.statusBar().showMessage(
+            tr("{count} Netzwerk-Drucker gefunden").format(count=len(found))
+            + " – "
+            + tr("bitte in der Liste wählen."),
+            8000,
+        )
+
+    def _on_network_search_done(self) -> None:
+        self._media_panel.set_network_searching(False)
+
     def _on_usb_search(self) -> None:
         """Angeschlossene USB-Drucker suchen und in die Auswahl eintragen."""
         QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
@@ -1388,6 +1453,11 @@ class MainWindow(QMainWindow):
 
     # -------------------------------------------------------------- Close ---
     def closeEvent(self, event) -> None:  # noqa: N802
+        # Laufende Netzwerksuche abbrechen, damit kein Thread das geschlossene
+        # Fenster anspricht.
+        self._network_cancel.set()
+        if self._network_worker is not None and self._network_worker.isRunning():
+            self._network_worker.wait(NETWORK_CANCEL_WAIT_MS)
         self._settings.save_geometry(self.saveGeometry())
         self._settings.address = self._media_panel.address()
         self._settings.model = self._media_panel.model_id()

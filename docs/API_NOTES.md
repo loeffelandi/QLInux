@@ -251,6 +251,53 @@ vollstaendige Adresse und `printer.network_host()` die Anzeigeform zurueck:
 die einzige Stelle, an der er steht; die Anzeige laesst genau diesen Port weg,
 einen abweichenden zeigt sie mit an.
 
+### Netzwerksuche: was der QL-820NWB meldet (gemessen)
+
+`brother_ql` 0.9.4 kann das nicht - `backends/network.py` hat dort nur ein
+`raise NotImplementedError()` mit dem Kommentar *„We need some snmp request
+sent to 255.255.255.255 here"*. `ql_editor.discovery` macht es selbst, ohne
+Zusatzpaket, ueber zwei Wege gleichzeitig:
+
+**1. mDNS** (`_pdl-datastream._tcp.local`, RFC 6763). Die Anfrage geht mit
+gesetztem QU-Bit von einem freien Port aus, die Antwort kommt also per Unicast
+zurueck - es wird kein Port 5353 belegt und der avahi-Daemon stoert nicht.
+Antwort des QL-820NWB (511 Byte, `tests/data/mdns_ql820nwb.bin`):
+
+```
+= Brother QL-820NWB  PDL Printer
+   hostname = [BRW....local]   address = [192.168.178.62]   port = [9100]
+   txt = ["ty=Brother QL-820NWB" "usb_MFG=Brother" "usb_MDL=QL-820NWB"
+          "product=(Brother QL-820NWB)" "pdl=application/octet-stream,image/urf"]
+```
+
+Das Modell steht in `usb_MDL`/`ty`; PTR (Dienst → Instanz), SRV (Zielhost +
+Port), TXT (Modell) und A (Adresse) kommen im selben Paket. Antwortzeit ~1 s.
+
+**2. SNMP-Broadcast** (UDP 161, Community `public`, ein Paket an die
+Broadcast-Adresse je Schnittstelle). Der QL-820NWB antwortet (154 Byte,
+`tests/data/snmp_ql820nwb.bin`):
+
+| OID | Wert |
+| --- | --- |
+| `1.3.6.1.2.1.25.3.2.1.3.1` (hrDeviceDescr) | `Brother QL-820NWB` |
+| `1.3.6.1.2.1.1.1.0` (sysDescr) | `Brother NC-38002w, Firmware Ver.1.00  ,MID 8V7110` |
+| `1.3.6.1.2.1.1.5.0` (sysName) | `BRWBCF4D4334A01` |
+
+Der *Druckername* steht nur in `hrDeviceDescr`; `sysDescr` beschreibt die
+Netzwerkkarte. Antwortzeit < 0,1 s.
+
+Beide Wege werden ueber die IP zusammengefuehrt (mDNS zuerst: dessen Name ist
+der lesbare), Treffer nach IP sortiert. Aufgenommen wird nur, wer wie ein
+Brother-Etikettendrucker aussieht (Hersteller + `QL-`): der EPSON WF-7720
+meldet sich am selben Dienst und darf nicht in der Liste stehen
+(`tests/data/mdns_epson_wf7720.bin`). Ein unbekanntes QL-Modell bleibt
+sichtbar - das Modell waehlt man dann von Hand.
+
+Die Suche endet, wenn nach der letzten Antwort `SEARCH_QUIET_TIME` (0,25 s)
+Ruhe war - auf diesem Netz also nach ~0,35 s statt nach dem Zeitlimit (2 s).
+`discover_network_printers(cancel=…)` laesst sich beim Schliessen des Fensters
+abbrechen.
+
 ### Rechtelage am QL-700 (gemessen)
 
 Beide USB-Wege scheitern ohne Systemrechte, und zwar unterschiedlich:

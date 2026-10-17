@@ -116,9 +116,24 @@ EN: dict[str, str] = {
     "Band erkennen": "Detect label",
     "Suchen": "Search",
     "Gerät": "Device",
+    "Handeingabe": "Manual entry",
     "Der Port {port} wird automatisch ergänzt.": (
         "Port {port} is added automatically."
     ),
+    "Suche läuft …": "Searching …",
+    "Netzwerk wird durchsucht …": "Searching the network …",
+    "Keine Netzwerk-Drucker gefunden.": "No network printers found.",
+    "Netzwerk nach Druckern durchsuchen (mDNS und SNMP).": (
+        "Search the network for printers (mDNS and SNMP)."
+    ),
+    "Gefundene Netzwerk-Drucker. Die Auswahl setzt IP-Adresse und – "
+    "wenn das Gerät sein Modell meldet – auch das Modell.": (
+        "Found network printers. Choosing one sets the IP address and - "
+        "if the device reports its model - the model as well."
+    ),
+    "gefunden über {source}": "found via {source}",
+    "{count} Netzwerk-Drucker gefunden": "{count} network printers found",
+    "Netzwerk-Drucker gefunden: {device}": "Network printer found: {device}",
     "USB suchen": "Search USB",
     "Kein USB-Drucker gefunden": "No USB printer found",
     "Kein USB-Drucker gefunden. Kabel und Strom prüfen.": (
