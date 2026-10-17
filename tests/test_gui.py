@@ -3771,3 +3771,37 @@ def test_the_template_menu_offers_builtins_and_saving(qapp, tmp_path, monkeypatc
     assert win._document_path == ""
     win.close()
     qapp.processEvents()
+
+
+def test_file_group_sits_right_after_the_burger(qapp, tmp_path):
+    """Burger, dann Öffnen, Speichern, Vorlage laden - danach die Werkzeuge."""
+    from PySide6.QtWidgets import QToolBar, QToolButton, QWidgetAction
+
+    win = _temp_window(qapp, tmp_path)
+    bar = win.findChild(QToolBar, "main_toolbar")
+    items = [
+        a for a in bar.actions() if not a.isSeparator()
+    ]
+    names = []
+    for action in items:
+        if isinstance(action, QWidgetAction):
+            widget = bar.widgetForAction(action)
+            names.append(widget.objectName() if widget else "")
+        else:
+            names.append(action.objectName() or action.text())
+
+    assert names[0] == "main_menu_button"
+    assert names[1] == win._act_file_open.text()
+    assert names[2] == win._act_file_save.text()
+    assert names[3] == "template_button"
+    template_button = win.findChild(QToolButton, "template_button")
+    assert template_button.toolTip() == "Vorlage laden"
+    # Der Knopf klappt die Vorlagenliste auf - eingebaute Vorlagen stehen drin.
+    from ql_editor import templates
+
+    menu = template_button.menu()
+    menu.aboutToShow.emit()
+    entries = [a.text() for a in menu.actions()]
+    assert templates.builtins()[0][0] in entries
+    win.close()
+    qapp.processEvents()

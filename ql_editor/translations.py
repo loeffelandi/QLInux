@@ -212,6 +212,7 @@ EN: dict[str, str] = {
     "Passwort: geheim": "Password: secret",
     "Vorlage braucht einen Namen.": "A template needs a name.",
     "Vorlagen": "Templates",
+    "Vorlage laden": "Load template",
     "Vorlage anlegen: {name}": "Create label from template: {name}",
     "Vorlage angelegt: {name}": "Created from template: {name}",
     "Vorlage geöffnet: {name}": "Template opened: {name}",

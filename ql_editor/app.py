@@ -733,6 +733,12 @@ class MainWindow(QMainWindow):
         bar.addWidget(self._menu_button)
         bar.addSeparator()
 
+        # Datei-Gruppe direkt nach dem Burger: Öffnen, Speichern, Vorlage laden.
+        bar.addAction(self._act_file_open)
+        bar.addAction(self._act_file_save)
+        bar.addWidget(self._build_template_button(bar))
+        bar.addSeparator()
+
         bar.addAction(self._act_add_text)
         bar.addAction(self._act_add_image)
         bar.addAction(self._act_add_barcode)
@@ -751,6 +757,20 @@ class MainWindow(QMainWindow):
         bar.addSeparator()
         bar.addAction(self._act_print_preview)
         bar.addAction(self._act_print)
+
+    def _build_template_button(self, parent: QWidget) -> QToolButton:
+        """Toolbar-Knopf "Vorlage laden": Klick oeffnet die Vorlagenliste."""
+        button = QToolButton(parent)
+        button.setObjectName("template_button")
+        button.setIcon(icon("label"))
+        button.setToolTip(tr("Vorlage laden"))
+        button.setAutoRaise(True)
+        button.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        button.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
+        menu = QMenu(button)
+        menu.aboutToShow.connect(lambda: self._fill_templates_into(menu))
+        button.setMenu(menu)
+        return button
 
     def _build_main_menu(self) -> QMenu:
         """Alle Befehle in einem einzigen Menue (Hamburger-Menue).
@@ -811,8 +831,14 @@ class MainWindow(QMainWindow):
         self._fill_template_menu()
 
     def _fill_template_menu(self) -> None:
-        """Vorlagenliste fuellen - auch die eigenen, die gerade dazukamen."""
-        submenu = self._template_menu
+        """Vorlagenliste im Menue fuellen (siehe :meth:`_fill_templates_into`)."""
+        self._fill_templates_into(self._template_menu)
+
+    def _fill_templates_into(self, submenu: QMenu) -> None:
+        """Vorlagenliste fuellen - auch die eigenen, die gerade dazukamen.
+
+        Dieselbe Liste speist das Menue und den Toolbar-Knopf "Vorlage laden".
+        """
         submenu.clear()
         for name, data in templates.builtins():
             action = submenu.addAction(icon("label"), name)
