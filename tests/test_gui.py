@@ -448,6 +448,52 @@ def test_media_panel_pulls_the_model_for_an_already_selected_device(qapp, monkey
     assert panel.model_id() == "QL-700"
 
 
+def test_media_panel_takes_the_single_printer_after_a_replug(qapp, monkeypatch):
+    """Nach dem Umstecken heisst der Weg anders (lp1 -> lp0): Gerät übernehmen."""
+    from ql_editor import media_panel as media_panel_module
+    from ql_editor.media_panel import MediaPanel
+
+    # Gespeichert war lp1; der Kernel hat nach dem Umstecken lp0 vergeben.
+    monkeypatch.setattr(media_panel_module, "usb_printers", lambda: [])
+    monkeypatch.setattr(media_panel_module, "model_for_address", lambda address: None)
+    panel = MediaPanel()
+    panel.set_address("/dev/usb/lp1")
+    assert panel.address() == "/dev/usb/lp1"
+
+    monkeypatch.setattr(media_panel_module, "usb_printers", lambda: ["/dev/usb/lp0"])
+    monkeypatch.setattr(
+        media_panel_module, "model_for_address", lambda address: "QL-700"
+    )
+    panel.refresh_usb_devices()
+
+    assert panel.address() == "/dev/usb/lp0"
+    assert panel.model_id() == "QL-700"
+    assert "nicht angeschlossen" not in panel._usb_combo.currentText()
+
+
+def test_media_panel_keeps_the_stored_printer_when_several_are_attached(
+    qapp, monkeypatch
+):
+    """Bei mehreren Geräten bleibt die gespeicherte Wahl stehen (Nutzer wählt)."""
+    from ql_editor import media_panel as media_panel_module
+    from ql_editor.media_panel import MediaPanel
+
+    monkeypatch.setattr(media_panel_module, "usb_printers", lambda: [])
+    monkeypatch.setattr(media_panel_module, "model_for_address", lambda address: None)
+    panel = MediaPanel()
+    panel.set_address("/dev/usb/lp1")
+
+    monkeypatch.setattr(
+        media_panel_module,
+        "usb_printers",
+        lambda: ["/dev/usb/lp0", "/dev/usb/lp2"],
+    )
+    panel.refresh_usb_devices()
+
+    assert panel.address() == "/dev/usb/lp1"  # bleibt, bis der Nutzer waehlt
+    assert "nicht angeschlossen" in panel._usb_combo.currentText()
+
+
 def test_media_panel_offers_access_help_when_rights_are_missing(qapp, monkeypatch):
     """Ohne Rechte am Geraet steht im Panel, was zu tun ist."""
     from ql_editor import media_panel as media_panel_module

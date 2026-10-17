@@ -722,8 +722,15 @@ class MediaPanel(QWidget):
                 devices = []
         devices = [address for address in devices if address]
         current = preferred_usb_address(self._usb_combo.currentData() or "", devices)
-        missing = current if current and current not in devices else ""
         apply_single = False
+        if current and current not in devices and len(devices) == 1:
+            # Der gespeicherte Weg gibt es nicht mehr: der Kernel vergibt
+            # /dev/usb/lpN nach dem Umstecken neu (lp1 -> lp0). Haengt genau
+            # ein Drucker am Kabel, ist die Wahl klar - sonst bleibt die
+            # gespeicherte Adresse stehen und der Nutzer waehlt selbst.
+            current = devices[0]
+            apply_single = True
+        missing = current if current and current not in devices else ""
 
         self._usb_combo.blockSignals(True)
         try:

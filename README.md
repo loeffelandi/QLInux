@@ -117,6 +117,9 @@ python -m ql_editor
   Tooltip; sind zwei gleiche Drucker angeschlossen, bekommt jeder seinen
   Anschlusspfad dazu (`[lp0]` / `[lp1]`). Eine gespeicherte libusb-Adresse
   wandert beim nächsten Suchen von selbst auf den Kernel-Anschluss.
+  Umgesteckt heißt der Weg anders (`lp1` → `lp0`): hängt dann **genau ein**
+  Drucker am Kabel, wird er übernommen; bei mehreren bleibt die gespeicherte
+  Wahl stehen und man wählt selbst.
 * Dahinter steckt weiter eine einzige Adresse - das Backend wird daraus
   abgeleitet (wie `brother_ql.backends.guess_backend`, plus nacktes
   `host:port`):
