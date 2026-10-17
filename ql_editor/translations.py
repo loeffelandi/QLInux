@@ -111,8 +111,8 @@ EN: dict[str, str] = {
     "Barcode…": "Barcode…",
     "QR-Code…": "QR code…",
     "Bild wählen": "Choose image",
-    "Bilder (*.png *.jpg *.jpeg *.bmp *.gif);;Alle Dateien (*)": (
-        "Images (*.png *.jpg *.jpeg *.bmp *.gif);;All files (*)"
+    "Bilder (*.png *.webp *.jpg *.jpeg *.bmp *.gif);;Alle Dateien (*)": (
+        "Images (*.png *.webp *.jpg *.jpeg *.bmp *.gif);;All files (*)"
     ),
     "Inhalt": "Content",
     "Symbologie": "Symbology",

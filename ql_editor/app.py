@@ -957,6 +957,7 @@ class MainWindow(QMainWindow):
         bar.addAction(self._act_add_line)
         bar.addAction(self._act_add_rect)
         bar.addSeparator()
+        bar.addWidget(self._build_align_button(bar))
         bar.addAction(self._act_front)
         bar.addAction(self._act_back)
         bar.addAction(self._act_delete)
@@ -980,6 +981,28 @@ class MainWindow(QMainWindow):
         button.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
         menu = QMenu(button)
         menu.aboutToShow.connect(lambda: self._fill_templates_into(menu))
+        button.setMenu(menu)
+        return button
+
+    def _build_align_button(self, parent: QWidget) -> QToolButton:
+        """Toolbar-Knopf "Ausrichten": Klick oeffnet die Ausrichtungen als Menue."""
+        button = QToolButton(parent)
+        button.setObjectName("align_button")
+        button.setIcon(icon("align_left"))
+        button.setToolTip(tr("Ausrichten"))
+        button.setAutoRaise(True)
+        button.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        button.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
+        menu = QMenu(button)
+        for act in (
+            self._act_align_left,
+            self._act_align_hcenter,
+            self._act_align_right,
+            self._act_align_top,
+            self._act_align_vcenter,
+            self._act_align_bottom,
+        ):
+            menu.addAction(act)
         button.setMenu(menu)
         return button
 
@@ -1756,6 +1779,7 @@ class MainWindow(QMainWindow):
             self._canvas.add_item(item)
             self._canvas.setFocus()
             self._recompute_canvas()
+            self._canvas.keep_inside_printable(item)
             self._schedule_refresh()
             self._on_selection_changed()
         finally:
@@ -2008,7 +2032,7 @@ class MainWindow(QMainWindow):
             self,
             caption=tr("Bild wählen"),
             name_filter=tr(
-                "Bilder (*.png *.jpg *.jpeg *.bmp *.gif);;Alle Dateien (*)"
+                "Bilder (*.png *.webp *.jpg *.jpeg *.bmp *.gif);;Alle Dateien (*)"
             ),
             on_selected=_selected,
             start_dir=self._settings.image_dir,
