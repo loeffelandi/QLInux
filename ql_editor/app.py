@@ -1063,13 +1063,21 @@ class MainWindow(QMainWindow):
         finally:
             QApplication.restoreOverrideCursor()
         if label is None:
-            show_message(
-                self,
-                "info",
-                "Band erkennen",
-                "Der Drucker hat kein Band gemeldet (kein Status-Readback über TCP).\n"
-                "Bitte das Band manuell auswählen.",
-            )
+            if config.backend == "network":
+                reason = (
+                    "Der Drucker antwortet über die Netzwerkverbindung nicht: "
+                    "TCP 9100 ist eine reine Druckschnittstelle ohne Rückkanal "
+                    "(das bestätigt auch brother_ql selbst).\n\n"
+                    "Band-Erkennung geht nur über USB. Bitte das Band manuell "
+                    "auswählen."
+                )
+            else:
+                reason = (
+                    "Der Drucker hat kein Band gemeldet (keine oder unbekannte "
+                    "Statusantwort).\n"
+                    "Bitte das Band manuell auswählen."
+                )
+            show_message(self, "info", "Band erkennen", reason)
             return
         if self._media_panel.select_label(label.identifier):
             self.statusBar().showMessage(f"Band erkannt: {label.display_name}", 8000)

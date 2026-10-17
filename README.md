@@ -68,6 +68,14 @@ python -m ql_editor
 * **Links**: Bandauswahl (dynamisch, nach Modell gefiltert), **Ausrichtung**
   (quer / längs des Bandes, zwei Knöpfe in der Gruppe „Band"), Länge
   (Auto Length / fest, Gesamt- oder Inhaltsmaß), Margins, Farbe.
+* **„Band erkennen"** fragt das eingelegte Band am Drucker ab (Statuskommando
+  `ESC i S`, 32-Byte-Antwort) und stellt die Auswahl darauf ein. Das geht
+  **nur über USB**: der Netzwerk-Anschluss (TCP 9100) ist eine reine
+  Druckschnittstelle ohne Rückkanal - genau das steht auch in `brother_ql`
+  selbst (`backends/helpers.py`: *„The network backend doesn't support
+  readback"*). Über `tcp://…` antwortet der Drucker nicht (am QL-820NWB
+  nachgemessen), die Oberfläche sagt das dann und man wählt das Band von Hand.
+  QLInux druckt weiterhin über das Netzwerk - nur die Erkennung braucht USB.
 * **Mitte**: Canvas in exakter Bandbreite mit mm-Linealen; der **nicht
   bedruckbare Rand** (~1,5 mm je Seite) ist schraffiert, Items werden darauf
   begrenzt. Um die Designfläche liegt eine **Arbeitsfläche** (8 mm Rand,
@@ -76,7 +84,7 @@ python -m ql_editor
   ohne herauszoomen zu müssen. Die Renderquelle bleibt davon unberührt - die
   Szene selbst ist weiterhin exakt die bedruckbare Fläche.
 * **Rechts**: Inspector (Eigenschaften des ausgewählten Objekts) + Druckoptionen
-  (Druckqualität, Graustufen, Tintenmenge, Schnitt, Drucken).
+  (Auflösung, HQ, Graustufen, Tintenmenge, Schnitt, Drucken).
 
 Der Canvas ist **räumlich WYSIWYG** (Position, Größe, mm, Randbegrenzung).
 Was er *nicht* zeigt, ist die **Binarisierung**: der Drucker kennt nur 1 bit

@@ -75,7 +75,11 @@ class MediaPanel(QWidget):
         self._model_combo = QComboBox()
         self._address_edit = QLineEdit(DEFAULT_ADDRESS)
         self._detect_button = QPushButton(icon("detect"), "Band erkennen")
-        self._detect_button.setToolTip("Band am Drucker erkennen (Statusabfrage)")
+        self._detect_button.setToolTip(
+            "Band am Drucker erfragen (Statusabfrage).\n"
+            "Geht nur über USB: der Netzwerk-Anschluss (TCP 9100) ist eine reine "
+            "Druckschnittstelle und antwortet nicht."
+        )
         printer_form.addRow("Modell", self._model_combo)
         printer_form.addRow("Adresse", self._address_edit)
         printer_form.addRow("", self._detect_button)
