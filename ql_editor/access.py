@@ -103,14 +103,11 @@ def auth_agent_running(*, proc_root: str = "/proc") -> bool:
 def reason_no_prompt() -> str:
     """Warum kein Passwort-Dialog gestartet wird (fuer die Meldung)."""
     if helper_path() is None:
-        return "Der Helfer für die udev-Regel wurde nicht gefunden."
+        return "Der Helfer für die udev-Regel fehlt."
     if pkexec_path() is None:
-        return "pkexec (polkit) ist auf diesem System nicht installiert."
+        return "pkexec (polkit) ist nicht installiert."
     if not auth_agent_running():
-        return (
-            "Es läuft kein Passwort-Dialog (polkit-Agent). pkexec würde hier "
-            "endlos warten, deshalb wird er nicht gestartet."
-        )
+        return "Kein Passwort-Dialog (polkit-Agent) vorhanden."
     return ""
 
 
@@ -126,13 +123,12 @@ def describe_failure(returncode: int, stderr: str = "") -> str:
     """Exit-Code/stderr von pkexec in einen Satz uebersetzen, der weiterhilft."""
     text = (stderr or "").strip()
     if returncode == PKEXEC_DISMISSED:
-        return "Abgebrochen - es wurde kein Passwort eingegeben."
+        return "Abgebrochen."
     if returncode == PKEXEC_FAILED:
         if "agent" in text.lower():
             return (
-                "Auf diesem System gibt es keinen Passwort-Dialog (polkit-Agent). "
-                "Bitte den Befehl einmalig im Terminal ausführen:\n\n"
-                f"    {manual_command()}"
+                "Kein Passwort-Dialog (polkit-Agent) vorhanden.\n\n"
+                f"Einmalig im Terminal:\n\n    {manual_command()}"
             )
         return f"Einrichten fehlgeschlagen:\n\n{text or 'unbekannter Fehler'}"
     if text:
@@ -146,10 +142,8 @@ def failure_hint(message: str) -> str | None:
     if "permission denied" not in lowered and "access denied" not in lowered:
         return None
     return (
-        "Das sieht nach fehlenden Rechten für den USB-Drucker aus. Im Panel "
-        "unter „Drucker“ gibt es dafür „Zugriff einrichten“; ohne "
-        "Passwort-Dialog hilft einmalig im Terminal:\n\n"
-        f"    {manual_command()}"
+        "Fehlende Rechte am USB-Drucker.\n"
+        "Im Panel unter „Drucker“: „Zugriff einrichten“."
     )
 
 

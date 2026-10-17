@@ -1044,8 +1044,7 @@ class MainWindow(QMainWindow):
                 self,
                 "warning",
                 "Keine Druckeradresse",
-                "Im Panel unter „Drucker“ den Anschluss wählen: im Netzwerk die "
-                "IP-Adresse eintragen oder am USB „Suchen“ drücken.",
+                "Im Panel unter „Drucker“ Anschluss und Adresse wählen.",
             )
             return
         try:
@@ -1079,7 +1078,6 @@ class MainWindow(QMainWindow):
         if hint:
             message = f"{message}\n\n{hint}"
         show_message(self, "critical", "Druckfehler", message, selectable=bool(hint))
-
     # --------------------------------------------------------- USB-Zugriff --
     def _on_usb_permission(self) -> None:
         """udev-Regel einrichten: das System fragt dabei nach dem Passwort.
@@ -1115,22 +1113,16 @@ class MainWindow(QMainWindow):
             return
         text = access.describe_failure(code, stderr)
         if access.rule_installed():
-            text += (
-                "\n\nDie Regel ist schon eingerichtet – eventuell den Drucker "
-                "kurz ab- und wieder anstecken."
-            )
+            text += "\n\nRegel ist schon eingerichtet – Drucker kurz ab- und anstecken."
         show_message(self, "warning", "USB-Zugriff", text, selectable=True)
 
     def _show_manual_permission(self) -> None:
         """Ohne Passwort-Dialog bleibt der Einzeiler fuer das Terminal."""
-        reason = access.reason_no_prompt()
         show_message(
             self,
             "info",
             "USB-Zugriff",
-            f"{reason}\n\n"
-            "Bitte einmalig im Terminal ausführen – danach ist der Drucker "
-            "dauerhaft freigegeben:\n\n"
+            f"{access.reason_no_prompt()}\n\nEinmalig im Terminal ausführen:\n\n"
             f"    {access.manual_command()}",
             selectable=True,
         )
@@ -1149,9 +1141,7 @@ class MainWindow(QMainWindow):
                 self,
                 "info",
                 "USB suchen",
-                "Kein USB-Drucker gefunden.\n\n"
-                "Prüfen: Kabel steckt, Drucker ist an. Über das Netzwerk "
-                "angeschlossene Drucker erscheinen hier nicht.",
+                "Kein USB-Drucker gefunden. Kabel und Strom prüfen.",
             )
             return
         if len(devices) == 1:
@@ -1177,26 +1167,16 @@ class MainWindow(QMainWindow):
         finally:
             QApplication.restoreOverrideCursor()
         if label is None:
-            if config.backend == "network":
+            # Der Knopf steht nur dort, wo es einen Rueckkanal gibt - hier ist
+            # also nur noch die Frage, ob die Rechte fehlen oder das Band
+            # nicht gemeldet wurde.
+            if self._media_panel.access_allowed is False:
                 reason = (
-                    "Der Drucker antwortet über die Netzwerkverbindung nicht: "
-                    "TCP 9100 ist eine reine Druckschnittstelle ohne Rückkanal "
-                    "(das bestätigt auch brother_ql selbst).\n\n"
-                    "Band-Erkennung geht nur über USB. Bitte das Band manuell "
-                    "auswählen."
-                )
-            elif self._media_panel.access_allowed is False:
-                reason = (
-                    "Kein Zugriff auf den USB-Drucker – die Abfrage kommt "
-                    "deshalb nicht durch.\n\nIm Panel unter „Drucker“ steht "
-                    "dafür „Zugriff einrichten“."
+                    "Kein Zugriff auf den USB-Drucker.\n"
+                    "Im Panel unter „Drucker“: „Zugriff einrichten“."
                 )
             else:
-                reason = (
-                    "Der Drucker hat kein Band gemeldet (keine oder unbekannte "
-                    "Statusantwort).\n"
-                    "Bitte das Band manuell auswählen."
-                )
+                reason = "Kein Band gemeldet. Bitte von Hand wählen."
             show_message(self, "info", "Band erkennen", reason)
             return
         if self._media_panel.select_label(label.identifier):

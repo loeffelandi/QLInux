@@ -167,10 +167,8 @@ class MediaPanel(QWidget):
         self._access_label.setStyleSheet("color:#b3261e;")
         self._access_button = QPushButton(icon("detect"), "Zugriff einrichten")
         self._access_button.setToolTip(
-            "USB-Drucker gehören unter Linux root. Dieser Knopf richtet eine "
-            "udev-Regel ein, die den Drucker für den angemeldeten Benutzer "
-            "freigibt – das System fragt dabei nach dem Passwort.\n"
-            "Danach gilt der Zugriff dauerhaft (auch nach dem Umstecken)."
+            "Richtet eine udev-Regel ein, die den USB-Drucker für dich "
+            "freigibt (das System fragt nach dem Passwort)."
         )
 
         # Band-Erkennung braucht einen Rueckkanal - den gibt es nur ueber USB.

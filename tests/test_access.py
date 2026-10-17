@@ -131,7 +131,6 @@ def test_failure_hint_only_answers_permission_errors():
         hint = access.failure_hint(message)
         assert hint is not None
         assert "Zugriff einrichten" in hint
-        assert "install-udev-rule.sh" in hint
 
 
 def test_manual_command_is_a_copyable_one_liner():
