@@ -3239,9 +3239,12 @@ def test_print_options_fit_on_a_small_screen(qapp, tmp_path):
     """Auf dem Reiter "Drucken" braucht das Panel wenig Hoehe - der Drucken-
     Knopf bleibt ohne Scrollen sichtbar, auch auf kleinen Bildschirmen."""
     win = _temp_window(qapp, tmp_path)
-    win._right_tabs.setCurrentIndex(1)
+    from ql_editor.adaptive import TABS
+
+    win._right_pages.set_mode(TABS)
+    win._right_pages.show_page(1)
     qapp.processEvents()
-    page = win._right_tabs.widget(1)
+    page = win._right_pages.page(1)
     assert page.widget().sizeHint().height() <= 300
     assert win._print_button.isVisible()
 
@@ -3819,3 +3822,22 @@ def test_orientation_row_cannot_wrap_at_narrow_panel_width(qapp):
     assert row.sizeHint().width() <= 120
     assert len(panel._orientation_buttons) == 2
     row.deleteLater()
+
+
+def test_right_panel_stacks_when_tall_and_tabs_when_short(qapp, tmp_path):
+    """Viel Hoehe: Objekt und Drucken untereinander. Wenig: als Reiter."""
+    from ql_editor.adaptive import STACKED, TABS
+
+    win = _temp_window(qapp, tmp_path)
+    win.resize(1280, 900)
+    win.show()
+    qapp.processEvents()
+    assert win._right_pages.mode == STACKED
+    assert win._right_pages.page(0).isVisible()
+    assert win._right_pages.page(1).isVisible()
+
+    win.resize(1280, 420)
+    qapp.processEvents()
+    assert win._right_pages.mode == TABS
+    win.close()
+    qapp.processEvents()

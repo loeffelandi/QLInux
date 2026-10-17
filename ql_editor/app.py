@@ -51,7 +51,6 @@ from PySide6.QtWidgets import (
     QScrollArea,
     QSpinBox,
     QSplitter,
-    QTabWidget,
     QToolButton,
     QVBoxLayout,
     QWidget,
@@ -104,6 +103,7 @@ from .printer import (
     resolution_options,
 )
 from .settings import AppSettings
+from .adaptive import AdaptivePages
 from .sheet import ask_choice, ask_text, choose_file, save_file, show_message
 from .widgets import SmoothScrollArea, install_wheel_guard_recursive
 
@@ -175,6 +175,10 @@ _current_window: MainWindow | None = None
 def _remember_window(window: MainWindow) -> None:
     global _current_window
     _current_window = window
+
+
+#: Mindesthoehe des Objekt-Bereichs, wenn Objekt und Drucken untereinander stehen.
+INSPECTOR_MIN_PX = 240
 
 
 class MainWindow(QMainWindow):
@@ -297,17 +301,26 @@ class MainWindow(QMainWindow):
         )
         self._host.add_panel(self._left_panel)
 
-        # Zwei Reiter statt geteiltem Stapel: jeder Reiter bekommt die ganze
-        # Hoehe und scrollt bei Bedarf selbst. Auf kleinen Bildschirmen stoeren
-        # sich Objekt und Druckoptionen so nicht mehr um den Platz.
-        tabs = QTabWidget(self)
-        tabs.setDocumentMode(True)
-        tabs.addTab(self._scroll_wrap(self._inspector), tr("Objekt"))
-        tabs.addTab(self._scroll_wrap(self._build_print_panel()), tr("Drucken"))
-        self._right_tabs = tabs
+        # Objekt und Drucken untereinander, solange die Hoehe reicht. Wird es
+        # knapp, wechseln sie in Reiter (siehe ql_editor.adaptive).
+        print_area = self._scroll_wrap(self._build_print_panel())
+        self._right_pages = AdaptivePages(
+            [
+                (
+                    tr("Objekt"),
+                    self._scroll_wrap(self._inspector),
+                    lambda: INSPECTOR_MIN_PX,
+                ),
+                (
+                    tr("Drucken"),
+                    print_area,
+                    lambda: print_area.widget().sizeHint().height(),
+                ),
+            ]
+        )
         self._right_panel = OverlayPanel(
             tr("Eigenschaften & Druck"),
-            tabs,
+            self._right_pages,
             Qt.Edge.RightEdge,
             self,
         )
