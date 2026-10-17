@@ -184,12 +184,25 @@ def test_build_raster_red_rejected_for_mono_label():
         build_raster(img, label, CONFIG, red=True)
 
 
-def test_build_raster_cut_none_sends_no_cut_commands():
+def _flags(data: bytes, command: bytes) -> list[int]:
+    """Parameterbytes aller ``command``-Befehle im Strom (pro Etikett einer)."""
+    parts = data.split(command)[1:]
+    return [part[0] for part in parts if part]
+
+
+def test_build_raster_cut_none_sends_no_auto_cut_and_no_cut_at_end():
+    """Nicht schneiden: kein Auto Cut (sonst Schnitt je Etikett) und
+    "Cut at End" aus - der Streifen bleibt am Band."""
     label = get_label("50")
     img = Image.new("RGB", (label.width_dots, 472), "white")
     data = build_raster(img, label, CONFIG, cut_mode=printer.CUT_NONE)
+
     assert len(data) > 0
-    assert b"\x1b\x69\x41" not in data  # kein "cut each * labels"
+    auto_cut = _flags(data, b"\x1b\x69\x4d")
+    assert auto_cut == [0] * len(auto_cut) and auto_cut   # Auto Cut ausdruecklich aus
+    flags = _flags(data, b"\x1b\x69\x4b")
+    assert flags, "Expanded Mode fehlt"
+    assert all(not f & printer.CUT_AT_END_BIT for f in flags)
 
 
 def test_build_raster_copies_repeat_the_label():
@@ -202,26 +215,68 @@ def test_build_raster_copies_repeat_the_label():
 
 
 def test_build_raster_cut_each_is_the_default():
+    """Nach jeder Kopie: Auto Cut an (Bit 7) und "Cut at End" an - in jedem
+    der drei Etikett-Bloecke, denn der Kopf wiederholt sich pro Etikett."""
     label = get_label("50")
     img = Image.new("RGB", (label.width_dots, 472), "white")
     data = build_raster(img, label, CONFIG, copies=3)
-    assert data.count(b"\x1b\x69\x41\x01") == 3  # Schnitt nach jedem Etikett
-    assert b"\x1b\x69\x4d\x40" in data  # Auto Cut ist an
+
+    assert b"\x1b\x69\x41\x01" in data              # "cut each * labels"
+    auto_cut = _flags(data, b"\x1b\x69\x4d")
+    assert auto_cut == [printer.AUTO_CUT_BIT] * 3
+    cut_at_end = _flags(data, b"\x1b\x69\x4b")
+    assert cut_at_end == [printer.CUT_AT_END_BIT] * 3
 
 
-def test_build_raster_cut_at_end_counts_the_copies():
+def test_build_raster_cut_at_end_turns_auto_cut_off():
+    """Erst am Ende schneiden: Auto Cut *aus*, "Cut at End" *an*.
+
+    Genau das war der Fehler in der ersten Fassung: "Auto Cut" heisst beim QL
+    "nach jedem Etikett schneiden" (Raster Command Reference, ESC i M Bit 7) -
+    mit eingeschaltetem Auto Cut kommt der Streifen nie zusammenhaengend heraus,
+    egal welche Seitenzahl in ESC i A steht.
+    """
     label = get_label("50")
     img = Image.new("RGB", (label.width_dots, 472), "white")
     data = build_raster(img, label, CONFIG, copies=3, cut_mode=printer.CUT_AT_END)
-    assert data.count(b"\x1b\x69\x41\x03") == 3
-    assert b"\x1b\x69\x41\x01" not in data
+
+    assert not any(
+        f & printer.AUTO_CUT_BIT for f in _flags(data, b"\x1b\x69\x4d")
+    )
+    cut_at_end = _flags(data, b"\x1b\x69\x4b")
+    assert cut_at_end == [printer.CUT_AT_END_BIT] * 3
 
 
-def test_build_raster_cut_at_end_single_copy_stays_unchanged():
+def test_build_raster_cut_at_end_handles_every_copy_block():
+    """Jeder Block muss stimmen - er wird pro Etikett geschrieben.
+
+    Bei fünf Kopien also fuenfmal; ein einzelnes Ersetzen am Anfang (der erste
+    Versuch) haette nur den ersten Block erwischt.
+    """
     label = get_label("50")
     img = Image.new("RGB", (label.width_dots, 472), "white")
-    data = build_raster(img, label, CONFIG, copies=1, cut_mode=printer.CUT_AT_END)
-    assert data.count(b"\x1b\x69\x41\x01") == 1
+    data = build_raster(img, label, CONFIG, copies=5, cut_mode=printer.CUT_AT_END)
+
+    assert len(_flags(data, b"\x1b\x69\x4b")) == 5
+    assert _flags(data, b"\x1b\x69\x4b") == [printer.CUT_AT_END_BIT] * 5
+    # Und bei einer Kopie genauso (Schnitt danach, nicht davor).
+    single = build_raster(img, label, CONFIG, copies=1, cut_mode=printer.CUT_AT_END)
+    assert _flags(single, b"\x1b\x69\x4b") == [printer.CUT_AT_END_BIT]
+
+
+def test_build_raster_cut_at_end_keeps_the_other_flags():
+    """Beim Umbau duerfen 600 dpi und Rotdruck nicht verloren gehen."""
+    label = get_label("50")
+    # 600 dpi in Bandlaufrichtung: der Renderer liefert doppelt so viele
+    # Zeilen - die Breite muss der Renderfaktor mitbringen (printer prueft das).
+    img = Image.new("RGB", (label.width_dots * 2, 944), "white")
+    data = build_raster(
+        img, label, CONFIG, copies=2, cut_mode=printer.CUT_AT_END, dpi_600=True
+    )
+
+    flags = _flags(data, b"\x1b\x69\x4b")
+    assert all(f & 0x40 for f in flags), "600-dpi-Bit fehlt"
+    assert all(f & printer.CUT_AT_END_BIT for f in flags)
 
 
 @pytest.mark.parametrize("copies", [0, -1, printer.COPIES_MAX + 1])
@@ -727,3 +782,23 @@ def test_usb_access_resolves_the_raw_node_for_libusb(tmp_path):
         is None
     )
 
+
+
+def test_copies_are_one_job_with_form_feeds_between_pages():
+    """Zwischen den Kopien ``0x0C`` (Form Feed), nur am Ende ``0x1A``.
+
+    Mit ``0x1A`` nach jeder Kopie wuerde der Drucker jede Kopie als fertigen
+    Auftrag behandeln und danach schneiden - unabhaengig von Auto Cut.
+    """
+    label = get_label("50")
+    img = Image.new("RGB", (label.width_dots, 472), "white")
+    data = build_raster(img, label, CONFIG, copies=3, cut_mode=printer.CUT_AT_END)
+
+    starts = []
+    i = data.find(b"\x1b\x69\x53")  # Beginn jeder Seite (Statusanfrage)
+    while i >= 0:
+        starts.append(i)
+        i = data.find(b"\x1b\x69\x53", i + 1)
+    assert len(starts) == 3
+    assert [data[s - 1] for s in starts[1:]] == [0x0C, 0x0C]
+    assert data[-1] == 0x1A

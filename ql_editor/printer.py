@@ -82,19 +82,22 @@ CUT_NONE = "none"
 #: Waehlbare Zuschnittarten (Reihenfolge = Reihenfolge in der Oberflaeche).
 CUT_MODES = (CUT_EACH, CUT_AT_END, CUT_NONE)
 
-#: Hoechste Kopienzahl pro Auftrag. Der Wert steht als ein Byte im Befehl
-#: "cut each * labels" (:data:`_CUT_EVERY`, 1-255), und ein Auftrag ist ein
-#: zusammenhaengender Datenstrom - mehr als das hier sind keine Kopien am Stueck.
+#: Hoechste Kopienzahl pro Auftrag. Ein Auftrag ist ein zusammenhaengender
+#: Datenstrom - mehr als das hier sind keine Kopien am Stueck.
 COPIES_MAX = 99
 
-#: Befehl "cut each * labels" (``ESC i A {n}``): der Drucker schneidet nach
-#: je ``n`` Etiketten, wirksam bei eingeschaltetem Auto Cut (``ESC i M``).
-#: ``convert()`` schreibt dort fest ``1`` (Schnitt nach jedem Etikett) - fuer
-#: :data:`CUT_AT_END` muss die Zahl der Kopien dort stehen.
-_CUT_EVERY = b"\x1b\x69\x41"
+#: Befehl "Various mode" (``ESC i M {n}``), Bit 7 (1-basiert, hier ``0x40``):
+#: Auto Cut. **1 = nach jedem Etikett schneiden.** Das ist die Vorgabe von
+#: ``brother_ql.convert()`` (Parameter ``cut=True``) - und genau deshalb
+#: schneidet der Drucker ohne weiteres Zutun nach jeder Kopie.
+_VARIOUS_MODE = b"\x1b\x69\x4d"
+AUTO_CUT_BIT = 0x40
 
-#: Parameterbyte von ``convert()`` fuer "Schnitt nach einem Etikett".
-_CUT_EVERY_ONE = b"\x01"
+#: Befehl "Expanded mode" (``ESC i K {n}``), Bit 4 (1-basiert, hier ``0x08``):
+#: "Cut at End" - **1 = am Ende schneiden** (Vorgabe), 0 = nicht schneiden.
+#: Aus ist er nur, wenn ``convert()`` mit ``cut=False`` aufgerufen wird.
+_EXPANDED_MODE = b"\x1b\x69\x4b"
+CUT_AT_END_BIT = 0x08
 
 
 @dataclass(frozen=True)
@@ -638,7 +641,7 @@ def build_raster(
     _validate_copies(copies)
     _validate_cut_mode(cut_mode, model)
 
-    qlr = BrotherQLRaster(model=config.model)
+    qlr = _JobRaster(model=config.model, pages=copies)
     qlr.exception_on_warning = True  # Warnungen als Fehler sichtbar machen
     try:
         convert(
@@ -650,7 +653,11 @@ def build_raster(
             dither=dither,
             compress=compress,
             red=red,
-            cut=cut_mode != CUT_NONE,
+            # Immer `cut=True`: damit steht "Auto Cut" (ESC i M) *explizit* im
+            # Strom. Fehlt der Befehl, gilt die Einstellung im Druckermenue
+            # weiter - und die steht ab Werk auf "Auto Cut: an", also Schnitt
+            # nach jedem Etikett. `_patch_cut` schaltet es danach aus.
+            cut=True,
             dpi_600=dpi_600,
             hq=hq,
         )
@@ -661,10 +668,71 @@ def build_raster(
             tr("Konvertierung fehlgeschlagen: {error}").format(error=exc)
         ) from exc
 
-    data = bytes(qlr.data)
-    if cut_mode == CUT_AT_END and copies > 1:
-        data = _set_cut_every(data, copies)
+    return _patch_cut(bytes(qlr.data), cut_mode)
+
+
+class _JobRaster(BrotherQLRaster):
+    """Ein Auftrag mit mehreren Kopien ist **ein** Druckauftrag.
+
+    ``brother_ql`` schliesst jede Seite mit ``0x1A`` ab ("Print command with
+    feeding", laut Referenz "am Ende der letzten Seite"). Der Drucker behandelt
+    jede so abgeschlossene Seite als fertigen Auftrag und schneidet danach -
+    egal, was ``ESC i M``/``ESC i K`` sagen. Zwischen den Kopien muss stattdessen
+    ``0x0C`` (Form Feed, "Print command") stehen; nur die letzte Seite endet
+    mit ``0x1A``.
+    """
+
+    def __init__(self, model: str, pages: int) -> None:
+        super().__init__(model=model)
+        self._pages = pages
+        self._finished = 0
+
+    def add_print(self, last_page: bool = True) -> None:
+        self._finished += 1
+        super().add_print(last_page=self._finished >= self._pages)
+
+
+def _patch_cut(data: bytes, cut_mode: str) -> bytes:
+    """Zuschnitt-Flags in **jedem** Etikett-Block setzen.
+
+    ``convert()`` schreibt den kompletten Kopf *pro Etikett* - bei drei Kopien
+    also dreimal. Der Schnitt laesst sich daher nicht einmal am Anfang
+    einstellen; jedes Vorkommen muss stimmen.
+
+    Wichtig sind zwei Bits aus der Raster Command Reference:
+
+    * ``ESC i M`` Bit 7: **Auto Cut** - 1 heisst "nach jedem Etikett
+      schneiden". Nur :data:`CUT_EACH` will das.
+    * ``ESC i K`` Bit 4: **Cut at End** - 1 heisst "am Ende schneiden"
+      (Vorgabe). Zusammen mit ausgeschaltetem Auto Cut druckt der Drucker alle
+      Kopien durch und schneidet einmal am Ende.
+
+    Auto Cut wird *immer* ausdruecklich geschrieben (auch als 0): fehlt der
+    Befehl, behaelt der Drucker seine Menue-Einstellung - und die ist ab Werk
+    "an", also Schnitt nach jedem Etikett.
+    """
+    if cut_mode == CUT_EACH:
+        return data
+    data = _set_flags(data, _VARIOUS_MODE, AUTO_CUT_BIT, False)
+    if cut_mode == CUT_NONE:
+        data = _set_flags(data, _EXPANDED_MODE, CUT_AT_END_BIT, False)
     return data
+
+
+def _set_flags(data: bytes, command: bytes, bit: int, value: bool) -> bytes:
+    """Ein Bit im Parameterbyte jedes ``command``-Befehls setzen oder loeschen."""
+    parts = data.split(command)
+    if len(parts) == 1:
+        return data
+    out = [parts[0]]
+    for part in parts[1:]:
+        if not part:
+            out.append(part)
+            continue
+        flags = part[0]
+        flags = flags | bit if value else flags & ~bit
+        out.append(bytes([flags]) + part[1:])
+    return command.join(out)
 
 
 def _validate_copies(copies: int) -> None:
@@ -690,23 +758,6 @@ def _validate_cut_mode(cut_mode: str, model) -> None:
                 "Zuschnitt auf „{none}“ stellen."
             ).format(model=model.identifier, none=tr("Nicht schneiden"))
         )
-
-
-def _set_cut_every(data: bytes, pages: int) -> bytes:
-    """Schnitt erst nach ``pages`` Etiketten einstellen (siehe :data:`_CUT_EVERY`).
-
-    ``convert()`` schreibt in jeden Etikett-Block fest ``ESC i A 1``. Fuer
-    "erst am Ende" wird dieser Zaehler in *allen* Bloecken ersetzt: der Drucker
-    schneidet dann erst nach der letzten Kopie, der Streifen kommt
-    zusammenhaengend heraus (die Kopien haengen aneinander).
-
-    Modelle ohne Schnittsteuerung kennen den Befehl nicht - dann bleibt der
-    Datenstrom unveraendert (``_validate_cut_mode`` hat das schon gemeldet).
-    """
-    parts = data.split(_CUT_EVERY + _CUT_EVERY_ONE)
-    if len(parts) == 1:
-        return data
-    return (_CUT_EVERY + bytes([pages & 0xFF])).join(parts)
 
 
 # --------------------------------------------------------------------------- #
@@ -862,9 +913,11 @@ def _match_labels(width_mm: int, length_mm: int, *, endless: bool) -> list[Label
 __all__ = [
     "ADDRESS_EXAMPLES",
     "COPIES_MAX",
+    "AUTO_CUT_BIT",
     "CUT_AT_END",
     "CUT_EACH",
     "CUT_MODES",
+    "CUT_AT_END_BIT",
     "CUT_NONE",
     "DEFAULT_ADDRESS",
     "NETWORK_PORT",

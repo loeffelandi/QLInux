@@ -167,42 +167,50 @@ liefert nur Aufloesungen, und `pquality`/`hq` ("Qualitaet vor Tempo") ist ein
 eigener Schalter in der Oberflaeche. Abfragen laesst sich beides nicht - die
 Statusantwort (32 Byte) kennt nur Band und Fehler.
 
-## Schneiden und Kopien (`ESC i M`, `ESC i A`, `ESC i K`)
+## Schneiden und Kopien (`ESC i M`, `ESC i K`, Seitenende)
 
 Quelle: Brother *Raster Command Reference* der QL-800-Reihe
 (`https://download.brother.com/welcome/docp100278/cv_ql800_eng_raster_101.pdf`).
-Maßgeblich sind drei Kommandos:
+Am QL-820NWB geprueft (Testdrucke, Band 50 mm endlos).
 
-| Kommando | Bedeutung | `brother_ql` 0.9.4 |
-| --- | --- | --- |
-| `ESC i M {n}` | Autocut: Bit 7 = schneiden, Bit 6 = "halber Schnitt" | `add_autocut(enable)` |
-| `ESC i A {n}` | "cut each \* labels": nach je `n` Etiketten schneiden (1-255, Default 1); wirkt **nur** bei Autocut | `add_cut_every(n)` |
-| `ESC i K {n}` | Expanded Mode: Bit 4 = "Cut at End" (Default 1) | `add_expanded_mode(cut_at_end=…)` |
+| Befehl | Bit (Referenz, 1-basiert) | Wert im Code | Bedeutung |
+| --- | --- | --- | --- |
+| `ESC i M {n}` | 7 "Auto cut" | `0x40` | 1 = nach **jedem** Etikett schneiden |
+| `ESC i K {n}` | 4 "Cut at end" | `0x08` | 1 = am Ende schneiden (Vorgabe) |
+| `ESC i A {n}` | - | - | "cut each * labels": Seitenzahl, nur mit Auto cut |
 
-Daraus folgen die drei Zuschnitt-Betriebsarten (`printer.CUT_MODES`):
+Die Kopien hängen zusammen, wenn **Auto cut aus** ist und **Cut at end an**
+bleibt. Das ist der Modus "nur am Ende" (`printer.CUT_AT_END`), am QL-820NWB
+geprueft: 2 Etiketten, ein Stueck, 7,7 cm.
 
-* **Nach jeder Kopie** (`CUT_EACH`): Autocut an, `ESC i A 1` - Einzeletiketten.
-* **Nur am Ende** (`CUT_AT_END`): Autocut an, `ESC i A {kopien}` - die Kopien
-  bleiben zusammen und werden zuletzt getrennt.
-* **Nicht schneiden** (`CUT_NONE`): Autocut aus (das Band bleibt am Streifen).
+Drei Fallen, die beim Erkunden eine Stunde gekostet haben:
 
-Falle: `brother_ql.convert()` schreibt `ESC i A 1` fest verdrahtet
-(`kwargs['cut']` steuert nur Autocut). Fuer "Nur am Ende" wird der Wert deshalb
-**nach** dem Konvertieren im fertigen Bytestrom ersetzt:
-`printer._set_cut_every(instructions, copies)` tauscht die drei Bytes
-`ESC i A 01` gegen `ESC i A {copies}` (Sequenz ist in `reader.OPCODES` als
-`cut-every` dokumentiert und im Strom eindeutig).
+1. **Auto cut muss explizit geschrieben werden - auch als 0.** Fehlt
+   `ESC i M`, gilt die Einstellung aus dem Druckermenue, und die steht ab Werk
+   auf "an". `brother_ql` schreibt den Befehl nur bei `cut=True`; deshalb
+   erzeugen wir immer `cut=True` und setzen das Bit danach (`_patch_cut`).
+2. **Der Kopf wiederholt sich pro Etikett.** `convert()` schreibt bei drei Kopien
+   dreimal `ESC i M`/`ESC i K`/`ESC i A`. Ein einmaliges Ersetzen am Anfang
+   erwischt nur den ersten Block. `_patch_cut` geht deshalb ueber alle Bloecke.
+3. **`brother_ql` schliesst jede Seite mit `0x1A` ab** ("Print command with
+   feeding", laut Referenz "am Ende der letzten Seite"). Der Drucker behandelt
+   jede so abgeschlossene Seite als fertigen Auftrag und schneidet danach, egal
+   welche Schnitt-Bits gesetzt sind. Zwischen den Kopien steht deshalb `0x0C`
+   (Form Feed), nur nach der letzten Seite `0x1A`. Das erledigt
+   `printer._JobRaster`.
 
-Kopien laufen als **ein** Auftrag: `images=[image] * copies` - ein
-Datenstrom, eine Verbindung. Einzelne `print_image()`-Aufrufe pro Kopie
-wuerden bei TCP 9100 nacheinander verbinden; ohne Rueckkanal ist der Drucker
-dazwischen unter Umstaenden noch beschaeftigt.
+Die Seitenzahl in `ESC i A` ist fuer "nur am Ende" nicht noetig und wird nicht
+mehr gesetzt; sie bleibt im Strom bei `1`, solange Auto cut aus ist.
+
+Die Druckinformation `ESC i z` kennt **kein** Feld "letzte Seite": Feld n9 ist
+nur "Startseite 0 / andere Seiten 1". Das Ende eines Auftrags markiert allein
+das `0x1A`.
 
 Modelle **ohne** Schneideeinrichtung (`ModelSpec.cutting is False`, z. B.
 QL-500) vertragen das Autocut-Kommando nicht: `brother_ql`
 `raster.py: add_autocut` ruft `unsupported()` → `BrotherQLUnsupportedCmd`,
 das `convert()` schluckt - der Druck ginge still ohne Schnitt durch.
-`printer.build_raster()` meldet deshalb jeden Zuschnitt außer `CUT_NONE` bei
+`printer.build_raster()` meldet deshalb jeden Zuschnitt ausser `CUT_NONE` bei
 solchen Modellen als sichtbaren `PrinterError`.
 
 ## Anschluesse und Status-Rueckkanal
