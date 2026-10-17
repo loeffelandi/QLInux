@@ -19,6 +19,7 @@ gedruckt ueber :mod:`ql_editor.printer` (in einem Worker-Thread).
 
 from __future__ import annotations
 
+import math
 import sys
 import threading
 from functools import partial
@@ -175,6 +176,11 @@ _current_window: MainWindow | None = None
 def _remember_window(window: MainWindow) -> None:
     global _current_window
     _current_window = window
+
+
+def _signed_dots(mm: float) -> float:
+    """Millimeter -> Punkte, auch negativ (ein Rand kann auch kleiner werden)."""
+    return math.copysign(media.mm_to_dots(abs(mm)), mm) if mm else 0.0
 
 
 #: Mindesthoehe des Objekt-Bereichs, wenn Objekt und Drucken untereinander stehen.
@@ -1097,8 +1103,8 @@ class MainWindow(QMainWindow):
             return
         margins = self._media_panel.margins()
         base_left, base_top = self._margin_base
-        dx = media.mm_to_dots(margins.left - base_left)
-        dy = media.mm_to_dots(margins.top - base_top)
+        dx = _signed_dots(margins.left - base_left)
+        dy = _signed_dots(margins.top - base_top)
         self._sync_margin_base()
         if dx or dy:
             self._canvas.translate_items(dx, dy)
