@@ -46,6 +46,8 @@ _STROKE = 1.8
 _RADIUS = 2.5
 #: Groesse eines gezeichneten Mauszeigers (Bildschirmpixel).
 CURSOR_SIZE = 24
+#: Drehzeiger am Drehgriff - halb so gross wie die uebrigen Zeiger (Bildschirmpixel).
+ROTATE_CURSOR_SIZE = 12
 _CACHE: dict[tuple[str, str], QIcon] = {}
 _CURSOR_CACHE: dict[tuple[str, int, int], QCursor] = {}
 

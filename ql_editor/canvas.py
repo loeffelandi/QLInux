@@ -43,7 +43,7 @@ from PIL import Image
 
 from . import items as items_mod
 from .i18n import tr
-from .icons import cursor
+from .icons import ROTATE_CURSOR_SIZE, cursor
 from .renderer import render_scene_to_image
 from .media import (
     DOTS_PER_MM,
@@ -1137,7 +1137,7 @@ class LabelCanvas(QGraphicsView):
             if handle[0] == "rotate":
                 # Eigenes Rotations-Symbol: Qt hat keinen passenden Cursor,
                 # ein Fadenkreuz sagt hier nichts ueber "drehen".
-                self.viewport().setCursor(cursor("rotate"))
+                self.viewport().setCursor(cursor("rotate", ROTATE_CURSOR_SIZE))
             else:
                 self.viewport().setCursor(self._cursor_for_handle(handle[1], handle[0]))
         else:

@@ -1742,7 +1742,7 @@ def test_rotate_handle_shows_a_rotation_cursor(qapp):
     )
     cursor = canvas.viewport().cursor()
     assert cursor.shape() == Qt.CursorShape.BitmapCursor
-    assert cursor.pixmap().width() == icons.CURSOR_SIZE
+    assert cursor.pixmap().width() == icons.ROTATE_CURSOR_SIZE
 
     # Ueber einem Groessen-Griff bleibt es beim System-Cursor.
     east = canvas._handle_points(item)["e"]
