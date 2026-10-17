@@ -38,6 +38,12 @@ from PySide6.QtWidgets import (
 
 from .i18n import tr
 
+#: Kleinstes Format eines Dateidialogs im Sheet (Bildschirmpixel).
+DIALOG_MIN_WIDTH = 320
+DIALOG_MIN_HEIGHT = 240
+#: Randabstand um einen Dateidialog - so viel Hoehe wie moeglich bleibt.
+DIALOG_MARGIN = 14
+
 #: Abdunklung hinter dem Sheet (Alpha 0..255).
 _SCRIM_ALPHA = 120
 
@@ -261,9 +267,16 @@ def choose_file(
     dialog.setDirectory(start_dir or QDir.homePath())
     dialog.setLabelText(QFileDialog.DialogLabel.Accept, tr("Öffnen"))
     dialog.setLabelText(QFileDialog.DialogLabel.Reject, tr("Abbrechen"))
-    dialog.setMinimumSize(560, 380)
+    # Keine harte Mindestgroesse: die erzwingt das Sheet und schneidet sonst die
+    # Schaltflaechen unten ab, wenn das Fenster niedrig ist.
+    dialog.setMinimumSize(DIALOG_MIN_WIDTH, DIALOG_MIN_HEIGHT)
     sheet = _open_sheet(
-        parent, dialog, title=caption, sizing="fill", max_size=QSize(980, 700)
+        parent,
+        dialog,
+        title=caption,
+        sizing="fill",
+        margins=DIALOG_MARGIN,
+        max_size=QSize(980, 700),
     )
 
     def _finished(result: int) -> None:
@@ -298,9 +311,16 @@ def save_file(
         dialog.selectFile(default_name)
     dialog.setLabelText(QFileDialog.DialogLabel.Accept, tr("Speichern"))
     dialog.setLabelText(QFileDialog.DialogLabel.Reject, tr("Abbrechen"))
-    dialog.setMinimumSize(560, 380)
+    # Keine harte Mindestgroesse: die erzwingt das Sheet und schneidet sonst die
+    # Schaltflaechen unten ab, wenn das Fenster niedrig ist.
+    dialog.setMinimumSize(DIALOG_MIN_WIDTH, DIALOG_MIN_HEIGHT)
     sheet = _open_sheet(
-        parent, dialog, title=caption, sizing="fill", max_size=QSize(980, 700)
+        parent,
+        dialog,
+        title=caption,
+        sizing="fill",
+        margins=DIALOG_MARGIN,
+        max_size=QSize(980, 700),
     )
 
     def _finished(result: int) -> None:

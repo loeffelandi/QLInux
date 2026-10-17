@@ -16,6 +16,8 @@ from PySide6.QtWidgets import QSplitter, QTabWidget, QVBoxLayout, QWidget
 
 STACKED = "stacked"
 TABS = "tabs"
+#: Reserve (Pixel) zwischen den Seiten im Stapel.
+SPACING_PX = 24
 
 
 class AdaptivePages(QWidget):
@@ -63,7 +65,8 @@ class AdaptivePages(QWidget):
 
     def needed_height(self) -> int:
         """Hoehe, die alle Seiten untereinander brauchen."""
-        return sum(height() for _title, _widget, height in self._pages)
+        # Etwas Reserve fuer Trennleisten und Rahmen der Bereiche.
+        return sum(height() for _title, _widget, height in self._pages) + SPACING_PX
 
     # ----------------------------------------------------------- Umschalten --
     def resizeEvent(self, event: QResizeEvent) -> None:  # noqa: N802

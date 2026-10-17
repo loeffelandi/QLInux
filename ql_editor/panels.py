@@ -43,7 +43,8 @@ STRIP_WIDTH = 22
 #: Standardbreite eines offenen Panels (wie in P-touch Editor).
 PANEL_WIDTH = 300
 #: Schmaler wird ein offenes Panel nicht; der Inhalt scrollt dann.
-PANEL_MIN_WIDTH = 180
+PANEL_MIN_WIDTH = 200
+#: (Inhalt + senkrechte Scrollleiste; darunter wuerde horizontal gescrollt.)
 #: Groesse des Pfeil-Knopfes im Streifen.
 BUTTON_SIZE = 20
 #: Dauer der Ein-/Ausklapp-Animation in Millisekunden.
