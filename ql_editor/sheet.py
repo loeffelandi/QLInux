@@ -195,6 +195,24 @@ def _open_sheet(parent: QWidget, content: QWidget, **kwargs) -> Sheet:
     return sheet
 
 
+def show_widget(
+    parent: QWidget,
+    *,
+    title: str,
+    content: QWidget,
+    sizing: str = "hint",
+    max_size: QSize | None = None,
+) -> Sheet:
+    """Eigenen Inhalt als Sheet zeigen (z. B. "Über QLInux").
+
+    Fuer alles, was mehr ist als eine Meldung: der Inhalt ist ein eigenes
+    Widget, das Sheet bleibt aber im Hauptfenster (siehe Modulbeschreibung).
+    """
+    return _open_sheet(
+        parent, content, title=title, sizing=sizing, max_size=max_size
+    )
+
+
 def show_message(
     parent: QWidget,
     kind: str,

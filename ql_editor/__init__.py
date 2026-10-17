@@ -1,4 +1,4 @@
-"""QLInux - P-touch-Editor-Klon fuer Brother QL-820NWB.
+"""QLInux - P-touch-Editor-Klon fuer Brother-QL-Drucker.
 
 Reines Python, native GUI (PySide6), Rendering via Pillow, Druck via brother_ql.
 
@@ -8,6 +8,7 @@ Das Paket ist in klar getrennte Schichten gegliedert:
 * :mod:`ql_editor.renderer`  - Szene -> ``PIL.Image`` in exakter Zielbreite
 * :mod:`ql_editor.printer`   - brother_ql-Wrapper (verbinden, konvertieren, senden)
 * :mod:`ql_editor.app`       - QApplication / MainWindow (GUI)
+* :mod:`ql_editor.about`     - "Über QLInux" (Modelle, Lizenzen, Dank)
 """
 
 from __future__ import annotations

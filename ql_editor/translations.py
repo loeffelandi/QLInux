@@ -37,12 +37,44 @@ EN: dict[str, str] = {
     "Beenden": "Quit",
     "Beenden (Strg+Q)": "Quit (Ctrl+Q)",
     "Über QLInux": "About QLInux",
-    "QLInux - P-touch-Editor-Klon für Brother QL-820NWB\n\nBand- und Modellmaße: {labels} Bänder / {models} Modelle (dynamisch aus brother_ql)\nAuflösung: {dpi} dpi": (
-        "QLInux - P-touch Editor clone for Brother QL printers\n\n"
-        "Label and model sizes: {labels} labels / {models} models "
-        "(read from brother_ql)\n"
-        "Resolution: {dpi} dpi"
+    "Etiketten gestalten und direkt drucken – für Brother-QL-Drucker und andere, die die Bibliothek brother_ql unterstützt.": (
+        "Design labels and print them directly – on Brother QL printers and "
+        "any other model the brother_ql library supports."
     ),
+    "Unterstützte Drucker": "Supported printers",
+    "Alle {models} Modelle, die brother_ql kennt (nichts vorbelegt):": (
+        "All {models} models known to brother_ql (none hard-coded):"
+    ),
+    "Dazu {labels} Bandtypen mit ihren Maßen, ebenfalls aus der Bibliothek. Die Auswahl im Panel richtet sich nach dem gewählten Modell.": (
+        "Plus {labels} label types with their sizes, also from the library. "
+        "The panel offers the ones that fit the selected model."
+    ),
+    "Freie Software": "Free software",
+    "QLInux steht unter der GNU General Public License, Version 3 oder später (GPL-3.0-or-later) - so offen wie die Bibliothek, auf der es aufbaut.": (
+        "QLInux is released under the GNU General Public License, version 3 or "
+        "later (GPL-3.0-or-later) – as open as the library it builds on."
+    ),
+    "Lizenztext": "License text",
+    "Dank an": "Thanks to",
+    "Druckerbefehle, Band- und Modellmaße": (
+        "Printer commands, label and model sizes"
+    ),
+    "Oberfläche (Fenster, Canvas, Sheets)": (
+        "User interface (windows, canvas, sheets)"
+    ),
+    "Fredrik Lundh und Mitwirkende": "Fredrik Lundh and contributors",
+    "Rendering und Rasterdaten": "Rendering and raster data",
+    "Wander Lairson Costa und Mitwirkende": (
+        "Wander Lairson Costa and contributors"
+    ),
+    "USB-Anschluss": "USB connection",
+    "Lincoln Loop und Mitwirkende": "Lincoln Loop and contributors",
+    "QR-Codes": "QR codes",
+    "Thorsten Weimann und Mitwirkende": "Thorsten Weimann and contributors",
+    "Barcodes": "Barcodes",
+    "Entwickelt von": "Developed by",
+    "Quelltext und Fehler melden": "Source code and bug reports",
+    "Version": "Version",
     "{panel} einklappen ({shortcut})": "Collapse {panel} ({shortcut})",
     "{panel} ausklappen ({shortcut})": "Expand {panel} ({shortcut})",
     # -- Werkzeuge ----------------------------------------------------------

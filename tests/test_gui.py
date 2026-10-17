@@ -3477,6 +3477,7 @@ def test_english_ui_has_no_german_leftovers(qapp, tmp_path):
         TextItem,
     )
     from ql_editor.settings import AppSettings
+    from ql_editor.sheet import Sheet
     from ql_editor.translations import EN
 
     german_only = ("ä", "ö", "ü", "ß", "Ä", "Ö", "Ü", "„")
@@ -3535,16 +3536,76 @@ def test_english_ui_has_no_german_leftovers(qapp, tmp_path):
         for widget in win._inspector.findChildren(QWidget):
             collect(widget)
 
+    # Auch das Über-Sheet (Modellliste, Lizenz, Danksagung) muss englisch sein.
+    win._show_about()
+    qapp.processEvents()
+    sheet = win.findChild(Sheet)
+    assert sheet is not None
+    for widget in sheet.findChildren(QWidget):
+        collect(widget)
+    sheet.close_sheet()
+    qapp.processEvents()
+
     # Alles, was noch genauso heisst wie der deutsche Originaltext, ist
     # unuebersetzt - ebenso alles mit deutschen Umlauten/Anfuehrungszeichen.
+    # Ausnahme: der Entwicklername (Eigenname, steht in beiden Sprachen).
+    from ql_editor.about import DEVELOPER
+
     untranslated = set(EN) - {key for key, value in EN.items() if key == value}
     leftovers = sorted(
         {
             text
             for text in texts
-            if text in untranslated or any(ch in text for ch in german_only)
+            if DEVELOPER not in text
+            and (text in untranslated or any(ch in text for ch in german_only))
         }
     )
     assert not leftovers, f"Noch deutsch: {leftovers}"
+    win.close()
+    qapp.processEvents()
+
+
+# --------------------------------------------------------------------------- #
+# Über QLInux
+# --------------------------------------------------------------------------- #
+def test_about_lists_models_licence_dank_and_developer(qapp, tmp_path):
+    """Das „Über" ist ehrlich: alle Modelle der Bibliothek, Lizenz, Dank, Haus.
+
+    QLInux ist kein QL-820NWB-Programm - es kann, was ``brother_ql`` kann.
+    Genau das muss dort stehen, samt freier Lizenz und Danksagung.
+    """
+    from PySide6.QtWidgets import QLabel
+
+    from ql_editor import media
+    from ql_editor.about import DEVELOPER, DEVELOPER_URL, PROJECT_URL, credits
+    from ql_editor.sheet import Sheet
+
+    win = _temp_window(qapp, tmp_path)
+    win._show_about()
+    qapp.processEvents()
+
+    sheet = win.findChild(Sheet)
+    assert sheet is not None
+
+    texts = [label.text() for label in sheet.findChildren(QLabel)]
+    joined = "\n".join(texts)
+
+    # Alle Modelle der Bibliothek - nicht nur das eigene Geraet.
+    for spec in media.all_models():
+        assert spec.identifier in joined, spec.identifier
+    assert str(len(media.all_models())) in joined
+    # Lizenz und Danksagung an die Upstream-Bibliotheken.
+    assert "GPL-3.0-or-later" in joined
+    for name, _author, license_id, _contribution in credits():
+        assert name in joined, name
+        assert license_id in joined, license_id
+    assert "brother_ql" in joined
+    # Entwickler aus dem Impressum.
+    assert DEVELOPER in joined
+    assert DEVELOPER_URL in joined
+    assert PROJECT_URL in joined
+
+    sheet.close_sheet()
+    qapp.processEvents()
     win.close()
     qapp.processEvents()

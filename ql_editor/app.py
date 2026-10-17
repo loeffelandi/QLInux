@@ -56,6 +56,7 @@ from PySide6.QtWidgets import (
 )
 
 from . import access
+from . import about
 from . import media
 from .canvas import LabelCanvas
 from .discovery import discover_network_printers
@@ -1545,21 +1546,8 @@ class MainWindow(QMainWindow):
             )
 
     def _show_about(self) -> None:
-        show_message(
-            self,
-            "info",
-            tr("Über QLInux"),
-            tr(
-                "QLInux - P-touch-Editor-Klon für Brother QL-820NWB\n\n"
-                "Band- und Modellmaße: {labels} Bänder / {models} Modelle "
-                "(dynamisch aus brother_ql)\n"
-                "Auflösung: {dpi} dpi"
-            ).format(
-                labels=len(media.all_labels()),
-                models=len(media.all_models()),
-                dpi=media.DPI,
-            ),
-        )
+        """„Über QLInux": Modellliste, Lizenz, Danksagung (siehe about.py)."""
+        about.show_about(self)
 
     # -------------------------------------------------------------- Close ---
     def closeEvent(self, event) -> None:  # noqa: N802
