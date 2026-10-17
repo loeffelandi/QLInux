@@ -486,3 +486,38 @@ def test_usb_device_label_names_backend_and_model():
     assert printer.usb_device_label("tcp://192.168.178.62:9100") == (
         "tcp://192.168.178.62:9100"
     )
+
+
+# --------------------------------------------------------------------------- #
+# Netzwerkadresse: nur die IP eintippen
+# --------------------------------------------------------------------------- #
+def test_parse_network_address_fills_prefix_and_port():
+    assert printer.parse_network_address("192.168.178.62") == "tcp://192.168.178.62:9100"
+    assert printer.parse_network_address(" 192.168.178.62 ") == "tcp://192.168.178.62:9100"
+    assert printer.parse_network_address("tcp://192.168.178.62:9100") == "tcp://192.168.178.62:9100"
+    assert printer.parse_network_address("192.168.178.62/") == "tcp://192.168.178.62:9100"
+    assert printer.parse_network_address("ql820.local") == "tcp://ql820.local:9100"
+    # Abweichender Port bleibt erhalten.
+    assert printer.parse_network_address("192.168.178.62:9101") == "tcp://192.168.178.62:9101"
+    # IPv6 in Klammern wird nicht am Doppelpunkt zerschnitten.
+    assert printer.parse_network_address("[::1]") == "tcp://[::1]:9100"
+    assert printer.parse_network_address("[::1]:9101") == "tcp://[::1]:9101"
+    assert printer.parse_network_address("") == ""
+    assert printer.parse_network_address("   ") == ""
+    assert printer.parse_network_address("tcp://") == ""
+
+
+def test_network_host_hides_only_the_default_port():
+    assert printer.network_host("tcp://192.168.178.62:9100") == "192.168.178.62"
+    assert printer.network_host("tcp://192.168.178.62:9101") == "192.168.178.62:9101"
+    assert printer.network_host("192.168.178.62") == "192.168.178.62"
+    assert printer.network_host("[::1]:9100") == "[::1]"
+
+
+def test_network_address_survives_the_display_roundtrip():
+    for address in (
+        "tcp://192.168.178.62:9100",
+        "tcp://ql820.local:9101",
+        "tcp://[::1]:9100",
+    ):
+        assert printer.parse_network_address(printer.network_host(address)) == address

@@ -72,10 +72,12 @@ def test_media_panel_emits_a_usb_search(qapp):
 
 
 def test_usb_search_applies_the_only_printer_found(qapp, tmp_path, monkeypatch):
-    from ql_editor import app as app_module
+    from ql_editor import media_panel as media_panel_module
 
     win = _temp_window(qapp, tmp_path)
-    monkeypatch.setattr(app_module, "usb_devices", lambda: ["usb://0x04f9:0x209b"])
+    monkeypatch.setattr(
+        media_panel_module, "usb_devices", lambda: ["usb://0x04f9:0x209b"]
+    )
 
     win._on_usb_search()
 
@@ -85,11 +87,13 @@ def test_usb_search_applies_the_only_printer_found(qapp, tmp_path, monkeypatch):
 
 def test_usb_search_switches_the_model_from_the_usb_id(qapp, tmp_path, monkeypatch):
     """Am USB haengt ein anderes Modell - die Kennung zieht das Modell nach."""
-    from ql_editor import app as app_module
+    from ql_editor import media_panel as media_panel_module
 
     win = _temp_window(qapp, tmp_path)
     win._media_panel.set_model("QL-820NWB")
-    monkeypatch.setattr(app_module, "usb_devices", lambda: ["usb://0x04f9:0x2042"])
+    monkeypatch.setattr(
+        media_panel_module, "usb_devices", lambda: ["usb://0x04f9:0x2042"]
+    )
 
     win._on_usb_search()
 
@@ -99,15 +103,128 @@ def test_usb_search_switches_the_model_from_the_usb_id(qapp, tmp_path, monkeypat
 
 
 def test_usb_search_keeps_the_model_when_it_is_unknown(qapp, tmp_path, monkeypatch):
-    from ql_editor import app as app_module
+    from ql_editor import media_panel as media_panel_module
 
     win = _temp_window(qapp, tmp_path)
     win._media_panel.set_model("QL-820NWB")
-    monkeypatch.setattr(app_module, "usb_devices", lambda: ["usb://0x04f9:0x9999"])
+    monkeypatch.setattr(
+        media_panel_module, "usb_devices", lambda: ["usb://0x04f9:0x9999"]
+    )
 
     win._on_usb_search()
 
     assert win._media_panel.model_id() == "QL-820NWB"
+
+
+# --------------------------------------------------------------------------- #
+# Druckerauswahl: Anschluss waehlen statt Adresse auswendig lernen
+# --------------------------------------------------------------------------- #
+def test_media_panel_asks_only_for_the_ip(qapp):
+    """Netzwerk: nur die IP eintippen - Praefix und Port ergaenzt die App."""
+    from ql_editor.media_panel import MediaPanel
+
+    panel = MediaPanel()
+    panel._host_edit.setText("192.168.178.77")
+
+    assert panel.address() == "tcp://192.168.178.77:9100"
+    assert panel.printer_config().backend == "network"
+
+
+def test_media_panel_switches_between_network_and_usb_rows(qapp, monkeypatch):
+    from ql_editor import media_panel as media_panel_module
+    from ql_editor.media_panel import CONNECTION_NETWORK, CONNECTION_USB, MediaPanel
+
+    monkeypatch.setattr(media_panel_module, "usb_devices", lambda: [])
+    panel = MediaPanel()
+    assert panel.connection() == CONNECTION_NETWORK
+    assert panel._printer_form.isRowVisible(panel._row_host)
+    assert not panel._printer_form.isRowVisible(panel._row_usb)
+
+    panel._conn_buttons[CONNECTION_USB].setChecked(True)
+
+    assert panel.connection() == CONNECTION_USB
+    assert not panel._printer_form.isRowVisible(panel._row_host)
+    assert panel._printer_form.isRowVisible(panel._row_usb)
+    # Ohne Geraet gibt es keine Adresse - und der Druckdialog sagt das dann.
+    assert panel.address() == ""
+
+
+def test_media_panel_restores_a_network_address_from_settings(qapp):
+    from ql_editor.media_panel import CONNECTION_NETWORK, MediaPanel
+
+    panel = MediaPanel()
+    panel.set_address("tcp://192.168.178.99:9100")
+
+    assert panel.connection() == CONNECTION_NETWORK
+    assert panel._host_edit.text() == "192.168.178.99"
+    assert panel.address() == "tcp://192.168.178.99:9100"
+
+
+def test_media_panel_usb_switch_finds_and_applies_the_device(qapp, monkeypatch):
+    """Anschluss auf USB stellen genuegt: das Geraet wird gefunden und uebernommen."""
+    from ql_editor import media_panel as media_panel_module
+    from ql_editor.media_panel import CONNECTION_USB, MediaPanel
+
+    monkeypatch.setattr(
+        media_panel_module, "usb_devices", lambda: ["usb://0x04f9:0x2042"]
+    )
+    panel = MediaPanel()
+    panel.set_model("QL-820NWB")
+
+    panel._conn_buttons[CONNECTION_USB].setChecked(True)
+
+    assert panel.connection() == CONNECTION_USB
+    assert panel.address() == "usb://0x04f9:0x2042"
+    assert panel.model_id() == "QL-700"
+
+
+def test_media_panel_usb_placeholder_is_not_an_address(qapp, monkeypatch):
+    from ql_editor import media_panel as media_panel_module
+    from ql_editor.media_panel import CONNECTION_USB, MediaPanel, USB_PLACEHOLDER
+
+    monkeypatch.setattr(
+        media_panel_module,
+        "usb_devices",
+        lambda: ["usb://0x04f9:0x2042", "/dev/usb/lp1"],
+    )
+    panel = MediaPanel()
+
+    panel._conn_buttons[CONNECTION_USB].setChecked(True)
+
+    assert panel._usb_combo.currentText() == USB_PLACEHOLDER
+    assert panel.address() == ""
+
+
+def test_media_panel_keeps_a_stored_usb_address_when_unplugged(qapp, monkeypatch):
+    """Beim Laden der Einstellungen darf eine Adresse nicht verloren gehen."""
+    from ql_editor import media_panel as media_panel_module
+    from ql_editor.media_panel import CONNECTION_USB, MediaPanel
+
+    monkeypatch.setattr(media_panel_module, "usb_devices", lambda: [])
+    panel = MediaPanel()
+    panel.set_address("usb://0x04f9:0x2042")
+
+    assert panel.connection() == CONNECTION_USB
+    assert panel.address() == "usb://0x04f9:0x2042"
+
+    panel.refresh_usb_devices()  # Geraet ist inzwischen abgezogen
+
+    assert panel.address() == "usb://0x04f9:0x2042"
+    assert "nicht angeschlossen" in panel._usb_combo.currentText()
+
+
+def test_detect_button_only_works_where_readback_is_possible(qapp):
+    """Band-Erkennung braucht einen Rueckkanal - nur USB hat einen."""
+    from ql_editor.media_panel import MediaPanel
+
+    panel = MediaPanel()
+    assert not panel._detect_button.isEnabled()  # Netzwerk
+
+    panel.set_address("usb://0x04f9:0x2042")
+    assert panel._detect_button.isEnabled()  # USB
+
+    panel.set_address("tcp://192.168.178.62:9100")
+    assert not panel._detect_button.isEnabled()
 
 
 def test_media_panel_finished_vs_content(qapp):
@@ -2082,6 +2199,21 @@ def test_print_options_are_persisted(qapp, tmp_path):
     assert again._resolution_combo.currentData() == RESOLUTION_HIGH.key
     assert again._hq_check.isChecked() is False
     assert again._cut_check.isChecked() is False
+
+
+def test_connection_and_address_are_persisted(qapp, tmp_path):
+    """Der gewaehlte Anschluss samt Adresse ueberlebt einen Neustart."""
+    from ql_editor.media_panel import CONNECTION_NETWORK
+
+    win = _temp_window(qapp, tmp_path)
+    win._media_panel._host_edit.setText("192.168.178.99")
+    win.close()
+    qapp.processEvents()
+
+    again = _temp_window(qapp, tmp_path)
+    assert again._media_panel.connection() == CONNECTION_NETWORK
+    assert again._media_panel._host_edit.text() == "192.168.178.99"
+    assert again._media_panel.address() == "tcp://192.168.178.99:9100"
 
 
 def test_resolution_options_follow_the_printer_model(qapp):

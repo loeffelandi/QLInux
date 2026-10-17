@@ -233,6 +233,24 @@ injizierbar); `printer.model_for_address()` vereint beide Wege und liefert fuer
 Netzwerkadressen bewusst `None` - welcher Drucker dort antwortet, verraet die
 reine TCP-Druckschnittstelle nicht.
 
+### Netzwerkadresse: nur die IP eintippen
+
+`printer.parse_network_address()` macht aus der Nutzereingabe eine
+vollstaendige Adresse und `printer.network_host()` die Anzeigeform zurueck:
+
+| Eingabe | Adresse |
+| --- | --- |
+| `192.168.178.62` | `tcp://192.168.178.62:9100` |
+| `192.168.178.62:9101` | `tcp://192.168.178.62:9101` (abweichender Port bleibt) |
+| `ql820.local` | `tcp://ql820.local:9100` |
+| `[::1]` | `tcp://[::1]:9100` (IPv6 wird nicht am Doppelpunkt zerschnitten) |
+| `tcp://192.168.178.62:9100` | unveraendert (Praefixe werden toleriert) |
+| leer | leer - der Druckdialog sagt dann, dass die Adresse fehlt |
+
+`printer.NETWORK_PORT` ist der Standardport (9100, RAW/JetDirect) und damit
+die einzige Stelle, an der er steht; die Anzeige laesst genau diesen Port weg,
+einen abweichenden zeigt sie mit an.
+
 ### Rechtelage am QL-700 (gemessen)
 
 Beide USB-Wege scheitern ohne Systemrechte, und zwar unterschiedlich:

@@ -362,6 +362,28 @@ def _draw_detect(p: QPainter, color: QColor) -> None:
     _line(p, 7.6, 12.0, 11.4, 12.0)
 
 
+def _draw_network(p: QPainter, color: QColor) -> None:
+    """Globus - das uebliche Netzwerk-Symbol."""
+    _stroke_only(p, color, 1.6)
+    p.drawEllipse(QPointF(12.0, 12.0), 7.6, 7.6)
+    p.drawEllipse(QPointF(12.0, 12.0), 3.4, 7.6)
+    _line(p, 4.6, 9.4, 19.4, 9.4)
+    _line(p, 4.6, 14.6, 19.4, 14.6)
+
+
+def _draw_usb(p: QPainter, color: QColor) -> None:
+    """USB-Dreizack: Stamm mit Pfeil, zwei Zweige, Kreis/Quadrat als Enden."""
+    _stroke_only(p, color, 1.6)
+    _line(p, 12.0, 4.6, 12.0, 18.4)
+    _poly(p, ((9.7, 7.0), (12.0, 4.2), (14.3, 7.0)))
+    _poly(p, ((12.0, 12.4), (8.0, 9.8), (8.0, 8.4)))
+    _poly(p, ((12.0, 14.4), (16.0, 11.8), (16.0, 10.4)))
+    _fill_only(p, color)
+    p.drawEllipse(QPointF(8.0, 7.0), 1.5, 1.5)
+    p.drawRect(QRectF(14.5, 7.0, 3.0, 3.0))
+    p.drawEllipse(QPointF(12.0, 19.6), 1.7, 1.7)
+
+
 def _draw_preview(p: QPainter, color: QColor) -> None:
     _stroke_only(p, color)
     path = QPainterPath()
@@ -432,6 +454,8 @@ _DRAW = {
     "about": _draw_about,
     "label": _draw_label,
     "detect": _draw_detect,
+    "network": _draw_network,
+    "usb": _draw_usb,
     "preview": _draw_preview,
     "rotate": _draw_rotate,
 }

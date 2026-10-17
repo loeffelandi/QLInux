@@ -18,6 +18,7 @@ Kein Browser-Tool, kein WebUSB.
 | M3.11 | Einklappbare Overlay-Panels, Druckqualität, Vorschau in 1:1 | ✅ |
 | M3.12 | Auflösung pro Modell (300 × 300 / 300 × 600 dpi), HQ-Schalter, Tintenmenge erklärt | ✅ |
 | M3.13 | USB: Backend aus Adresse, Gerätesuche, Modell aus USB-Kennung, Rechtelage dokumentiert | ✅ |
+| M3.14 | Druckerauswahl ohne Adress-Kenntnisse: Anschluss Netzwerk/USB, nur IP bzw. Geräteliste | ✅ |
 | M4 | Vorlagen, Settings, `.deb`-Paket | ⏳ |
 
 ## Architektur
@@ -76,7 +77,13 @@ python -m ql_editor
   selbst (`backends/helpers.py`: *„The network backend doesn't support
   readback"*). Über `tcp://…` antwortet der Drucker nicht (am QL-820NWB
   nachgemessen), die Oberfläche sagt das dann und man wählt das Band von Hand.
-* **Adresse** ist ein Feld für alle Anschlüsse - das Backend wird daraus
+* **Anschluss wählen statt Adresse tippen**: zwei Knöpfe „Netzwerk“ / „USB“
+  in der Gruppe „Drucker“. Darunter erscheint nur, was dazu nötig ist -
+  im Netzwerk ein Feld für die **IP-Adresse** (Port 9100 ergänzt die App, ein
+  anderer Port geht als `192.168.178.62:9101`), am USB die Liste der
+  gefundenen Geräte plus „Suchen“. Beim Umschalten auf USB wird gleich
+  gesucht; genau ein Gerät wird direkt übernommen.
+* Dahinter steckt weiter eine einzige Adresse - das Backend wird daraus
   abgeleitet (wie `brother_ql.backends.guess_backend`, plus nacktes
   `host:port`):
 
@@ -86,16 +93,16 @@ python -m ql_editor
   | `usb://0x04f9:0x209b` | pyusb (libusb) | **ja** |
   | `/dev/usb/lp0` | Kernel-Treiber (`usblp`) | **ja** |
 
-  Unter dem Feld steht, was aus der Adresse folgt und ob dort eine
-  Statusabfrage möglich ist. **„USB suchen"** sucht angeschlossene
-  USB-Drucker und trägt die Adresse ein (mehrere Treffer → Auswahl).
-  Dabei wird auch das **Modell** nachgezogen, wenn es sich aus der
+  Unter der Auswahl steht, was daraus folgt und ob dort eine Statusabfrage
+  möglich ist; „Band erkennen“ ist nur aktiv, wo sie auch geht. Beim Wählen
+  eines USB-Geräts wird das **Modell** nachgezogen, wenn es sich aus der
   USB-Kennung ableiten lässt (`usb://0x04f9:0x2042` bzw. über `sysfs`
-  auch `/dev/usb/lp1` → QL-700); sonst bleibt die Auswahl stehen und die
-  Meldung sagt, dass das Modell von Hand zu wählen ist.
+  auch `/dev/usb/lp1` → QL-700); ohne Kennung bleibt die Modellwahl stehen.
+  Ein gerade nicht angeschlossenes Gerät bleibt in der Liste („nicht
+  angeschlossen“), damit die gespeicherte Adresse nicht verloren geht.
   Achtung: die Adresse gilt für **alles** - druckst du über USB, läuft auch
   der Druckauftrag über USB.
-* **USB braucht Systemrechte** - ohne sie findet „USB suchen" den Drucker
+* **USB braucht Systemrechte** - ohne sie findet die Suche den Drucker
   zwar (das ist reine Geräteerkennung), aber Drucken und Band-Erkennung
   scheitern. Beide Wege am QL-700 nachgemessen:
 

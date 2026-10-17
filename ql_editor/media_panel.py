@@ -12,9 +12,12 @@ Alle Masse kommen dynamisch aus :mod:`ql_editor.media` - keine Magic Numbers.
 
 from __future__ import annotations
 
+import logging
+
 from PySide6.QtCore import QSize, Qt, Signal
 from PySide6.QtGui import QAction, QActionGroup
 from PySide6.QtWidgets import (
+    QButtonGroup,
     QCheckBox,
     QComboBox,
     QDoubleSpinBox,
@@ -39,7 +42,27 @@ from .media import (
     ModelSpec,
     Orientation,
 )
-from .printer import ADDRESS_EXAMPLES, DEFAULT_ADDRESS, backend_for_address, backend_supports_readback
+from .printer import (
+    DEFAULT_ADDRESS,
+    NETWORK_PORT,
+    backend_for_address,
+    backend_supports_readback,
+    model_for_address,
+    network_host,
+    parse_network_address,
+    usb_device_label,
+    usb_devices,
+)
+
+#: Anschlussarten der Druckerauswahl. Die Werte entsprechen den Backend-Namen
+#: (``network``) bzw. fassen die beiden USB-Backends zusammen.
+CONNECTION_NETWORK = "network"
+CONNECTION_USB = "usb"
+
+#: Eintrag in der USB-Liste, solange kein Geraet gewaehlt ist (Datenwert leer).
+USB_PLACEHOLDER = "Bitte Gerät wählen"
+
+logger = logging.getLogger(__name__)
 
 
 class MediaPanel(QWidget):
@@ -58,6 +81,9 @@ class MediaPanel(QWidget):
         # Aktuelle Inhaltslaenge in Bandrichtung - nur fuer die Ergebnis-Anzeige;
         # das Hauptfenster meldet sie nach jeder Neuberechnung.
         self._content_dots = 0
+        # Unterdrueckt Nebenwirkungen, waehrend Felder programmatisch gesetzt
+        # werden (z. B. beim Laden der Einstellungen).
+        self._adjusting = False
         self._build_ui()
         self._populate_models()
         self._populate_bands()
@@ -69,20 +95,67 @@ class MediaPanel(QWidget):
         outer.setContentsMargins(6, 6, 6, 6)
 
         # -- Drucker --------------------------------------------------------
+        # Kein Adressfeld zum Auswendiglernen: erst den Anschluss waehlen
+        # ("Netzwerk" braucht nur die IP, "USB" findet das Geraet selbst),
+        # darunter erscheint nur das, was dazu noetig ist.
         printer_box = QGroupBox("Drucker")
         printer_form = QFormLayout(printer_box)
         printer_form.setRowWrapPolicy(QFormLayout.RowWrapPolicy.WrapLongRows)
         printer_form.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.AllNonFixedFieldsGrow)
+        self._printer_form = printer_form
+
         self._model_combo = QComboBox()
-        self._address_edit = QLineEdit(DEFAULT_ADDRESS)
-        self._address_edit.setToolTip(
-            "Ein Feld für alle Anschlüsse - das Backend wird aus der Adresse "
-            "abgeleitet:\n"
-            f"  {ADDRESS_EXAMPLES[0]}   Netzwerk (TCP 9100)\n"
-            f"  {ADDRESS_EXAMPLES[1]}        USB über libusb (pyusb)\n"
-            f"  {ADDRESS_EXAMPLES[2]}               USB über den Kernel-Treiber"
+
+        self._conn_buttons: dict[str, QToolButton] = {}
+        self._conn_group = QButtonGroup(self)
+        self._conn_group.setExclusive(True)
+        for mode, label, icon_name, tip in (
+            (
+                CONNECTION_NETWORK,
+                "Netzwerk",
+                "network",
+                "Drucker im Netzwerk (WLAN/LAN).\n"
+                "Es genügt die IP-Adresse - der Druckport "
+                f"{NETWORK_PORT} wird automatisch ergänzt.",
+            ),
+            (
+                CONNECTION_USB,
+                "USB",
+                "usb",
+                "Drucker am USB-Kabel.\n"
+                "„Suchen“ liest die angeschlossenen Geräte ein; nur über USB "
+                "geht auch die Band-Erkennung.",
+            ),
+        ):
+            button = QToolButton()
+            button.setCheckable(True)
+            button.setText(label)
+            button.setIcon(icon(icon_name))
+            button.setIconSize(QSize(16, 16))
+            button.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
+            button.setToolTip(tip)
+            self._conn_group.addButton(button)
+            self._conn_buttons[mode] = button
+
+        self._host_edit = QLineEdit()
+        self._host_edit.setPlaceholderText("192.168.178.62")
+        self._host_edit.setToolTip(
+            "IP-Adresse oder Name des Druckers, z. B. 192.168.178.62.\n"
+            f"Der Druckport {NETWORK_PORT} wird automatisch ergänzt; ein anderer "
+            "Port geht als 192.168.178.62:9101."
         )
-        # Zeigt, was aus der Adresse folgt - vor allem, ob der Anschluss einen
+
+        self._usb_combo = QComboBox()
+        self._usb_combo.setToolTip(
+            "Angeschlossene USB-Drucker. Die Auswahl setzt Adresse und – wenn "
+            "sie sich aus der USB-Kennung ableiten lässt – auch das Modell."
+        )
+        self._usb_button = QPushButton(icon("detect"), "Suchen")
+        self._usb_button.setToolTip(
+            "Angeschlossene USB-Drucker suchen und in die Liste eintragen."
+        )
+
+        # Zeigt, was aus der Auswahl folgt - vor allem, ob der Anschluss einen
         # Rueckkanal hat (nur dann geht die Band-Erkennung).
         self._backend_label = QLabel()
         self._backend_label.setWordWrap(True)
@@ -93,19 +166,22 @@ class MediaPanel(QWidget):
             "Geht nur über USB: der Netzwerk-Anschluss (TCP 9100) ist eine reine "
             "Druckschnittstelle und antwortet nicht."
         )
-        self._usb_button = QPushButton(icon("detect"), "USB suchen")
-        self._usb_button.setToolTip(
-            "Angeschlossene USB-Drucker suchen und die Adresse eintragen."
-        )
-        buttons = QHBoxLayout()
-        buttons.setContentsMargins(0, 0, 0, 0)
-        buttons.addWidget(self._detect_button, 1)
-        buttons.addWidget(self._usb_button, 1)
+
         printer_form.addRow("Modell", self._model_combo)
-        printer_form.addRow("Adresse", self._address_edit)
+        printer_form.addRow("Anschluss", self._build_connection_row())
+        self._row_host = printer_form.rowCount()
+        printer_form.addRow("IP-Adresse", self._host_edit)
+        self._row_usb = printer_form.rowCount()
+        printer_form.addRow("USB", self._build_usb_row())
         printer_form.addRow("", self._backend_label)
-        printer_form.addRow("", buttons)
+        printer_form.addRow("", self._detect_button)
         outer.addWidget(printer_box)
+        # Startzustand: Netzwerk mit der gespeicherten/Standardadresse. Die
+        # USB-Liste wird erst bei Bedarf gefuellt (Anschlusswechsel/Suche) -
+        # so fragt der Programmstart nicht ungefragt libusb ab.
+        self._conn_buttons[CONNECTION_NETWORK].setChecked(True)
+        self._host_edit.setText(network_host(DEFAULT_ADDRESS))
+        self._sync_connection_rows()
 
         # -- Band -----------------------------------------------------------
         media_box = QGroupBox("Band")
@@ -176,8 +252,36 @@ class MediaPanel(QWidget):
             spin.valueChanged.connect(self._on_media_changed)
         self._detect_button.clicked.connect(self.detect_requested.emit)
         self._usb_button.clicked.connect(self.usb_search_requested.emit)
-        self._address_edit.textChanged.connect(self._on_address_changed)
+        self._host_edit.textChanged.connect(self._on_host_changed)
+        self._usb_combo.currentIndexChanged.connect(self._on_usb_combo_changed)
+        for mode, button in self._conn_buttons.items():
+            button.toggled.connect(
+                lambda checked, value=mode: self._on_connection_toggled(value, checked)
+            )
         self._sync_backend_label()
+
+    def _build_connection_row(self) -> QWidget:
+        """Anschluss waehlen: Netzwerk oder USB (zwei Umschaltknoepfe)."""
+        row = QWidget()
+        layout = QHBoxLayout(row)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(4)
+        for mode in (CONNECTION_NETWORK, CONNECTION_USB):
+            button = self._conn_buttons[mode]
+            button.setMinimumSize(88, 26)
+            layout.addWidget(button)
+        layout.addStretch(1)
+        return row
+
+    def _build_usb_row(self) -> QWidget:
+        """Gefundene USB-Drucker waehlen + Suche neu starten."""
+        row = QWidget()
+        layout = QHBoxLayout(row)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(4)
+        layout.addWidget(self._usb_combo, 1)
+        layout.addWidget(self._usb_button)
+        return row
 
     def _build_orientation_row(self) -> QWidget:
         """Zwei Umschaltknoepfe (quer / laengs) fuer die Ausrichtung.
@@ -265,7 +369,14 @@ class MediaPanel(QWidget):
         return media.get_model(self.model_id())
 
     def address(self) -> str:
-        return self._address_edit.text().strip() or DEFAULT_ADDRESS
+        """Vollstaendige Adresse aus der aktuellen Auswahl (leer = nicht gewaehlt)."""
+        if self.connection() == CONNECTION_NETWORK:
+            return parse_network_address(self._host_edit.text())
+        return self._usb_combo.currentData() or ""
+
+    def connection(self) -> str:
+        """Gewaehlter Anschluss (:data:`CONNECTION_NETWORK` / :data:`CONNECTION_USB`)."""
+        return CONNECTION_USB if self._conn_buttons[CONNECTION_USB].isChecked() else CONNECTION_NETWORK
 
     def label_id(self) -> str:
         return self._band_combo.currentData()
@@ -349,9 +460,101 @@ class MediaPanel(QWidget):
         return True
 
     def set_address(self, address: str) -> None:
-        """Druckeradresse setzen (loest bei Aenderung :attr:`changed` aus)."""
-        if address and address != self._address_edit.text():
-            self._address_edit.setText(address)
+        """Adresse uebernehmen - Anschluss, Feld und (falls ableitbar) Modell.
+
+        Die Anzeigeform ist die einfache: im Netzwerk die IP (``host``), am USB
+        der Listeneintrag. Alte ``tcp://…:9100``-Adressen aus den Einstellungen
+        landen damit automatisch im passenden Feld.
+        """
+        address = (address or "").strip()
+        if not address:
+            return
+        mode = (
+            CONNECTION_NETWORK
+            if backend_for_address(address) == "network"
+            else CONNECTION_USB
+        )
+        self._adjusting = True
+        try:
+            self._conn_buttons[mode].setChecked(True)
+            if mode == CONNECTION_NETWORK:
+                self._host_edit.setText(network_host(address))
+            else:
+                index = self._ensure_usb_entry(address)
+                self._usb_combo.setCurrentIndex(index)
+        finally:
+            self._adjusting = False
+        self._apply_model_for_address(address)
+        self._sync_connection_rows()
+        self._sync_backend_label()
+        self.changed.emit()
+
+    def refresh_usb_devices(self, devices: list[str] | None = None) -> list[str]:
+        """USB-Liste neu einlesen und die Auswahl fuellen.
+
+        Ohne ``devices`` wird selbst gesucht (:func:`printer.usb_devices`).
+        Rueckgabe: die gefundenen Adressen - der Aufrufer kann damit melden,
+        was los ist. Die aktuelle Auswahl bleibt erhalten; ein gerade nicht
+        angeschlossenes Geraet bleibt als Eintrag stehen (so geht die
+        gespeicherte Adresse nicht verloren).
+        """
+        if devices is None:
+            try:
+                devices = usb_devices()
+            except Exception as exc:  # pragma: no cover - haengt an libusb
+                logger.info("USB-Suche fehlgeschlagen: %s", exc)
+                devices = []
+        devices = [address for address in devices if address]
+        current = self._usb_combo.currentData() or ""
+        missing = current if current and current not in devices else ""
+        apply_single = False
+
+        self._usb_combo.blockSignals(True)
+        try:
+            self._usb_combo.clear()
+            if not devices and not missing:
+                self._usb_combo.addItem("Kein USB-Drucker gefunden", "")
+            else:
+                for address in devices:
+                    self._usb_combo.addItem(usb_device_label(address), address)
+                if missing:
+                    self._usb_combo.addItem(
+                        f"{usb_device_label(missing)} – nicht angeschlossen", missing
+                    )
+                if current:
+                    self._usb_combo.setCurrentIndex(self._usb_combo.findData(current))
+                elif len(devices) == 1:
+                    # Genau ein Geraet: gleich auswaehlen.
+                    self._usb_combo.setCurrentIndex(0)
+                    apply_single = True
+                else:
+                    self._usb_combo.insertItem(0, USB_PLACEHOLDER, "")
+                    self._usb_combo.setCurrentIndex(0)
+        finally:
+            self._usb_combo.blockSignals(False)
+
+        if apply_single:
+            self._apply_usb_selection()
+        return list(devices)
+
+    def select_usb_device(self, address: str) -> bool:
+        """USB-Geraet auswaehlen und uebernehmen (Adresse + Modell).
+
+        Schaltet dabei auf den USB-Anschluss - die Adresse gilt fuer alles.
+        ``True``, wenn sich die Adresse geaendert hat.
+        """
+        address = (address or "").strip()
+        if not address or address == self.address():
+            return False
+        index = self._ensure_usb_entry(address)
+        self._adjusting = True
+        try:
+            self._conn_buttons[CONNECTION_USB].setChecked(True)
+            self._usb_combo.setCurrentIndex(index)
+        finally:
+            self._adjusting = False
+        self._apply_usb_selection()
+        return True
 
     def set_model(self, model_id: str) -> bool:
         """Modell setzen (z. B. nach einer USB-Suche).
@@ -365,6 +568,39 @@ class MediaPanel(QWidget):
             return False
         self._model_combo.setCurrentIndex(index)
         return True
+
+    # --------------------------------------------------------- Intern ----
+    def _ensure_usb_entry(self, address: str) -> int:
+        """Eintrag fuer ``address`` in der USB-Liste sicherstellen.
+
+        Liefert den Index. Ein bereits gesetztes Geraet bleibt damit auch dann
+        sichtbar, wenn es gerade nicht angeschlossen ist (z. B. beim Laden der
+        Einstellungen); ein Platzhalter ohne Datenwert faellt dabei weg.
+        """
+        index = self._usb_combo.findData(address)
+        if index >= 0:
+            return index
+        if self._usb_combo.count() == 1 and not self._usb_combo.itemData(0):
+            self._usb_combo.clear()
+        self._usb_combo.addItem(usb_device_label(address), address)
+        return self._usb_combo.findData(address)
+
+    def _apply_usb_selection(self) -> None:
+        """Gewaehltes USB-Geraet uebernehmen - Modell zieht nach, wenn ableitbar."""
+        self._apply_model_for_address(self._usb_combo.currentData() or "")
+        self._sync_connection_rows()
+        self._sync_backend_label()
+        self.changed.emit()
+
+    def _apply_model_for_address(self, address: str) -> bool:
+        """Modell zur Adresse setzen, wenn die Kennung es verraet.
+
+        Am USB kann ein anderes Modell haengen als gewaehlt (QL-700 statt
+        QL-820NWB) - mit falschem Modell waere der Rasterauftrag falsch. Bei
+        Netzwerkadressen gibt es nichts abzuleiten; dann bleibt die Wahl stehen.
+        """
+        model = model_for_address(address)
+        return bool(model) and self.set_model(model)
 
     def apply_label_defaults(self, label: LabelSpec) -> None:
         """Setze Margin-Startwerte aus ``feed_margin`` des Bandes."""
@@ -388,14 +624,52 @@ class MediaPanel(QWidget):
         self._update_result()
 
     # ----------------------------------------------------------- Slots -----
-    def _on_address_changed(self) -> None:
-        """Adresse getippt: Backend-Hinweis nachziehen und Aenderung melden."""
+    def _on_host_changed(self) -> None:
+        """IP/Name getippt: Hinweis nachziehen und Aenderung melden."""
+        if self._adjusting:
+            return
+        self._sync_connection_rows()
         self._sync_backend_label()
         self.changed.emit()
 
+    def _on_usb_combo_changed(self) -> None:
+        """Nutzer hat ein USB-Geraet gewaehlt."""
+        if self._adjusting:
+            return
+        self._apply_usb_selection()
+
+    def _on_connection_toggled(self, mode: str, checked: bool) -> None:
+        """Anschluss umgeschaltet (nur der aktive Knopf meldet ``checked``)."""
+        if not checked:
+            return
+        if self._adjusting:
+            self._sync_connection_rows()
+            return
+        if mode == CONNECTION_USB:
+            # Beim Wechsel auf USB gleich nachsehen, was angeschlossen ist -
+            # so muss niemand wissen, dass es den "Suchen"-Knopf gibt.
+            self.refresh_usb_devices()
+        self._sync_connection_rows()
+        self._sync_backend_label()
+        self.changed.emit()
+
+    def _sync_connection_rows(self) -> None:
+        """Nur zeigen, was zum gewaehlten Anschluss gehoert."""
+        usb = self.connection() == CONNECTION_USB
+        self._printer_form.setRowVisible(self._row_host, not usb)
+        self._printer_form.setRowVisible(self._row_usb, usb)
+        # Band-Erkennung nur, wo sie auch gehen kann (USB mit Rueckkanal).
+        self._detect_button.setEnabled(
+            backend_supports_readback(backend_for_address(self.address()))
+        )
+
     def _sync_backend_label(self) -> None:
-        """Zeigen, welches Backend die Adresse ergibt - und ob es antwortet."""
-        backend = backend_for_address(self.address())
+        """Zeigen, welches Backend die Auswahl ergibt - und ob es antwortet."""
+        address = self.address()
+        if not address:
+            self._backend_label.setText("Noch kein Drucker gewählt.")
+            return
+        backend = backend_for_address(address)
         names = {
             "network": "Netzwerk (TCP 9100)",
             "pyusb": "USB (libusb)",

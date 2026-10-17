@@ -29,8 +29,11 @@ from .media import DEFAULT_MODEL, Kind, LabelSpec, get_label, get_model
 
 logger = logging.getLogger(__name__)
 
+#: Standard-Druckport der Brother-Netzwerkdrucker (RAW/JetDirect).
+NETWORK_PORT = 9100
+
 #: Standard-Druckeradresse (aus den Settings ueberschreibbar).
-DEFAULT_ADDRESS = "tcp://192.168.178.62:9100"
+DEFAULT_ADDRESS = f"tcp://192.168.178.62:{NETWORK_PORT}"
 
 #: Status-Request-Kommando (ESC i S) - identisch zu ``add_status_information``.
 _STATUS_REQUEST = b"\x1b\x69\x53"
@@ -175,6 +178,52 @@ def backend_for_address(address: str) -> str:
 def backend_supports_readback(backend: str) -> bool:
     """Kann dieses Backend eine Statusantwort empfangen (Band-Erkennung)?"""
     return backend in READBACK_BACKENDS
+
+
+def parse_network_address(text: str) -> str:
+    """Nutzerangabe -> vollstaendige Netzwerkadresse ``tcp://host:port``.
+
+    Wer nur die IP tippt (``192.168.178.62``), bekommt Praefix und Port
+    ergaenzt; wer ``tcp://`` oder einen anderen Port mitgibt, behaelt ihn.
+    Leer bleibt leer - dann sagt der Druckdialog, dass die Adresse fehlt
+    (besser als still auf einen fremden Standarddrucker zu senden).
+    """
+    value = (text or "").strip()
+    if not value:
+        return ""
+    for prefix in ("tcp://", "socket://", "network://"):
+        value = value.removeprefix(prefix)
+    value = value.rstrip("/")
+    if not value:
+        return ""
+    host, port = value, NETWORK_PORT
+    if value.startswith("["):  # IPv6 in Klammern: [::1] oder [::1]:9101
+        head, _, rest = value.partition("]")
+        host = f"{head}]"
+        if rest.startswith(":") and rest[1:].isdigit():
+            port = int(rest[1:])
+    elif value.count(":") == 1:
+        head, _, tail = value.partition(":")
+        if tail.isdigit():
+            host, port = head, int(tail)
+    if not host.strip("[]"):
+        return ""
+    return f"tcp://{host}:{port}"
+
+
+def network_host(address: str) -> str:
+    """Anzeigeform einer Netzwerkadresse: ``tcp://host:9100`` -> ``host``.
+
+    Der Standardport verschwindet, ein abweichender bleibt sichtbar - so sieht
+    man im Feld genau das, was man auch eintippen wuerde.
+    """
+    value = (address or "").strip()
+    for prefix in ("tcp://", "socket://", "network://"):
+        value = value.removeprefix(prefix)
+    value = value.rstrip("/")
+    if value.endswith(f":{NETWORK_PORT}"):
+        value = value[: -len(f":{NETWORK_PORT}")]
+    return value
 
 
 def usb_devices() -> list[str]:
@@ -565,13 +614,21 @@ def _match_labels(width_mm: int, length_mm: int, *, endless: bool) -> list[Label
 __all__ = [
     "ADDRESS_EXAMPLES",
     "DEFAULT_ADDRESS",
+    "NETWORK_PORT",
     "PrinterError",
     "PrinterConnectionError",
     "PrinterConfig",
     "PrinterStatus",
     "READBACK_BACKENDS",
+    "USB_MODELS",
     "backend_for_address",
     "backend_supports_readback",
+    "model_for_address",
+    "network_host",
+    "parse_network_address",
+    "usb_device_label",
+    "usb_id_for_path",
+    "usb_id_from_identifier",
     "validate_for_print",
     "build_raster",
     "send_instructions",

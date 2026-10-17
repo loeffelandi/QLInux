@@ -67,12 +67,9 @@ from .printer import (
     RESOLUTION_STANDARD,
     detect_label,
     maximum_resolution,
-    model_for_address,
     print_image,
     resolution_by_key,
     resolution_options,
-    usb_device_label,
-    usb_devices,
 )
 from .settings import AppSettings
 from .sheet import ask_choice, ask_text, choose_file, show_message
@@ -613,7 +610,7 @@ class MainWindow(QMainWindow):
         index = self._media_panel._model_combo.findData(model)
         if index >= 0:
             self._media_panel._model_combo.setCurrentIndex(index)
-        self._media_panel._address_edit.setText(self._settings.address)
+        self._media_panel.set_address(self._settings.address)
         last_label = self._settings.last_label
         if last_label:
             self._media_panel.select_label(last_label)
@@ -1029,13 +1026,22 @@ class MainWindow(QMainWindow):
     def _on_print(self) -> None:
         if self._print_worker is not None and self._print_worker.isRunning():
             return
+        config = self._media_panel.printer_config()
+        if not config.address:
+            show_message(
+                self,
+                "warning",
+                "Keine Druckeradresse",
+                "Im Panel unter „Drucker“ den Anschluss wählen: im Netzwerk die "
+                "IP-Adresse eintragen oder am USB „Suchen“ drücken.",
+            )
+            return
         try:
             image = self._for_print()
         except Exception as exc:
             show_message(self, "critical", "Rendern", f"Etikett konnte nicht gerendert werden:\n{exc}")
             return
         label = self._media_panel.label
-        config = self._media_panel.printer_config()
         options = {
             "threshold": self._threshold_spin.value(),
             "dither": self._dither_check.isChecked(),
@@ -1061,13 +1067,10 @@ class MainWindow(QMainWindow):
 
     # ------------------------------------------------------------- Detect ---
     def _on_usb_search(self) -> None:
-        """Angeschlossene USB-Drucker suchen und die Adresse eintragen."""
+        """Angeschlossene USB-Drucker suchen und in die Auswahl eintragen."""
         QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
         try:
-            devices = usb_devices()
-        except Exception as exc:  # pragma: no cover - defensiv
-            devices = []
-            self.statusBar().showMessage(f"USB-Suche fehlgeschlagen: {exc}", 8000)
+            devices = self._media_panel.refresh_usb_devices()
         finally:
             QApplication.restoreOverrideCursor()
 
@@ -1084,39 +1087,14 @@ class MainWindow(QMainWindow):
             )
             return
         if len(devices) == 1:
-            self._apply_usb_address(devices[0])
+            # Bei einem einzigen Geraet ist die Wahl klar - gleich uebernehmen.
+            self._media_panel.select_usb_device(devices[0])
+            self.statusBar().showMessage(
+                f"USB-Drucker übernommen: {devices[0]}", 8000
+            )
             return
-        # Beschriftung mit Backend und (falls ableitbar) Modell - die Zuordnung
-        # zurueck laeuft ueber den Text, deshalb sind die Labels eindeutig
-        # (die Adresse steht drin).
-        labels = {usb_device_label(address): address for address in devices}
-        ask_choice(
-            self,
-            title="USB suchen",
-            label="Gefundene Drucker",
-            items=list(labels),
-            on_ok=lambda text: self._apply_usb_address(labels.get(text, text)),
-        )
-
-    def _apply_usb_address(self, address: str) -> None:
-        """Gefundenen USB-Drucker uebernehmen - samt Modell, wenn ableitbar.
-
-        Am USB kann ein anderes Modell haengen als im Panel gewaehlt (z. B.
-        QL-700 statt QL-820NWB). Die USB-Kennung verraet es; das Modell gehoert
-        damit zur Adresse. Unbekannt bleibt unbekannt - dann sagt die Meldung,
-        dass das Modell von Hand zu waehlen ist.
-        """
-        self._media_panel.set_address(address)
-        model = model_for_address(address)
-        if model is None:
-            hint = " Modell bitte im Panel wählen (nicht ableitbar)."
-        elif self._media_panel.set_model(model):
-            hint = f" Modell auf {model} gesetzt."
-        else:
-            hint = ""
         self.statusBar().showMessage(
-            f"USB-Drucker übernommen: {address}.{hint} Band erkennen ist damit möglich.",
-            8000,
+            f"{len(devices)} USB-Drucker gefunden – bitte in der Liste wählen.", 8000
         )
 
     def _on_detect_label(self) -> None:
