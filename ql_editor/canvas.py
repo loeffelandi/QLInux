@@ -38,7 +38,7 @@ from typing import Any, Iterator
 
 from PySide6.QtCore import QEvent, QLocale, QPoint, QPointF, QRectF, Qt, Signal
 from PySide6.QtGui import QBrush, QColor, QFont, QFontMetricsF, QImage, QPainter, QPen
-from PySide6.QtWidgets import QGraphicsScene, QGraphicsView, QWidget
+from PySide6.QtWidgets import QGraphicsItem, QGraphicsScene, QGraphicsView, QWidget
 from PIL import Image
 
 from . import items as items_mod
@@ -772,6 +772,16 @@ class LabelCanvas(QGraphicsView):
     def set_margins(self, left: float, right: float, top: float, bottom: float) -> None:
         """Ränder in mm - werden als gepunkteter Rahmen im Etikett gezeigt."""
         self._margins_mm = (float(left), float(right), float(top), float(bottom))
+        # Der Hintergrund (Band, Rahmen) ist zwischengespeichert - ein normales
+        # update() wuerde nur die Objekte neu zeichnen, der Rahmen bliebe stehen.
+        self.resetCachedContent()
+        self.viewport().update()
+
+    def translate_items(self, dx: float, dy: float) -> None:
+        """Alle verschiebbaren Objekte um (dx, dy) Punkte verschieben."""
+        for item in self._scene.items():
+            if item.flags() & QGraphicsItem.GraphicsItemFlag.ItemIsMovable:
+                item.moveBy(dx, dy)
         self.viewport().update()
 
     def margin_rect(self) -> QRectF:

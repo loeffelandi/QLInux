@@ -3841,3 +3841,56 @@ def test_right_panel_stacks_when_tall_and_tabs_when_short(qapp, tmp_path):
     assert win._right_pages.mode == TABS
     win.close()
     qapp.processEvents()
+
+
+def test_margin_edit_moves_objects_and_frame(qapp, tmp_path):
+    """Linker/oberer Rand: Objekte wandern mit, und der Rahmen zieht nach."""
+    from ql_editor import media
+    from ql_editor.items import TextItem
+
+    win = _temp_window(qapp, tmp_path)
+    win._add_item(TextItem("Rand", font_pixel_size=60))
+    qapp.processEvents()
+    text = next(i for i in win._canvas.scene().items() if isinstance(i, TextItem))
+    x_before, y_before = text.pos().x(), text.pos().y()
+
+    win._media_panel._margin_spins["left"].setValue(8.0)
+    win._media_panel._margin_spins["top"].setValue(6.0)
+    qapp.processEvents()
+
+    left_before = win._canvas._margins_mm  # Rahmen folgt dem Wert
+    assert left_before[0] == 8.0
+    assert win._canvas.margin_rect().left() == media.mm_to_dots(8.0)
+    # Um die Differenz zum Standardrand verschoben (der ist beim Start 0/3 mm).
+    assert text.pos().x() > x_before
+    assert text.pos().y() > y_before
+    win.close()
+    qapp.processEvents()
+
+
+def test_loading_a_document_does_not_shift_its_objects(qapp, tmp_path):
+    """Beim Oeffnen bleiben die Objekte, wo sie gespeichert wurden."""
+    from ql_editor import document
+    from ql_editor.items import TextItem
+
+    win = _temp_window(qapp, tmp_path)
+    win._media_panel._margin_spins["left"].setValue(8.0)
+    win._add_item(TextItem("Bleib", font_pixel_size=40))
+    path = tmp_path / "rand.qlx"
+    win._save_document_to(str(path))
+    saved_x = next(
+        i for i in win._canvas.scene().items() if isinstance(i, TextItem)
+    ).pos().x()
+    win.close()
+    qapp.processEvents()
+
+    again = _temp_window(qapp, tmp_path)
+    again._open_document_chosen(str(path))
+    qapp.processEvents()
+    loaded = next(
+        i for i in again._canvas.scene().items() if isinstance(i, TextItem)
+    )
+    assert loaded.pos().x() == saved_x
+    again.close()
+    qapp.processEvents()
+    assert document.load(path)["media"]["margins"]["left"] == 8.0

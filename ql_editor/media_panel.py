@@ -104,6 +104,8 @@ class MediaPanel(QWidget):
     """Bedienfeld fuer Band, Laenge, Margins, Farbe und Drucker."""
 
     changed = Signal()
+    #: Ränder wurden auf die Standardwerte des Bandes gesetzt (ohne ``changed``).
+    margins_reset = Signal()
     detect_requested = Signal()
     usb_search_requested = Signal()
     network_search_requested = Signal()
@@ -1096,6 +1098,7 @@ class MediaPanel(QWidget):
             spin.blockSignals(True)
             spin.setValue(round(value, 1))
             spin.blockSignals(False)
+        self.margins_reset.emit()
 
     def set_content_dots(self, content_dots: int) -> None:
         """Aktuelle Inhaltslaenge (Dots, Bandrichtung) fuer die Ergebnis-Anzeige.

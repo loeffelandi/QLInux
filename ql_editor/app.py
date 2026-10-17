@@ -232,6 +232,11 @@ class MainWindow(QMainWindow):
         self._refresh_timer.timeout.connect(self._refresh_now)
 
         self._media_panel.changed.connect(self._on_media_changed)
+        self._media_panel.margins_reset.connect(self._sync_margin_base)
+        for key in ("left", "top"):
+            self._media_panel._margin_spins[key].valueChanged.connect(
+                self._on_margin_edited
+            )
         self._media_panel.detect_requested.connect(self._on_detect_label)
         self._media_panel.usb_search_requested.connect(self._on_usb_search)
         self._media_panel.network_search_requested.connect(self._on_network_search)
@@ -267,6 +272,7 @@ class MainWindow(QMainWindow):
         # Gespeicherte Einstellungen anwenden.
         self._apply_saved_settings()
         self._on_media_changed()
+        self._sync_margin_base()
 
         # Fokus auf dem Canvas: kein Formularfeld ist anfangs "aktiv", damit das
         # Mausrad über den Panels scrollt statt Werte zu veraendern.
@@ -984,6 +990,7 @@ class MainWindow(QMainWindow):
         # Erst wenn beide Werte stehen: „Nur am Ende" haengt an der Kopienzahl.
         self._sync_cut_options()
         self._canvas.load_items(list(state.get("items") or []))
+        self._sync_margin_base()
         self._recompute_canvas()
         self._schedule_refresh()
         if state.get("preview"):
@@ -1073,6 +1080,29 @@ class MainWindow(QMainWindow):
             )
         finally:
             self._adjusting = False
+
+    def _sync_margin_base(self) -> None:
+        """Den Rand merken, auf den sich die Objekte beziehen (links, oben)."""
+        margins = self._media_panel.margins()
+        self._margin_base = (margins.left, margins.top)
+
+    def _on_margin_edited(self) -> None:
+        """Linker oder oberer Rand geaendert: die Objekte wandern mit.
+
+        Der Rand ist der Abstand zur Bandkante - ändert er sich, verschiebt sich
+        der Inhalt um dieselbe Strecke. Beim Laden und beim Bandwechsel passiert
+        das nicht (dort wird der Bezug neu gesetzt, siehe _sync_margin_base).
+        """
+        if self._adjusting:
+            return
+        margins = self._media_panel.margins()
+        base_left, base_top = self._margin_base
+        dx = media.mm_to_dots(margins.left - base_left)
+        dy = media.mm_to_dots(margins.top - base_top)
+        self._sync_margin_base()
+        if dx or dy:
+            self._canvas.translate_items(dx, dy)
+            self._schedule_refresh()
 
     def _content_length_dots(self, orientation: media.Orientation) -> int:
         """Laenge des Inhalts in Bandrichtung (Dots), inkl. Rand an der Bandkante."""
@@ -1728,6 +1758,7 @@ class MainWindow(QMainWindow):
         try:
             self._media_panel.apply_media_state(data.get("media") or {})
             self._canvas.load_items(list(data.get("items") or []))
+            self._sync_margin_base()
         finally:
             self._adjusting = False
         self._recompute_canvas()
