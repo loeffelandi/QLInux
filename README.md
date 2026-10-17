@@ -74,6 +74,19 @@ Prebuilt **`.deb` package and AppImage** are planned (milestone M4).
 Settings (last printer, tape, print options, language) are stored in
 `~/.config/QLInux/QLInux.conf`.
 
+## Saving and opening labels
+
+*File → Open…* (Ctrl+O) and *File → Save* (Ctrl+S, *Save as…* Ctrl+Shift+S)
+store a label as a `.qlx` file — plain JSON, so it stays readable, diffable
+and diff-friendly in a repository.
+
+A document carries the label medium (model, tape, orientation, length,
+margins, colour) and the canvas objects. It deliberately does **not** carry
+your printer address, print options or window size: those belong to the
+machine, so opening a label from somebody else never changes your printer.
+The window title shows the file name, with a `*` while there are unsaved
+changes.
+
 ### USB permissions
 
 Reading the inserted tape (and the printer status) over USB needs write access
@@ -111,7 +124,9 @@ Architecture and every measured printer detail (raster commands, cut commands,
 | M3.14–M3.16 | Printer selection without addresses, USB permissions (udev), German/English UI | ✅ |
 | M3.17–M3.19 | Rulers, network printer discovery (mDNS + SNMP) | ✅ |
 | M3.20–M3.21 | IP entry behind a list entry, copies and cutting | ✅ |
-| M4 | Templates, packaging: `.deb` and AppImage | ⏳ |
+| M4.1 | Labels as files: open, save, save as (`.qlx`), unsaved-changes marker | ✅ |
+| M4.2 | Templates | ⏳ |
+| M4.3 | Packaging: `.deb` and AppImage | ⏳ |
 
 ## License
 
