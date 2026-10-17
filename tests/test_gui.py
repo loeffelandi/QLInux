@@ -3886,8 +3886,11 @@ def _sheet_button(win, label: str):
 
     from ql_editor.sheet import Sheet
 
-    sheet = win.findChild(Sheet)
-    assert sheet is not None and sheet.isVisible()
+    sheet = next(
+        (candidate for candidate in win.findChildren(Sheet) if candidate.isVisible()),
+        None,
+    )
+    assert sheet is not None
     box = sheet.findChild(QMessageBox)
     for button in box.buttons():
         if button.text() == label:
@@ -4037,6 +4040,84 @@ def test_language_switch_keeps_every_tab(qapp, tmp_path):
     new._accept_close = True
     new.close()
     qapp.processEvents()
+
+
+def test_switching_tabs_commits_an_open_inspector_edit_and_drops_empty_text(
+    qapp, tmp_path
+):
+    from PySide6.QtCore import QPointF
+    from PySide6.QtWidgets import QSpinBox
+
+    from ql_editor.items import TextItem
+
+    win = _temp_window(qapp, tmp_path)
+    item = TextItem("Hallo", font_pixel_size=28)
+    win._add_item(item, QPointF(20, 20))
+    win._on_file_new()
+    win._tab_bar.setCurrentIndex(0)
+    qapp.processEvents()
+
+    item.setSelected(True)
+    qapp.processEvents()
+    size = next(
+        spin
+        for spin in win._inspector.findChildren(QSpinBox)
+        if spin.minimum() == 4 and spin.maximum() == 2000
+    )
+    size.setValue(size.value() + 6)
+    assert win._inspector.edit_open is True
+    win._tab_bar.setCurrentIndex(1)
+    qapp.processEvents()
+    assert win._inspector.edit_open is False
+
+    win._tab_bar.setCurrentIndex(0)
+    qapp.processEvents()
+    win._new_text(QPointF(60, 60))
+    win._tab_bar.setCurrentIndex(1)
+    qapp.processEvents()
+
+    first = win._tab_at(0)
+    assert [
+        first.undo.command(i).text() for i in range(first.undo.count())
+    ] == ["Einfügen", "Eigenschaften"]
+    texts = [
+        entry
+        for entry in first.canvas.scene().items()
+        if isinstance(entry, TextItem)
+    ]
+    assert [entry.toPlainText() for entry in texts] == ["Hallo"]
+    win._accept_close = True
+    win.close()
+    qapp.processEvents()
+
+
+def test_closing_the_window_saves_each_modified_tab(qapp, tmp_path):
+    from ql_editor import document
+    from ql_editor.items import TextItem
+
+    win = _temp_window(qapp, tmp_path)
+    first = tmp_path / "eins.qlx"
+    second = tmp_path / "zwei.qlx"
+    win._save_document_to(str(first))
+    win._add_item(TextItem("Eins", font_pixel_size=20))
+    win._on_file_new()
+    win._save_document_to(str(second))
+    win._add_item(TextItem("Zwei", font_pixel_size=20))
+    qapp.processEvents()
+
+    win.close()
+    qapp.processEvents()
+    assert win.isVisible()
+    _sheet_button(win, "Speichern").click()
+    qapp.processEvents()
+    assert win.isVisible()
+    _sheet_button(win, "Speichern").click()
+    qapp.processEvents()
+
+    assert not win.isVisible()
+    assert [i["text"] for i in document.load(first)["items"]] == ["Eins"]
+    assert [i["text"] for i in document.load(second)["items"]] == ["Zwei"]
+
 
 
 # --------------------------------------------------------------------------- #

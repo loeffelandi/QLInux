@@ -1746,6 +1746,7 @@ class MainWindow(QMainWindow):
         wird erst mit dem Ende der Bearbeitung ein Schritt („Text"), und ein
         leer gebliebenes verschwindet ohne Spur auf dem Stapel.
         """
+        self._seal_open_inspector_edit()
         self._capture_history()
         self._history_suppress = True
         try:
@@ -1837,10 +1838,22 @@ class MainWindow(QMainWindow):
         )
         if pushed:
             self._update_window_title()
-        QTimer.singleShot(0, lambda: self._discard_text_if_empty(item, pushed))
+        tab = self._active
+        QTimer.singleShot(
+            0, lambda: self._discard_text_if_empty(item, pushed, tab=tab)
+        )
 
-    def _discard_text_if_empty(self, item: TextItem, pushed: bool = False) -> None:
+    def _discard_text_if_empty(
+        self,
+        item: TextItem,
+        pushed: bool = False,
+        *,
+        tab: LabelTab | None = None,
+    ) -> None:
         if item.scene() is None:
+            return
+        owner = tab if tab is not None else self._active
+        if owner is None:
             return
         # Laeuft die Bearbeitung inzwischen wieder (z. B. nach einem Refresh,
         # der die Textmarke ausblendet), bleibt das Feld stehen - verworfen
@@ -1849,17 +1862,18 @@ class MainWindow(QMainWindow):
             item._pending_discard = False
             if (
                 pushed
-                and self._undo_stack.undoText() == tr("Löschen")
-                and self._undo_stack.index() == self._undo_stack.count()
+                and owner.undo.undoText() == tr("Löschen")
+                and owner.undo.index() == owner.undo.count()
             ):
-                self._undo_stack.undo()
+                owner.undo.undo()
             return
         self._history_suppress = True
         try:
-            self._canvas.remove_item(item)
+            owner.canvas.remove_item(item)
         finally:
             self._history_suppress = False
-        self._on_items_changed()
+        if owner is self._active:
+            self._on_items_changed()
 
     def _on_text_edited(self) -> None:
         self._capture_history()
@@ -2504,6 +2518,7 @@ class MainWindow(QMainWindow):
             return
         previous = self._active
         if previous is not None:
+            self._seal_open_inspector_edit()
             previous.canvas.cancel_editing()
             self._stash_active()
             self._unbind_tab(previous)
