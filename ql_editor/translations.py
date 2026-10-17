@@ -143,7 +143,7 @@ EN: dict[str, str] = {
     "Band": "Label",
     "Band erkennen": "Detect label",
     "Gerät": "Device",
-    "Handeingabe": "Manual entry",
+    "manuell": "manual",
     "IP-Adresse von Hand eintragen, wenn die Suche den Drucker nicht findet.": (
         "Enter the IP address by hand if the search does not find the printer."
     ),

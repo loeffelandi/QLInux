@@ -930,7 +930,7 @@ class MediaPanel(QWidget):
                 # Handeingabe mit Adresse: so ist sie auch dann sichtbar, wenn
                 # die Suche sie (noch) nicht kennt.
                 self._net_combo.addItem(
-                    f"{network_host(current)} – {tr('Handeingabe')}", current
+                    f"{network_host(current)} – {tr('manuell')}", current
                 )
                 index = self._net_combo.count() - 1
                 self._net_combo.setItemData(

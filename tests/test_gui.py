@@ -249,7 +249,7 @@ def test_network_address_is_taken_over_from_the_sheet(qapp, monkeypatch):
     panel.set_network_host("192.168.178.99")
 
     assert panel.address() == "tcp://192.168.178.99:9100"
-    assert panel._net_combo.currentText() == "192.168.178.99 – Handeingabe"
+    assert panel._net_combo.currentText() == "192.168.178.99 – manuell"
     assert panel._net_combo.currentData() == "tcp://192.168.178.99:9100"
     # Kein Wildwuchs: erneut eintragen erweitert die Liste nicht (nur die
     # Handeingabe und der Befehlseintrag stehen darin).
