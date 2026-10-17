@@ -31,11 +31,16 @@ TEMPLATE_DIR_ENV = "QLINUX_TEMPLATE_DIR"
 #: Band der eingebauten Vorlagen: 62 mm Endlosband (breiteste QL-Breite).
 TEMPLATE_LABEL = "62"
 
-#: Rastermass der Beispieltexte (Druckpunkte bei 300 dpi).
-SMALL = 40          # ca. 3,4 mm
-BODY = 56           # ca. 4,7 mm
-HEADLINE = 96       # ca. 8,1 mm
-HUGE = 190          # ca. 16 mm
+#: Rastermass der Beispieltexte (Druckpunkte bei 300 dpi). Die Werte sind auf
+#: die bedruckbare Breite eines 62-mm-Bands (696 Punkte) abgestimmt - groesser
+#: laeuft der Text ueber den Rand hinaus.
+SMALL = 34          # ca. 2,9 mm
+BODY = 48           # ca. 4,1 mm
+HEADLINE = 76       # ca. 6,4 mm
+HUGE = 150          # ca. 12,7 mm
+
+#: Breite, ab der ein Text umbricht (Innenkante des Etiketts).
+WRAP = 620.0
 
 
 def user_dir() -> Path:
@@ -211,12 +216,14 @@ def _address_label() -> dict[str, Any]:
     return build(
         _base_media(margins={"left": 6.0, "right": 3.0, "top": 4.0, "bottom": 4.0}),
         [
-            _text(tr("Absender: Firma Muster, Musterweg 1"), 30, 30, size=SMALL),
-            _line(30, 80, 640, 80, width=3),
-            _text(tr("Empfänger"), 30, 110, size=BODY, bold=True),
-            _text(tr("Vorname Nachname"), 30, 190, size=HEADLINE),
-            _text(tr("Straße 12"), 30, 300, size=BODY),
-            _text(tr("12345 Stadt"), 30, 370, size=BODY),
+            _text(tr("Absender: Firma Muster, Musterweg 1"), 30, 30, size=SMALL,
+                  width=WRAP),
+            _line(30, 90, 640, 90, width=3),
+            _text(tr("Empfänger"), 30, 120, size=BODY, bold=True),
+            # Lange Namen brechen um - die Adresse steht deshalb weiter unten.
+            _text(tr("Vorname Nachname"), 30, 190, size=HEADLINE, width=WRAP),
+            _text(tr("Straße 12"), 30, 420, size=BODY),
+            _text(tr("12345 Stadt"), 30, 490, size=BODY),
         ],
     )
 
@@ -228,8 +235,8 @@ def _parcel_label() -> dict[str, Any]:
         [
             _rect(20, 20, 650, 300),
             _text(tr("An"), 40, 40, size=SMALL),
-            _text(tr("Vorname Nachname"), 40, 80, size=BODY, bold=True),
-            _text(tr("12345 Stadt, Straße 12"), 40, 170, size=SMALL),
+            _text(tr("Vorname Nachname"), 40, 80, size=BODY, bold=True, width=WRAP),
+            _text(tr("12345 Stadt, Straße 12"), 40, 170, size=SMALL, width=WRAP),
             _barcode("1234567890", 40, 330, height=110),
         ],
     )
@@ -242,7 +249,7 @@ def _cable_label() -> dict[str, Any]:
         [
             _rect(20, 20, 650, 220),
             _text(tr("Kabel 12"), 40, 60, size=HUGE, bold=True),
-            _text(tr("Patchfeld A → Switch 3"), 40, 270, size=SMALL),
+            _text(tr("Patchfeld A → Switch 3"), 40, 270, size=SMALL, width=WRAP),
         ],
     )
 
@@ -255,9 +262,9 @@ def _folder_spine() -> dict[str, Any]:
             margins={"left": 4.0, "right": 4.0, "top": 4.0, "bottom": 4.0},
         ),
         [
-            _text(tr("Aktenzeichen 2026-01"), 30, 40, size=BODY, bold=True),
-            _text(tr("Rechnungen"), 30, 130, size=BODY),
-            _text(tr("bis 31.12.2026"), 30, 220, size=SMALL),
+            _text(tr("Aktenzeichen 2026-01"), 30, 40, size=BODY, bold=True, width=WRAP),
+            _text(tr("Rechnungen"), 30, 130, size=BODY, width=WRAP),
+            _text(tr("bis 31.12.2026"), 30, 220, size=SMALL, width=WRAP),
         ],
     )
 
@@ -268,8 +275,8 @@ def _price_tag() -> dict[str, Any]:
         _base_media(margins={"left": 6.0, "right": 6.0, "top": 4.0, "bottom": 4.0}),
         [
             _text(tr("9,90 €"), 40, 40, size=HUGE, bold=True),
-            _text(tr("inkl. MwSt."), 40, 280, size=SMALL),
-            _line(40, 250, 400, 250, width=3),
+            _line(40, 230, 420, 230, width=3),
+            _text(tr("inkl. MwSt."), 40, 260, size=SMALL),
         ],
     )
 
@@ -281,8 +288,8 @@ def _wifi_qr() -> dict[str, Any]:
         [
             _qr("WIFI:T:WPA;S:MeinWLAN;P:geheim;;", 40, 40, size=220),
             _text(tr("WLAN"), 300, 60, size=BODY, bold=True),
-            _text(tr("MeinWLAN"), 300, 140, size=BODY),
-            _text(tr("Passwort: geheim"), 300, 220, size=SMALL),
+            _text(tr("MeinWLAN"), 300, 130, size=BODY, width=330.0),
+            _text(tr("Passwort: geheim"), 300, 200, size=SMALL, width=330.0),
         ],
     )
 
@@ -293,7 +300,7 @@ def _inventory_label() -> dict[str, Any]:
         _base_media(margins={"left": 5.0, "right": 5.0, "top": 4.0, "bottom": 4.0}),
         [
             _text(tr("Inventar"), 30, 30, size=SMALL),
-            _text("QL-0001", 30, 80, size=HEADLINE, bold=True),
+            _text("QL-0001", 30, 80, size=HEADLINE, bold=True, width=WRAP),
             _barcode("QL-0001", 30, 220, height=120),
         ],
     )
