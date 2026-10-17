@@ -38,6 +38,86 @@ def test_config_rejects_unknown_model():
         PrinterConfig(model="QL-NOPE")
 
 
+# --------------------------------------------------------------------------- #
+# Anschluss: Backend aus der Adresse
+# --------------------------------------------------------------------------- #
+@pytest.mark.parametrize(
+    ("address", "backend", "readback"),
+    [
+        ("tcp://192.168.178.62:9100", "network", False),
+        ("192.168.178.62:9100", "network", False),  # ohne Praefix auch Netzwerk
+        ("usb://0x04f9:0x209b", "pyusb", True),
+        ("0x04f9:0x209b", "pyusb", True),
+        ("/dev/usb/lp0", "linux_kernel", True),
+        ("file:///dev/usb/lp0", "linux_kernel", True),
+        ("huhu", "network", False),  # unbekannt -> Netzwerk, kein stiller Absturz
+    ],
+)
+def test_backend_is_derived_from_the_address(address, backend, readback):
+    assert printer.backend_for_address(address) == backend
+    assert printer.backend_supports_readback(backend) is readback
+    assert PrinterConfig(address=address).backend == backend
+
+
+def test_config_keeps_an_explicit_backend():
+    config = PrinterConfig(address="tcp://192.168.178.62:9100", backend="pyusb")
+    assert config.backend == "pyusb"
+
+
+def test_only_usb_backends_have_a_readback():
+    """Der Netzwerk-Anschluss ist eine reine Druckschnittstelle."""
+    assert printer.READBACK_BACKENDS == {"pyusb", "linux_kernel"}
+    assert printer.backend_supports_readback("network") is False
+
+
+def test_usb_devices_normalizes_pyusb_identifiers(monkeypatch):
+    """Die Seriennummer aus der Geraeteliste ist nicht rueckuebersetzbar.
+
+    ``list_available_devices()`` liefert ``usb://0x04f9:0x2015_C5Z315686``;
+    der pyusb-Konstruktor von brother_ql 0.9.4 macht daraus
+    ``int("0x2015_C5Z315686", 16)`` und scheitert. Deshalb wird auf
+    Hersteller:Produkt gekuerzt - und das muss weiter parsebar sein.
+    """
+    monkeypatch.setattr(
+        printer,
+        "backend_factory",
+        lambda name: {
+            "list_available_devices": lambda: [
+                {"identifier": "usb://0x04f9:0x2015_C5Z315686"},
+                {"identifier": "usb://0x04f9:0x209b"},
+                {"identifier": "usb://0x04f9:0x2015_C5Z315686"},  # Dublette
+            ]
+        },
+    )
+    monkeypatch.setattr(printer.glob, "glob", lambda pattern: [])
+
+    assert printer.usb_devices() == ["usb://0x04f9:0x2015", "usb://0x04f9:0x209b"]
+    # Gegenprobe: das gekuerzte Format versteht brother_ql wirklich.
+    from brother_ql.backends import guess_backend
+
+    assert guess_backend("usb://0x04f9:0x2015") == "pyusb"
+
+
+def test_usb_devices_includes_kernel_paths(monkeypatch):
+    monkeypatch.setattr(
+        printer, "backend_factory", lambda name: {"list_available_devices": lambda: []}
+    )
+    monkeypatch.setattr(
+        printer.glob, "glob", lambda pattern: ["/dev/usb/lp1", "/dev/usb/lp0"]
+    )
+    assert printer.usb_devices() == ["/dev/usb/lp0", "/dev/usb/lp1"]
+
+
+def test_usb_devices_survives_a_broken_libusb(monkeypatch):
+    """Ohne libusb/Rechte gibt es eine leere Liste - keinen Absturz."""
+    def boom(name):
+        raise OSError("libusb nicht verfuegbar")
+
+    monkeypatch.setattr(printer, "backend_factory", boom)
+    monkeypatch.setattr(printer.glob, "glob", lambda pattern: [])
+    assert printer.usb_devices() == []
+
+
 def test_validate_rejects_wrong_width():
     label = get_label("50")  # 554 px
     wrong = Image.new("RGB", (500, 400), "white")

@@ -13,12 +13,13 @@ Alle Fehler werden als :class:`PrinterError` (bzw.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+import glob
 import logging
 import time
 
 from PIL import Image
 
-from brother_ql.backends import backend_factory
+from brother_ql.backends import backend_factory, guess_backend
 from brother_ql.backends.helpers import send
 from brother_ql.conversion import convert
 from brother_ql.raster import BrotherQLRaster
@@ -132,17 +133,90 @@ class PrinterConnectionError(PrinterError):
     """Der Drucker ist nicht erreichbar oder hat die Verbindung abgelehnt."""
 
 
+#: Backends mit Rueckkanal - nur sie koennen eine Statusantwort empfangen.
+#: Der Netzwerk-Anschluss (TCP 9100) ist eine reine Druckschnittstelle; das
+#: sagt auch ``brother_ql`` selbst ("The network backend doesn't support
+#: readback", ``backends/helpers.py``).
+READBACK_BACKENDS = frozenset({"pyusb", "linux_kernel"})
+
+#: Beispiele fuer die Adressfelder der Oberflaeche und Fehlermeldungen.
+ADDRESS_EXAMPLES = (
+    "tcp://192.168.178.62:9100",
+    "usb://0x04f9:0x209b",
+    "/dev/usb/lp0",
+)
+
+
+def backend_for_address(address: str) -> str:
+    """Backend aus der Adresse ableiten (``brother_ql.backends.guess_backend``).
+
+    ``usb://0x04f9:0x209b`` -> ``pyusb``, ``/dev/usb/lp0`` -> ``linux_kernel``,
+    ``tcp://host:9100`` -> ``network``. Eine nackte ``host:port``-Angabe gilt
+    ebenfalls als Netzwerk - brother_ql kennt sie nicht, hier ist sie
+    offensichtlich. Alles Unbekannte faellt auf ``network`` zurueck (dann
+    scheitert spaetestens der Verbindungsaufbau sichtbar, statt still das
+    falsche Backend zu nehmen).
+    """
+    value = (address or "").strip()
+    if not value:
+        return "network"
+    try:
+        return guess_backend(value)
+    except ValueError:
+        logger.info(
+            "Adresse %r passt zu keinem bekannten Praefix (%s) - nehme Netzwerk.",
+            address,
+            ", ".join(ADDRESS_EXAMPLES),
+        )
+        return "network"
+
+
+def backend_supports_readback(backend: str) -> bool:
+    """Kann dieses Backend eine Statusantwort empfangen (Band-Erkennung)?"""
+    return backend in READBACK_BACKENDS
+
+
+def usb_devices() -> list[str]:
+    """Angeschlossene USB-Drucker als Adressen fuer :class:`PrinterConfig`.
+
+    Liefert ``usb://0x04f9:0x209b`` (pyusb) **und** ``/dev/usb/lp0``
+    (Kernel-Treiber, falls ``usblp`` das Geraet haelt). Die pyusb-Kennung wird
+    auf Hersteller und Produkt gekuerzt: die Seriennummer aus
+    ``list_available_devices()`` ist in brother_ql 0.9.4 nicht
+    rueckuebersetzbar (``int("0x209b_SERIAL", 16)`` scheitert).
+    """
+    found: list[str] = []
+    try:
+        backend = backend_factory("pyusb")
+        for device in backend["list_available_devices"]():
+            identifier = str(device.get("identifier", ""))
+            head = identifier.removeprefix("usb://").split("/")[0].split("_")[0]
+            address = f"usb://{head}" if head else ""
+            if address and address not in found:
+                found.append(address)
+    except Exception as exc:  # pragma: no cover - haengt an libusb/Rechten
+        logger.info("USB-Suche (pyusb) fehlgeschlagen: %s", exc)
+    for path in sorted(glob.glob("/dev/usb/lp*")):
+        if path not in found:
+            found.append(path)
+    return found
+
+
 @dataclass(frozen=True)
 class PrinterConfig:
     """Verbindungs- und Geraeteparameter.
 
     Bewusst als Datenklasse - die UI liest/schreibt diese Werte in QSettings
     und hardcodet keine Adresse.
+
+    ``backend`` wird aus der Adresse abgeleitet, wenn es leer bleibt: das haelt
+    Netzwerk-, pyusb- und Kernel-USB-Anschluss in *einem* Feld (siehe
+    :func:`backend_for_address`).
     """
 
     model: str = DEFAULT_MODEL
     address: str = DEFAULT_ADDRESS
-    backend: str = "network"
+    backend: str = ""
 
     def __post_init__(self) -> None:
         # Frueh validieren: unbekanntes Modell -> klarer Fehler statt spaeter.
@@ -150,6 +224,8 @@ class PrinterConfig:
             get_model(self.model)
         except KeyError as exc:
             raise PrinterError(f"Unbekanntes Druckermodell: {self.model!r}") from exc
+        if not self.backend:
+            object.__setattr__(self, "backend", backend_for_address(self.address))
 
 
 @dataclass(frozen=True)
@@ -401,15 +477,20 @@ def _match_labels(width_mm: int, length_mm: int, *, endless: bool) -> list[Label
 
 
 __all__ = [
+    "ADDRESS_EXAMPLES",
     "DEFAULT_ADDRESS",
     "PrinterError",
     "PrinterConnectionError",
     "PrinterConfig",
     "PrinterStatus",
+    "READBACK_BACKENDS",
+    "backend_for_address",
+    "backend_supports_readback",
     "validate_for_print",
     "build_raster",
     "send_instructions",
     "print_image",
     "probe_status",
     "detect_label",
+    "usb_devices",
 ]

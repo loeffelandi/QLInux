@@ -75,7 +75,21 @@ python -m ql_editor
   selbst (`backends/helpers.py`: *„The network backend doesn't support
   readback"*). Über `tcp://…` antwortet der Drucker nicht (am QL-820NWB
   nachgemessen), die Oberfläche sagt das dann und man wählt das Band von Hand.
-  QLInux druckt weiterhin über das Netzwerk - nur die Erkennung braucht USB.
+* **Adresse** ist ein Feld für alle Anschlüsse - das Backend wird daraus
+  abgeleitet (wie `brother_ql.backends.guess_backend`, plus nacktes
+  `host:port`):
+
+  | Adresse | Backend | Band-Erkennung |
+  | --- | --- | --- |
+  | `tcp://192.168.178.62:9100` | Netzwerk | nein (kein Rückkanal) |
+  | `usb://0x04f9:0x209b` | pyusb (libusb) | **ja** |
+  | `/dev/usb/lp0` | Kernel-Treiber (`usblp`) | **ja** |
+
+  Unter dem Feld steht, was aus der Adresse folgt und ob dort eine
+  Statusabfrage möglich ist. **„USB suchen"** sucht angeschlossene
+  USB-Drucker und trägt die Adresse ein (mehrere Treffer → Auswahl).
+  Achtung: die Adresse gilt für **alles** - druckst du über USB, läuft auch
+  der Druckauftrag über USB.
 * **Mitte**: Canvas in exakter Bandbreite mit mm-Linealen; der **nicht
   bedruckbare Rand** (~1,5 mm je Seite) ist schraffiert, Items werden darauf
   begrenzt. Um die Designfläche liegt eine **Arbeitsfläche** (8 mm Rand,

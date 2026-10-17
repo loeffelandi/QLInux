@@ -70,6 +70,7 @@ from .printer import (
     print_image,
     resolution_by_key,
     resolution_options,
+    usb_devices,
 )
 from .settings import AppSettings
 from .sheet import ask_choice, ask_text, choose_file, show_message
@@ -137,6 +138,7 @@ class MainWindow(QMainWindow):
 
         self._media_panel.changed.connect(self._on_media_changed)
         self._media_panel.detect_requested.connect(self._on_detect_label)
+        self._media_panel.usb_search_requested.connect(self._on_usb_search)
         self._canvas.text_requested.connect(self._on_text_requested)
         self._canvas.item_double_clicked.connect(self._on_item_double_clicked)
         self._canvas.context_menu_requested.connect(self._show_context_menu)
@@ -1051,6 +1053,47 @@ class MainWindow(QMainWindow):
         show_message(self, "critical", "Druckfehler", message)
 
     # ------------------------------------------------------------- Detect ---
+    def _on_usb_search(self) -> None:
+        """Angeschlossene USB-Drucker suchen und die Adresse eintragen."""
+        QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
+        try:
+            devices = usb_devices()
+        except Exception as exc:  # pragma: no cover - defensiv
+            devices = []
+            self.statusBar().showMessage(f"USB-Suche fehlgeschlagen: {exc}", 8000)
+        finally:
+            QApplication.restoreOverrideCursor()
+
+        if not devices:
+            show_message(
+                self,
+                "info",
+                "USB suchen",
+                "Kein USB-Drucker gefunden.\n\n"
+                "Prüfen: Kabel steckt, Drucker ist an, und der Benutzer darf auf "
+                "das Gerät zugreifen (Gruppe „lp“, bzw. eine udev-Regel für "
+                "libusb). Über das Netzwerk angeschlossene Drucker erscheinen "
+                "hier nicht.",
+            )
+            return
+        if len(devices) == 1:
+            self._apply_usb_address(devices[0])
+            return
+        ask_choice(
+            self,
+            title="USB suchen",
+            label="Gefundene Drucker",
+            items=devices,
+            on_ok=self._apply_usb_address,
+        )
+
+    def _apply_usb_address(self, address: str) -> None:
+        self._media_panel.set_address(address)
+        self.statusBar().showMessage(
+            f"USB-Drucker übernommen: {address} – Band erkennen ist damit möglich.",
+            8000,
+        )
+
     def _on_detect_label(self) -> None:
         config = self._media_panel.printer_config()
         QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)

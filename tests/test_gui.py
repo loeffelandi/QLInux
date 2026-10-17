@@ -43,6 +43,46 @@ def test_media_panel_defaults(qapp):
     assert height == panel.model.min_max_length_dots[0]
 
 
+def test_media_panel_shows_the_backend_from_the_address(qapp):
+    """Das Panel sagt, welcher Anschluss aus der Adresse folgt - und ob er antwortet.
+
+    Der Netzwerk-Anschluss hat keinen Rueckkanal, dort geht die Band-Erkennung
+    nicht; ueber USB schon.
+    """
+    from ql_editor.media_panel import MediaPanel
+
+    panel = MediaPanel()
+    assert "Netzwerk" in panel._backend_label.text()
+    assert "kein Status" in panel._backend_label.text()
+
+    panel.set_address("usb://0x04f9:0x209b")
+    assert "USB" in panel._backend_label.text()
+    assert "Statusabfrage möglich" in panel._backend_label.text()
+    assert panel.printer_config().backend == "pyusb"
+
+
+def test_media_panel_emits_a_usb_search(qapp):
+    from ql_editor.media_panel import MediaPanel
+
+    panel = MediaPanel()
+    seen: list[bool] = []
+    panel.usb_search_requested.connect(lambda: seen.append(True))
+    panel._usb_button.click()
+    assert seen == [True]
+
+
+def test_usb_search_applies_the_only_printer_found(qapp, tmp_path, monkeypatch):
+    from ql_editor import app as app_module
+
+    win = _temp_window(qapp, tmp_path)
+    monkeypatch.setattr(app_module, "usb_devices", lambda: ["usb://0x04f9:0x209b"])
+
+    win._on_usb_search()
+
+    assert win._media_panel.address() == "usb://0x04f9:0x209b"
+    assert win._media_panel.printer_config().backend == "pyusb"
+
+
 def test_media_panel_finished_vs_content(qapp):
     from ql_editor.media_panel import MediaPanel
     from ql_editor.media import LengthMode

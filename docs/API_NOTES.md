@@ -160,6 +160,37 @@ liefert nur Aufloesungen, und `pquality`/`hq` ("Qualitaet vor Tempo") ist ein
 eigener Schalter in der Oberflaeche. Abfragen laesst sich beides nicht - die
 Statusantwort (32 Byte) kennt nur Band und Fehler.
 
+## Anschluesse und Status-Rueckkanal
+
+`brother_ql.backends.guess_backend()` leitet das Backend aus der Kennung ab:
+`usb://`/`0x…` → `pyusb`, `file://`/`/dev/usb/`/`lp…` → `linux_kernel`,
+`tcp://` → `network`. `PrinterConfig.backend` bleibt deshalb standardmaessig
+leer und wird in `__post_init__` ueber `printer.backend_for_address()` gesetzt
+(ergaenzt nacktes `host:port` als Netzwerk; Unbekanntes faellt auf `network`
+zurueck, damit ein Tippfehler nicht still das falsche Backend waehlt).
+
+**Nur USB hat einen Rueckkanal.** `brother_ql` sagt es selbst
+(`backends/helpers.py`):
+
+```python
+if selected_backend == 'network':
+    """ No need to wait for completion. The network backend doesn't support readback. """
+    return status
+```
+
+Am QL-820NWB nachgemessen: `ESC i S` an `tcp://…:9100` gesendet, 2 s gewartet
+→ **keine Antwort** (Port 9100 ist eine reine Druckschnittstelle). Ueber USB
+kommen die 32 Statusbytes, aus denen `reader.interpret_response()` Bandtyp,
+Bandbreite und -laenge liest - die Grundlage von `printer.detect_label()`.
+`printer.READBACK_BACKENDS` haelt das fest (`pyusb`, `linux_kernel`).
+
+Falle bei pyusb: `list_available_devices()` liefert
+`usb://0x04f9:0x2015_C5Z315686`, aber der Konstruktor des Backends parst
+`int(vendor_product, 16)` nach dem Trennen an `:` - mit angehaengter
+Seriennummer also `int("0x2015_C5Z315686", 16)` → `ValueError`. Die Kennung aus
+der Liste ist damit **nicht** rueckuebersetzbar; `printer.usb_devices()` kuerzt
+sie deshalb auf `usb://0x04f9:0x2015` (Seriennummer weg).
+
 ## Pillow-10-Patch
 
 Von Haus aus nutzt `conversion.py` Zeile 112 `Image.ANTIALIAS` (in Pillow ≥ 10

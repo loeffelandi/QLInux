@@ -39,7 +39,7 @@ from .media import (
     ModelSpec,
     Orientation,
 )
-from .printer import DEFAULT_ADDRESS
+from .printer import ADDRESS_EXAMPLES, DEFAULT_ADDRESS, backend_for_address, backend_supports_readback
 
 
 class MediaPanel(QWidget):
@@ -47,6 +47,7 @@ class MediaPanel(QWidget):
 
     changed = Signal()
     detect_requested = Signal()
+    usb_search_requested = Signal()
 
     def __init__(self, parent: QWidget | None = None):
         super().__init__(parent)
@@ -74,15 +75,36 @@ class MediaPanel(QWidget):
         printer_form.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.AllNonFixedFieldsGrow)
         self._model_combo = QComboBox()
         self._address_edit = QLineEdit(DEFAULT_ADDRESS)
+        self._address_edit.setToolTip(
+            "Ein Feld für alle Anschlüsse - das Backend wird aus der Adresse "
+            "abgeleitet:\n"
+            f"  {ADDRESS_EXAMPLES[0]}   Netzwerk (TCP 9100)\n"
+            f"  {ADDRESS_EXAMPLES[1]}        USB über libusb (pyusb)\n"
+            f"  {ADDRESS_EXAMPLES[2]}               USB über den Kernel-Treiber"
+        )
+        # Zeigt, was aus der Adresse folgt - vor allem, ob der Anschluss einen
+        # Rueckkanal hat (nur dann geht die Band-Erkennung).
+        self._backend_label = QLabel()
+        self._backend_label.setWordWrap(True)
+        self._backend_label.setStyleSheet("color:#777;")
         self._detect_button = QPushButton(icon("detect"), "Band erkennen")
         self._detect_button.setToolTip(
             "Band am Drucker erfragen (Statusabfrage).\n"
             "Geht nur über USB: der Netzwerk-Anschluss (TCP 9100) ist eine reine "
             "Druckschnittstelle und antwortet nicht."
         )
+        self._usb_button = QPushButton(icon("detect"), "USB suchen")
+        self._usb_button.setToolTip(
+            "Angeschlossene USB-Drucker suchen und die Adresse eintragen."
+        )
+        buttons = QHBoxLayout()
+        buttons.setContentsMargins(0, 0, 0, 0)
+        buttons.addWidget(self._detect_button, 1)
+        buttons.addWidget(self._usb_button, 1)
         printer_form.addRow("Modell", self._model_combo)
         printer_form.addRow("Adresse", self._address_edit)
-        printer_form.addRow("", self._detect_button)
+        printer_form.addRow("", self._backend_label)
+        printer_form.addRow("", buttons)
         outer.addWidget(printer_box)
 
         # -- Band -----------------------------------------------------------
@@ -153,6 +175,9 @@ class MediaPanel(QWidget):
         for spin in self._margin_spins.values():
             spin.valueChanged.connect(self._on_media_changed)
         self._detect_button.clicked.connect(self.detect_requested.emit)
+        self._usb_button.clicked.connect(self.usb_search_requested.emit)
+        self._address_edit.textChanged.connect(self._on_address_changed)
+        self._sync_backend_label()
 
     def _build_orientation_row(self) -> QWidget:
         """Zwei Umschaltknoepfe (quer / laengs) fuer die Ausrichtung.
@@ -323,6 +348,11 @@ class MediaPanel(QWidget):
         self._band_combo.setCurrentIndex(index)
         return True
 
+    def set_address(self, address: str) -> None:
+        """Druckeradresse setzen (loest bei Aenderung :attr:`changed` aus)."""
+        if address and address != self._address_edit.text():
+            self._address_edit.setText(address)
+
     def apply_label_defaults(self, label: LabelSpec) -> None:
         """Setze Margin-Startwerte aus ``feed_margin`` des Bandes."""
         margins = label.default_margins()
@@ -345,6 +375,26 @@ class MediaPanel(QWidget):
         self._update_result()
 
     # ----------------------------------------------------------- Slots -----
+    def _on_address_changed(self) -> None:
+        """Adresse getippt: Backend-Hinweis nachziehen und Aenderung melden."""
+        self._sync_backend_label()
+        self.changed.emit()
+
+    def _sync_backend_label(self) -> None:
+        """Zeigen, welches Backend die Adresse ergibt - und ob es antwortet."""
+        backend = backend_for_address(self.address())
+        names = {
+            "network": "Netzwerk (TCP 9100)",
+            "pyusb": "USB (libusb)",
+            "linux_kernel": "USB (Kernel-Treiber)",
+        }
+        name = names.get(backend, backend)
+        if backend_supports_readback(backend):
+            text = f"{name} – Statusabfrage möglich (Band erkennen)."
+        else:
+            text = f"{name} – kein Status: Band bitte von Hand wählen."
+        self._backend_label.setText(text)
+
     def _on_model_changed(self) -> None:
         self._populate_bands()
         self._sync_enabled()
