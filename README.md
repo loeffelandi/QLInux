@@ -139,6 +139,20 @@ machine, so opening a label from somebody else never changes your printer.
 The window title shows the file name, with a `*` while there are unsaved
 changes.
 
+### Opening a Brother `.lbx` file
+
+*File → Open…* also accepts P-touch Editor files (`.lbx`). QLInux reads the
+tape, the orientation and the objects, then treats the result as a new unsaved
+label — *Save* asks for a `.qlx`, it does not write back into the `.lbx`.
+
+What comes across: text (one font per box; horizontal alignment), images
+(resampled from the embedded bitmap down to the label size), lines and
+frames. What does not: barcodes, tables, database fields, date/time fields
+and cable templates. Those are listed in a note after import. Mixed-style
+runs inside one text box keep the box's base font, and Brother's monochrome
+image settings (threshold, dither) are not copied — the print dialog has its
+own.
+
 ### USB permissions
 
 Reading the inserted tape (and the printer status) over USB needs write access
@@ -158,7 +172,7 @@ python scripts/verify_api.py            # documents the real brother_ql API
 ```
 
 The same suite runs on every push and pull request
-([`.github/workflows/tests.yml`](.github/workflows/tests.yml), Python 3.10 and 3.12).
+([`.github/workflows/tests.yml`](.github/workflows/tests.yml), Python 3.12 on Ubuntu).
 
 The tests run headless: `tests/conftest.py` forces the Qt *offscreen* platform
 and redirects `XDG_CONFIG_HOME` to a temporary directory, so a test run never
@@ -195,6 +209,7 @@ Your own templates then appear in the same menu.
 | M4.1 | Labels as files: open, save, save as (`.qlx`), unsaved-changes marker | ✅ |
 | M4.2 | Templates (built-in and your own) | ✅ |
 | M4.3 | Packaging: AppImage (PyInstaller + appimagetool) | ✅ |
+| M4.4 | Open Brother P-touch files (`.lbx`, import only) | ✅ |
 
 ## License
 
