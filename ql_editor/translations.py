@@ -33,6 +33,8 @@ EN: dict[str, str] = {
     "Bearbeiten": "Edit",
     "Rückgängig": "Undo",
     "Wiederholen": "Redo",
+    "Rückgängig (Strg+Z)": "Undo (Ctrl+Z)",
+    "Wiederholen (Strg+Umschalt+Z)": "Redo (Ctrl+Shift+Z)",
     "Links ausrichten": "Align left",
     "Horizontal zentrieren": "Align center horizontally",
     "Rechts ausrichten": "Align right",

@@ -706,10 +706,12 @@ class MainWindow(QMainWindow):
         self._act_add_rect.triggered.connect(self._add_rect)
 
         self._act_undo = self._undo_stack.createUndoAction(self, tr("Rückgängig"))
-        self._act_undo.setIcon(icon("chevron_left"))
+        self._act_undo.setIcon(icon("undo"))
+        self._act_undo.setToolTip(tr("Rückgängig (Strg+Z)"))
         self._act_undo.setShortcut(QKeySequence.StandardKey.Undo)
         self._act_redo = self._undo_stack.createRedoAction(self, tr("Wiederholen"))
-        self._act_redo.setIcon(icon("chevron_right"))
+        self._act_redo.setIcon(icon("redo"))
+        self._act_redo.setToolTip(tr("Wiederholen (Strg+Umschalt+Z)"))
         self._act_redo.setShortcut(QKeySequence.StandardKey.Redo)
 
         self._act_align_left = QAction(icon("align_left"), tr("Links ausrichten"), self)
@@ -868,6 +870,10 @@ class MainWindow(QMainWindow):
         bar.addAction(self._act_file_open)
         bar.addAction(self._act_file_save)
         bar.addWidget(self._build_template_button(bar))
+        bar.addSeparator()
+
+        bar.addAction(self._act_undo)
+        bar.addAction(self._act_redo)
         bar.addSeparator()
 
         bar.addAction(self._act_add_text)

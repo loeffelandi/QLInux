@@ -539,6 +539,40 @@ def _draw_align_bottom(p: QPainter, color: QColor) -> None:
     p.drawRect(QRectF(14.0, 3.5, 4.0, 14.0))
 
 
+def _draw_curved_arrow(p: QPainter, color: QColor, *, redo: bool) -> None:
+    """Haken mit Pfeil nach links; ``redo`` spiegelt ihn nach rechts."""
+    _stroke_only(p, color, 1.7)
+    if redo:
+        p.save()
+        p.translate(GRID, 0)
+        p.scale(-1, 1)
+    path = QPainterPath()
+    path.moveTo(18.2, 8.6)
+    path.cubicTo(18.2, 4.2, 6.4, 4.2, 6.4, 10.6)
+    path.lineTo(6.4, 14.2)
+    p.drawPath(path)
+    _fill_only(p, color)
+    p.drawPolygon(
+        QPolygonF(
+            [
+                QPointF(3.4, 14.2),
+                QPointF(8.6, 11.4),
+                QPointF(8.6, 17.0),
+            ]
+        )
+    )
+    if redo:
+        p.restore()
+
+
+def _draw_undo(p: QPainter, color: QColor) -> None:
+    _draw_curved_arrow(p, color, redo=False)
+
+
+def _draw_redo(p: QPainter, color: QColor) -> None:
+    _draw_curved_arrow(p, color, redo=True)
+
+
 def _draw_rotate(p: QPainter, color: QColor) -> None:
     """Kreisbogen mit Pfeilspitze - das uebliche "drehen"-Symbol.
 
@@ -588,6 +622,8 @@ _DRAW = {
     "front": _draw_front,
     "back": _draw_back,
     "delete": _draw_delete,
+    "undo": _draw_undo,
+    "redo": _draw_redo,
     "align_left": _draw_align_left,
     "align_hcenter": _draw_align_hcenter,
     "align_right": _draw_align_right,

@@ -2002,6 +2002,26 @@ def test_icon_color_is_configurable(qapp):
     assert not red.isNull()
 
 
+def test_toolbar_has_undo_and_redo(qapp):
+    """Rückgängig und Wiederholen liegen als eigene Icons in der Toolbar."""
+    from PySide6.QtWidgets import QToolBar
+
+    from ql_editor.app import MainWindow
+
+    win = MainWindow()
+    bar = win.findChild(QToolBar, "main_toolbar")
+    actions = [a for a in bar.actions() if not a.isSeparator()]
+    undo_at = actions.index(win._act_undo)
+    redo_at = actions.index(win._act_redo)
+    assert redo_at == undo_at + 1
+    assert undo_at > actions.index(win._act_file_save)
+    assert redo_at < actions.index(win._act_add_text)
+    assert win._act_undo.toolTip() == "Rückgängig (Strg+Z)"
+    assert win._act_redo.toolTip() == "Wiederholen (Strg+Umschalt+Z)"
+    assert not win._act_undo.icon().isNull()
+    assert not win._act_redo.icon().isNull()
+
+
 def test_toolbar_is_icon_only(qapp):
     from PySide6.QtCore import Qt
     from PySide6.QtWidgets import QToolBar, QWidgetAction
