@@ -3428,7 +3428,7 @@ def test_language_switch_keeps_content_and_media(qapp, tmp_path):
     assert new._media_panel.length_mm() == pytest.approx(55.0)
     assert new._copies_spin.value() == 3
     assert new._cut_combo.currentData() == printer_module.CUT_AT_END
-    assert new._cut_combo.currentText() == "Only at the end"
+    assert new._cut_combo.currentText() == "At end"
 
     new.close()
     qapp.processEvents()

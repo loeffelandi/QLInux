@@ -350,9 +350,9 @@ EN: dict[str, str] = {
         "How many times this label is printed - as one job."
     ),
     "Zuschnitt": "Cutting",
-    "Nach jeder Kopie": "After each copy",
-    "Nur am Ende": "Only at the end",
-    "Nicht schneiden": "Do not cut",
+    "Jede Kopie": "Each copy",
+    "Am Ende": "At end",
+    "Aus": "Off",
     "Nach jeder Kopie: einzelne Etiketten.\nNur am Ende: die Kopien hängen zusammen und werden zuletzt getrennt - nur bei mehreren Kopien.\nNicht schneiden: der Streifen bleibt am Band.": (
         "After each copy: separate labels.\n"
         "Only at the end: the copies stay together and are separated last - "

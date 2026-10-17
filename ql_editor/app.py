@@ -421,9 +421,9 @@ class MainWindow(QMainWindow):
         self._cut_combo.setMinimumContentsLength(8)
         self._cut_label.setBuddy(self._cut_combo)
         for mode, text in (
-            (CUT_EACH, tr("Nach jeder Kopie")),
-            (CUT_AT_END, tr("Nur am Ende")),
-            (CUT_NONE, tr("Nicht schneiden")),
+            (CUT_EACH, tr("Jede Kopie")),
+            (CUT_AT_END, tr("Am Ende")),
+            (CUT_NONE, tr("Aus")),
         ):
             self._cut_combo.addItem(text, mode)
         self._cut_combo.setCurrentIndex(self._cut_combo.findData(CUT_EACH))

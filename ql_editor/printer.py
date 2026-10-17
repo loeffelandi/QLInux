@@ -756,7 +756,7 @@ def _validate_cut_mode(cut_mode: str, model) -> None:
             tr(
                 "Modell {model!r} hat keine Schneideeinrichtung - "
                 "Zuschnitt auf „{none}“ stellen."
-            ).format(model=model.identifier, none=tr("Nicht schneiden"))
+            ).format(model=model.identifier, none=tr("Aus"))
         )
 
 

@@ -113,6 +113,10 @@ class InspectorPanel(QWidget):
         form.addRow(tr("Text"), edit)
 
         family = QFontComboBox()
+        family.setSizeAdjustPolicy(
+            QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon
+        )
+        family.setMinimumContentsLength(8)
         family.setCurrentFont(QFont(item.font_family))
         family.currentFontChanged.connect(lambda f: self._apply(lambda: item.set_font_family(f.family())))
         form.addRow(tr("Schrift"), family)

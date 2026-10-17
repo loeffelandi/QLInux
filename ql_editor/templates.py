@@ -31,6 +31,9 @@ TEMPLATE_DIR_ENV = "QLINUX_TEMPLATE_DIR"
 #: Band der eingebauten Vorlagen: 62 mm Endlosband (breiteste QL-Breite).
 TEMPLATE_LABEL = "62"
 
+#: Vorlagen starten ohne Rand - Raender sind eine bewusste Entscheidung.
+_ZERO_MARGINS = {"left": 0.0, "right": 0.0, "top": 0.0, "bottom": 0.0}
+
 #: Rastermass der Beispieltexte (Druckpunkte bei 300 dpi). Die Werte sind auf
 #: die bedruckbare Breite eines 62-mm-Bands (696 Punkte) abgestimmt - groesser
 #: laeuft der Text ueber den Rand hinaus.
@@ -117,7 +120,7 @@ def _base_media(**overrides: Any) -> dict[str, Any]:
         "auto_length": True,
         "length_mm": 40.0,
         "length_mode": media.LengthMode.FINISHED.value,
-        "margins": {"left": 3.0, "right": 3.0, "top": 3.0, "bottom": 3.0},
+        "margins": dict(_ZERO_MARGINS),
         "orientation": media.Orientation.ACROSS.value,
     }
     values.update(overrides)
@@ -214,7 +217,7 @@ def _barcode(
 def _address_label() -> dict[str, Any]:
     """Absender klein, Empfaenger gross - das klassische Adressetikett."""
     return build(
-        _base_media(margins={"left": 6.0, "right": 3.0, "top": 4.0, "bottom": 4.0}),
+        _base_media(margins=_ZERO_MARGINS),
         [
             _text(tr("Absender: Firma Muster, Musterweg 1"), 30, 30, size=SMALL,
                   width=WRAP),
@@ -231,7 +234,7 @@ def _address_label() -> dict[str, Any]:
 def _parcel_label() -> dict[str, Any]:
     """Paketmarke: Rahmen, grosses Ziel, Barcode."""
     return build(
-        _base_media(margins={"left": 4.0, "right": 4.0, "top": 4.0, "bottom": 4.0}),
+        _base_media(margins=_ZERO_MARGINS),
         [
             _rect(20, 20, 650, 300),
             _text(tr("An"), 40, 40, size=SMALL),
@@ -245,7 +248,7 @@ def _parcel_label() -> dict[str, Any]:
 def _cable_label() -> dict[str, Any]:
     """Kabelkennzeichnung: einmal ums Kabel wickeln, gross lesbar."""
     return build(
-        _base_media(margins={"left": 5.0, "right": 5.0, "top": 4.0, "bottom": 4.0}),
+        _base_media(margins=_ZERO_MARGINS),
         [
             _rect(20, 20, 650, 220),
             _text(tr("Kabel 12"), 40, 60, size=HUGE, bold=True),
@@ -259,7 +262,7 @@ def _folder_spine() -> dict[str, Any]:
     return build(
         _base_media(
             orientation=media.Orientation.ALONG.value,
-            margins={"left": 4.0, "right": 4.0, "top": 4.0, "bottom": 4.0},
+            margins=_ZERO_MARGINS,
         ),
         [
             _text(tr("Aktenzeichen 2026-01"), 30, 40, size=BODY, bold=True, width=WRAP),
@@ -272,7 +275,7 @@ def _folder_spine() -> dict[str, Any]:
 def _price_tag() -> dict[str, Any]:
     """Preisschild: der Preis dominiert, alles andere ist Beiwerk."""
     return build(
-        _base_media(margins={"left": 6.0, "right": 6.0, "top": 4.0, "bottom": 4.0}),
+        _base_media(margins=_ZERO_MARGINS),
         [
             _text(tr("9,90 €"), 40, 40, size=HUGE, bold=True),
             _line(40, 230, 420, 230, width=3),
@@ -297,7 +300,7 @@ def _wifi_qr() -> dict[str, Any]:
 def _inventory_label() -> dict[str, Any]:
     """Inventar: Nummer gross, Barcode zum Scannen."""
     return build(
-        _base_media(margins={"left": 5.0, "right": 5.0, "top": 4.0, "bottom": 4.0}),
+        _base_media(margins=_ZERO_MARGINS),
         [
             _text(tr("Inventar"), 30, 30, size=SMALL),
             _text("QL-0001", 30, 80, size=HEADLINE, bold=True, width=WRAP),

@@ -87,6 +87,8 @@ class OverlayPanel(QWidget):
         self._auto_collapsed = False
         self._auto_override = False
         self._peeking = False
+        #: Offen, aber ueber dem Canvas statt daneben (schmales Fenster).
+        self._overlay = False
         self._width = float(PANEL_WIDTH)
         self._expanded = float(PANEL_WIDTH)
 
@@ -214,7 +216,7 @@ class OverlayPanel(QWidget):
         Beim Peek nur der Streifen - das aufgeklappte Panel liegt dann *ueber*
         dem Canvas und verschiebt ihn nicht.
         """
-        if self._is_open():
+        if self._is_open() and not self._overlay:
             return self.visible_width
         return STRIP_WIDTH
 
@@ -222,6 +224,13 @@ class OverlayPanel(QWidget):
     def visible_width(self) -> int:
         """Aktuell sichtbare Breite (waehrend der Animation)."""
         return int(round(self._width))
+
+    def set_overlay(self, overlay: bool) -> None:
+        """Offenes Panel liegt ueber dem Canvas statt ihn zu verkleinern."""
+        if overlay == self._overlay:
+            return
+        self._overlay = overlay
+        self.width_changed.emit()
 
     def set_expanded_width(self, width: int) -> None:
         """Zielbreite im offenen Zustand - der Host passt sie dem Fenster an.
@@ -496,7 +505,11 @@ class PanelHost(QWidget):
         strips = sum(panel.canvas_reserved for panel in panels if panel not in open_panels)
         share = (max(1, self.width()) - self._canvas.minimumWidth() - strips) / len(open_panels)
         target = int(min(PANEL_WIDTH, max(PANEL_MIN_WIDTH, share)))
+        # Passen die offenen Panels nicht mehr neben den Canvas, liegen sie
+        # darueber (Overlay) - der Canvas wird nicht zusammengedrueckt.
+        overlay = share < PANEL_MIN_WIDTH
         for panel in panels:
+            panel.set_overlay(overlay)
             panel.set_expanded_width(target)
 
     def _relayout(self) -> None:
