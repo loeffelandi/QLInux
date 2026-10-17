@@ -2022,6 +2022,29 @@ def test_toolbar_has_undo_and_redo(qapp):
     assert not win._act_redo.icon().isNull()
 
 
+def test_toolbar_has_align_dropdown_before_front(qapp, tmp_path):
+    """Ausrichten liegt als Dropdown in der Toolbar, vor Vordergrund und Hintergrund."""
+    from PySide6.QtWidgets import QToolButton, QToolBar
+
+    win = _temp_window(qapp, tmp_path)
+    bar = win.findChild(QToolBar, "main_toolbar")
+    button = win.findChild(QToolButton, "align_button")
+    assert button is not None
+    assert button.menu().actions() == [
+        win._act_align_left,
+        win._act_align_hcenter,
+        win._act_align_right,
+        win._act_align_top,
+        win._act_align_vcenter,
+        win._act_align_bottom,
+    ]
+    actions = bar.actions()
+    button_at = next(i for i, a in enumerate(actions) if bar.widgetForAction(a) is button)
+    assert button_at < actions.index(win._act_front) < actions.index(win._act_back)
+    win.close()
+    qapp.processEvents()
+
+
 def test_toolbar_is_icon_only(qapp):
     from PySide6.QtCore import Qt
     from PySide6.QtWidgets import QToolBar, QWidgetAction
