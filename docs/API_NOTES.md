@@ -147,6 +147,13 @@ Konsequenzen (in `printer.DPI_600_SCALE` / `canvas.render_printable(scale=…)`)
    das Canvas-Overlay herunter (Box-Filter) - sie zeigt also weiterhin die
    echten Druckdaten.
 
+**Am Geraet geprueft** (QL-820NWB, 50 mm Endlosband, `scripts/print_resolution_test.py`):
+dasselbe Design einmal mit `dpi_600=False` und einmal mit `True` gedruckt ergibt
+**dieselbe Etikettenlaenge** (Lineal auf dem Etikett: 30,0 mm fertig; 271
+Rasterzeilen bei 300 dpi, 542 bei 600 dpi). Der High-Resolution-Modus setzt die
+Zeilen also wirklich mit halbem Abstand, statt das Etikett zu verdoppeln - und
+die hoehere Aufloesung druckt sauber.
+
 Unterstuetzte Modelle stehen in `printer.DPI_600_MODELS` (QL-800, QL-810W,
 QL-820NWB; belegt ueber die Brother-Datenblaetter "High resolution mode:
 300 x 600 dpi"). Fuer die uebrigen Modelle der Bibliothek nennen die

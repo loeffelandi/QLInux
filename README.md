@@ -276,6 +276,17 @@ Headless-Druckpfad (ohne GUI) zum Testen:
 python scripts/print_test.py --label 50 --length-mm 40 --dry-run --save /tmp/x.png
 ```
 
+Auflösungen vergleichen (zwei Etiketten, gleiches Design, mm-Lineal zum
+Nachmessen):
+
+```bash
+python scripts/print_resolution_test.py --dry-run   # nur rechnen + Vorschaubilder
+python scripts/print_resolution_test.py             # beide drucken
+```
+
+Am QL-820NWB geprüft: beide Etiketten sind **gleich lang** (30,0 mm fertig) und
+die 600-dpi-Variante druckt feiner.
+
 ## Wichtige Fakten zur Installation
 
 * Zielauflosung 300 dpi: `dots = mm * 300 / 25.4`.
