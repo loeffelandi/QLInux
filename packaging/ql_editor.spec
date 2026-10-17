@@ -2,6 +2,8 @@
 #
 # PyInstaller-Rezept fuer das AppImage (onedir). Aufruf ueber
 # packaging/build_appimage.sh - nicht direkt noetig.
+import os
+
 from PyInstaller.utils.hooks import collect_submodules
 
 # Mitgelieferte Dateien: ql_editor.resources sucht sie im Bundle unter
@@ -58,7 +60,7 @@ excludes = [
 
 a = Analysis(
     ["entrypoint.py"],
-    pathex=[],
+    pathex=[os.path.abspath(os.path.join(SPECPATH, ".."))],
     binaries=[],
     datas=datas,
     hiddenimports=hidden,
