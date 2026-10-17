@@ -2017,6 +2017,7 @@ class MainWindow(QMainWindow):
         self._print_worker.start()
 
     def _on_print_finished(self) -> None:
+        self._print_worker = None
         self._print_button.setEnabled(True)
 
     def _on_print_succeeded(self, status: dict) -> None:
@@ -2144,6 +2145,7 @@ class MainWindow(QMainWindow):
         )
 
     def _on_network_search_done(self) -> None:
+        self._network_worker = None
         self._media_panel.set_network_searching(False)
 
     def _on_usb_search(self) -> None:
@@ -2190,6 +2192,7 @@ class MainWindow(QMainWindow):
         self._detect_worker.start()
 
     def _on_detect_label_finished(self) -> None:
+        self._detect_worker = None
         QApplication.restoreOverrideCursor()
 
     def _on_detect_label_failed(self, message: str) -> None:
