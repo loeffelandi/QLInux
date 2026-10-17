@@ -4020,9 +4020,249 @@ def test_an_lbx_warning_is_shown(qapp, tmp_path):
     assert sheet is not None
     labels = [label.text() for label in sheet.findChildren(QLabel)]
     assert any("Tabelle" in text for text in labels)
+    win.close()
+    qapp.processEvents()
+
+
+def _sheet_button(win, label: str):
+    from PySide6.QtWidgets import QMessageBox
+
+    from ql_editor.sheet import Sheet
+
+    sheet = next(
+        (candidate for candidate in win.findChildren(Sheet) if candidate.isVisible()),
+        None,
+    )
+    assert sheet is not None
+    box = sheet.findChild(QMessageBox)
+    for button in box.buttons():
+        if button.text() == label:
+            return button
+    raise AssertionError(label)
+
+
+def test_tabs_keep_items_tape_and_undo_apart(qapp, tmp_path):
+    """Zwei Reiter behalten Objekte, Bandlänge und Undo für sich."""
+    from ql_editor.items import TextItem
+
+    win = _temp_window(qapp, tmp_path)
+    win._media_panel._auto_check.setChecked(False)
+    win._media_panel._length_spin.setValue(40.0)
+    win._add_item(TextItem("Eins", font_pixel_size=24))
+    address = win._media_panel.address()
+
+    win._on_file_new()
+    qapp.processEvents()
+    assert win._tab_bar.count() == 2
+    win._add_item(TextItem("Zwei", font_pixel_size=24))
+    win._media_panel._length_spin.setValue(80.0)
+    qapp.processEvents()
+
+    win._tab_bar.setCurrentIndex(0)
+    qapp.processEvents()
+    assert [item["text"] for item in win._canvas.items_serialized()] == ["Eins"]
+    assert win._media_panel.length_mm() == pytest.approx(40.0)
+    assert win._media_panel.address() == address
+
+    win._tab_bar.setCurrentIndex(1)
+    qapp.processEvents()
+    assert [item["text"] for item in win._canvas.items_serialized()] == ["Zwei"]
+    assert win._media_panel.length_mm() == pytest.approx(80.0)
+    assert win._media_panel.address() == address
+    win._act_undo.trigger()
+    qapp.processEvents()
+    assert win._media_panel.length_mm() == pytest.approx(40.0)
+    assert [item["text"] for item in win._canvas.items_serialized()] == ["Zwei"]
+
+    win._tab_bar.setCurrentIndex(0)
+    qapp.processEvents()
+    assert [item["text"] for item in win._canvas.items_serialized()] == ["Eins"]
+    assert win._media_panel.length_mm() == pytest.approx(40.0)
+    win.close()
+    qapp.processEvents()
+
+
+def test_open_reuses_a_blank_tab_and_focuses_a_path_that_is_already_open(
+    qapp, tmp_path
+):
+    """Ein leeres Fenster nimmt die Datei in den ersten Reiter; dieselbe Datei nicht zweimal."""
+    from ql_editor.items import TextItem
+
+    win = _temp_window(qapp, tmp_path)
+    path = tmp_path / "eins.qlx"
+    win._save_document_to(str(path))
+    # Frisch gespeichert und ohne Objekte: immer noch ein Reiter.
+    assert win._tab_bar.count() == 1
+
+    other = tmp_path / "zwei.qlx"
+    win._add_item(TextItem("Eins", font_pixel_size=20))
+    win._save_document_to(str(other))
+    win._open_document_chosen(str(path))
+    qapp.processEvents()
+    assert win._tab_bar.count() == 2
+    assert win._document_path == str(path)
+    assert win._canvas.items_serialized() == []
+
+    win._add_item(TextItem("Noch da", font_pixel_size=20))
+    win._open_document_chosen(str(path))
+    qapp.processEvents()
+    assert win._tab_bar.count() == 2
+    assert [item["text"] for item in win._canvas.items_serialized()] == ["Noch da"]
+    win.close()
+    qapp.processEvents()
+
+
+def test_a_broken_file_does_not_open_another_tab(qapp, tmp_path):
+    from ql_editor.items import TextItem
+
+    win = _temp_window(qapp, tmp_path)
+    win._add_item(TextItem("Hallo", font_pixel_size=20))
+    broken = tmp_path / "kaputt.qlx"
+    broken.write_text("{ kein json", encoding="utf-8")
+    win._open_document_chosen(str(broken))
+    qapp.processEvents()
+    assert win._tab_bar.count() == 1
+    assert [item["text"] for item in win._canvas.items_serialized()] == ["Hallo"]
+    win.close()
+    qapp.processEvents()
+
+
+def test_cancelling_a_tab_close_keeps_the_label(qapp, tmp_path):
+    from ql_editor.items import TextItem
+
+    win = _temp_window(qapp, tmp_path)
+    win._add_item(TextItem("Bleibt", font_pixel_size=20))
+    win._on_close_current_tab()
+    qapp.processEvents()
+    _sheet_button(win, "Abbrechen").click()
+    qapp.processEvents()
+    assert win._tab_bar.count() == 1
+    assert [item["text"] for item in win._canvas.items_serialized()] == ["Bleibt"]
+    assert win.isVisible()
+    win._accept_close = True
+    win.close()
+    qapp.processEvents()
+
+
+def test_discarding_the_last_tab_leaves_a_blank_label(qapp, tmp_path):
+    from ql_editor.items import TextItem
+
+    win = _temp_window(qapp, tmp_path)
+    win._add_item(TextItem("Weg", font_pixel_size=20))
+    win._on_close_current_tab()
+    qapp.processEvents()
+    _sheet_button(win, "Verwerfen").click()
+    qapp.processEvents()
+    assert win._tab_bar.count() == 1
+    assert win._canvas.items_serialized() == []
+    assert win._document_path == ""
+    assert win._is_document_dirty() is False
+    win.close()
+    qapp.processEvents()
+
+
+def test_language_switch_keeps_every_tab(qapp, tmp_path):
+    from ql_editor import app as app_module
+    from ql_editor.items import TextItem
+
+    win = _temp_window(qapp, tmp_path)
+    win._add_item(TextItem("Eins", font_pixel_size=20))
+    win._on_file_new()
+    win._add_item(TextItem("Zwei", font_pixel_size=20))
+    win.switch_language("en")
+    qapp.processEvents()
+
+    new = app_module._current_window
+    assert new is not win
+    assert new._tab_bar.count() == 2
+    assert [item["text"] for item in new._canvas.items_serialized()] == ["Zwei"]
+    new._tab_bar.setCurrentIndex(0)
+    qapp.processEvents()
+    assert [item["text"] for item in new._canvas.items_serialized()] == ["Eins"]
+    assert new._tab_bar.tabText(1).startswith("Untitled")
+    new._accept_close = True
+    new.close()
+    qapp.processEvents()
+
+
+def test_switching_tabs_commits_an_open_inspector_edit_and_drops_empty_text(
+    qapp, tmp_path
+):
+    from PySide6.QtCore import QPointF
+    from PySide6.QtWidgets import QSpinBox
+
+    from ql_editor.items import TextItem
+
+    win = _temp_window(qapp, tmp_path)
+    item = TextItem("Hallo", font_pixel_size=28)
+    win._add_item(item, QPointF(20, 20))
+    win._on_file_new()
+    win._tab_bar.setCurrentIndex(0)
+    qapp.processEvents()
+
+    item.setSelected(True)
+    qapp.processEvents()
+    size = next(
+        spin
+        for spin in win._inspector.findChildren(QSpinBox)
+        if spin.minimum() == 4 and spin.maximum() == 2000
+    )
+    size.setValue(size.value() + 6)
+    assert win._inspector.edit_open is True
+    win._tab_bar.setCurrentIndex(1)
+    qapp.processEvents()
+    assert win._inspector.edit_open is False
+
+    win._tab_bar.setCurrentIndex(0)
+    qapp.processEvents()
+    win._new_text(QPointF(60, 60))
+    win._tab_bar.setCurrentIndex(1)
+    qapp.processEvents()
+
+    first = win._tab_at(0)
+    assert [
+        first.undo.command(i).text() for i in range(first.undo.count())
+    ] == ["Einfügen", "Eigenschaften"]
+    texts = [
+        entry
+        for entry in first.canvas.scene().items()
+        if isinstance(entry, TextItem)
+    ]
+    assert [entry.toPlainText() for entry in texts] == ["Hallo"]
+    win._accept_close = True
+    win.close()
+    qapp.processEvents()
+
+
+def test_closing_the_window_saves_each_modified_tab(qapp, tmp_path):
+    from ql_editor import document
+    from ql_editor.items import TextItem
+
+    win = _temp_window(qapp, tmp_path)
+    win.show()
+    qapp.processEvents()
+    first = tmp_path / "eins.qlx"
+    second = tmp_path / "zwei.qlx"
+    win._save_document_to(str(first))
+    win._add_item(TextItem("Eins", font_pixel_size=20))
+    win._on_file_new()
+    win._save_document_to(str(second))
+    win._add_item(TextItem("Zwei", font_pixel_size=20))
+    qapp.processEvents()
 
     win.close()
     qapp.processEvents()
+    assert win.isVisible()
+    _sheet_button(win, "Speichern").click()
+    qapp.processEvents()
+    assert win.isVisible()
+    _sheet_button(win, "Speichern").click()
+    qapp.processEvents()
+
+    assert not win.isVisible()
+    assert [i["text"] for i in document.load(first)["items"]] == ["Eins"]
+    assert [i["text"] for i in document.load(second)["items"]] == ["Zwei"]
+
 
 
 # --------------------------------------------------------------------------- #
@@ -4071,8 +4311,15 @@ def test_templates_menu_applies_a_template_as_a_new_label(qapp, tmp_path):
     assert win._document_path == ""
     assert win._document_dirty is True
     assert win.windowTitle().startswith("Unbenannt*")
+    # Die Vorlage liegt in einem eigenen Reiter, das gespeicherte Etikett bleibt.
+    assert win._tab_bar.count() == 2
+    win._tab_bar.setCurrentIndex(0)
+    qapp.processEvents()
+    assert win._document_path == str(saved)
 
     # Band/Design der Vorlage sind uebernommen, der Drucker bleibt.
+    win._tab_bar.setCurrentIndex(1)
+    qapp.processEvents()
     assert win._media_panel.label_id() == templates.TEMPLATE_LABEL
     assert win._media_panel.auto_length() is True
     win.close()
@@ -4111,7 +4358,7 @@ def test_the_template_menu_offers_builtins_and_saving(qapp, tmp_path, monkeypatc
 
 
 def test_file_group_sits_right_after_the_burger(qapp, tmp_path):
-    """Burger, dann Öffnen, Speichern, Vorlage laden - danach die Werkzeuge."""
+    """Burger, dann Neu, Öffnen, Speichern, Vorlage laden - danach die Werkzeuge."""
     from PySide6.QtWidgets import QToolBar, QToolButton, QWidgetAction
 
     win = _temp_window(qapp, tmp_path)
@@ -4128,9 +4375,10 @@ def test_file_group_sits_right_after_the_burger(qapp, tmp_path):
             names.append(action.objectName() or action.text())
 
     assert names[0] == "main_menu_button"
-    assert names[1] == win._act_file_open.text()
-    assert names[2] == win._act_file_save.text()
-    assert names[3] == "template_button"
+    assert names[1] == win._act_file_new.text()
+    assert names[2] == win._act_file_open.text()
+    assert names[3] == win._act_file_save.text()
+    assert names[4] == "template_button"
     template_button = win.findChild(QToolButton, "template_button")
     assert template_button.toolTip() == "Vorlage laden"
     # Der Knopf klappt die Vorlagenliste auf - eingebaute Vorlagen stehen drin.
@@ -4344,6 +4592,8 @@ def test_align_left_and_undo(qapp, tmp_path):
 
 
 def test_opening_a_document_clears_the_undo_stack(qapp, tmp_path):
+    """Ein neu geöffnetes Etikett startet ohne Undo; das bisherige behält seinen Stapel."""
+    from ql_editor import document
     from ql_editor.items import TextItem
 
     win = _temp_window(qapp, tmp_path)
@@ -4355,10 +4605,22 @@ def test_opening_a_document_clears_the_undo_stack(qapp, tmp_path):
     win._add_item(TextItem("B", font_pixel_size=40))
     qapp.processEvents()
     assert not win._undo_stack.isClean()
-    win._open_document_chosen(str(path))
+    kept = win._undo_stack.count()
+
+    other = tmp_path / "anderes.qlx"
+    document.save(other, document.build(win._media_panel.media_state(), []))
+    win._open_document_chosen(str(other))
     qapp.processEvents()
+    assert win._tab_bar.count() == 2
+    assert win._document_path == str(other)
     assert win._undo_stack.count() == 0
     assert win._undo_stack.isClean()
+
+    win._tab_bar.setCurrentIndex(0)
+    qapp.processEvents()
+    assert win._undo_stack.count() == kept
+    assert not win._undo_stack.isClean()
+    win._accept_close = True
     win.close()
     qapp.processEvents()
 

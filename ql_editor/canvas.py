@@ -401,6 +401,8 @@ class LabelCanvas(QGraphicsView):
         self._orientation = Orientation.ACROSS
         self._needs_fit = True
         self._auto_fit = True
+        self._fitting = False
+        self._canvas_size: tuple[int, int] = (0, 0)
 
         # Druckvorschau: 1-bit-Bild des Druckergebnisses ueber die Szene legen.
         self._print_preview = False
@@ -676,15 +678,21 @@ class LabelCanvas(QGraphicsView):
     # -- Zoom / Scrollen ----------------------------------------------------
     def fit_tape(self) -> None:
         """Zoom so, dass das Band samt Platz fuer die Groessen-Angabe passt."""
+        if self._fitting:
+            return
         if self.viewport().width() <= 2 or self.viewport().height() <= 2:
             self._needs_fit = True
             return
         margin = mm_to_dots(FIT_MARGIN_MM)
-        self.fitInView(
-            self.tape_rect().adjusted(-margin, -margin, margin, margin),
-            Qt.AspectRatioMode.KeepAspectRatio,
-        )
-        self._clamp_zoom()
+        self._fitting = True
+        try:
+            self.fitInView(
+                self.tape_rect().adjusted(-margin, -margin, margin, margin),
+                Qt.AspectRatioMode.KeepAspectRatio,
+            )
+            self._clamp_zoom()
+        finally:
+            self._fitting = False
         self._needs_fit = False
         self._auto_fit = True
         self._update_rulers()
@@ -1544,8 +1552,11 @@ class LabelCanvas(QGraphicsView):
         self._v_ruler.setGeometry(0, vp.top(), RULER_WIDTH, vp.height())
         self._corner.setGeometry(0, 0, RULER_WIDTH, RULER_WIDTH)
         self._update_rulers()
-        if self._auto_fit:
-            self.fit_tape()
+        outer = (self.width(), self.height())
+        if outer != self._canvas_size:
+            self._canvas_size = outer
+            if self._auto_fit:
+                self.fit_tape()
 
     def scrollContentsBy(self, dx: int, dy: int) -> None:  # noqa: N802
         super().scrollContentsBy(dx, dy)

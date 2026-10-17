@@ -248,6 +248,50 @@ def show_message(
     return sheet
 
 
+def ask_save(
+    parent: QWidget,
+    *,
+    title: str,
+    text: str,
+    on_choice: Callable[[str], None],
+) -> Sheet:
+    """Speichern, Verwerfen oder Abbrechen.
+
+    ``on_choice`` bekommt ``"save"``, ``"discard"`` oder ``"cancel"``.
+    Escape und das Schließen des Sheets zählen als Abbrechen.
+    """
+    box = QMessageBox()
+    box.setWindowFlags(Qt.WindowType.Widget)
+    box.setIcon(QMessageBox.Icon.Question)
+    box.setText(text)
+    save = box.addButton(tr("Speichern"), QMessageBox.ButtonRole.AcceptRole)
+    discard = box.addButton(tr("Verwerfen"), QMessageBox.ButtonRole.DestructiveRole)
+    cancel = box.addButton(tr("Abbrechen"), QMessageBox.ButtonRole.RejectRole)
+    box.setDefaultButton(save)
+    sheet = _open_sheet(parent, box, title=title, sizing="hint")
+    chosen: dict[str, str | None] = {"value": None}
+
+    def _finish(choice: str) -> None:
+        if chosen["value"] is not None:
+            return
+        chosen["value"] = choice
+        sheet.close_sheet()
+        on_choice(choice)
+
+    def _clicked(_result: int) -> None:
+        button = box.clickedButton()
+        if button is save:
+            _finish("save")
+        elif button is discard:
+            _finish("discard")
+        else:
+            _finish("cancel")
+
+    box.finished.connect(_clicked)
+    sheet.closed.connect(lambda: _finish("cancel"))
+    return sheet
+
+
 def choose_file(
     parent: QWidget,
     *,
@@ -391,4 +435,4 @@ def ask_choice(
     return sheet
 
 
-__all__ = ["Sheet", "show_message", "choose_file", "ask_text", "ask_choice"]
+__all__ = ["Sheet", "show_message", "choose_file", "ask_text", "ask_choice", "ask_save"]
