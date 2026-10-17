@@ -87,20 +87,23 @@ python -m ql_editor
   nachgemessen), die Oberfläche sagt das dann und man wählt das Band von Hand.
 * **Anschluss wählen statt Adresse tippen**: zwei Knöpfe „Netzwerk“ / „USB“
   in der Gruppe „Drucker“. Darunter erscheint nur, was dazu nötig ist -
-  im Netzwerk die Liste der **gefundenen** Drucker plus „Suchen“ und darunter
-  ein Feld für die **IP-Adresse** (Port 9100 ergänzt die App, ein anderer Port
-  geht als `192.168.178.62:9101`), am USB die Liste der gefundenen Geräte plus
-  „Suchen“. Beim Umschalten wird gleich gesucht; genau ein Gerät wird direkt
-  übernommen.
+  im Netzwerk die Liste der **gefundenen** Drucker plus „Suchen“; die
+  **IP-Adresse** braucht man selten (die Suche findet den Drucker) und steckt
+  deshalb in einem kleinen Popover hinter „IP-Adresse · eingeben…“ (Port 9100
+  ergänzt die App, ein anderer Port geht als `192.168.178.62:9101`). Am USB
+  steht die Liste der gefundenen Geräte plus „Suchen“. Beim Umschalten wird
+  gleich gesucht; genau ein Gerät wird direkt übernommen.
 * **Netzwerk-Drucker werden gefunden** (`ql_editor.discovery`, ohne
   Zusatzpaket): **mDNS** (`_pdl-datastream._tcp.local`, Modell aus den
   TXT-Records) und **SNMP-Broadcast** (`hrDeviceDescr` → „Brother QL-820NWB“)
   laufen gleichzeitig, Treffer werden über die IP zusammengeführt. In der Liste
   steht erst die IP, dann das Modell („192.168.178.62 (QL-820NWB)“); die
-  Auswahl setzt IP **und** Modell. Eine getippte Adresse, die nicht gefunden
-  wurde, bleibt als „Handeingabe“ in der Liste. Fremddrucker am selben Dienst
-  (z. B. ein EPSON) werden aussortiert; ein unbekanntes QL-Modell bleibt
-  sichtbar. Gemessenes, OIDs und Rohpakete: `docs/API_NOTES.md`,
+  Auswahl setzt IP **und** Modell - das **Modell zieht auch dann nach**, wenn
+  die gefundene IP schon gewählt war (Einstellungen), denn der Drucker weiß
+  selbst am besten, welcher er ist. Eine getippte Adresse, die nicht gefunden
+  wurde, bleibt als „Handeingabe“ in der Liste (mit IP davor). Fremddrucker am
+  selben Dienst (z. B. ein EPSON) werden aussortiert; ein unbekanntes QL-Modell
+  bleibt sichtbar. Gemessenes, OIDs und Rohpakete: `docs/API_NOTES.md`,
   `tests/data/`.
   Beide Anschlussarten liegen im selben Stapel an derselben Stelle, die
   Beschriftungsspalte ist fest breit und der Platz für „Band erkennen“ bleibt

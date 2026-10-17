@@ -142,13 +142,13 @@ def test_media_panel_switches_between_network_and_usb_rows(qapp, monkeypatch):
     monkeypatch.setattr(media_panel_module, "usb_printers", lambda: [])
     panel = MediaPanel()
     assert panel.connection() == CONNECTION_NETWORK
-    assert panel._host_edit.isVisibleTo(panel)
+    assert panel._host_button.isVisibleTo(panel)
     assert not panel._usb_combo.isVisibleTo(panel)
 
     panel._conn_buttons[CONNECTION_USB].setChecked(True)
 
     assert panel.connection() == CONNECTION_USB
-    assert not panel._host_edit.isVisibleTo(panel)
+    assert not panel._host_button.isVisibleTo(panel)
     assert panel._usb_combo.isVisibleTo(panel)
     # Ohne Geraet gibt es keine Adresse - und der Druckdialog sagt das dann.
     assert panel.address() == ""
@@ -191,7 +191,7 @@ def test_connection_tabs_keep_the_layout_stable(qapp, monkeypatch):
         return widget.mapTo(panel, QPoint(0, 0)).x()
 
     network = snapshot()
-    assert field_x(panel._host_edit) == field_x(panel._model_combo)
+    assert field_x(panel._host_button) == field_x(panel._model_combo)
 
     panel._conn_buttons[CONNECTION_USB].setChecked(True)
     usb = snapshot()
@@ -203,6 +203,21 @@ def test_connection_tabs_keep_the_layout_stable(qapp, monkeypatch):
 
     assert usb == network
     assert back == network
+
+
+def test_network_address_lives_in_a_popover(qapp):
+    """Das IP-Feld steckt im Popover - das Panel bleibt fuer Liste und Suche."""
+    from ql_editor.media_panel import MediaPanel
+
+    panel = MediaPanel()
+
+    assert panel._host_button.menu() is panel._host_menu
+    assert panel._host_menu.isAncestorOf(panel._host_edit)
+    assert not panel._host_button.isAncestorOf(panel._host_edit)
+
+    # Der Wert ist trotzdem sichtbar: als Handeingabe in der Liste.
+    panel._host_edit.setText("192.168.178.77")
+    assert panel._net_combo.currentText() == "192.168.178.77 – Handeingabe"
 
 
 def test_media_panel_fills_the_network_list_from_a_search(qapp):
@@ -265,6 +280,29 @@ def test_picking_a_found_printer_sets_address_and_model(qapp):
     assert panel.model_id() == "QL-700"
 
 
+def test_network_search_pulls_the_model_for_the_current_printer(qapp):
+    """Auch ohne neue Auswahl zieht das Modell nach, wenn es gemeldet wird.
+
+    Stand in den Einstellungen ein anderes Modell als das, was am gefundenen
+    Geraet wirklich haengt, wuerde sonst mit falscher Aufloesung gedruckt.
+    """
+    from ql_editor import discovery
+    from ql_editor.media_panel import MediaPanel
+
+    panel = MediaPanel()
+    panel.set_address("tcp://192.168.178.62:9100")
+    panel.set_model("QL-800")
+    assert panel.address() == "tcp://192.168.178.62:9100"
+
+    panel.refresh_network_devices(
+        [discovery.NetworkPrinter(host="192.168.178.62", model_id="QL-820NWB")]
+    )
+
+    assert panel.model_id() == "QL-820NWB"
+    assert panel.address() == "tcp://192.168.178.62:9100"
+    assert panel._host_edit.text() == "192.168.178.62"
+
+
 def test_typing_an_ip_keeps_it_as_manual_entry(qapp, monkeypatch):
     """Eine getippte Adresse bleibt waehlbar, auch wenn sie nicht gefunden wurde."""
     from ql_editor import media_panel as media_panel_module
@@ -276,7 +314,7 @@ def test_typing_an_ip_keeps_it_as_manual_entry(qapp, monkeypatch):
     panel._host_edit.setText("192.168.178.99")
 
     assert panel.address() == "tcp://192.168.178.99:9100"
-    assert panel._net_combo.currentText() == "Handeingabe"
+    assert panel._net_combo.currentText() == "192.168.178.99 – Handeingabe"
     assert panel._net_combo.currentData() == "tcp://192.168.178.99:9100"
     # Kein Wildwuchs: erneutes Tippen erweitert die Liste nicht.
     panel._host_edit.setText("192.168.178.98")
@@ -2807,6 +2845,38 @@ def _temp_window(qapp, tmp_path):
     win.show()
     qapp.processEvents()
     return win
+
+
+def test_startup_keeps_the_stored_printer_address(qapp, tmp_path, monkeypatch):
+    """Beim Start darf die gespeicherte Adresse nicht ueberschrieben werden.
+
+    Das Setzen des Modells loest ``changed`` aus, und der Slot schreibt den
+    gerade gueltigen Zustand zurueck. Wurde die Adresse erst danach gelesen,
+    stand dort schon der Standarddrucker: die USB-Auswahl war beim naechsten
+    Start weg (und das Modell, das daran haengt, gleich mit).
+    """
+    from PySide6.QtCore import QSettings
+
+    from ql_editor import media_panel as media_panel_module
+    from ql_editor.app import MainWindow
+    from ql_editor.media_panel import CONNECTION_USB
+    from ql_editor.settings import AppSettings
+
+    monkeypatch.setattr(media_panel_module, "usb_printers", lambda: [])
+    monkeypatch.setattr(media_panel_module, "model_for_address", lambda address: None)
+    settings = AppSettings(
+        QSettings(str(tmp_path / "settings.ini"), QSettings.Format.IniFormat)
+    )
+    settings.model = "QL-700"
+    settings.address = "/dev/usb/lp1"
+
+    win = MainWindow(settings=settings)
+    qapp.processEvents()
+
+    assert win._media_panel.address() == "/dev/usb/lp1"
+    assert win._media_panel.connection() == CONNECTION_USB
+    assert win._media_panel.model_id() == "QL-700"
+    assert settings.address == "/dev/usb/lp1"
 
 
 def test_resolution_and_hq_are_forwarded_to_the_printer(qapp, tmp_path):

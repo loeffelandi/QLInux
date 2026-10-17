@@ -761,30 +761,47 @@ class MainWindow(QMainWindow):
 
     # ------------------------------------------------------------- Settings --
     def _apply_saved_settings(self) -> None:
+        """Einstellungen uebernehmen - erst alle lesen, dann setzen.
+
+        Die Werte muessen *vor* dem Setzen gelesen werden: das Setzen loest
+        ``changed`` aus, und dieser Slot schreibt den gerade gueltigen Zustand
+        zurueck in die Einstellungen. Wird zwischendurch gelesen, steht dort
+        schon der Standarddrucker - die gespeicherte USB-Adresse war damit beim
+        naechsten Start verloren.
+        """
         geometry = self._settings.restore_geometry()
+        address = self._settings.address
+        model = self._settings.model
+        last_label = self._settings.last_label
+        panel_left = self._settings.panel_left_visible
+        panel_right = self._settings.panel_right_visible
+        threshold = self._settings.threshold
+        dither = self._settings.dither
+        hq = self._settings.hq
+        resolution = self._settings.print_resolution
+        cut = self._settings.cut
+
         if geometry is not None:
             self.restoreGeometry(geometry)
         else:
             self.resize(1320, 860)
-        model = self._settings.model
         index = self._media_panel._model_combo.findData(model)
         if index >= 0:
             self._media_panel._model_combo.setCurrentIndex(index)
-        self._media_panel.set_address(self._settings.address)
-        last_label = self._settings.last_label
+        self._media_panel.set_address(address)
         if last_label:
             self._media_panel.select_label(last_label)
         # Zuletzt gewaehlte Panel-Sichtbarkeit wiederherstellen (kleine Screens).
-        self._act_panel_left.setChecked(self._settings.panel_left_visible)
-        self._act_panel_right.setChecked(self._settings.panel_right_visible)
+        self._act_panel_left.setChecked(panel_left)
+        self._act_panel_right.setChecked(panel_right)
         # Druckoptionen wiederherstellen (Tintenmenge, Dithering, Aufloesung,
         # HQ, Schneiden). Die Aufloesung erst *nach* dem Modell - ihre Liste
         # haengt am Drucker.
-        self._threshold_spin.setValue(self._settings.threshold)
-        self._dither_check.setChecked(self._settings.dither)
-        self._hq_check.setChecked(self._settings.hq)
-        self._sync_resolution_options(prefer=self._settings.print_resolution)
-        self._cut_check.setChecked(self._settings.cut)
+        self._threshold_spin.setValue(threshold)
+        self._dither_check.setChecked(dither)
+        self._hq_check.setChecked(hq)
+        self._sync_resolution_options(prefer=resolution)
+        self._cut_check.setChecked(cut)
         self._schedule_refresh()
 
     # ---------------------------------------------------------- Media-Sync --

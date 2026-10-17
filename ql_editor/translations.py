@@ -117,6 +117,10 @@ EN: dict[str, str] = {
     "Suchen": "Search",
     "Gerät": "Device",
     "Handeingabe": "Manual entry",
+    "eingeben…": "enter…",
+    "IP-Adresse von Hand eintragen, wenn die Suche den Drucker nicht findet.": (
+        "Enter the IP address by hand if the search does not find the printer."
+    ),
     "Der Port {port} wird automatisch ergänzt.": (
         "Port {port} is added automatically."
     ),
