@@ -384,6 +384,15 @@ def _draw_usb(p: QPainter, color: QColor) -> None:
     p.drawEllipse(QPointF(12.0, 19.6), 1.7, 1.7)
 
 
+def _draw_language(p: QPainter, color: QColor) -> None:
+    """Zwei Sprechblasen - das uebliche Symbol fuer Sprache/Sprachwahl."""
+    _stroke_only(p, color, 1.6)
+    p.drawRoundedRect(QRectF(2.6, 3.2, 13.0, 9.8), _RADIUS, _RADIUS)
+    _poly(p, ((5.6, 12.8), (5.6, 16.6), (9.4, 12.8)))
+    p.drawRoundedRect(QRectF(9.4, 10.4, 12.0, 9.4), _RADIUS, _RADIUS)
+    _poly(p, ((18.4, 19.6), (18.4, 23.0), (14.6, 19.6)))
+
+
 def _draw_preview(p: QPainter, color: QColor) -> None:
     _stroke_only(p, color)
     path = QPainterPath()
@@ -458,6 +467,7 @@ _DRAW = {
     "usb": _draw_usb,
     "preview": _draw_preview,
     "rotate": _draw_rotate,
+    "language": _draw_language,
 }
 
 __all__ = ["icon", "cursor", "text_color", "available", "GRID"]

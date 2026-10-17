@@ -35,6 +35,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from .i18n import tr
 from .icons import icon
 
 #: Breite des eingeklappten Streifens (Pfeil + senkrechte Beschriftung).
@@ -300,9 +301,17 @@ class OverlayPanel(QWidget):
         self._button.setIcon(icon(name))
         shortcut = "Strg+B" if self._side == Qt.Edge.LeftEdge else "Strg+Umschalt+B"
         if self._docked:
-            self._button.setToolTip(f"{self._title} einklappen ({shortcut})")
+            self._button.setToolTip(
+                tr("{panel} einklappen ({shortcut})").format(
+                    panel=self._title, shortcut=shortcut
+                )
+            )
         else:
-            self._button.setToolTip(f"{self._title} ausklappen ({shortcut})")
+            self._button.setToolTip(
+                tr("{panel} ausklappen ({shortcut})").format(
+                    panel=self._title, shortcut=shortcut
+                )
+            )
 
     def paintEvent(self, event) -> None:  # noqa: N802
         super().paintEvent(event)

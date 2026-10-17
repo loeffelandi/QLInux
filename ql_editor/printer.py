@@ -26,7 +26,8 @@ from brother_ql.backends.helpers import send
 from brother_ql.conversion import convert
 from brother_ql.raster import BrotherQLRaster
 
-from .media import DEFAULT_MODEL, Kind, LabelSpec, get_label, get_model
+from .i18n import tr
+from .media import DEFAULT_MODEL, Kind, LabelSpec, get_model
 
 logger = logging.getLogger(__name__)
 
@@ -78,7 +79,6 @@ class PrintResolution:
 
     key: str
     label: str
-    detail: str
     scale: int = 1
 
     @property
@@ -86,20 +86,26 @@ class PrintResolution:
         """True, wenn die Bandlaufrichtung feiner gesetzt wird (``ESC i K``)."""
         return self.scale > 1
 
+    @property
+    def detail(self) -> str:
+        """Beschreibung fuer die Oberflaeche - in der aktuellen Sprache.
+
+        Bewusst erst hier uebersetzt: die Konstante entsteht beim Import, die
+        Sprache stellt der Anwender aber erst danach ein.
+        """
+        if self.key == "high":
+            return tr(
+                "High-Resolution-Modus: quer 300 dpi, in Bandlaufrichtung "
+                "600 dpi - feinere Zeilen, druckt langsamer"
+            )
+        return tr("Standard des Druckkopfs - quer und in Bandlaufrichtung 300 dpi")
+
 
 #: Die Aufloesungen des 300-dpi-Druckkopfs. "300 x 600 dpi" gibt es nur bei
 #: passendem Modell (siehe :data:`DPI_600_MODELS`).
-RESOLUTION_STANDARD = PrintResolution(
-    "standard",
-    "300 × 300 dpi",
-    "Standard des Druckkopfs - quer und in Bandlaufrichtung 300 dpi",
-)
+RESOLUTION_STANDARD = PrintResolution("standard", "300 × 300 dpi")
 RESOLUTION_HIGH = PrintResolution(
-    "high",
-    "300 × 600 dpi",
-    "High-Resolution-Modus: quer 300 dpi, in Bandlaufrichtung 600 dpi - "
-    "feinere Zeilen, druckt langsamer",
-    scale=DPI_600_SCALE,
+    "high", "300 × 600 dpi", scale=DPI_600_SCALE
 )
 
 
@@ -332,7 +338,7 @@ def usb_device_label(address: str) -> str:
     backend = backend_for_address(address)
     if backend not in READBACK_BACKENDS:
         return address
-    kind = "Kernel-Anschluss" if backend == "linux_kernel" else "libusb"
+    kind = tr("Kernel-Anschluss") if backend == "linux_kernel" else "libusb"
     model = model_for_address(address)
     suffix = f", {model}" if model else ""
     return f"{address}  ({kind}{suffix})"
@@ -414,7 +420,11 @@ class PrinterConfig:
         try:
             get_model(self.model)
         except KeyError as exc:
-            raise PrinterError(f"Unbekanntes Druckermodell: {self.model!r}") from exc
+            raise PrinterError(
+                tr("Unbekanntes Druckermodell: {model!r}").format(
+                    model=self.model
+                )
+            ) from exc
         if not self.backend:
             object.__setattr__(self, "backend", backend_for_address(self.address))
 
@@ -454,14 +464,21 @@ def validate_for_print(
     expected = label.width_dots * scale
     if image.width != expected:
         raise PrinterError(
-            f"Bildbreite {image.width} px != {expected} px "
-            f"(Band {label.identifier!r}, Faktor {scale}). Bitte ueber den "
-            f"Renderer erzeugen."
+            tr(
+                "Bildbreite {width} px != {expected} px (Band {label!r}, "
+                "Faktor {scale}). Bitte ueber den Renderer erzeugen."
+            ).format(
+                width=image.width,
+                expected=expected,
+                label=label.identifier,
+                scale=scale,
+            )
         )
     if red and not label.color.supports_red:
         raise PrinterError(
-            f"Rotdruck ist mit Band {label.identifier!r} "
-            f"({label.display_name}) nicht moeglich."
+            tr("Rotdruck ist mit Band {label!r} ({name}) nicht moeglich.").format(
+                label=label.identifier, name=label.display_name
+            )
         )
 
 
@@ -494,7 +511,9 @@ def build_raster(
     model = get_model(config.model)
     if red and not model.two_color:
         raise PrinterError(
-            f"Modell {config.model!r} unterstuetzt keinen Rotdruck."
+            tr("Modell {model!r} unterstuetzt keinen Rotdruck.").format(
+                model=config.model
+            )
         )
 
     qlr = BrotherQLRaster(model=config.model)
@@ -516,7 +535,9 @@ def build_raster(
     except PrinterError:
         raise
     except Exception as exc:  # brother_ql-Fehler in unser Modell uebersetzen
-        raise PrinterError(f"Konvertierung fehlgeschlagen: {exc}") from exc
+        raise PrinterError(
+            tr("Konvertierung fehlgeschlagen: {error}").format(error=exc)
+        ) from exc
 
     return bytes(qlr.data)
 
@@ -537,10 +558,14 @@ def send_instructions(
         )
     except (ConnectionError, OSError, TimeoutError) as exc:
         raise PrinterConnectionError(
-            f"Drucker {config.address!r} nicht erreichbar: {exc}"
+            tr("Drucker {address!r} nicht erreichbar: {error}").format(
+                address=config.address, error=exc
+            )
         ) from exc
     except Exception as exc:  # pragma: no cover - defensive
-        raise PrinterError(f"Senden fehlgeschlagen: {exc}") from exc
+        raise PrinterError(
+            tr("Senden fehlgeschlagen: {error}").format(error=exc)
+        ) from exc
     return status
 
 

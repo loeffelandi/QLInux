@@ -13,8 +13,9 @@ Alle Masse kommen dynamisch aus :mod:`ql_editor.media` - keine Magic Numbers.
 from __future__ import annotations
 
 import logging
+from typing import Any, Mapping
 
-from PySide6.QtCore import QSize, Qt, Signal
+from PySide6.QtCore import QLocale, QSize, Qt, Signal
 from PySide6.QtGui import QAction, QActionGroup
 from PySide6.QtWidgets import (
     QButtonGroup,
@@ -33,6 +34,7 @@ from PySide6.QtWidgets import (
 )
 
 from . import media
+from .i18n import tr
 from .icons import icon
 from .media import (
     DEFAULT_MODEL,
@@ -60,8 +62,9 @@ from .printer import (
 CONNECTION_NETWORK = "network"
 CONNECTION_USB = "usb"
 
-#: Eintrag in der USB-Liste, solange kein Geraet gewaehlt ist (Datenwert leer).
-USB_PLACEHOLDER = "Bitte Gerät wählen"
+def usb_placeholder() -> str:
+    """Eintrag in der USB-Liste, solange kein Geraet gewaehlt ist (Datenwert leer)."""
+    return tr("Bitte Gerät wählen")
 
 logger = logging.getLogger(__name__)
 
@@ -102,7 +105,7 @@ class MediaPanel(QWidget):
         # Kein Adressfeld zum Auswendiglernen: erst den Anschluss waehlen
         # ("Netzwerk" braucht nur die IP, "USB" findet das Geraet selbst),
         # darunter erscheint nur das, was dazu noetig ist.
-        printer_box = QGroupBox("Drucker")
+        printer_box = QGroupBox(tr("Drucker"))
         printer_form = QFormLayout(printer_box)
         printer_form.setRowWrapPolicy(QFormLayout.RowWrapPolicy.WrapLongRows)
         printer_form.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.AllNonFixedFieldsGrow)
@@ -116,19 +119,23 @@ class MediaPanel(QWidget):
         for mode, label, icon_name, tip in (
             (
                 CONNECTION_NETWORK,
-                "Netzwerk",
+                tr("Netzwerk"),
                 "network",
-                "Drucker im Netzwerk (WLAN/LAN).\n"
-                "Es genügt die IP-Adresse - der Druckport "
-                f"{NETWORK_PORT} wird automatisch ergänzt.",
+                tr(
+                    "Drucker im Netzwerk (WLAN/LAN).\n"
+                    "Es genügt die IP-Adresse - der Druckport "
+                    "{port} wird automatisch ergänzt."
+                ).format(port=NETWORK_PORT),
             ),
             (
                 CONNECTION_USB,
-                "USB",
+                tr("USB"),
                 "usb",
-                "Drucker am USB-Kabel.\n"
-                "„Suchen“ liest die angeschlossenen Geräte ein; nur über USB "
-                "geht auch die Band-Erkennung.",
+                tr(
+                    "Drucker am USB-Kabel.\n"
+                    "„Suchen“ liest die angeschlossenen Geräte ein; nur über USB "
+                    "geht auch die Band-Erkennung."
+                ),
             ),
         ):
             button = QToolButton()
@@ -144,19 +151,21 @@ class MediaPanel(QWidget):
         self._host_edit = QLineEdit()
         self._host_edit.setPlaceholderText("192.168.178.62")
         self._host_edit.setToolTip(
-            "IP-Adresse oder Name des Druckers, z. B. 192.168.178.62.\n"
-            f"Der Druckport {NETWORK_PORT} wird automatisch ergänzt; ein anderer "
-            "Port geht als 192.168.178.62:9101."
+            tr(
+                "IP-Adresse oder Name des Druckers, z. B. 192.168.178.62.\n"
+                "Der Druckport {port} wird automatisch ergänzt; ein anderer "
+                "Port geht als 192.168.178.62:9101."
+            ).format(port=NETWORK_PORT)
         )
 
         self._usb_combo = QComboBox()
         self._usb_combo.setToolTip(
-            "Angeschlossene USB-Drucker. Die Auswahl setzt Adresse und – wenn "
-            "sie sich aus der USB-Kennung ableiten lässt – auch das Modell."
+            tr("Angeschlossene USB-Drucker. Die Auswahl setzt Adresse und – wenn "
+            "sie sich aus der USB-Kennung ableiten lässt – auch das Modell.")
         )
-        self._usb_button = QPushButton(icon("detect"), "Suchen")
+        self._usb_button = QPushButton(icon("detect"), tr("Suchen"))
         self._usb_button.setToolTip(
-            "Angeschlossene USB-Drucker suchen und in die Liste eintragen."
+            tr("Angeschlossene USB-Drucker suchen und in die Liste eintragen.")
         )
 
         # Fehlende Rechte sind der haeufigste Grund, warum ein gefundener
@@ -165,27 +174,27 @@ class MediaPanel(QWidget):
         self._access_label = QLabel()
         self._access_label.setWordWrap(True)
         self._access_label.setStyleSheet("color:#b3261e;")
-        self._access_button = QPushButton(icon("detect"), "Zugriff einrichten")
+        self._access_button = QPushButton(icon("detect"), tr("Zugriff einrichten"))
         self._access_button.setToolTip(
-            "Richtet eine udev-Regel ein, die den USB-Drucker für dich "
-            "freigibt (das System fragt nach dem Passwort)."
+            tr("Richtet eine udev-Regel ein, die den USB-Drucker für dich "
+            "freigibt (das System fragt nach dem Passwort).")
         )
 
         # Band-Erkennung braucht einen Rueckkanal - den gibt es nur ueber USB.
         # Deshalb steht der Knopf nur dort (siehe _sync_connection_rows).
-        self._detect_button = QPushButton(icon("detect"), "Band erkennen")
+        self._detect_button = QPushButton(icon("detect"), tr("Band erkennen"))
         self._detect_button.setToolTip(
-            "Band am Drucker erfragen (Statusabfrage)."
+            tr("Band am Drucker erfragen (Statusabfrage).")
         )
 
-        printer_form.addRow("Modell", self._model_combo)
-        printer_form.addRow("Anschluss", self._build_connection_row())
+        printer_form.addRow(tr("Modell"), self._model_combo)
+        printer_form.addRow(tr("Anschluss"), self._build_connection_row())
         self._row_host = printer_form.rowCount()
-        printer_form.addRow("IP-Adresse", self._host_edit)
+        printer_form.addRow(tr("IP-Adresse"), self._host_edit)
         self._row_usb = printer_form.rowCount()
-        printer_form.addRow("USB", self._build_usb_row())
+        printer_form.addRow(tr("USB"), self._build_usb_row())
         self._row_access = printer_form.rowCount()
-        printer_form.addRow("Zugriff", self._build_access_row())
+        printer_form.addRow(tr("Zugriff"), self._build_access_row())
         self._row_detect = printer_form.rowCount()
         printer_form.addRow("", self._detect_button)
         outer.addWidget(printer_box)
@@ -197,29 +206,29 @@ class MediaPanel(QWidget):
         self._sync_connection_rows()
 
         # -- Band -----------------------------------------------------------
-        media_box = QGroupBox("Band")
+        media_box = QGroupBox(tr("Band"))
         media_form = QFormLayout(media_box)
         media_form.setRowWrapPolicy(QFormLayout.RowWrapPolicy.WrapLongRows)
         media_form.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.AllNonFixedFieldsGrow)
         self._band_combo = QComboBox()
         self._color_combo = QComboBox()
-        self._color_combo.addItem("schwarz", "black")
-        self._color_combo.addItem("schwarz/rot", "red")
+        self._color_combo.addItem(tr("schwarz"), "black")
+        self._color_combo.addItem(tr("schwarz/rot"), "red")
         self._border_label = QLabel("-")
         self._border_label.setWordWrap(True)
         self._orientation_label = QLabel("-")
-        media_form.addRow("Band", self._band_combo)
-        media_form.addRow("Farbe", self._color_combo)
-        media_form.addRow("Ausrichtung", self._build_orientation_row())
-        media_form.addRow("Nicht bedruckbar", self._border_label)
+        media_form.addRow(tr("Band"), self._band_combo)
+        media_form.addRow(tr("Farbe"), self._color_combo)
+        media_form.addRow(tr("Ausrichtung"), self._build_orientation_row())
+        media_form.addRow(tr("Nicht bedruckbar"), self._border_label)
         outer.addWidget(media_box)
 
         # -- Laenge ---------------------------------------------------------
-        length_box = QGroupBox("Laenge")
+        length_box = QGroupBox(tr("Laenge"))
         length_form = QFormLayout(length_box)
         length_form.setRowWrapPolicy(QFormLayout.RowWrapPolicy.WrapLongRows)
         length_form.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.AllNonFixedFieldsGrow)
-        self._auto_check = QCheckBox("Auto Length (Inhalt)")
+        self._auto_check = QCheckBox(tr("Auto Length (Inhalt)"))
         self._auto_check.setChecked(True)
         self._length_spin = QDoubleSpinBox()
         self._length_spin.setSuffix(" mm")
@@ -227,23 +236,28 @@ class MediaPanel(QWidget):
         self._length_spin.setRange(1.0, 1000.0)
         self._length_spin.setValue(40.0)
         self._mode_combo = QComboBox()
-        self._mode_combo.addItem("Gesamtlänge (inkl. Rand)", LengthMode.FINISHED.value)
-        self._mode_combo.addItem("nur Inhalt", LengthMode.CONTENT.value)
+        self._mode_combo.addItem(tr("Gesamtlänge (inkl. Rand)"), LengthMode.FINISHED.value)
+        self._mode_combo.addItem(tr("nur Inhalt"), LengthMode.CONTENT.value)
         self._size_label = QLabel("-")
         self._size_label.setStyleSheet("color:#444;")
         length_form.addRow(self._auto_check)
-        length_form.addRow("Länge", self._length_spin)
-        length_form.addRow("Bedeutung", self._mode_combo)
-        length_form.addRow("Ergebnis", self._size_label)
+        length_form.addRow(tr("Länge"), self._length_spin)
+        length_form.addRow(tr("Bedeutung"), self._mode_combo)
+        length_form.addRow(tr("Ergebnis"), self._size_label)
         outer.addWidget(length_box)
 
         # -- Margins --------------------------------------------------------
-        margin_box = QGroupBox("Margins (mm)")
+        margin_box = QGroupBox(tr("Margins (mm)"))
         margin_form = QFormLayout(margin_box)
         margin_form.setRowWrapPolicy(QFormLayout.RowWrapPolicy.WrapLongRows)
         margin_form.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.AllNonFixedFieldsGrow)
         self._margin_spins: dict[str, QDoubleSpinBox] = {}
-        for key, label in (("left", "links"), ("right", "rechts"), ("top", "oben"), ("bottom", "unten")):
+        for key, label in (
+            ("left", tr("links")),
+            ("right", tr("rechts")),
+            ("top", tr("oben")),
+            ("bottom", tr("unten")),
+        ):
             spin = QDoubleSpinBox()
             spin.setSuffix(" mm")
             spin.setDecimals(1)
@@ -313,20 +327,20 @@ class MediaPanel(QWidget):
         werden von Toolbar und Menue mitbenutzt - so bleiben Icon, Tooltip und
         Haekchen ueberall automatisch synchron.
         """
-        self._act_orient_across = QAction(icon("orient_across"), "Quer zum Band", self)
+        self._act_orient_across = QAction(icon("orient_across"), tr("Quer zum Band"), self)
         self._act_orient_across.setCheckable(True)
         self._act_orient_across.setChecked(True)
         self._act_orient_across.setToolTip(
-            "Ausrichtung: quer zum Band\n"
+            tr("Ausrichtung: quer zum Band\n"
             "Der Inhalt läuft über die Bandbreite; die Länge ergibt sich aus der "
-            "Inhaltshöhe (spart Band bei langen, flachen Inhalten)."
+            "Inhaltshöhe (spart Band bei langen, flachen Inhalten).")
         )
-        self._act_orient_along = QAction(icon("orient_along"), "Längs des Bandes", self)
+        self._act_orient_along = QAction(icon("orient_along"), tr("Längs des Bandes"), self)
         self._act_orient_along.setCheckable(True)
         self._act_orient_along.setToolTip(
-            "Ausrichtung: längs des Bandes\n"
+            tr("Ausrichtung: längs des Bandes\n"
             "Der Inhalt läuft in Bandrichtung; die Länge ergibt sich aus der "
-            "Inhaltsbreite (spart Band bei hohen, mehrzeiligen Inhalten)."
+            "Inhaltsbreite (spart Band bei hohen, mehrzeiligen Inhalten).")
         )
         self._orientation_group = QActionGroup(self)
         self._orientation_group.setExclusive(True)
@@ -474,6 +488,66 @@ class MediaPanel(QWidget):
 
         return PrinterConfig(model=self.model_id(), address=self.address())
 
+    # ------------------------------------------------- Zustand (Neuaufbau) --
+    def state(self) -> dict[str, Any]:
+        """Alles, was ein Neuaufbau der Oberflaeche braucht (Sprachwechsel).
+
+        Adresse und Modell kommen mit, weil die Anzeigeform (IP bzw.
+        USB-Listeneintrag) nicht aus den Einstellungen rekonstruierbar ist.
+        """
+        return {
+            "connection": self.connection(),
+            "host": self._host_edit.text(),
+            "address": self.address(),
+            "model": self.model_id(),
+            "label": self.label_id(),
+            "color": self._color_combo.currentData(),
+            "auto_length": self._auto_check.isChecked(),
+            "length_mm": self._length_spin.value(),
+            "length_mode": self._mode_combo.currentData(),
+            "margins": {key: spin.value() for key, spin in self._margin_spins.items()},
+            "orientation": self._orientation.value,
+        }
+
+    def apply_state(self, state: Mapping[str, Any]) -> None:
+        """Zustand aus :meth:`state` uebernehmen (nach einem Neuaufbau)."""
+        address = str(state.get("address") or "")
+        self._adjusting = True
+        try:
+            if address:
+                self.set_address(address)
+            else:
+                # Keine Adresse: Anschluss und Feldinhalt genau so lassen.
+                connection = str(state.get("connection") or CONNECTION_NETWORK)
+                self._conn_buttons[connection].setChecked(True)
+                self._host_edit.setText(str(state.get("host") or ""))
+        finally:
+            self._adjusting = False
+        model = str(state.get("model") or "")
+        index = self._model_combo.findData(model)
+        if index >= 0:
+            self._model_combo.setCurrentIndex(index)
+        label = str(state.get("label") or "")
+        if label:
+            self.select_label(label)
+        color = self._color_combo.findData(state.get("color"))
+        if color >= 0:
+            self._color_combo.setCurrentIndex(color)
+        self._auto_check.setChecked(bool(state.get("auto_length", True)))
+        self._length_spin.setValue(
+            float(state.get("length_mm", self._length_spin.value()))
+        )
+        mode = self._mode_combo.findData(state.get("length_mode"))
+        if mode >= 0:
+            self._mode_combo.setCurrentIndex(mode)
+        margins = state.get("margins") or {}
+        for key, spin in self._margin_spins.items():
+            if key in margins:
+                spin.setValue(float(margins[key]))
+        self.set_orientation(str(state.get("orientation") or Orientation.ACROSS.value))
+        self._sync_connection_rows()
+        self.changed.emit()
+
     # ----------------------------------------------------------- Setter ----
     def select_label(self, label_id: str) -> bool:
         index = self._band_combo.findData(label_id)
@@ -535,13 +609,14 @@ class MediaPanel(QWidget):
         try:
             self._usb_combo.clear()
             if not devices and not missing:
-                self._usb_combo.addItem("Kein USB-Drucker gefunden", "")
+                self._usb_combo.addItem(tr("Kein USB-Drucker gefunden"), "")
             else:
                 for address in devices:
                     self._usb_combo.addItem(usb_device_label(address), address)
                 if missing:
                     self._usb_combo.addItem(
-                        f"{usb_device_label(missing)} – nicht angeschlossen", missing
+                        f"{usb_device_label(missing)} {tr('– nicht angeschlossen')}",
+                        missing,
                     )
                 if current:
                     self._usb_combo.setCurrentIndex(self._usb_combo.findData(current))
@@ -550,7 +625,7 @@ class MediaPanel(QWidget):
                     self._usb_combo.setCurrentIndex(0)
                     apply_single = True
                 else:
-                    self._usb_combo.insertItem(0, USB_PLACEHOLDER, "")
+                    self._usb_combo.insertItem(0, usb_placeholder(), "")
                     self._usb_combo.setCurrentIndex(0)
         finally:
             self._usb_combo.blockSignals(False)
@@ -701,7 +776,9 @@ class MediaPanel(QWidget):
         needed = self.access_allowed is False
         self._printer_form.setRowVisible(self._row_access, needed)
         if needed:
-            self._access_label.setText(f"Kein Zugriff auf {address}.")
+            self._access_label.setText(
+                tr("Kein Zugriff auf {address}.").format(address=address)
+            )
 
     def _on_model_changed(self) -> None:
         self._populate_bands()
@@ -730,9 +807,11 @@ class MediaPanel(QWidget):
             self._color_combo.setCurrentIndex(0)
 
         self._border_label.setText(
-            f"{label.side_border_mm:.2f} mm je Seite (schraffiert)"
+            tr("{mm} mm je Seite (schraffiert)").format(
+                mm=QLocale().toString(label.side_border_mm, "f", 2)
+            )
         )
-        self._orientation_label.setText(self._orientation.label_de)
+        self._orientation_label.setText(tr(self._orientation.label_de))
         self._update_result()
 
     def _update_result(self) -> None:
@@ -746,8 +825,13 @@ class MediaPanel(QWidget):
             else media.dots_to_mm(length)
         )
         self._size_label.setText(
-            f"{media.dots_to_mm(width):.1f} x {media.dots_to_mm(height):.1f} mm Inhalt\n"
-            f"→ Etikett ~{total:.1f} mm"
+            tr(
+                "{width} x {height} mm Inhalt\n→ Etikett ~{total} mm"
+            ).format(
+                width=QLocale().toString(media.dots_to_mm(width), "f", 1),
+                height=QLocale().toString(media.dots_to_mm(height), "f", 1),
+                total=QLocale().toString(total, "f", 1),
+            )
         )
 
 

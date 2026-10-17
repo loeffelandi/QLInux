@@ -26,6 +26,8 @@ from functools import lru_cache
 from brother_ql.labels import FormFactor as _FormFactor, Color as _Color, LabelsManager
 from brother_ql.models import Model as _Model, ModelsManager
 
+from .i18n import tr
+
 #: Druckaufloesung der QL-Serie in dpi.
 DPI: int = 300
 
@@ -100,11 +102,12 @@ class Kind(str, Enum):
 
     @property
     def label_de(self) -> str:
-        return {
-            Kind.ENDLESS: "Endlos",
-            Kind.DIE_CUT: "Die-cut",
-            Kind.ROUND_DIE_CUT: "Rund (Die-cut)",
-        }[self]
+        """Kurzbezeichnung fuer die Oberflaeche."""
+        if self is Kind.ENDLESS:
+            return tr("Endlos")
+        if self is Kind.DIE_CUT:
+            return tr("Die-cut")
+        return tr("Rund (Die-cut)")
 
 
 _KIND_FROM_FORM_FACTOR = {
@@ -221,11 +224,17 @@ class LabelSpec:
     @property
     def display_name(self) -> str:
         """Dropdown-Text, z. B. ``"50 mm endlos"`` bzw. ``"62 mm endlos (schwarz/rot)"``."""
-        base = f"{self.tape_size[0]} mm {self.form_factor.label_de.lower()}"
+        kind = self.form_factor.label_de.lower()
         if self.kind.is_fixed_size:
-            base = f"{self.tape_size[0]} x {self.tape_size[1]} mm {self.form_factor.label_de.lower()}"
+            base = tr("{width} x {height} mm {kind}").format(
+                width=self.tape_size[0], height=self.tape_size[1], kind=kind
+            )
+        else:
+            base = tr("{width} mm {kind}").format(
+                width=self.tape_size[0], kind=kind
+            )
         if self.color.supports_red:
-            base += " (schwarz/rot)"
+            base += f" {tr('(schwarz/rot)')}"
         return base
 
     # -- Modell-Kompatibilitaet --------------------------------------------
@@ -345,7 +354,9 @@ def get_label(identifier: str) -> LabelSpec:
     try:
         return _label_index()[identifier]
     except KeyError as exc:
-        raise KeyError(f"Unbekanntes Band: {identifier!r}") from exc
+        raise KeyError(
+            tr("Unbekanntes Band: {label!r}").format(label=identifier)
+        ) from exc
 
 
 def get_model(identifier: str) -> ModelSpec:
@@ -353,7 +364,9 @@ def get_model(identifier: str) -> ModelSpec:
     try:
         return _model_index()[identifier]
     except KeyError as exc:
-        raise KeyError(f"Unbekanntes Modell: {identifier!r}") from exc
+        raise KeyError(
+            tr("Unbekanntes Modell: {model!r}").format(model=identifier)
+        ) from exc
 
 
 def labels_for_model(model_identifier: str) -> tuple[LabelSpec, ...]:
@@ -413,10 +426,9 @@ class Orientation(str, Enum):
     @property
     def label_de(self) -> str:
         """Kurzbezeichnung fuer die Oberflaeche."""
-        return {
-            Orientation.ACROSS: "quer zum Band",
-            Orientation.ALONG: "längs des Bandes",
-        }[self]
+        if self is Orientation.ACROSS:
+            return tr("quer zum Band")
+        return tr("längs des Bandes")
 
     @property
     def rotates_for_print(self) -> bool:

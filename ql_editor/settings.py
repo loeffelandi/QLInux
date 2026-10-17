@@ -146,6 +146,16 @@ class AppSettings:
     def cut(self, value: bool) -> None:
         self.set_value("print/cut", bool(value))
 
+    # -- Sprache ------------------------------------------------------------
+    @property
+    def language(self) -> str:
+        """Oberflaechensprache (``"de"``/``"en"``); leer = noch nie gewaehlt."""
+        return str(self.value("ui/language", "") or "")
+
+    @language.setter
+    def language(self, value: str) -> None:
+        self.set_value("ui/language", str(value))
+
     # -- Fenster ------------------------------------------------------------
     def save_geometry(self, geometry: QByteArray) -> None:
         self.set_value("window/geometry", geometry)

@@ -21,10 +21,21 @@ from __future__ import annotations
 
 import sys
 from pathlib import Path
+from typing import Any, Mapping
 
 from PIL import Image
-from PySide6.QtCore import QPointF, QProcess, QRectF, QSize, QThread, QTimer, Qt, Signal
-from PySide6.QtGui import QAction, QKeySequence
+from PySide6.QtCore import (
+    QLocale,
+    QPointF,
+    QProcess,
+    QRectF,
+    QSize,
+    QThread,
+    QTimer,
+    Qt,
+    Signal,
+)
+from PySide6.QtGui import QAction, QActionGroup, QKeySequence
 from PySide6.QtWidgets import (
     QApplication,
     QCheckBox,
@@ -46,6 +57,14 @@ from PySide6.QtWidgets import (
 from . import access
 from . import media
 from .canvas import LabelCanvas
+from .i18n import (
+    DEFAULT_LANGUAGE,
+    LANGUAGES,
+    language,
+    language_name,
+    set_language,
+    tr,
+)
 from .icons import icon
 from .inspector import InspectorPanel
 from .items import BarcodeItem, ImageItem, LineItem, QRItem, RectItem, TextItem
@@ -101,16 +120,29 @@ class PrintWorker(QThread):
         except PrinterError as exc:
             self.failed.emit(str(exc))
         except Exception as exc:  # pragma: no cover - defensiv
-            self.failed.emit(f"Unerwarteter Fehler: {exc}")
+            self.failed.emit(
+                tr("Unerwarteter Fehler: {error}").format(error=exc)
+            )
         else:
             self.succeeded.emit(status)
+
+
+#: Das aktuelle Hauptfenster. Beim Sprachwechsel entsteht ein neues Fenster;
+#: diese Referenz haelt es am Leben - ein Fenster ohne Elternteil wird sonst
+#: vom Garbage Collector eingesammelt.
+_current_window: MainWindow | None = None
+
+
+def _remember_window(window: MainWindow) -> None:
+    global _current_window
+    _current_window = window
 
 
 class MainWindow(QMainWindow):
     def __init__(self, settings: AppSettings | None = None):
         super().__init__()
         self._settings = settings or AppSettings()
-        self.setWindowTitle("QLInux - P-touch Editor")
+        self.setWindowTitle(tr("QLInux - P-touch Editor"))
         self.setWindowIcon(icon("label"))
         self._adjusting = False
         self._print_worker: PrintWorker | None = None
@@ -167,8 +199,8 @@ class MainWindow(QMainWindow):
         # den dynamisch erzeugten Inspector-Feldern - die sichern sich selbst).
         install_wheel_guard_recursive(self)
 
-        self._zoom_label = QLabel("Zoom 100 %")
-        self._zoom_label.setToolTip("Mausrad über dem Canvas zoomt bzw. scrollt")
+        self._zoom_label = QLabel(tr("Zoom 100 %"))
+        self._zoom_label.setToolTip(tr("Mausrad über dem Canvas zoomt bzw. scrollt"))
         self.statusBar().addPermanentWidget(self._zoom_label)
         self._canvas.zoom_changed.connect(self._on_zoom_changed)
 
@@ -202,7 +234,7 @@ class MainWindow(QMainWindow):
         ``PANEL_WIDTH``), damit "Symbologie"/"Höhe (Dots)" einzeilig bleiben.
         """
         self._left_panel = OverlayPanel(
-            "Band & Drucker",
+            tr("Band & Drucker"),
             self._scroll_wrap(self._media_panel),
             Qt.Edge.LeftEdge,
             self,
@@ -222,7 +254,7 @@ class MainWindow(QMainWindow):
         splitter.setStretchFactor(1, 0)
         splitter.setSizes([300, print_area.minimumHeight()])
         self._right_panel = OverlayPanel(
-            "Eigenschaften & Druck",
+            tr("Eigenschaften & Druck"),
             splitter,
             Qt.Edge.RightEdge,
             self,
@@ -234,13 +266,13 @@ class MainWindow(QMainWindow):
         layout = QVBoxLayout(widget)
         layout.setContentsMargins(4, 4, 4, 4)
 
-        title = QLabel("Druckoptionen")
+        title = QLabel(tr("Druckoptionen"))
         title.setStyleSheet("color:#555; font-weight:600;")
         layout.addWidget(title)
 
         hint = QLabel(
-            "Die Druckvorschau (Strg+Umschalt+P) zeigt die gewählte Auflösung in "
-            "echten Druckpunkten."
+            tr("Die Druckvorschau (Strg+Umschalt+P) zeigt die gewählte Auflösung in "
+            "echten Druckpunkten.")
         )
         hint.setWordWrap(True)
         hint.setStyleSheet("color:#777;")
@@ -249,7 +281,7 @@ class MainWindow(QMainWindow):
         # Aufloesung: nur was das gewaehlte Modell kann (die Liste kommt aus den
         # Datenblaettern, siehe printer.resolution_options). Der High-Resolution-
         # Modus ist bewusst *nicht* voreingestellt - er druckt langsamer.
-        resolution_label = QLabel("Auflösung")
+        resolution_label = QLabel(tr("Auflösung"))
         self._resolution_combo = QComboBox()
         resolution_label.setBuddy(self._resolution_combo)
         self._resolution_hint = QLabel()
@@ -261,27 +293,27 @@ class MainWindow(QMainWindow):
 
         # Eigener Schalter: "Qualitaet vor Tempo" (brother_ql ``pquality``/hq).
         # Das ist *keine* Aufloesung - deshalb getrennt vom Feld darueber.
-        self._hq_check = QCheckBox("Hohe Druckqualität (HQ)")
+        self._hq_check = QCheckBox(tr("Hohe Druckqualität (HQ)"))
         self._hq_check.setChecked(True)
         self._hq_check.setToolTip(
-            "Der Drucker arbeitet dann mit Vorrang für Qualität statt Tempo "
+            tr("Der Drucker arbeitet dann mit Vorrang für Qualität statt Tempo "
             "(das pquality-Flag aus der Brother-Rasterreferenz).\n"
-            "Die Auflösung ändert das nicht - die steht im Feld darüber."
+            "Die Auflösung ändert das nicht - die steht im Feld darüber.")
         )
         layout.addWidget(self._hq_check)
 
-        self._dither_check = QCheckBox("Graustufen (Dithering)")
+        self._dither_check = QCheckBox(tr("Graustufen (Dithering)"))
         self._dither_check.setToolTip(
-            "Graustufen werden gepunktet statt hart geschwellt - für Fotos.\n"
+            tr("Graustufen werden gepunktet statt hart geschwellt - für Fotos.\n"
             "Ohne Dithering entscheidet die Tintenmenge unten, welche Helligkeit "
-            "Tinte wird."
+            "Tinte wird.")
         )
 
         # Tintenmenge = brother_ql-Schwelle ("-t"). Sie wirkt nur ohne
         # Dithering (convert() nutzt sie dann nicht) - deshalb wird sie dann
         # ausgegraut, statt still wirkungslos zu sein. Die Extremwerte (alles
         # schwarz / nur reines Schwarz) sind nicht waehlbar.
-        self._threshold_label = QLabel("Tintenmenge")
+        self._threshold_label = QLabel(tr("Tintenmenge"))
         self._threshold_spin = QSpinBox()
         self._threshold_spin.setRange(THRESHOLD_MIN, THRESHOLD_MAX)
         self._threshold_spin.setValue(DEFAULT_THRESHOLD)
@@ -289,20 +321,20 @@ class MainWindow(QMainWindow):
         self._threshold_label.setBuddy(self._threshold_spin)
         self._threshold_spin.setToolTip(self._threshold_tooltip())
         self._threshold_label.setToolTip(self._threshold_spin.toolTip())
-        self._ink_label = QLabel("Tinte: –")
+        self._ink_label = QLabel(tr("Tinte: –"))
         self._ink_label.setStyleSheet("color:#777;")
         self._ink_label.setToolTip(
-            "Anteil der bedruckten Fläche - sofort sichtbar, was Tintenmenge "
-            "und Dithering bewirken."
+            tr("Anteil der bedruckten Fläche - sofort sichtbar, was Tintenmenge "
+            "und Dithering bewirken.")
         )
         threshold_row = QHBoxLayout()
         threshold_row.setContentsMargins(0, 0, 0, 0)
         threshold_row.addWidget(self._threshold_spin)
         threshold_row.addWidget(self._ink_label, 1)
 
-        self._cut_check = QCheckBox("Nach dem Druck schneiden")
+        self._cut_check = QCheckBox(tr("Nach dem Druck schneiden"))
         self._cut_check.setChecked(True)
-        self._print_button = QPushButton(icon("print"), "Drucken")
+        self._print_button = QPushButton(icon("print"), tr("Drucken"))
 
         layout.addWidget(self._dither_check)
         layout.addWidget(self._threshold_label)
@@ -333,7 +365,7 @@ class MainWindow(QMainWindow):
         self._update_resolution_hint()
 
     def _threshold_tooltip(self) -> str:
-        return (
+        return tr(
             "Wie viel Tinte der Drucker setzt.\n"
             "\n"
             "Der Drucker kennt nur Schwarz oder Weiß: jede weiche Kante und "
@@ -348,10 +380,9 @@ class MainWindow(QMainWindow):
             "niedriger = weniger Tinte: nur dunkle Punkte werden schwarz, feiner "
             "- dünne\n"
             "Striche können ausfransen.\n"
-            f"Einstellbar von {THRESHOLD_MIN} % (fein) bis {THRESHOLD_MAX} % "
-            "(kräftig).\n"
+            "Einstellbar von {low} % (fein) bis {high} % (kräftig).\n"
             "Wirkt nur ohne Dithering."
-        )
+        ).format(low=THRESHOLD_MIN, high=THRESHOLD_MAX)
 
     def _on_dither_toggled(self) -> None:
         self._sync_threshold_enabled()
@@ -362,7 +393,9 @@ class MainWindow(QMainWindow):
         active = not self._dither_check.isChecked()
         self._threshold_spin.setEnabled(active)
         self._threshold_label.setEnabled(active)
-        self._threshold_label.setText("Tintenmenge" if active else "Tintenmenge (ohne Wirkung)")
+        self._threshold_label.setText(
+            tr("Tintenmenge") if active else tr("Tintenmenge (ohne Wirkung)")
+        )
 
     def _sync_resolution_options(self, prefer: str | None = None) -> None:
         """Aufloesungsliste an das gewaehlte Modell anpassen.
@@ -389,7 +422,11 @@ class MainWindow(QMainWindow):
         self._resolution_combo.blockSignals(False)
 
         chosen = self._resolution()
-        self._resolution_combo.setToolTip(f"{chosen.label}: {chosen.detail}.")
+        self._resolution_combo.setToolTip(
+            tr("{label}: {detail}.").format(
+                label=chosen.label, detail=chosen.detail
+            )
+        )
         self._update_resolution_hint()
         self._sync_threshold_enabled()
 
@@ -399,13 +436,15 @@ class MainWindow(QMainWindow):
         best = maximum_resolution(model_id)
         chosen = self._resolution()
         if chosen.key == RESOLUTION_HIGH.key:
-            text = "600 dpi nur in Bandlaufrichtung; quer bleiben es 300 dpi."
+            text = tr("600 dpi nur in Bandlaufrichtung; quer bleiben es 300 dpi.")
         elif best.key == RESOLUTION_HIGH.key:
-            text = "Auch möglich: 300 × 600 dpi (feiner längs, druckt langsamer)."
+            text = tr("Auch möglich: 300 × 600 dpi (feiner längs, druckt langsamer).")
         else:
-            text = f"{model_id}: 300 × 300 dpi - mehr kann dieser Druckkopf nicht."
+            text = tr(
+                "{model}: 300 × 300 dpi - mehr kann dieser Druckkopf nicht."
+            ).format(model=model_id)
         if not self._hq_check.isChecked():
-            text += " Ohne HQ druckt der Drucker schneller."
+            text += " " + tr("Ohne HQ druckt der Drucker schneller.")
         self._resolution_hint.setText(text)
 
     def _resolution(self) -> PrintResolution:
@@ -419,96 +458,96 @@ class MainWindow(QMainWindow):
         return self._hq_check.isChecked()
 
     def _build_actions(self) -> None:
-        self._act_add_text = QAction(icon("text"), "Text", self)
-        self._act_add_text.setToolTip("Text einfügen (Doppelklick auf den Canvas)")
+        self._act_add_text = QAction(icon("text"), tr("Text"), self)
+        self._act_add_text.setToolTip(tr("Text einfügen (Doppelklick auf den Canvas)"))
         self._act_add_text.triggered.connect(self._add_text)
 
-        self._act_add_image = QAction(icon("image"), "Bild…", self)
-        self._act_add_image.setToolTip("Bild einfügen")
+        self._act_add_image = QAction(icon("image"), tr("Bild…"), self)
+        self._act_add_image.setToolTip(tr("Bild einfügen"))
         self._act_add_image.triggered.connect(self._add_image)
 
-        self._act_add_barcode = QAction(icon("barcode"), "Barcode…", self)
-        self._act_add_barcode.setToolTip("Barcode einfügen")
+        self._act_add_barcode = QAction(icon("barcode"), tr("Barcode…"), self)
+        self._act_add_barcode.setToolTip(tr("Barcode einfügen"))
         self._act_add_barcode.triggered.connect(self._add_barcode)
 
-        self._act_add_qr = QAction(icon("qr"), "QR-Code…", self)
-        self._act_add_qr.setToolTip("QR-Code einfügen")
+        self._act_add_qr = QAction(icon("qr"), tr("QR-Code…"), self)
+        self._act_add_qr.setToolTip(tr("QR-Code einfügen"))
         self._act_add_qr.triggered.connect(self._add_qr)
 
-        self._act_add_line = QAction(icon("line"), "Linie", self)
-        self._act_add_line.setToolTip("Linie einfügen")
+        self._act_add_line = QAction(icon("line"), tr("Linie"), self)
+        self._act_add_line.setToolTip(tr("Linie einfügen"))
         self._act_add_line.triggered.connect(self._add_line)
 
-        self._act_add_rect = QAction(icon("rect"), "Rahmen", self)
-        self._act_add_rect.setToolTip("Rahmen einfügen")
+        self._act_add_rect = QAction(icon("rect"), tr("Rahmen"), self)
+        self._act_add_rect.setToolTip(tr("Rahmen einfügen"))
         self._act_add_rect.triggered.connect(self._add_rect)
 
-        self._act_front = QAction(icon("front"), "In den Vordergrund", self)
-        self._act_front.setToolTip("In den Vordergrund")
+        self._act_front = QAction(icon("front"), tr("In den Vordergrund"), self)
+        self._act_front.setToolTip(tr("In den Vordergrund"))
         self._act_front.triggered.connect(lambda: self._bump_z(+1))
 
-        self._act_back = QAction(icon("back"), "In den Hintergrund", self)
-        self._act_back.setToolTip("In den Hintergrund")
+        self._act_back = QAction(icon("back"), tr("In den Hintergrund"), self)
+        self._act_back.setToolTip(tr("In den Hintergrund"))
         self._act_back.triggered.connect(lambda: self._bump_z(-1))
 
-        self._act_delete = QAction(icon("delete"), "Löschen", self)
-        self._act_delete.setToolTip("Löschen (Entf)")
+        self._act_delete = QAction(icon("delete"), tr("Löschen"), self)
+        self._act_delete.setToolTip(tr("Löschen (Entf)"))
         self._act_delete.setShortcut(QKeySequence.StandardKey.Delete)
         self._act_delete.triggered.connect(self._canvas.delete_selected)
 
-        self._act_zoom_fit = QAction(icon("zoom_fit"), "Einpassen", self)
-        self._act_zoom_fit.setToolTip("Zoom: Einpassen (Ctrl+0)")
+        self._act_zoom_fit = QAction(icon("zoom_fit"), tr("Einpassen"), self)
+        self._act_zoom_fit.setToolTip(tr("Zoom: Einpassen (Ctrl+0)"))
         self._act_zoom_fit.setShortcut("Ctrl+0")
         self._act_zoom_fit.triggered.connect(self._canvas.zoom_fit)
 
-        self._act_zoom_in = QAction(icon("zoom_in"), "Vergrößern", self)
-        self._act_zoom_in.setToolTip("Vergrößern (Strg ++)")
+        self._act_zoom_in = QAction(icon("zoom_in"), tr("Vergrößern"), self)
+        self._act_zoom_in.setToolTip(tr("Vergrößern (Strg ++)"))
         self._act_zoom_in.setShortcut(QKeySequence.StandardKey.ZoomIn)
         self._act_zoom_in.triggered.connect(self._canvas.zoom_in)
 
-        self._act_zoom_out = QAction(icon("zoom_out"), "Verkleinern", self)
-        self._act_zoom_out.setToolTip("Verkleinern (Strg +-)")
+        self._act_zoom_out = QAction(icon("zoom_out"), tr("Verkleinern"), self)
+        self._act_zoom_out.setToolTip(tr("Verkleinern (Strg +-)"))
         self._act_zoom_out.setShortcut(QKeySequence.StandardKey.ZoomOut)
         self._act_zoom_out.triggered.connect(self._canvas.zoom_out)
 
-        self._act_zoom_100 = QAction(icon("zoom_100"), "1:1", self)
+        self._act_zoom_100 = QAction(icon("zoom_100"), tr("1:1"), self)
         self._act_zoom_100.setToolTip(
-            "Zoom 1:1 (Strg+1) - echte Druckpunkte,\n"
-            "so wie der Drucker sie setzt"
+            tr("Zoom 1:1 (Strg+1) - echte Druckpunkte,\n"
+            "so wie der Drucker sie setzt")
         )
         self._act_zoom_100.setShortcut("Ctrl+1")
         self._act_zoom_100.triggered.connect(self._canvas.zoom_100)
 
-        self._act_print = QAction(icon("print"), "Drucken", self)
-        self._act_print.setToolTip("Drucken (Ctrl+P)")
+        self._act_print = QAction(icon("print"), tr("Drucken"), self)
+        self._act_print.setToolTip(tr("Drucken (Ctrl+P)"))
         self._act_print.setShortcut("Ctrl+P")
         self._act_print.triggered.connect(self._on_print)
 
-        self._act_print_preview = QAction(icon("preview"), "Druckvorschau", self)
+        self._act_print_preview = QAction(icon("preview"), tr("Druckvorschau"), self)
         self._act_print_preview.setCheckable(True)
-        self._act_print_preview.setToolTip("Druckvorschau: echte 1-bit-Ausgabe (Ctrl+Shift+P)")
+        self._act_print_preview.setToolTip(tr("Druckvorschau: echte 1-bit-Ausgabe (Ctrl+Shift+P)"))
         self._act_print_preview.setShortcut("Ctrl+Shift+P")
         self._act_print_preview.toggled.connect(self._on_toggle_print_preview)
 
         # Seitenpanels ein-/ausblenden (kleine Bildschirme). Beide Aktionen sind
         # immer erreichbar (Toolbar + Menue) - so laesst sich ein versehentlich
         # verstecktes Panel jederzeit zurueckholen.
-        self._act_panel_left = QAction(icon("panel_left"), "Panel links", self)
+        self._act_panel_left = QAction(icon("panel_left"), tr("Panel links"), self)
         self._act_panel_left.setCheckable(True)
         self._act_panel_left.setChecked(True)
         self._act_panel_left.setToolTip(
-            "Panel links ein-/ausklappen (Strg+B)\n"
+            tr("Panel links ein-/ausklappen (Strg+B)\n"
             "Eingeklappt bleibt ein Streifen mit Pfeil; er klappt beim "
-            "Überfahren über dem Canvas auf"
+            "Überfahren über dem Canvas auf")
         )
         self._act_panel_left.setShortcut("Ctrl+B")
         self._act_panel_left.toggled.connect(self._left_panel.set_docked)
 
-        self._act_panel_right = QAction(icon("panel_right"), "Panel rechts", self)
+        self._act_panel_right = QAction(icon("panel_right"), tr("Panel rechts"), self)
         self._act_panel_right.setCheckable(True)
         self._act_panel_right.setChecked(True)
         self._act_panel_right.setToolTip(
-            "Panel rechts ein-/ausklappen (Strg+Shift+B)\nEigenschaften und Druckoptionen"
+            tr("Panel rechts ein-/ausklappen (Strg+Shift+B)\nEigenschaften und Druckoptionen")
         )
         self._act_panel_right.setShortcut("Ctrl+Shift+B")
         self._act_panel_right.toggled.connect(self._right_panel.set_docked)
@@ -518,13 +557,13 @@ class MainWindow(QMainWindow):
         self._left_panel.docked_changed.connect(self._act_panel_left.setChecked)
         self._right_panel.docked_changed.connect(self._act_panel_right.setChecked)
 
-        self._act_quit = QAction(icon("quit"), "Beenden", self)
-        self._act_quit.setToolTip("Beenden (Strg+Q)")
+        self._act_quit = QAction(icon("quit"), tr("Beenden"), self)
+        self._act_quit.setToolTip(tr("Beenden (Strg+Q)"))
         self._act_quit.setShortcut(QKeySequence.StandardKey.Quit)
         self._act_quit.triggered.connect(self.close)
 
-        self._act_about = QAction(icon("about"), "Über QLInux", self)
-        self._act_about.setToolTip("Über QLInux")
+        self._act_about = QAction(icon("about"), tr("Über QLInux"), self)
+        self._act_about.setToolTip(tr("Über QLInux"))
         self._act_about.triggered.connect(self._show_about)
 
     def _build_toolbar(self) -> None:
@@ -538,7 +577,7 @@ class MainWindow(QMainWindow):
         self._menu_button = QToolButton(bar)
         self._menu_button.setObjectName("main_menu_button")
         self._menu_button.setIcon(icon("menu"))
-        self._menu_button.setToolTip("Menü")
+        self._menu_button.setToolTip(tr("Menü"))
         self._menu_button.setAutoRaise(True)
         self._menu_button.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         self._menu_button.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
@@ -577,7 +616,7 @@ class MainWindow(QMainWindow):
         zustand automatisch synchron.
         """
         menu = QMenu(self)
-        menu.addSection("Einfügen")
+        menu.addSection(tr("Einfügen"))
         for act in (
             self._act_add_text,
             self._act_add_image,
@@ -587,13 +626,13 @@ class MainWindow(QMainWindow):
             self._act_add_rect,
         ):
             menu.addAction(act)
-        menu.addSection("Bearbeiten")
+        menu.addSection(tr("Bearbeiten"))
         for act in (self._act_front, self._act_back, self._act_delete):
             menu.addAction(act)
-        menu.addSection("Etikett")
+        menu.addSection(tr("Etikett"))
         for act in self._media_panel.orientation_actions():
             menu.addAction(act)
-        menu.addSection("Ansicht")
+        menu.addSection(tr("Ansicht"))
         for act in (
             self._act_print_preview,
             self._act_panel_left,
@@ -604,12 +643,83 @@ class MainWindow(QMainWindow):
             self._act_zoom_100,
         ):
             menu.addAction(act)
-        menu.addSection("Drucken")
+        menu.addSection(tr("Drucken"))
         menu.addAction(self._act_print)
         menu.addSeparator()
+        self._build_language_menu(menu)
         menu.addAction(self._act_about)
         menu.addAction(self._act_quit)
         return menu
+
+    def _build_language_menu(self, menu: QMenu) -> None:
+        """Sprachwahl als Untermenue ("Deutsch"/"English")."""
+        submenu = menu.addMenu(icon("language"), tr("Sprache"))
+        self._language_group = QActionGroup(self)
+        self._language_group.setExclusive(True)
+        for code in LANGUAGES:
+            action = QAction(language_name(code), self)
+            action.setCheckable(True)
+            action.setChecked(code == language())
+            action.triggered.connect(
+                lambda _checked=False, value=code: self.switch_language(value)
+            )
+            self._language_group.addAction(action)
+            submenu.addAction(action)
+
+    # ------------------------------------------------------------ Sprache --
+    def switch_language(self, code: str) -> None:
+        """Sprache umstellen - die Oberflaeche wird dafuer neu aufgebaut.
+
+        Ein kompletter Neuaufbau statt einzelner Texte sorgt dafuer, dass auch
+        jede Formularbeschriftung, jeder Tooltip und jede Liste mitkommt. Der
+        Inhalt des Etiketts und alle Einstellungen werden uebernommen.
+
+        Das neue Fenster wird **vor** dem Schliessen des alten gezeigt: sonst
+        gilt das letzte Fenster als geschlossen und Qt beendet das Programm.
+        """
+        if code not in LANGUAGES or code == language():
+            return
+        state = self._state()
+        set_language(code)
+        QLocale.setDefault(QLocale(code))
+        self._settings.language = code
+        self._settings.sync()
+
+        window = MainWindow(self._settings)
+        window.apply_state(state)
+        window.setGeometry(self.geometry())
+        window.setWindowState(self.windowState())
+        window.show()
+        _remember_window(window)
+        self.close()
+
+    def _state(self) -> dict[str, Any]:
+        """Bedienzustand fuer einen Neuaufbau der Oberflaeche (Sprachwechsel)."""
+        return {
+            "media": self._media_panel.state(),
+            "items": self._canvas.items_serialized(),
+            "preview": self._act_print_preview.isChecked(),
+            "threshold": self._threshold_spin.value(),
+            "dither": self._dither_check.isChecked(),
+            "hq": self._hq_check.isChecked(),
+            "resolution": self._resolution().key,
+            "cut": self._cut_check.isChecked(),
+        }
+
+    def apply_state(self, state: Mapping[str, Any]) -> None:
+        """Zustand aus :meth:`_state` uebernehmen (nach einem Neuaufbau)."""
+        self._media_panel.apply_state(state.get("media") or {})
+        self._threshold_spin.setValue(int(state.get("threshold", DEFAULT_THRESHOLD)))
+        self._dither_check.setChecked(bool(state.get("dither", False)))
+        self._hq_check.setChecked(bool(state.get("hq", False)))
+        self._sync_resolution_options(prefer=str(state.get("resolution") or ""))
+        self._cut_check.setChecked(bool(state.get("cut", False)))
+        self._canvas.load_items(list(state.get("items") or []))
+        self._recompute_canvas()
+        self._schedule_refresh()
+        if state.get("preview"):
+            self._act_print_preview.setChecked(True)
+        self._canvas.setFocus()
 
     # ------------------------------------------------------------- Settings --
     def _apply_saved_settings(self) -> None:
@@ -732,7 +842,9 @@ class MainWindow(QMainWindow):
         try:
             image = self._current_render(scale=scale)
         except Exception as exc:  # pragma: no cover - defensiv
-            self.statusBar().showMessage(f"Renderfehler: {exc}")
+            self.statusBar().showMessage(
+                tr("Renderfehler: {error}").format(error=exc)
+            )
             return
         options = self._preview_options()
         if self._canvas.print_preview:
@@ -741,7 +853,11 @@ class MainWindow(QMainWindow):
                 to_qimage(reduce_for_display(printable, scale))
             )
         ratio = ink_ratio(image, options)
-        self._ink_label.setText(f"Tinte: {ratio * 100:.1f} %".replace(".", ","))
+        self._ink_label.setText(
+            tr("Tinte: {value} %").format(
+                value=QLocale().toString(ratio * 100, "f", 1)
+            )
+        )
 
     def _preview_options(self) -> PreviewOptions:
         return PreviewOptions(
@@ -766,12 +882,13 @@ class MainWindow(QMainWindow):
         if enabled:
             self._refresh_now()
             self.statusBar().showMessage(
-                "Druckvorschau aktiv - echte 1-bit-Ausgabe bei 1:1 (Esc beendet)", 4000
+                tr("Druckvorschau aktiv - echte 1-bit-Ausgabe bei 1:1 (Esc beendet)"),
+                4000,
             )
         else:
             self._canvas.set_print_image(None)
             self._restore_preview_view()
-            self.statusBar().showMessage("Druckvorschau aus", 2000)
+            self.statusBar().showMessage(tr("Druckvorschau aus"), 2000)
         self._update_zoom_label()
 
     def _restore_preview_view(self) -> None:
@@ -902,9 +1019,9 @@ class MainWindow(QMainWindow):
         """
         if percent is None:
             percent = self._canvas.transform().m11() * 100.0
-        text = f"Zoom {percent:.0f} %"
+        text = tr("Zoom {percent} %").format(percent=f"{percent:.0f}")
         if self._canvas.print_preview and percent < 99.5:
-            text += " · Vorschau: 1:1 für Details (Strg+1)"
+            text += " " + tr("· Vorschau: 1:1 für Details (Strg+1)")
         self._zoom_label.setText(text)
 
     def _on_item_double_clicked(self, item) -> None:
@@ -926,7 +1043,7 @@ class MainWindow(QMainWindow):
         try:
             item = ImageItem.from_file(path)
         except ValueError as exc:
-            show_message(self, "warning", "Bild", str(exc))
+            show_message(self, "warning", tr("Bild"), str(exc))
             return
         self._fit_item_into_label(item)
         width, height = self._canvas.item_scene_size(item)
@@ -941,17 +1058,25 @@ class MainWindow(QMainWindow):
 
     def _build_context_menu(self, scene_pos: QPointF) -> QMenu:
         menu = QMenu(self)
-        menu.addAction(icon("text"), "Text einfügen", lambda: self._on_text_requested(scene_pos))
-        menu.addAction(icon("image"), "Bild…", self._add_image)
-        menu.addAction(icon("barcode"), "Barcode…", self._add_barcode)
-        menu.addAction(icon("qr"), "QR-Code…", self._add_qr)
-        menu.addAction(icon("line"), "Linie", self._add_line)
-        menu.addAction(icon("rect"), "Rahmen", self._add_rect)
+        menu.addAction(
+            icon("text"),
+            tr("Text einfügen"),
+            lambda: self._on_text_requested(scene_pos),
+        )
+        menu.addAction(icon("image"), tr("Bild…"), self._add_image)
+        menu.addAction(icon("barcode"), tr("Barcode…"), self._add_barcode)
+        menu.addAction(icon("qr"), tr("QR-Code…"), self._add_qr)
+        menu.addAction(icon("line"), tr("Linie"), self._add_line)
+        menu.addAction(icon("rect"), tr("Rahmen"), self._add_rect)
         if self._canvas.selected_items():
             menu.addSeparator()
-            menu.addAction(icon("front"), "In den Vordergrund", lambda: self._bump_z(+1))
-            menu.addAction(icon("back"), "In den Hintergrund", lambda: self._bump_z(-1))
-            menu.addAction(icon("delete"), "Löschen", self._canvas.delete_selected)
+            menu.addAction(
+                icon("front"), tr("In den Vordergrund"), lambda: self._bump_z(+1)
+            )
+            menu.addAction(
+                icon("back"), tr("In den Hintergrund"), lambda: self._bump_z(-1)
+            )
+            menu.addAction(icon("delete"), tr("Löschen"), self._canvas.delete_selected)
         return menu
 
     def _show_context_menu(self, global_pos, scene_pos: QPointF) -> None:
@@ -965,14 +1090,16 @@ class MainWindow(QMainWindow):
             try:
                 item = ImageItem.from_file(path)
             except ValueError as exc:
-                show_message(self, "warning", "Bild", str(exc))
+                show_message(self, "warning", tr("Bild"), str(exc))
                 return
             self._add_item(item)
 
         choose_file(
             self,
-            caption="Bild wählen",
-            name_filter="Bilder (*.png *.jpg *.jpeg *.bmp *.gif);;Alle Dateien (*)",
+            caption=tr("Bild wählen"),
+            name_filter=tr(
+                "Bilder (*.png *.jpg *.jpeg *.bmp *.gif);;Alle Dateien (*)"
+            ),
             on_selected=_selected,
             start_dir=self._settings.image_dir,
         )
@@ -989,16 +1116,16 @@ class MainWindow(QMainWindow):
                         height_dots=max(60, int(self._canvas.height_dots * 0.4)),
                     )
                 except ValueError as exc:
-                    show_message(self, "warning", "Barcode", str(exc))
+                    show_message(self, "warning", tr("Barcode"), str(exc))
                     return
                 self._add_item(item)
 
-            ask_text(self, title="Barcode", label="Inhalt", on_ok=_with_value)
+            ask_text(self, title=tr("Barcode"), label=tr("Inhalt"), on_ok=_with_value)
 
         ask_choice(
             self,
-            title="Barcode",
-            label="Symbologie",
+            title=tr("Barcode"),
+            label=tr("Symbologie"),
             items=BARCODE_SYMBOLOGIES,
             on_ok=_with_symbology,
         )
@@ -1012,8 +1139,8 @@ class MainWindow(QMainWindow):
 
         ask_text(
             self,
-            title="QR-Code",
-            label="Inhalt",
+            title=tr("QR-Code"),
+            label=tr("Inhalt"),
             default="https://",
             on_ok=_with_value,
         )
@@ -1043,14 +1170,21 @@ class MainWindow(QMainWindow):
             show_message(
                 self,
                 "warning",
-                "Keine Druckeradresse",
-                "Im Panel unter „Drucker“ Anschluss und Adresse wählen.",
+                tr("Keine Druckeradresse"),
+                tr("Im Panel unter „Drucker“ Anschluss und Adresse wählen."),
             )
             return
         try:
             image = self._for_print()
         except Exception as exc:
-            show_message(self, "critical", "Rendern", f"Etikett konnte nicht gerendert werden:\n{exc}")
+            show_message(
+                self,
+                "critical",
+                tr("Rendern"),
+                tr("Etikett konnte nicht gerendert werden:\n{error}").format(
+                    error=exc
+                ),
+            )
             return
         label = self._media_panel.label
         options = {
@@ -1062,7 +1196,9 @@ class MainWindow(QMainWindow):
             "cut": self._cut_check.isChecked(),
         }
         self._print_button.setEnabled(False)
-        self.statusBar().showMessage(f"Sende an {config.address}…")
+        self.statusBar().showMessage(
+            tr("Sende an {address}…").format(address=config.address)
+        )
         self._print_worker = PrintWorker(image, label, config, options)
         self._print_worker.succeeded.connect(self._on_print_succeeded)
         self._print_worker.failed.connect(self._on_print_failed)
@@ -1070,14 +1206,19 @@ class MainWindow(QMainWindow):
         self._print_worker.start()
 
     def _on_print_succeeded(self, status: dict) -> None:
-        self.statusBar().showMessage(f"Druckauftrag gesendet (outcome={status.get('outcome')}).", 8000)
+        self.statusBar().showMessage(
+            tr("Druckauftrag gesendet (outcome={outcome}).").format(
+                outcome=status.get("outcome")
+            ),
+            8000,
+        )
 
     def _on_print_failed(self, message: str) -> None:
-        self.statusBar().showMessage("Druck fehlgeschlagen.", 8000)
+        self.statusBar().showMessage(tr("Druck fehlgeschlagen."), 8000)
         hint = access.failure_hint(message)
         if hint:
             message = f"{message}\n\n{hint}"
-        show_message(self, "critical", "Druckfehler", message, selectable=bool(hint))
+        show_message(self, "critical", tr("Druckfehler"), message, selectable=bool(hint))
     # --------------------------------------------------------- USB-Zugriff --
     def _on_usb_permission(self) -> None:
         """udev-Regel einrichten: das System fragt dabei nach dem Passwort.
@@ -1093,11 +1234,11 @@ class MainWindow(QMainWindow):
         # Sicherheitsnetz: ein Agent, der den Dialog nicht zeigt, darf die
         # Anzeige nicht ewig auf "Passwort-Dialog" stehen lassen.
         self._permission_timer.start()
-        self.statusBar().showMessage("Zugriff einrichten: Passwort-Dialog …")
+        self.statusBar().showMessage(tr("Zugriff einrichten: Passwort-Dialog …"))
 
     def _on_permission_timeout(self) -> None:
         self._permission_process.kill()
-        self.statusBar().showMessage("Kein Passwort-Dialog erschienen.", 8000)
+        self.statusBar().showMessage(tr("Kein Passwort-Dialog erschienen."), 8000)
         self._show_manual_permission()
 
     def _on_permission_finished(self, code: int, _status=None) -> None:
@@ -1108,22 +1249,27 @@ class MainWindow(QMainWindow):
         if code == 0:
             self._media_panel.refresh_access()
             self.statusBar().showMessage(
-                "USB-Zugriff eingerichtet – der Drucker ist freigegeben.", 8000
+                tr("USB-Zugriff eingerichtet – der Drucker ist freigegeben."), 8000
             )
             return
         text = access.describe_failure(code, stderr)
         if access.rule_installed():
-            text += "\n\nRegel ist schon eingerichtet – Drucker kurz ab- und anstecken."
-        show_message(self, "warning", "USB-Zugriff", text, selectable=True)
+            text += "\n\n" + tr(
+                "Regel ist schon eingerichtet – Drucker kurz ab- und anstecken."
+            )
+        show_message(self, "warning", tr("USB-Zugriff"), text, selectable=True)
 
     def _show_manual_permission(self) -> None:
         """Ohne Passwort-Dialog bleibt der Einzeiler fuer das Terminal."""
         show_message(
             self,
             "info",
-            "USB-Zugriff",
-            f"{access.reason_no_prompt()}\n\nEinmalig im Terminal ausführen:\n\n"
-            f"    {access.manual_command()}",
+            tr("USB-Zugriff"),
+            tr(
+                "{reason}\n\nEinmalig im Terminal ausführen:\n\n    {command}"
+            ).format(
+                reason=access.reason_no_prompt(), command=access.manual_command()
+            ),
             selectable=True,
         )
 
@@ -1140,19 +1286,23 @@ class MainWindow(QMainWindow):
             show_message(
                 self,
                 "info",
-                "USB suchen",
-                "Kein USB-Drucker gefunden. Kabel und Strom prüfen.",
+                tr("USB suchen"),
+                tr("Kein USB-Drucker gefunden. Kabel und Strom prüfen."),
             )
             return
         if len(devices) == 1:
             # Bei einem einzigen Geraet ist die Wahl klar - gleich uebernehmen.
             self._media_panel.select_usb_device(devices[0])
             self.statusBar().showMessage(
-                f"USB-Drucker übernommen: {devices[0]}", 8000
+                tr("USB-Drucker übernommen: {device}").format(device=devices[0]),
+                8000,
             )
             return
         self.statusBar().showMessage(
-            f"{len(devices)} USB-Drucker gefunden – bitte in der Liste wählen.", 8000
+            tr("{count} USB-Drucker gefunden").format(count=len(devices))
+            + " – "
+            + tr("bitte in der Liste wählen."),
+            8000,
         )
 
     def _on_detect_label(self) -> None:
@@ -1162,7 +1312,12 @@ class MainWindow(QMainWindow):
             label = detect_label(config)
         except Exception as exc:  # pragma: no cover - defensiv
             QApplication.restoreOverrideCursor()
-            show_message(self, "warning", "Band erkennen", f"Abfrage fehlgeschlagen:\n{exc}")
+            show_message(
+                self,
+                "warning",
+                tr("Band erkennen"),
+                tr("Abfrage fehlgeschlagen:\n{error}").format(error=exc),
+            )
             return
         finally:
             QApplication.restoreOverrideCursor()
@@ -1171,26 +1326,34 @@ class MainWindow(QMainWindow):
             # also nur noch die Frage, ob die Rechte fehlen oder das Band
             # nicht gemeldet wurde.
             if self._media_panel.access_allowed is False:
-                reason = (
+                reason = tr(
                     "Kein Zugriff auf den USB-Drucker.\n"
                     "Im Panel unter „Drucker“: „Zugriff einrichten“."
                 )
             else:
-                reason = "Kein Band gemeldet. Bitte von Hand wählen."
-            show_message(self, "info", "Band erkennen", reason)
+                reason = tr("Kein Band gemeldet. Bitte von Hand wählen.")
+            show_message(self, "info", tr("Band erkennen"), reason)
             return
         if self._media_panel.select_label(label.identifier):
-            self.statusBar().showMessage(f"Band erkannt: {label.display_name}", 8000)
+            self.statusBar().showMessage(
+                tr("Band erkannt: {name}").format(name=label.display_name), 8000
+            )
 
     def _show_about(self) -> None:
         show_message(
             self,
             "info",
-            "Über QLInux",
-            "QLInux - P-touch-Editor-Klon für Brother QL-820NWB\n\n"
-            f"Band- und Modellmaße: {len(media.all_labels())} Bänder / "
-            f"{len(media.all_models())} Modelle (dynamisch aus brother_ql)\n"
-            f"Auflösung: {media.DPI} dpi",
+            tr("Über QLInux"),
+            tr(
+                "QLInux - P-touch-Editor-Klon für Brother QL-820NWB\n\n"
+                "Band- und Modellmaße: {labels} Bänder / {models} Modelle "
+                "(dynamisch aus brother_ql)\n"
+                "Auflösung: {dpi} dpi"
+            ).format(
+                labels=len(media.all_labels()),
+                models=len(media.all_models()),
+                dpi=media.DPI,
+            ),
         )
 
     # -------------------------------------------------------------- Close ---
@@ -1210,11 +1373,22 @@ class MainWindow(QMainWindow):
         super().closeEvent(event)
 
 
+def _system_language() -> str:
+    """Erststart: die Systemsprache, wenn wir sie anbieten - sonst Deutsch."""
+    code = QLocale.system().name().split("_")[0].lower()
+    return code if code in LANGUAGES else DEFAULT_LANGUAGE
+
+
 def main(argv: list[str] | None = None) -> int:
     argv = list(sys.argv if argv is None else argv)
     app = QApplication.instance() or QApplication(argv)
     app.setApplicationName("QLInux")
-    window = MainWindow()
+    settings = AppSettings()
+    set_language(settings.language or _system_language())
+    # Zahlen (Dezimaltrennzeichen) folgen der Sprache - auch in Spinboxen.
+    QLocale.setDefault(QLocale(language()))
+    window = MainWindow(settings)
+    _remember_window(window)
     window.show()
     return app.exec()
 

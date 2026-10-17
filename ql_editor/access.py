@@ -19,6 +19,8 @@ from __future__ import annotations
 from pathlib import Path
 import shutil
 
+from .i18n import tr
+
 #: Ablage der Regel, die der Helfer schreibt (gilt fuer alle Benutzer).
 UDEV_RULE_FILE = "/etc/udev/rules.d/99-brother-ql.rules"
 
@@ -103,11 +105,11 @@ def auth_agent_running(*, proc_root: str = "/proc") -> bool:
 def reason_no_prompt() -> str:
     """Warum kein Passwort-Dialog gestartet wird (fuer die Meldung)."""
     if helper_path() is None:
-        return "Der Helfer für die udev-Regel fehlt."
+        return tr("Der Helfer für die udev-Regel fehlt.")
     if pkexec_path() is None:
-        return "pkexec (polkit) ist nicht installiert."
+        return tr("pkexec (polkit) ist nicht installiert.")
     if not auth_agent_running():
-        return "Kein Passwort-Dialog (polkit-Agent) vorhanden."
+        return tr("Kein Passwort-Dialog (polkit-Agent) vorhanden.")
     return ""
 
 
@@ -123,17 +125,21 @@ def describe_failure(returncode: int, stderr: str = "") -> str:
     """Exit-Code/stderr von pkexec in einen Satz uebersetzen, der weiterhilft."""
     text = (stderr or "").strip()
     if returncode == PKEXEC_DISMISSED:
-        return "Abgebrochen."
+        return tr("Abgebrochen.")
     if returncode == PKEXEC_FAILED:
         if "agent" in text.lower():
-            return (
+            return tr(
                 "Kein Passwort-Dialog (polkit-Agent) vorhanden.\n\n"
-                f"Einmalig im Terminal:\n\n    {manual_command()}"
-            )
-        return f"Einrichten fehlgeschlagen:\n\n{text or 'unbekannter Fehler'}"
+                "Einmalig im Terminal:\n\n    {command}"
+            ).format(command=manual_command())
+        return tr("Einrichten fehlgeschlagen:\n\n{error}").format(
+            error=text or tr("unbekannter Fehler")
+        )
     if text:
-        return f"Einrichten fehlgeschlagen (Code {returncode}):\n\n{text}"
-    return f"Einrichten fehlgeschlagen (Code {returncode})."
+        return tr("Einrichten fehlgeschlagen (Code {code}):\n\n{error}").format(
+            code=returncode, error=text
+        )
+    return tr("Einrichten fehlgeschlagen (Code {code}).").format(code=returncode)
 
 
 def failure_hint(message: str) -> str | None:
@@ -141,7 +147,7 @@ def failure_hint(message: str) -> str | None:
     lowered = (message or "").lower()
     if "permission denied" not in lowered and "access denied" not in lowered:
         return None
-    return (
+    return tr(
         "Fehlende Rechte am USB-Drucker.\n"
         "Im Panel unter „Drucker“: „Zugriff einrichten“."
     )

@@ -185,7 +185,7 @@ def test_media_panel_usb_switch_finds_and_applies_the_device(qapp, monkeypatch):
 
 def test_media_panel_usb_placeholder_is_not_an_address(qapp, monkeypatch):
     from ql_editor import media_panel as media_panel_module
-    from ql_editor.media_panel import CONNECTION_USB, MediaPanel, USB_PLACEHOLDER
+    from ql_editor.media_panel import CONNECTION_USB, MediaPanel, usb_placeholder
 
     monkeypatch.setattr(
         media_panel_module,
@@ -196,7 +196,7 @@ def test_media_panel_usb_placeholder_is_not_an_address(qapp, monkeypatch):
 
     panel._conn_buttons[CONNECTION_USB].setChecked(True)
 
-    assert panel._usb_combo.currentText() == USB_PLACEHOLDER
+    assert panel._usb_combo.currentText() == usb_placeholder()
     assert panel.address() == ""
 
 
@@ -2569,3 +2569,186 @@ def test_fresh_settings_use_the_standard_resolution(qapp, tmp_path):
     raw = QSettings(str(tmp_path / "fresh.ini"), QSettings.Format.IniFormat)
     assert AppSettings(raw).print_resolution == RESOLUTION_STANDARD.key
     assert AppSettings(raw).hq is True
+
+
+# --------------------------------------------------------------------------- #
+# Sprachumschaltung (DE/EN)
+# --------------------------------------------------------------------------- #
+def test_media_panel_state_round_trip(qapp):
+    """Der Bedienzustand laesst sich sichern und wiederherstellen."""
+    from ql_editor.media import LengthMode, Orientation
+    from ql_editor.media_panel import MediaPanel
+
+    panel = MediaPanel()
+    panel._auto_check.setChecked(False)
+    panel._length_spin.setValue(66.5)
+    panel._mode_combo.setCurrentIndex(
+        panel._mode_combo.findData(LengthMode.CONTENT.value)
+    )
+    panel._margin_spins["top"].setValue(3.5)
+    panel._margin_spins["left"].setValue(2.5)
+    panel.set_orientation(Orientation.ALONG)
+    state = panel.state()
+
+    other = MediaPanel()
+    other.apply_state(state)
+    assert other.auto_length() is False
+    assert other.length_mm() == pytest.approx(66.5)
+    assert other.length_mode() is LengthMode.CONTENT
+    assert other.margins().top == pytest.approx(3.5)
+    assert other.margins().left == pytest.approx(2.5)
+    assert other.orientation() is Orientation.ALONG
+    assert other.model_id() == panel.model_id()
+    assert other.label_id() == panel.label_id()
+
+
+def test_language_switch_keeps_content_and_media(qapp, tmp_path):
+    """DE -> EN: neues Fenster mit englischen Texten, Inhalt bleibt."""
+    from ql_editor import app as app_module, i18n
+    from ql_editor.items import TextItem
+    from ql_editor.media import Orientation
+
+    win = _temp_window(qapp, tmp_path)
+    win._canvas.add_item(TextItem("Hallo", font_pixel_size=24))
+    win._media_panel.set_orientation(Orientation.ALONG)
+    win._media_panel._auto_check.setChecked(False)
+    win._media_panel._length_spin.setValue(55.0)
+
+    win.switch_language("en")
+    qapp.processEvents()
+
+    new = app_module._current_window
+    assert new is not win
+    assert i18n.language() == "en"
+    assert new._settings.language == "en"
+    # Englische Oberflaeche ...
+    assert new._act_about.text() == "About QLInux"
+    assert new._media_panel._auto_check.text() == "Auto length (content)"
+    assert new._left_panel._title == "Label & printer"
+    # ... bei unveraendertem Inhalt und unveraenderter Bandauswahl.
+    assert len(new._canvas.items_serialized()) == 1
+    assert new._media_panel.orientation() is Orientation.ALONG
+    assert new._media_panel.auto_length() is False
+    assert new._media_panel.length_mm() == pytest.approx(55.0)
+
+    new.close()
+    qapp.processEvents()
+
+
+def test_language_switch_is_offered_in_the_menu(qapp, tmp_path):
+    """Die Sprachwahl sitzt im Hamburger-Menue und ist angehakt."""
+    win = _temp_window(qapp, tmp_path)
+    menu = win._menu_button.menu()
+    submenu = next(
+        action.menu() for action in menu.actions() if action.menu() is not None
+    )
+    assert submenu.title() == "Sprache"
+    labels = {action.text(): action.isChecked() for action in submenu.actions()}
+    assert labels == {"Deutsch": True, "English": False}
+    win.close()
+
+
+def test_english_ui_has_no_german_leftovers(qapp, tmp_path):
+    """Die englische Oberflaeche ist wirklich durchgehend englisch.
+
+    Geprueft werden alle sichtbaren Texte (Beschriftungen, Knoepfe, Listen,
+    Tooltips, Aktionen) - deutsche Umlaute und die deutschen Anfuehrungszeichen
+    verraten jeden vergessenen Text.
+    """
+    from PySide6.QtCore import QPointF, QSettings
+    from PySide6.QtWidgets import (
+        QCheckBox,
+        QComboBox,
+        QGroupBox,
+        QLabel,
+        QLineEdit,
+        QPushButton,
+        QToolButton,
+        QWidget,
+    )
+
+    from PySide6.QtCore import QRectF
+    from PIL import Image
+
+    from ql_editor import i18n
+    from ql_editor.app import MainWindow
+    from ql_editor.items import (
+        BarcodeItem,
+        ImageItem,
+        LineItem,
+        QRItem,
+        RectItem,
+        TextItem,
+    )
+    from ql_editor.settings import AppSettings
+    from ql_editor.translations import EN
+
+    german_only = ("ä", "ö", "ü", "ß", "Ä", "Ö", "Ü", "„")
+    i18n.set_language("en")
+    settings = AppSettings(
+        QSettings(str(tmp_path / "settings.ini"), QSettings.Format.IniFormat)
+    )
+    win = MainWindow(settings)
+    # Inspector und Kontextmenue entstehen erst bei Bedarf - mit pruefen.
+    picture = tmp_path / "probe.png"
+    Image.new("RGB", (32, 32), "white").save(picture)
+    items = [
+        TextItem("Hallo", font_pixel_size=24),
+        BarcodeItem("ABC-123", "code128", height_dots=60),
+        QRItem("https://example.org", size_dots=90),
+        LineItem(0, 0, 80, 0, width_px=3),
+        RectItem(QRectF(0, 0, 80, 40)),
+        ImageItem.from_file(str(picture)),
+    ]
+    for item in items:
+        win._canvas.add_item(item)
+    win._canvas.scene().items()[0].setSelected(True)
+    qapp.processEvents()
+
+    texts: list[str] = []
+
+    def collect(widget: QWidget) -> None:
+        if isinstance(widget, QLabel):
+            texts.append(widget.text())
+        if isinstance(widget, (QPushButton, QToolButton, QCheckBox)):
+            texts.append(widget.text())
+        if isinstance(widget, QGroupBox):
+            texts.append(widget.title())
+        if isinstance(widget, QComboBox):
+            texts.extend(
+                widget.itemText(index) for index in range(widget.count())
+            )
+        if isinstance(widget, QLineEdit):
+            texts.append(widget.placeholderText())
+        texts.append(widget.toolTip())
+
+    for widget in win.findChildren(QWidget):
+        collect(widget)
+    for action in win._menu_button.menu().actions():
+        texts.append(action.text())
+        texts.append(action.toolTip())
+        if action.menu() is not None:
+            texts.extend(entry.text() for entry in action.menu().actions())
+    for action in win._build_context_menu(QPointF(10, 10)).actions():
+        texts.append(action.text())
+
+    # Jede Objektart einmal in den Inspector legen (Titel + Feldnamen).
+    for item in items:
+        win._inspector.set_item(item, allow_red=True)
+        qapp.processEvents()
+        for widget in win._inspector.findChildren(QWidget):
+            collect(widget)
+
+    # Alles, was noch genauso heisst wie der deutsche Originaltext, ist
+    # unuebersetzt - ebenso alles mit deutschen Umlauten/Anfuehrungszeichen.
+    untranslated = set(EN) - {key for key, value in EN.items() if key == value}
+    leftovers = sorted(
+        {
+            text
+            for text in texts
+            if text in untranslated or any(ch in text for ch in german_only)
+        }
+    )
+    assert not leftovers, f"Noch deutsch: {leftovers}"
+    win.close()
+    qapp.processEvents()

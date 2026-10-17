@@ -42,6 +42,8 @@ from PySide6.QtWidgets import (
     QStyleOptionGraphicsItem,
 )
 
+from .i18n import tr
+
 # --------------------------------------------------------------------------- #
 # Hilfsfunktionen
 # --------------------------------------------------------------------------- #
@@ -369,7 +371,7 @@ class ImageItem(_ClampMixin, QGraphicsPixmapItem):
     def from_file(cls, path: str) -> "ImageItem":
         pixmap = QPixmap(path)
         if pixmap.isNull():
-            raise ValueError(f"Bild konnte nicht geladen werden: {path}")
+            raise ValueError(tr("Bild konnte nicht geladen werden: {path}").format(path=path))
         item = cls(pixmap)
         item._source_path = path
         return item
@@ -500,7 +502,11 @@ class BarcodeItem(_ClampMixin, QGraphicsPixmapItem):
         try:
             img = make_barcode_image(self._value, self._symbology, write_text=self._show_text)
         except Exception as exc:  # ungueltiger Inhalt fuer die Symbologie
-            raise ValueError(f"Barcode '{self._value}' ({self._symbology}): {exc}") from exc
+            raise ValueError(
+                tr("Barcode '{value}' ({symbology}): {error}").format(
+                    value=self._value, symbology=self._symbology, error=exc
+                )
+            ) from exc
         pixmap = pil_to_qpixmap(img)
         if pixmap.height() > 0:
             pixmap = pixmap.scaledToHeight(self._height_dots, Qt.TransformationMode.SmoothTransformation)
@@ -658,7 +664,7 @@ def item_from_dict(d: dict[str, Any]) -> QGraphicsItem:
     """Erzeuge ein Item aus seiner Serialisierung."""
     kind = d.get("type")
     if kind not in ITEM_TYPES:
-        raise ValueError(f"Unbekannter Item-Typ: {kind!r}")
+        raise ValueError(tr("Unbekannter Item-Typ: {kind!r}").format(kind=kind))
     return ITEM_TYPES[kind].from_dict(d)
 
 

@@ -26,6 +26,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from .i18n import tr
 from .media import dots_to_mm, mm_to_dots
 from .widgets import install_wheel_guard_recursive
 
@@ -46,7 +47,7 @@ class InspectorPanel(QWidget):
         self._root = QVBoxLayout(self)
         self._root.setContentsMargins(8, 8, 8, 8)
         self._root.setSpacing(6)
-        self._title = QLabel("Nichts ausgewählt")
+        self._title = QLabel(tr("Nichts ausgewählt"))
         self._title.setStyleSheet("font-weight:600; color:#333;")
         self._root.addWidget(self._title)
         self._root.addStretch(1)
@@ -74,12 +75,13 @@ class InspectorPanel(QWidget):
         self._clear_body()
         item = self._item
         if item is None:
-            self._title.setText("Nichts ausgewählt")
+            self._title.setText(tr("Nichts ausgewählt"))
             self._root.addStretch(1)
             return
 
         kind = getattr(item, "kind", "?")
-        self._title.setText(_KIND_TITLES.get(kind, "Objekt"))
+        title = _KIND_TITLES.get(kind)
+        self._title.setText(tr(title) if title else tr("Objekt"))
 
         body = QWidget()
         form = QFormLayout(body)
@@ -108,52 +110,52 @@ class InspectorPanel(QWidget):
         edit = QPlainTextEdit(item.text_value)
         edit.setFixedHeight(64)
         edit.textChanged.connect(lambda: self._apply(lambda: item.set_text_value(edit.toPlainText())))
-        form.addRow("Text", edit)
+        form.addRow(tr("Text"), edit)
 
         family = QFontComboBox()
         family.setCurrentFont(QFont(item.font_family))
         family.currentFontChanged.connect(lambda f: self._apply(lambda: item.set_font_family(f.family())))
-        form.addRow("Schrift", family)
+        form.addRow(tr("Schrift"), family)
 
         size = QSpinBox()
         size.setRange(4, 2000)
         size.setValue(item.font_pixel_size)
         size.valueChanged.connect(lambda v: self._apply(lambda: item.set_font_pixel_size(v)))
-        form.addRow("Größe (px)", size)
+        form.addRow(tr("Größe (px)"), size)
 
-        bold = QCheckBox("Fett")
+        bold = QCheckBox(tr("Fett"))
         bold.setChecked(item.bold)
         bold.toggled.connect(lambda v: self._apply(lambda: item.set_bold(v)))
         form.addRow("", bold)
 
-        italic = QCheckBox("Kursiv")
+        italic = QCheckBox(tr("Kursiv"))
         italic.setChecked(item.italic)
         italic.toggled.connect(lambda v: self._apply(lambda: item.set_italic(v)))
         form.addRow("", italic)
 
         color = QComboBox()
-        color.addItem("schwarz", "black")
-        color.addItem("rot", "red")
+        color.addItem(tr("schwarz"), "black")
+        color.addItem(tr("rot"), "red")
         color.setCurrentIndex(0 if item.color == "black" else 1)
         color.setEnabled(self._allow_red)
         color.currentIndexChanged.connect(lambda: self._apply(lambda: item.set_text_color(color.currentData())))
-        form.addRow("Farbe", color)
+        form.addRow(tr("Farbe"), color)
 
     def _build_qr(self, item, form: QFormLayout) -> None:
         data = QLineEdit(item._data)
         data.editingFinished.connect(lambda: self._apply(lambda: item.set_data(data.text())))
-        form.addRow("Inhalt", data)
+        form.addRow(tr("Inhalt"), data)
 
         size = QSpinBox()
         size.setRange(20, 4000)
         size.setValue(item._size_dots)
         size.valueChanged.connect(lambda v: self._apply(lambda: item.set_size_dots(v)))
-        form.addRow("Größe (Dots)", size)
+        form.addRow(tr("Größe (Dots)"), size)
 
     def _build_barcode(self, item, form: QFormLayout) -> None:
         value = QLineEdit(item.value)
         value.editingFinished.connect(lambda: self._guard(item, lambda: item.set_value(value.text())))
-        form.addRow("Inhalt", value)
+        form.addRow(tr("Inhalt"), value)
 
         sym = QComboBox()
         for name in BARCODE_SYMBOLOGIES:
@@ -161,9 +163,9 @@ class InspectorPanel(QWidget):
         idx = sym.findData(item.symbology)
         sym.setCurrentIndex(idx if idx >= 0 else 0)
         sym.currentIndexChanged.connect(lambda: self._guard(item, lambda: item.set_symbology(sym.currentData())))
-        form.addRow("Symbologie", sym)
+        form.addRow(tr("Symbologie"), sym)
 
-        show_text = QCheckBox("Klartext")
+        show_text = QCheckBox(tr("Klartext"))
         show_text.setChecked(item._show_text)
         show_text.toggled.connect(lambda v: self._guard(item, lambda: item.set_show_text(v)))
         form.addRow("", show_text)
@@ -172,7 +174,7 @@ class InspectorPanel(QWidget):
         height.setRange(20, 2000)
         height.setValue(item._height_dots)
         height.valueChanged.connect(lambda v: self._guard(item, lambda: item.set_height_dots(v)))
-        form.addRow("Höhe (Dots)", height)
+        form.addRow(tr("Höhe (Dots)"), height)
 
     def _build_image(self, item, form: QFormLayout) -> None:
         """Groesse in Millimetern (statt Prozent der Originalpixel).
@@ -223,8 +225,8 @@ class InspectorPanel(QWidget):
 
         width.valueChanged.connect(resize_width)
         height.valueChanged.connect(resize_height)
-        form.addRow("Breite", width)
-        form.addRow("Höhe", height)
+        form.addRow(tr("Breite"), width)
+        form.addRow(tr("Höhe"), height)
 
     @staticmethod
     def _image_size(item) -> tuple[float, float]:
@@ -238,7 +240,7 @@ class InspectorPanel(QWidget):
         width.setSuffix(" px")
         width.setValue(item._width_px)
         width.valueChanged.connect(lambda v: self._apply(lambda: item.set_line_width(v)))
-        form.addRow("Linienbreite", width)
+        form.addRow(tr("Linienbreite"), width)
 
     def _build_rect(self, item, form: QFormLayout) -> None:
         width = QDoubleSpinBox()
@@ -246,9 +248,9 @@ class InspectorPanel(QWidget):
         width.setSuffix(" px")
         width.setValue(item._width_px)
         width.valueChanged.connect(lambda v: self._apply(lambda: item.set_line_width(v)))
-        form.addRow("Linienbreite", width)
+        form.addRow(tr("Linienbreite"), width)
 
-        filled = QCheckBox("Gefüllt")
+        filled = QCheckBox(tr("Gefüllt"))
         filled.setChecked(item._filled)
         filled.toggled.connect(lambda v: self._apply(lambda: item.set_filled(v)))
         form.addRow("", filled)
@@ -260,20 +262,20 @@ class InspectorPanel(QWidget):
         x.setRange(-10000, 10000)
         x.setValue(int(pos.x()))
         x.valueChanged.connect(lambda v: self._apply(lambda: item.setPos(v, item.pos().y())))
-        form.addRow("X (Dots)", x)
+        form.addRow(tr("X (Dots)"), x)
 
         y = QSpinBox()
         y.setRange(-10000, 10000)
         y.setValue(int(pos.y()))
         y.valueChanged.connect(lambda v: self._apply(lambda: item.setPos(item.pos().x(), v)))
-        form.addRow("Y (Dots)", y)
+        form.addRow(tr("Y (Dots)"), y)
 
         rot = QSpinBox()
         rot.setRange(-180, 180)
         rot.setSuffix(" °")
         rot.setValue(int(item.rotation()))
         rot.valueChanged.connect(lambda v: self._apply(lambda: item.setRotation(v)))
-        form.addRow("Drehung", rot)
+        form.addRow(tr("Drehung"), rot)
 
     # -- Helpers ------------------------------------------------------------
     def _apply(self, action) -> None:

@@ -20,6 +20,7 @@ Kein Browser-Tool, kein WebUSB.
 | M3.13 | USB: Backend aus Adresse, Gerätesuche, Modell aus USB-Kennung, Rechtelage dokumentiert | ✅ |
 | M3.14 | Druckerauswahl ohne Adress-Kenntnisse: Anschluss Netzwerk/USB, nur IP bzw. Geräteliste | ✅ |
 | M3.15 | USB-Rechte: udev-Regel (`uaccess`), Hinweis + „Zugriff einrichten“ im Panel, Helfer für die Installation | ✅ |
+| M3.16 | Zweisprachig DE/EN: Texte in `i18n`/`translations`, Umschalter im Menü, Oberfläche wird neu aufgebaut | ✅ |
 | M4 | Vorlagen, Settings, `.deb`-Paket | ⏳ |
 
 ## Architektur
@@ -29,6 +30,8 @@ Klare Schichtentrennung UI ↔ Rendering ↔ Druck:
 ```
 ql_editor/
   media.py       # Datenmodell (Baender, Modelle, Laenge/Ausrichtung) — kein Qt
+  i18n.py        # Sprachumschaltung DE/EN (Quellsprache Deutsch) — kein Qt (M3.16)
+  translations.py# englische Texte (Schluessel = deutscher Originaltext) (M3.16)
   renderer.py    # Szene -> PIL.Image exakter Breite       (M2)
   printer.py     # brother_ql-Wrapper (convert + send)     (M2)
   access.py      # USB-Rechte: udev-Regel, pkexec, Helfer   (M3.15)
@@ -204,11 +207,30 @@ externen Icon-Dateien.
 
 Eine **klassische Menüleiste gibt es nicht**. Alle Befehle liegen in einem
 **Hamburger-Menü** (`main_menu_button`, links in der Toolbar): ein flaches
-Menü mit Abschnittsüberschriften (Einfügen / Bearbeiten / Ansicht / Drucken),
-Icons und Shortcuts. Hintergrund: Unter Linux/Wayland gibt es (anders als unter
-macOS) keinen globalen Menübalken; ein Menü-Knopf in der Toolbar ist dort die
-übliche, moderne Lösung. Die Einträge teilen sich die `QAction`s mit der
-Toolbar, bleiben also immer synchron.
+Menü mit Abschnittsüberschriften (Einfügen / Bearbeiten / Etikett / Ansicht /
+Drucken), Icons und Shortcuts. Hintergrund: Unter Linux/Wayland gibt es (anders
+als unter macOS) keinen globalen Menübalken; ein Menü-Knopf in der Toolbar ist
+dort die übliche, moderne Lösung. Die Einträge teilen sich die `QAction`s mit
+der Toolbar, bleiben also immer synchron.
+
+### Sprache (Deutsch / Englisch)
+Die Oberfläche gibt es in **Deutsch und Englisch**, umschaltbar im
+Hamburger-Menü unter *Sprache* (Untermenü mit „Deutsch“ / „English“). Beim
+ersten Start richtet sie sich nach der Systemsprache, danach nach der
+gespeicherten Wahl (`ui/language`).
+
+Deutsch ist die **Quellsprache**: der deutsche Text ist der Schlüssel in
+`ql_editor/translations.py`. Fehlt ein Eintrag, bleibt der deutsche Text
+stehen - es bricht also nichts. Zwei Tests halten das zusammen: jeder
+`tr(...)`-Text im Quelltext muss einen englischen Eintrag haben (mit gleichen
+Platzhaltern), und in der englischen Oberfläche darf kein deutscher Text
+übrig bleiben.
+
+Umgestellt wird durch einen **Neuaufbau der Oberfläche** (neues Fenster mit
+übernommenem Inhalt): so kommen auch Formularbeschriftungen, Listen und
+Tooltips mit, ohne dass jede Stelle einzeln nachgeführt werden muss. Der
+Etikettinhalt, die Bandauswahl, die Margins, die Druckoptionen und die
+Panel-Sichtbarkeit bleiben dabei erhalten.
 
 * **Doppelklick ins Leere** legt ein Textfeld an und startet die Bearbeitung -
   **leer und ohne Markierung**: der Cursor blinkt, getippt wird sofort der

@@ -19,6 +19,7 @@ from PIL import Image
 from PySide6.QtCore import QRectF, Qt
 from PySide6.QtGui import QImage, QPainter
 
+from .i18n import tr
 from .media import DPI, LabelSpec
 
 # QImage/QPainter erwarten Dots-per-Meter; 300 dpi = 300 / 0.0254 * 1000.
@@ -45,7 +46,7 @@ def qimage_to_pil(qimage: QImage) -> Image.Image:
     Beruecksichtigt die Zeilen-Ausrichtung (``bytesPerLine``) korrekt.
     """
     if qimage.isNull():
-        raise RenderError("QImage ist leer (isNull).")
+        raise RenderError(tr("QImage ist leer (isNull)."))
     rgb = qimage.convertToFormat(QImage.Format.Format_RGB888)
     width, height = rgb.width(), rgb.height()
     stride = rgb.bytesPerLine()
@@ -82,7 +83,9 @@ def render_scene_to_image(
     """
     if width_dots <= 0 or height_dots <= 0:
         raise RenderError(
-            f"Ungueltige Canvas-Groesse: {width_dots} x {height_dots} Dots."
+            tr("Ungueltige Canvas-Groesse: {width} x {height} Dots.").format(
+                width=width_dots, height=height_dots
+            )
         )
 
     image = QImage(width_dots, height_dots, QImage.Format.Format_RGB32)
@@ -98,7 +101,7 @@ def render_scene_to_image(
             painter.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform, True)
         source = scene.sceneRect()
         if source.isNull() or source.width() <= 0 or source.height() <= 0:
-            raise RenderError("sceneRect der Szene ist leer oder ungueltig.")
+            raise RenderError(tr("sceneRect der Szene ist leer oder ungueltig."))
         target = QRectF(0, 0, width_dots, height_dots)
         scene.render(painter, target, source)
     finally:
@@ -124,9 +127,16 @@ def assert_exact_label_width(
     expected = label.width_dots * scale
     if image.width != expected:
         raise RenderError(
-            f"Bildbreite {image.width} px entspricht nicht der Bandbreite "
-            f"{expected} px (Band {label.identifier!r}, Faktor {scale}). Das "
-            f"wuerde brother_ql zum Resize zwingen."
+            tr(
+                "Bildbreite {width} px entspricht nicht der Bandbreite "
+                "{expected} px (Band {label!r}, Faktor {scale}). Das "
+                "wuerde brother_ql zum Resize zwingen."
+            ).format(
+                width=image.width,
+                expected=expected,
+                label=label.identifier,
+                scale=scale,
+            )
         )
 
 

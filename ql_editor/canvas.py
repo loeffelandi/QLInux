@@ -37,7 +37,7 @@ from contextlib import contextmanager
 from typing import Any, Iterator
 
 from PySide6.QtCore import QPoint, QPointF, QRectF, Qt, Signal
-from PySide6.QtGui import QBrush, QColor, QFont, QImage, QPainter, QPen, QPolygonF
+from PySide6.QtGui import QBrush, QColor, QFont, QImage, QPainter, QPen
 from PySide6.QtWidgets import QGraphicsScene, QGraphicsView, QWidget
 from PIL import Image
 

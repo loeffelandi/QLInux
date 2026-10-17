@@ -25,3 +25,13 @@ def qapp():
 
     app = QApplication.instance() or QApplication([])
     yield app
+
+
+@pytest.fixture(autouse=True)
+def _source_language():
+    """Die Oberflaechensprache ist global - jeder Test startet auf Deutsch."""
+    from ql_editor import i18n
+
+    i18n.set_language(i18n.DEFAULT_LANGUAGE)
+    yield
+    i18n.set_language(i18n.DEFAULT_LANGUAGE)
