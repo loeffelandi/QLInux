@@ -126,6 +126,9 @@ class MediaPanel(QWidget):
         # Zuletzt gefundene Netzwerk-Drucker und ob gerade gesucht wird.
         self._network_found: list[NetworkPrinter] = []
         self._network_searching = False
+        # Ob ueberhaupt schon einmal gesucht wurde - nur dann heisst eine leere
+        # Liste "nichts gefunden" statt "noch nicht gesucht".
+        self._network_searched = False
         # IP/Name des Netzwerkdruckers. Normalerweise kommt er aus der Suche;
         # von Hand eingetragen wird er nur ueber den Listeneintrag "Per
         # IP-Adresse hinzufügen…" (siehe _ask_network_host).
@@ -730,6 +733,7 @@ class MediaPanel(QWidget):
             self._adjusting = False
         self._apply_model_for_address(address)
         self._sync_connection_rows()
+        self._sync_network_hint()
         self.changed.emit()
 
     def refresh_usb_devices(self, devices: list[str] | None = None) -> list[str]:
@@ -831,16 +835,19 @@ class MediaPanel(QWidget):
                 logger.info("Netzwerksuche fehlgeschlagen: %s", exc)
                 printers = []
         self._network_found = list(printers)
+        self._network_searched = True
         self._rebuild_network_list()
-        self._sync_network_hint(len(self._network_found))
-        if not self.address() and len(self._network_found) == 1:
-            self._apply_network_selection()
+        if not self._network_host and len(self._network_found) == 1:
+            # Genau ein Treffer: die Wahl ist klar. Ueber die Adresse gehen -
+            # in der Liste steht bewusst nichts vorausgewaehlt.
+            self.set_network_host(self._network_found[0].host)
         else:
             # Auch ohne neue Auswahl zieht das Modell nach: es stand beim Start
             # eventuell falsch in den Einstellungen, und die Discovery weiss es
             # jetzt besser (am USB ist es umgekehrt, dort verraet es die
             # Geraetekennung).
             self._apply_network_model()
+        self._sync_network_hint()
         return list(self._network_found)
 
     def set_network_searching(self, searching: bool) -> None:
@@ -849,7 +856,7 @@ class MediaPanel(QWidget):
         self._net_button.setEnabled(not searching)
         self._sync_network_hint()
 
-    def _sync_network_hint(self, found: int | None = None) -> None:
+    def _sync_network_hint(self) -> None:
         """Statuszeile der Netzwerk-Seite: Suche, Ergebnis - sonst leer.
 
         Die Port-Angabe steht dort, wo sie gebraucht wird: in der IP-Abfrage
@@ -857,8 +864,12 @@ class MediaPanel(QWidget):
         """
         if self._network_searching:
             text = tr("Suche läuft …")
-        elif found == 0:
+        elif self._network_searched and not self._network_found:
             text = tr("Kein Drucker gefunden.")
+        elif not self._network_host:
+            # Erster Start (keine Adresse gespeichert): der Weg steht daneben -
+            # das Suchsymbol fuellt die Liste.
+            text = tr("Kein Drucker gewählt.")
         else:
             text = ""
         self._net_hint.setText(text)
@@ -894,8 +905,9 @@ class MediaPanel(QWidget):
                 self._net_combo.setItemData(
                     index, current, Qt.ItemDataRole.ToolTipRole
                 )
-            elif index < 0 and self._net_combo.count():
-                index = 0
+            # Ohne Adresse bleibt die Auswahl leer: der Platzhalter sagt, dass
+            # noch nichts gewaehlt ist. Einfach den ersten Eintrag zu zeigen
+            # waere gelogen - er waere nicht die eingestellte Adresse.
             add_index = self._net_combo.count()
             self._net_combo.addItem(
                 tr("Per IP-Adresse hinzufügen…"), NET_ADD_ENTRY
@@ -919,6 +931,7 @@ class MediaPanel(QWidget):
             self._network_host = network_host(address)
         self._apply_network_model()
         self._sync_connection_rows()
+        self._sync_network_hint()
         self.changed.emit()
 
     def _ask_network_host(self) -> None:
@@ -955,6 +968,7 @@ class MediaPanel(QWidget):
         self._rebuild_network_list()
         self._apply_network_model()
         self._sync_connection_rows()
+        self._sync_network_hint()
         self.changed.emit()
 
     def _apply_network_model(self) -> bool:

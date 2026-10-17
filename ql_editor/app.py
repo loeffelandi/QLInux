@@ -403,7 +403,8 @@ class MainWindow(QMainWindow):
         self._cut_combo.setToolTip(
             tr("Nach jeder Kopie: einzelne Etiketten.\n"
                "Nur am Ende: die Kopien hängen zusammen und werden zuletzt "
-               "getrennt.\nNicht schneiden: der Streifen bleibt am Band.")
+               "getrennt - nur bei mehreren Kopien.\n"
+               "Nicht schneiden: der Streifen bleibt am Band.")
         )
         self._cut_label.setToolTip(self._cut_combo.toolTip())
 
@@ -439,10 +440,29 @@ class MainWindow(QMainWindow):
         self._resolution_combo.currentIndexChanged.connect(self._on_resolution_changed)
         self._threshold_spin.valueChanged.connect(self._schedule_refresh)
         self._dither_check.toggled.connect(self._on_dither_toggled)
+        self._copies_spin.valueChanged.connect(self._sync_cut_options)
         self._print_button.clicked.connect(self._on_print)
         self._hq_check.toggled.connect(self._on_hq_toggled)
         self._sync_resolution_options()
+        self._sync_cut_options()
         return widget
+
+    def _sync_cut_options(self) -> None:
+        """„Nur am Ende" gibt es nur bei mehreren Kopien.
+
+        Bei einer Kopie ist der Schnitt am Ende der Schnitt nach der Kopie -
+        die Wahl waere eine Scheinoption. Der Eintrag wird deshalb ausgegraut
+        statt versteckt: die Zeile bleibt stehen und das Panel springt nicht,
+        aber man sieht, dass er mehr als eine Kopie braucht.
+        """
+        several = self._copies_spin.value() > 1
+        item = self._cut_combo.model().item(self._cut_combo.findData(CUT_AT_END))
+        if item is not None:
+            item.setEnabled(several)
+        if not several and self._cut_combo.currentData() == CUT_AT_END:
+            # Gleiche Wirkung wie „Nach jeder Kopie": die Auswahl aufraeumen,
+            # damit in den Einstellungen steht, was wirklich passiert.
+            self._cut_combo.setCurrentIndex(self._cut_combo.findData(CUT_EACH))
 
     def _on_resolution_changed(self) -> None:
         """Aufloesung gewechselt: Hinweis aktualisieren und neu rendern.
@@ -811,6 +831,8 @@ class MainWindow(QMainWindow):
         cut_mode = self._cut_combo.findData(str(state.get("cut_mode") or CUT_EACH))
         if cut_mode >= 0:
             self._cut_combo.setCurrentIndex(cut_mode)
+        # Erst wenn beide Werte stehen: „Nur am Ende" haengt an der Kopienzahl.
+        self._sync_cut_options()
         self._canvas.load_items(list(state.get("items") or []))
         self._recompute_canvas()
         self._schedule_refresh()
@@ -865,6 +887,7 @@ class MainWindow(QMainWindow):
         index = self._cut_combo.findData(cut_mode)
         if index >= 0:
             self._cut_combo.setCurrentIndex(index)
+        self._sync_cut_options()
         self._schedule_refresh()
 
     # ---------------------------------------------------------- Media-Sync --

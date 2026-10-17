@@ -123,6 +123,7 @@ EN: dict[str, str] = {
     "Suche läuft …": "Searching …",
     "Netzwerk wird durchsucht …": "Searching the network …",
     "Kein Drucker gefunden.": "No printer found.",
+    "Kein Drucker gewählt.": "No printer selected.",
     "Abbrechen": "Cancel",
     "Öffnen": "Open",
     "Keine Netzwerk-Drucker gefunden.": "No network printers found.",
@@ -259,9 +260,10 @@ EN: dict[str, str] = {
     "Nach jeder Kopie": "After each copy",
     "Nur am Ende": "Only at the end",
     "Nicht schneiden": "Do not cut",
-    "Nach jeder Kopie: einzelne Etiketten.\nNur am Ende: die Kopien hängen zusammen und werden zuletzt getrennt.\nNicht schneiden: der Streifen bleibt am Band.": (
+    "Nach jeder Kopie: einzelne Etiketten.\nNur am Ende: die Kopien hängen zusammen und werden zuletzt getrennt - nur bei mehreren Kopien.\nNicht schneiden: der Streifen bleibt am Band.": (
         "After each copy: separate labels.\n"
-        "Only at the end: the copies stay together and are separated last.\n"
+        "Only at the end: the copies stay together and are separated last - "
+        "only with more than one copy.\n"
         "Do not cut: the strip stays attached to the tape."
     ),
     "Tinte: –": "Ink: –",

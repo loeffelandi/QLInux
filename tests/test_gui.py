@@ -363,7 +363,11 @@ def test_network_search_shows_its_state(qapp):
     from ql_editor.media_panel import MediaPanel
 
     panel = MediaPanel()
-    # Im Ruhezustand steht hier nichts - der Platz bleibt aber reserviert.
+    # Erster Start ohne Adresse: der Hinweis sagt, was zu tun ist. Sein Platz
+    # ist reserviert, damit die Kaesten darunter nicht springen.
+    assert panel._net_hint.text() == "Kein Drucker gewählt."
+
+    panel.set_network_host("192.168.178.62")
     assert panel._net_hint.text() == ""
 
     panel.set_network_searching(True)
@@ -2951,6 +2955,36 @@ def test_print_options_are_persisted(qapp, tmp_path):
     assert again._cut_combo.currentData() == CUT_AT_END
 
 
+def test_cut_at_end_needs_several_copies(qapp, tmp_path):
+    """„Nur am Ende" ist bei einer Kopie keine Option.
+
+    Eine Kopie am Ende zu schneiden ist dasselbe wie nach der Kopie zu
+    schneiden - der Eintrag wird ausgegraut (nicht versteckt, das Panel soll
+    nicht springen) und eine solche Auswahl faellt zurueck.
+    """
+    from ql_editor.printer import CUT_AT_END, CUT_EACH
+
+    win = _temp_window(qapp, tmp_path)
+    combo = win._cut_combo
+    index = combo.findData(CUT_AT_END)
+
+    assert combo.model().item(index).isEnabled() is False
+
+    win._copies_spin.setValue(3)
+
+    assert combo.model().item(index).isEnabled() is True
+
+    combo.setCurrentIndex(index)
+    assert combo.currentData() == CUT_AT_END
+
+    win._copies_spin.setValue(1)
+
+    assert combo.currentData() == CUT_EACH
+    assert combo.model().item(index).isEnabled() is False
+    win.close()
+    qapp.processEvents()
+
+
 def test_print_options_reach_the_print_job(qapp, tmp_path, monkeypatch):
     """Kopien und Zuschnitt kommen wirklich im Auftrag an (bis in die Schicht)."""
     from PySide6.QtCore import QObject, Signal
@@ -2974,6 +3008,8 @@ def test_print_options_reach_the_print_job(qapp, tmp_path, monkeypatch):
 
     monkeypatch.setattr(app_module, "PrintWorker", FakeWorker)
     win = _temp_window(qapp, tmp_path)
+    # Ohne Drucker gibt es keinen Auftrag - die Adresse hier bewusst setzen.
+    win._media_panel.set_network_host("192.168.178.62")
     win._copies_spin.setValue(3)
     win._cut_combo.setCurrentIndex(win._cut_combo.findData(CUT_AT_END))
     win._on_print()

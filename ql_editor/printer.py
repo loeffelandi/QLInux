@@ -35,8 +35,10 @@ logger = logging.getLogger(__name__)
 #: Standard-Druckport der Brother-Netzwerkdrucker (RAW/JetDirect).
 NETWORK_PORT = 9100
 
-#: Standard-Druckeradresse (aus den Settings ueberschreibbar).
-DEFAULT_ADDRESS = f"tcp://192.168.178.62:{NETWORK_PORT}"
+#: Standard-Druckeradresse: bewusst leer. Die App gibt keinen Drucker vor -
+#: eine fest eingebaute IP waere die des Entwicklers. Beim ersten Start sucht
+#: man im Panel (Suchsymbol) und die Auswahl landet in den Einstellungen.
+DEFAULT_ADDRESS = ""
 
 #: Status-Request-Kommando (ESC i S) - identisch zu ``add_status_information``.
 _STATUS_REQUEST = b"\x1b\x69\x53"
