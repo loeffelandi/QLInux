@@ -60,7 +60,29 @@ bash scripts/bootstrap_venv.sh     # creates .venv, installs pinned deps,
 .venv/bin/python -m ql_editor
 ```
 
-Prebuilt **`.deb` package and AppImage** are planned (milestone M4).
+One command builds a **single-file AppImage** (no installation, no root):
+see below. A `.deb` is not
+planned — PySide6 and `python-barcode` are not in the distribution archives, so
+a package would have to carry the whole Qt runtime anyway; the AppImage does
+exactly that, just without root.
+
+## AppImage
+
+```bash
+bash packaging/build_appimage.sh      # builds dist/QLInux-<version>-x86_64.AppImage
+./dist/QLInux-*-x86_64.AppImage       # start it
+```
+
+The build uses PyInstaller (`requirements-dev.txt`) and fetches `appimagetool`
+once into `packaging/.cache/` (not in the repository). What is bundled: the
+application plus its Python dependencies, including the Qt runtime. Excluded is
+what the app never uses — QtWebEngine, QML/Quick, Multimedia, SQL, Charts —
+otherwise the file would be several hundred megabytes larger.
+
+The icon comes from `packaging/make_icon.py`, the desktop entry from
+`packaging/ql-editor.desktop`: both are plain files in the repository, not
+generated blobs. Settings still live in `~/.config/QLInux/QLInux.conf`, so an
+AppImage and a source checkout share them.
 
 ## Getting started
 
@@ -126,7 +148,7 @@ Architecture and every measured printer detail (raster commands, cut commands,
 | M3.20–M3.21 | IP entry behind a list entry, copies and cutting | ✅ |
 | M4.1 | Labels as files: open, save, save as (`.qlx`), unsaved-changes marker | ✅ |
 | M4.2 | Templates | ⏳ |
-| M4.3 | Packaging: `.deb` and AppImage | ⏳ |
+| M4.3 | Packaging: AppImage (PyInstaller + appimagetool) | ✅ |
 
 ## License
 

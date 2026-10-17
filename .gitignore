@@ -17,6 +17,8 @@ dist/
 *.AppImage
 AppDir/
 packaging/build/
+packaging/out/
+packaging/.cache/
 
 # Editor
 .vscode/

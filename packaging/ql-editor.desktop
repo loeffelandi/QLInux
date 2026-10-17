@@ -1,0 +1,12 @@
+[Desktop Entry]
+Type=Application
+Name=QLInux
+GenericName=Label Editor
+Comment=Labels for Brother QL printers
+Comment[de]=Etiketten für Brother-QL-Drucker
+Exec=ql-editor
+Icon=ql-editor
+Terminal=false
+Categories=Graphics;
+Keywords=label;etiketten;brother;ql;p-touch;
+StartupNotify=true

@@ -36,7 +36,7 @@ from PySide6.QtCore import (
     Qt,
     Signal,
 )
-from PySide6.QtGui import QAction, QActionGroup, QFontMetrics, QKeySequence
+from PySide6.QtGui import QAction, QActionGroup, QFontMetrics, QIcon, QKeySequence
 from PySide6.QtWidgets import (
     QApplication,
     QCheckBox,
@@ -59,6 +59,7 @@ from . import access
 from . import about
 from . import document
 from . import media
+from . import resources
 from .canvas import LabelCanvas
 from .discovery import discover_network_printers
 from .i18n import (
@@ -178,6 +179,7 @@ class MainWindow(QMainWindow):
         super().__init__()
         self._settings = settings or AppSettings()
         self.setWindowTitle(tr("QLInux - P-touch Editor"))
+        self._apply_window_icon()
         self.setWindowIcon(icon("label"))
         self._adjusting = False
         self._print_worker: PrintWorker | None = None
@@ -1588,6 +1590,12 @@ class MainWindow(QMainWindow):
     def _show_about(self) -> None:
         """„Über QLInux": Modellliste, Lizenz, Danksagung (siehe about.py)."""
         about.show_about(self)
+
+    def _apply_window_icon(self) -> None:
+        """App-Symbol aus ``assets/`` (fehlt es, bleibt das Qt-Standardsymbol)."""
+        path = resources.asset(resources.APP_ICON)
+        if path.exists():
+            self.setWindowIcon(QIcon(str(path)))
 
     # ------------------------------------------------------------- Dateien --
     def _document_data(self) -> dict:

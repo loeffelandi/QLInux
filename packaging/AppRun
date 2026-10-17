@@ -1,0 +1,11 @@
+#!/bin/sh
+# AppRun - Einstiegspunkt des AppImages.
+#
+# Das AppImage haengt sich selbst ein und startet diese Datei; "$HERE" ist das
+# eingebundene Abbild. Mehr braucht es nicht: PyInstaller legt seine
+# Bibliotheken relativ zum Programm ab, Qt findet seine Plugins dort selbst.
+set -e
+
+HERE="$(dirname "$(readlink -f "$0")")"
+
+exec "$HERE/usr/bin/ql-editor" "$@"

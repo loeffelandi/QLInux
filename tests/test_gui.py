@@ -3683,3 +3683,28 @@ def test_editing_marks_the_document_and_opening_a_broken_file_does_not(
     assert win._document_dirty is True
     win.close()
     qapp.processEvents()
+
+
+# --------------------------------------------------------------------------- #
+# Mitgelieferte Dateien (App-Symbol, Bundle-Pfade)
+# --------------------------------------------------------------------------- #
+def test_the_window_carries_the_app_icon(qapp, tmp_path):
+    """Das Fenster hat das Symbol aus assets/ - nicht das Qt-Standardsymbol."""
+    import ql_editor.resources as resources
+
+    assert resources.asset(resources.APP_ICON).exists(), "Symbol fehlt in assets/"
+    win = _temp_window(qapp, tmp_path)
+
+    assert not win.windowIcon().isNull()
+    win.close()
+    qapp.processEvents()
+
+
+def test_bundled_assets_are_found_via_the_environment(monkeypatch, tmp_path):
+    """Aus dem AppImage heraus zeigt QLINUX_ASSETS_DIR auf das Bundle."""
+    from ql_editor import resources
+
+    monkeypatch.setenv(resources.ASSETS_ENV, str(tmp_path))
+
+    assert resources.assets_dir() == tmp_path
+    assert resources.asset(resources.APP_ICON) == tmp_path / resources.APP_ICON

@@ -1,0 +1,9 @@
+#!/bin/sh
+# Startet das gebaute Programm im AppDir (das eigentliche Programm liegt unter
+# usr/lib/ql-editor/, damit "ql-editor" im AppDir als Befehl existiert - so
+# verlangt es die Desktop-Datei).
+set -e
+
+HERE="$(dirname "$(readlink -f "$0")")"
+
+exec "$HERE/../lib/ql-editor/ql-editor" "$@"
