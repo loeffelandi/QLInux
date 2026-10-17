@@ -36,7 +36,7 @@ import math
 from contextlib import contextmanager
 from typing import Any, Iterator
 
-from PySide6.QtCore import QLocale, QPoint, QPointF, QRectF, Qt, Signal
+from PySide6.QtCore import QEvent, QLocale, QPoint, QPointF, QRectF, Qt, Signal
 from PySide6.QtGui import QBrush, QColor, QFont, QFontMetricsF, QImage, QPainter, QPen
 from PySide6.QtWidgets import QGraphicsScene, QGraphicsView, QWidget
 from PIL import Image
@@ -65,6 +65,10 @@ SIZE_LABEL_GAP_PX = 6
 SIZE_LABEL_COLOR = "#5a6472"
 #: Rand um das Band beim Einpassen: Platz fuer die Groessen-Angabe.
 FIT_MARGIN_MM = 2.5
+#: Mit dieser Taste zoomt das Mausrad, statt zu scrollen (auf dem Mac Cmd).
+ZOOM_MODIFIER = Qt.KeyboardModifier.ControlModifier
+#: Faktor pro Rad-Raste beim Zoomen.
+ZOOM_STEP = 1.15
 MIN_ZOOM = 0.05
 MAX_ZOOM = 8.0
 HANDLE_SIZE_PX = 9
@@ -598,57 +602,40 @@ class LabelCanvas(QGraphicsView):
         self._emit_zoom()
 
     def wheelEvent(self, event) -> None:  # noqa: N802
-        """Adaptiv: weich scrollen, wenn es etwas zu scrollen gibt, sonst zoomen.
+        """Rad scrollt; gezoomt wird nur mit :data:`ZOOM_MODIFIER` oder Zoomgeste.
 
-        Der Scrollbereich ist groesser als die Designflaeche (Arbeitsflaeche
-        ringsum). Damit das Rad trotzdem zoomt, solange man das ganze Etikett
-        sieht, entscheidet nicht der Scrollbalken-Bereich, sondern ob die
-        Designflaeche komplett im Viewport liegt.
+        Weiches Scrollen: Rad nach oben -> Inhalt nach unten -> Wert verkleinern.
         """
         mods = event.modifiers()
         dx, dy = wheel_deltas(event)
 
-        if mods & Qt.KeyboardModifier.ControlModifier:
+        if mods & ZOOM_MODIFIER:
             if dy:
-                self.zoom_by(1.15 if dy > 0 else 1 / 1.15)
+                self.zoom_by(ZOOM_STEP if dy > 0 else 1 / ZOOM_STEP)
             event.accept()
             return
 
         vbar = self.verticalScrollBar()
         hbar = self.horizontalScrollBar()
-        vmax = vbar.maximum()
-        hmax = hbar.maximum()
-
-        if mods & Qt.KeyboardModifier.ShiftModifier and hmax > 0:
+        if mods & Qt.KeyboardModifier.ShiftModifier and hbar.maximum() > 0:
             dx, dy = (dy or dx), 0.0
 
-        if (vmax > 0 or hmax > 0) and not self._label_fits_in_view():
-            # Rad nach oben -> Inhalt nach unten -> Wert verkleinern.
-            if vmax > 0:
-                self._v_scroller.scroll_by(-dy)
-            if hmax > 0:
-                self._h_scroller.scroll_by(-dx)
-            event.accept()
-            return
-
-        if dy:
-            self.zoom_by(1.15 if dy > 0 else 1 / 1.15)
+        if vbar.maximum() > 0:
+            self._v_scroller.scroll_by(-dy)
+        if hbar.maximum() > 0:
+            self._h_scroller.scroll_by(-dx)
         event.accept()
 
-    def _label_fits_in_view(self) -> bool:
-        """Liegt die bedruckbare Flaeche komplett im sichtbaren Ausschnitt?
-
-        Bewusst ueber die Groesse (nicht ueber den aktuellen Scrollstand):
-        solange das ganze Etikett sichtbar ist, soll das Mausrad zoomen - der
-        Scrollbereich ist durch die Arbeitsflaeche immer groesser als das
-        Etikett.
-        """
-        if self._label is None:
-            return True
-        scale = self._scale()
-        printable = self.printable_rect()
-        size = self.viewport().size()
-        return printable.width() * scale <= size.width() + 0.5 and printable.height() * scale <= size.height() + 0.5
+    def event(self, event) -> bool:  # noqa: N802
+        """Zoomgeste am Touchpad (Pinch) vergroessert/verkleinert den Canvas."""
+        if event.type() == QEvent.Type.NativeGesture:
+            gesture = event
+            if gesture.gestureType() == Qt.NativeGestureType.ZoomNativeGesture:
+                factor = 1.0 + gesture.value()
+                if factor > 0:
+                    self.zoom_by(factor)
+                return True
+        return super().event(event)
 
     def zoom_by(self, factor: float) -> None:
         current = self.transform().m11()

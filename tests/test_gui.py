@@ -943,15 +943,78 @@ def test_wheel_guard_prevents_unfocused_change(qapp):
     assert spin.value() == 10
 
 
-def test_canvas_wheel_zooms_when_nothing_to_scroll(qapp):
+def test_canvas_wheel_scrolls_instead_of_zooming(qapp):
+    """Rad scrollt immer - zoomen nur mit Strg (oder Zoomgeste)."""
+    import time
+
+    from PySide6.QtCore import Qt
+
+    canvas = LabelCanvas()
+    canvas.resize(300, 300)
+    canvas.show()
+    qapp.processEvents()
+    canvas.set_label(get_label("50"), 1400, refit=False)
+    canvas.zoom_by(2.0)
+    qapp.processEvents()
+
+    vbar = canvas.verticalScrollBar()
+    assert vbar.maximum() > 0
+    before_zoom = canvas.transform().m11()
+    before = vbar.value()
+    canvas.wheelEvent(_wheel_event(Qt.KeyboardModifier.NoModifier, -120))
+
+    # Weiches Scrollen laeuft animiert -> kurz den Event-Loop bedienen.
+    deadline = time.monotonic() + 2.0
+    while vbar.value() == before and time.monotonic() < deadline:
+        qapp.processEvents()
+        time.sleep(0.01)
+    assert canvas.transform().m11() == pytest.approx(before_zoom)
+    assert vbar.value() != before
+
+
+def test_canvas_control_wheel_zooms(qapp):
     from PySide6.QtCore import Qt
 
     canvas = LabelCanvas()
     canvas.resize(600, 600)
     canvas.set_label(get_label("50"), 472)
     before = canvas.transform().m11()
-    canvas.wheelEvent(_wheel_event(Qt.KeyboardModifier.NoModifier, 120))
+
+    canvas.wheelEvent(_wheel_event(Qt.KeyboardModifier.ControlModifier, 120))
     assert canvas.transform().m11() > before
+
+    canvas.wheelEvent(_wheel_event(Qt.KeyboardModifier.ControlModifier, -120))
+    assert canvas.transform().m11() == pytest.approx(before)
+
+
+def test_canvas_pinch_gesture_zooms(qapp):
+    """Touchpad-Zoomgeste kommt als NativeGesture - die zoomt ohne Tastenzusatz."""
+    from PySide6.QtCore import QPointF, Qt
+    from PySide6.QtGui import QNativeGestureEvent
+
+    canvas = LabelCanvas()
+    canvas.resize(600, 600)
+    canvas.set_label(get_label("50"), 472)
+    before = canvas.transform().m11()
+
+    event = QNativeGestureEvent(
+        Qt.NativeGestureType.ZoomNativeGesture,
+        _device(),
+        2,
+        QPointF(100, 100),
+        QPointF(100, 100),
+        QPointF(100, 100),
+        0.2,
+        QPointF(),
+    )
+    assert canvas.event(event) is True
+    assert canvas.transform().m11() > before
+
+
+def _device():
+    from PySide6.QtGui import QPointingDevice
+
+    return QPointingDevice.primaryPointingDevice()
 
 
 def test_canvas_wheel_scrolls_when_zoomed(qapp):
@@ -1897,17 +1960,17 @@ def test_pasteboard_keeps_visible_area_when_items_grow(qapp):
     assert after.y() == pytest.approx(before.y(), abs=1.5)
 
 
-def test_wheel_zooms_while_whole_label_is_visible(qapp):
+def test_wheel_does_not_zoom_while_whole_label_is_visible(qapp):
+    """Auch wenn das ganze Etikett sichtbar ist, zoomt das Rad nicht mehr."""
     from PySide6.QtCore import Qt
 
     canvas = _prepared_canvas(qapp)
     canvas.fit_tape()
     qapp.processEvents()
-    assert canvas._label_fits_in_view() is True
 
     before = canvas.transform().m11()
     canvas.wheelEvent(_wheel_event(Qt.KeyboardModifier.NoModifier, 120))
-    assert canvas.transform().m11() > before
+    assert canvas.transform().m11() == pytest.approx(before)
 
 
 def test_wheel_scrolls_horizontally_when_zoomed_in(qapp):
@@ -1916,7 +1979,6 @@ def test_wheel_scrolls_horizontally_when_zoomed_in(qapp):
     canvas = _prepared_canvas(qapp)
     canvas.zoom_by(4.0)
     qapp.processEvents()
-    assert canvas._label_fits_in_view() is False
 
     bar = canvas.horizontalScrollBar()
     before_zoom = canvas.transform().m11()

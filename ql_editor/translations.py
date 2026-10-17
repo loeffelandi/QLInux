@@ -78,8 +78,8 @@ EN: dict[str, str] = {
     "Zoom 100 %": "Zoom 100 %",
     "1:1": "1:1",
     "Zoom {percent} %": "Zoom {percent} %",
-    "Mausrad über dem Canvas zoomt bzw. scrollt": (
-        "Mouse wheel over the canvas zooms or scrolls"
+    "Mausrad scrollt – Strg + Mausrad (oder Zoomgeste) zoomt": (
+        "Mouse wheel scrolls - Ctrl + wheel (or a pinch gesture) zooms"
     ),
     "· Vorschau: 1:1 für Details (Strg+1)": "· Preview: 1:1 for detail (Ctrl+1)",
     "Einpassen": "Fit",

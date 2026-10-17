@@ -209,7 +209,9 @@ class MainWindow(QMainWindow):
         install_wheel_guard_recursive(self)
 
         self._zoom_label = QLabel(tr("Zoom 100 %"))
-        self._zoom_label.setToolTip(tr("Mausrad über dem Canvas zoomt bzw. scrollt"))
+        self._zoom_label.setToolTip(
+            tr("Mausrad scrollt – Strg + Mausrad (oder Zoomgeste) zoomt")
+        )
         self.statusBar().addPermanentWidget(self._zoom_label)
         self._canvas.zoom_changed.connect(self._on_zoom_changed)
 

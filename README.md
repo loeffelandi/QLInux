@@ -337,12 +337,13 @@ Panel-Sichtbarkeit bleiben dabei erhalten.
     Der Canvas dreht sich mit (das Band läuft senkrecht, die Randbegrenzung
     wandert an die Bandkanten oben/unten); für den Druck wird die Szene um
     90° gedreht, sodass das Bild weiterhin exakt bandbreit ist.
-* **Mausrad** über dem Canvas: scrollt weich (animiert), sobald man über die
-  Etikettengröße hinausgezoomt hat, sonst zoomt es; **Ctrl + Rad** zoomt immer,
-  **Shift + Rad** scrollt horizontal, **mittlere Maustaste ziehen** verschiebt
-  den Ausschnitt. Trackpads werden über `pixelDelta` fein unterstützt.
-  Zusätzlich: Zoom −/Einpassen/+ in der Toolbar (Ctrl+0 = einpassen), und die
-  **Scrollbalken** des Canvas für beide Richtungen.
+* **Mausrad** über dem Canvas: scrollt weich (animiert) - immer, auch wenn
+  das ganze Etikett sichtbar ist. Gezoomt wird nur bewusst: **Ctrl + Rad**
+  (auf dem Mac Cmd), die **Zoomgeste am Touchpad** (Pinch) oder die Knöpfe
+  −/Einpassen/+ in der Toolbar (Ctrl+0 = einpassen). **Shift + Rad** scrollt
+  horizontal, **mittlere Maustaste ziehen** verschiebt den Ausschnitt.
+  Trackpads werden über `pixelDelta` fein unterstützt.
+  Zusätzlich: die **Scrollbalken** des Canvas für beide Richtungen.
 * **Mausrad** über einem Seitenpanel scrollt das Panel - auch wenn der Zeiger
   über einem Feld steht; ein Feld ändert seinen Wert nur, wenn es den Fokus
   hat (kein versehentliches Verstellen).
