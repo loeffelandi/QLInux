@@ -476,15 +476,76 @@ def test_usb_models_are_known_to_the_library():
     assert set(printer.USB_MODELS.values()) <= known
 
 
-def test_usb_device_label_names_backend_and_model():
-    assert printer.usb_device_label("usb://0x04f9:0x2042") == (
+def test_usb_device_detail_names_backend_and_model():
+    assert printer.usb_device_detail("usb://0x04f9:0x2042") == (
         "usb://0x04f9:0x2042  (libusb, QL-700)"
     )
-    assert printer.usb_device_label("/dev/usb/lp0") == (
+    assert printer.usb_device_detail("/dev/usb/lp0") == (
         "/dev/usb/lp0  (Kernel-Anschluss)"
     )
     # Kein USB - dann keine irrefuehrende Beschriftung.
-    assert printer.usb_device_label("tcp://192.168.178.62:9100") == (
+    assert printer.usb_device_detail("tcp://192.168.178.62:9100") == (
+        "tcp://192.168.178.62:9100"
+    )
+
+
+def test_usb_device_label_names_the_model_only(monkeypatch):
+    """In der Liste zaehlt der Druckertyp, nicht der Anschlusspfad."""
+    assert printer.usb_device_label("usb://0x04f9:0x2042") == "QL-700 (USB)"
+    # Unbekannte Kennung: dann bleibt die Adresse stehen (besser als nichts).
+    assert printer.usb_device_label("usb://0x04f9:0x9999") == "usb://0x04f9:0x9999"
+
+
+def test_usb_device_labels_keep_identical_printers_apart(monkeypatch):
+    monkeypatch.setattr(printer, "model_for_address", lambda address: "QL-700")
+    labels = printer.usb_device_labels(
+        ["/dev/usb/lp0", "/dev/usb/lp1", "usb://0x04f9:0x2042"]
+    )
+    # Gleiches Modell: jeder Eintrag bekommt seinen Anschlusspfad dazu.
+    assert labels == [
+        "QL-700 (USB) [lp0]",
+        "QL-700 (USB) [lp1]",
+        "QL-700 (USB) [04f9:2042]",
+    ]
+
+
+def test_usb_printers_offer_one_entry_per_printer(monkeypatch):
+    """Derselbe Drucker ueber Kernel *und* libusb ist ein Eintrag."""
+    monkeypatch.setattr(
+        printer,
+        "usb_devices",
+        lambda: ["usb://0x04f9:0x2042", "/dev/usb/lp1", "/dev/usb/lp0"],
+    )
+    monkeypatch.setattr(
+        printer,
+        "model_for_address",
+        lambda address: "QL-700"
+        if address in ("usb://0x04f9:0x2042", "/dev/usb/lp1")
+        else None,
+    )
+
+    # Der libusb-Eintrag faellt weg, weil der Kernel-Anschluss denselben
+    # Drucker eindeutig adressiert; lp0 steht fuer ein anderes Geraet.
+    assert printer.usb_printers() == ["/dev/usb/lp1", "/dev/usb/lp0"]
+
+
+def test_usb_printers_keep_libusb_when_there_is_no_kernel_node(monkeypatch):
+    monkeypatch.setattr(printer, "usb_devices", lambda: ["usb://0x04f9:0x2042"])
+    monkeypatch.setattr(printer, "model_for_address", lambda address: "QL-700")
+    assert printer.usb_printers() == ["usb://0x04f9:0x2042"]
+
+
+def test_preferred_usb_address_migrates_an_old_libusb_entry(monkeypatch):
+    """Eine gespeicherte libusb-Adresse zeigt danach auf den Kernel-Anschluss."""
+    monkeypatch.setattr(
+        printer, "usb_devices", lambda: ["usb://0x04f9:0x2042", "/dev/usb/lp1"]
+    )
+    monkeypatch.setattr(printer, "model_for_address", lambda address: "QL-700")
+
+    assert printer.preferred_usb_address("usb://0x04f9:0x2042") == "/dev/usb/lp1"
+    assert printer.preferred_usb_address("/dev/usb/lp1") == "/dev/usb/lp1"
+    # Netzwerkadressen bleiben unberuehrt.
+    assert printer.preferred_usb_address("tcp://192.168.178.62:9100") == (
         "tcp://192.168.178.62:9100"
     )
 

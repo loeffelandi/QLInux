@@ -12,6 +12,7 @@ Alle Fehler werden als :class:`PrinterError` (bzw.
 
 from __future__ import annotations
 
+from collections import Counter
 from dataclasses import dataclass, field
 import glob
 import logging
@@ -333,8 +334,92 @@ def model_for_address(address: str) -> str | None:
     return USB_MODELS.get(usb_id) if usb_id else None
 
 
+def usb_printers(devices: list[str] | None = None) -> list[str]:
+    """Angeschlossene USB-Drucker - **ein** Eintrag pro Drucker.
+
+    :func:`usb_devices` findet denselben Drucker oft zweimal: als Kernel-Knoten
+    (``/dev/usb/lpN``) und als libusb-Geraet (``usb://0x04f9:0x2042``). Fuer die
+    Auswahl ist das verwirrend - angeboten wird deshalb nur der bevorzugte Weg
+    (siehe :func:`preferred_usb_address`), der Kernel-Anschluss zuerst.
+    """
+    devices = usb_devices() if devices is None else list(devices)
+    kernel_models = {
+        model
+        for address in devices
+        if backend_for_address(address) == "linux_kernel"
+        and (model := model_for_address(address)) is not None
+    }
+    printers: list[str] = []
+    for address in devices:
+        if address in printers:
+            continue
+        # Der libusb-Weg nimmt immer das erste Geraet dieser Kennung - sobald
+        # der Kernel-Anschluss denselben Drucker eindeutig adressiert, entfaellt er.
+        if (
+            backend_for_address(address) == "pyusb"
+            and model_for_address(address) in kernel_models
+        ):
+            continue
+        printers.append(address)
+    return printers
+
+
+def preferred_usb_address(address: str, devices: list[str] | None = None) -> str:
+    """Bevorzugte Adresse fuer einen USB-Drucker.
+
+    Eine gespeicherte libusb-Adresse wird auf den Kernel-Anschluss desselben
+    Druckers umgeschrieben, sobald es ihn gibt - so bleibt eine aeltere Auswahl
+    gueltig, statt als "nicht angeschlossen" zu erscheinen.
+    """
+    address = (address or "").strip()
+    if not address:
+        return address
+    printers = usb_printers(devices)
+    if address in printers:
+        return address
+    if backend_for_address(address) == "pyusb":
+        model = model_for_address(address)
+        for device in printers:
+            if backend_for_address(device) == "linux_kernel" and model_for_address(device) == model:
+                return device
+    return address
+
+
 def usb_device_label(address: str) -> str:
-    """Beschriftung eines USB-Geraets fuer die Auswahlliste der USB-Suche."""
+    """Kurze Beschriftung eines USB-Druckers fuer die Auswahlliste.
+
+    Der Anschlussweg ist eine technische Einzelheit und steht im Tooltip
+    (:func:`usb_device_detail`) - hier zaehlt der Druckertyp.
+    """
+    model = model_for_address(address)
+    if model:
+        return tr("{model} (USB)").format(model=model)
+    return address
+
+
+def usb_device_labels(addresses: list[str]) -> list[str]:
+    """Beschriftungen fuer die USB-Liste - gleichnamige Drucker bleiben unterscheidbar.
+
+    Sind zwei Drucker desselben Typs angeschlossen, bekommt jeder seinen kurzen
+    Anschlusspfad dazu (``lp1`` bzw. die USB-Kennung).
+    """
+    labels = [usb_device_label(address) for address in addresses]
+    counts = Counter(labels)
+    return [
+        label if counts[label] == 1 else f"{label} [{usb_device_hint(address)}]"
+        for label, address in zip(labels, addresses)
+    ]
+
+
+def usb_device_hint(address: str) -> str:
+    """Kurzer Anschlusspfad eines USB-Druckers (``lp1`` bzw. Hersteller:Produkt)."""
+    if backend_for_address(address) == "linux_kernel":
+        return Path(address.removeprefix("file://")).name
+    return usb_id_from_identifier(address) or address
+
+
+def usb_device_detail(address: str) -> str:
+    """Technische Zeile zu einem USB-Geraet (Tooltip der Auswahlliste)."""
     backend = backend_for_address(address)
     if backend not in READBACK_BACKENDS:
         return address
@@ -708,7 +793,10 @@ __all__ = [
     "network_host",
     "parse_network_address",
     "usb_access",
+    "usb_device_detail",
+    "usb_device_hint",
     "usb_device_label",
+    "usb_device_labels",
     "usb_id_for_path",
     "usb_id_from_identifier",
     "validate_for_print",
@@ -717,6 +805,8 @@ __all__ = [
     "print_image",
     "probe_status",
     "detect_label",
+    "preferred_usb_address",
     "usb_devices",
+    "usb_printers",
     "writable",
 ]

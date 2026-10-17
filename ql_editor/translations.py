@@ -301,6 +301,7 @@ EN: dict[str, str] = {
     "Druck fehlgeschlagen.": "Printing failed.",
     "Druckfehler": "Print error",
     "USB-Zugriff": "USB access",
+    "{model} (USB)": "{model} (USB)",
     "USB-Zugriff eingerichtet – der Drucker ist freigegeben.": (
         "USB access set up - the printer is unlocked."
     ),

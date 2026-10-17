@@ -52,9 +52,12 @@ from .printer import (
     model_for_address,
     network_host,
     parse_network_address,
+    preferred_usb_address,
     usb_access,
+    usb_device_detail,
     usb_device_label,
-    usb_devices,
+    usb_device_labels,
+    usb_printers,
 )
 
 #: Anschlussarten der Druckerauswahl. Die Werte entsprechen den Backend-Namen
@@ -588,7 +591,9 @@ class MediaPanel(QWidget):
     def refresh_usb_devices(self, devices: list[str] | None = None) -> list[str]:
         """USB-Liste neu einlesen und die Auswahl fuellen.
 
-        Ohne ``devices`` wird selbst gesucht (:func:`printer.usb_devices`).
+        Ohne ``devices`` wird selbst gesucht (:func:`printer.usb_printers`):
+        **ein** Eintrag pro Drucker, auch wenn er ueber Kernel und libusb
+        auffindbar waere. ``devices`` erwartet bereits bevorzugte Adressen.
         Rueckgabe: die gefundenen Adressen - der Aufrufer kann damit melden,
         was los ist. Die aktuelle Auswahl bleibt erhalten; ein gerade nicht
         angeschlossenes Geraet bleibt als Eintrag stehen (so geht die
@@ -596,12 +601,12 @@ class MediaPanel(QWidget):
         """
         if devices is None:
             try:
-                devices = usb_devices()
+                devices = usb_printers()
             except Exception as exc:  # pragma: no cover - haengt an libusb
                 logger.info("USB-Suche fehlgeschlagen: %s", exc)
                 devices = []
         devices = [address for address in devices if address]
-        current = self._usb_combo.currentData() or ""
+        current = preferred_usb_address(self._usb_combo.currentData() or "", devices)
         missing = current if current and current not in devices else ""
         apply_single = False
 
@@ -611,8 +616,14 @@ class MediaPanel(QWidget):
             if not devices and not missing:
                 self._usb_combo.addItem(tr("Kein USB-Drucker gefunden"), "")
             else:
-                for address in devices:
-                    self._usb_combo.addItem(usb_device_label(address), address)
+                labels = usb_device_labels(devices)
+                for address, label in zip(devices, labels):
+                    self._usb_combo.addItem(label, address)
+                    self._usb_combo.setItemData(
+                        self._usb_combo.count() - 1,
+                        usb_device_detail(address),
+                        Qt.ItemDataRole.ToolTipRole,
+                    )
                 if missing:
                     self._usb_combo.addItem(
                         f"{usb_device_label(missing)} {tr('– nicht angeschlossen')}",
@@ -689,6 +700,11 @@ class MediaPanel(QWidget):
         if self._usb_combo.count() == 1 and not self._usb_combo.itemData(0):
             self._usb_combo.clear()
         self._usb_combo.addItem(usb_device_label(address), address)
+        self._usb_combo.setItemData(
+            self._usb_combo.count() - 1,
+            usb_device_detail(address),
+            Qt.ItemDataRole.ToolTipRole,
+        )
         return self._usb_combo.findData(address)
 
     def _apply_usb_selection(self) -> None:

@@ -261,9 +261,29 @@ Beide USB-Wege scheitern ohne Systemrechte, und zwar unterschiedlich:
 | `usb://0x04f9:0x2042` | `pyusb` | `Access denied (insufficient permissions)` | libusb braucht udev-Regel |
 
 Die Geräteerkennung selbst funktioniert in beiden Faellen (sie oeffnet das
-Geraet nicht). `pyusb` haengt beim Oeffnen den Kernel-Treiber ab und bindet ihn
-nicht wieder an - `/dev/usb/lp1` ist danach bis zum Umstecken weg; der
-Kernel-Weg hat dieses Problem nicht.
+Geraet nicht).
+
+**Beide Wege nach den Rechten am QL-700 nachgemessen** (29 mm endlos): die
+Statusabfrage antwortet ueber `/dev/usb/lp1` **und** ueber
+`usb://0x04f9:0x2042` (`media_width_mm=29`), und `print_image()` druckt ueber
+beide Wege (`did_print: True`, `ready_for_next_job: True`). Der Kernel-Weg war
+vorher nur an den fehlenden Rechten gescheitert, nicht am Weg selbst.
+
+Ein Unterschied bleibt, und er entscheidet die Auswahl: `pyusb` haengt beim
+Oeffnen den Kernel-Treiber ab, `usblp` bleibt zwar gebunden, aber der
+Kernel-Knoten **antwortet fuer ~1-3 s nicht** (Geraet belegt) und danach
+wieder:
+
+```
+libusb-Status: 29 mm
+Kernel direkt danach: keine Antwort
+Kernel 3s spaeter   : 29mm endless
+```
+
+Deshalb bietet `printer.usb_printers()` pro Drucker nur **einen** Weg an, den
+Kernel-Anschluss: er gehoert dem Geraet eindeutig, waehrend `usb://…` immer das
+erste Geraet dieser Kennung nimmt. Ohne Kernel-Knoten (`usblp` nicht geladen)
+bleibt der libusb-Weg als einziger Eintrag stehen.
 
 **Gewaehlte Abhilfe: eine udev-Regel mit `TAG+="uaccess"`**
 (`scripts/install-udev-rule.sh`, Ziel `/etc/udev/rules.d/70-brother-ql.rules`):

@@ -21,6 +21,7 @@ Kein Browser-Tool, kein WebUSB.
 | M3.14 | Druckerauswahl ohne Adress-Kenntnisse: Anschluss Netzwerk/USB, nur IP bzw. Geräteliste | ✅ |
 | M3.15 | USB-Rechte: udev-Regel (`uaccess`), Hinweis + „Zugriff einrichten“ im Panel, Helfer für die Installation | ✅ |
 | M3.16 | Zweisprachig DE/EN: Texte in `i18n`/`translations`, Umschalter im Menü, Oberfläche wird neu aufgebaut | ✅ |
+| M3.17 | Lineale wie im P-touch Editor (Einheit, mm-Beschriftung, Größe am Etikett); USB: ein Eintrag pro Drucker, Kernel-Weg bevorzugt, Druck über beide Wege verifiziert | ✅ |
 | M4 | Vorlagen, Settings, `.deb`-Paket | ⏳ |
 
 ## Architektur
@@ -88,6 +89,16 @@ python -m ql_editor
   anderer Port geht als `192.168.178.62:9101`), am USB die Liste der
   gefundenen Geräte plus „Suchen“. Beim Umschalten auf USB wird gleich
   gesucht; genau ein Gerät wird direkt übernommen.
+* **Ein Eintrag pro Drucker**: derselbe Drucker ist über USB oft zweimal
+  auffindbar - als Kernel-Knoten (`/dev/usb/lpN`) und als libusb-Gerät
+  (`usb://0x04f9:0x2042`). Beide Wege sind gleichwertig (am QL-700
+  nachgemessen: Statusabfrage **und** Druck laufen über beide), angeboten wird
+  deshalb nur **einer**, und zwar der Kernel-Anschluss: er gehört dem Gerät
+  eindeutig, während `usb://…` immer das erste Gerät dieser Kennung nimmt.
+  In der Liste steht der Druckertyp („QL-700 (USB)“), der technische Weg im
+  Tooltip; sind zwei gleiche Drucker angeschlossen, bekommt jeder seinen
+  Anschlusspfad dazu (`[lp0]` / `[lp1]`). Eine gespeicherte libusb-Adresse
+  wandert beim nächsten Suchen von selbst auf den Kernel-Anschluss.
 * Dahinter steckt weiter eine einzige Adresse - das Backend wird daraus
   abgeleitet (wie `brother_ql.backends.guess_backend`, plus nacktes
   `host:port`):

@@ -81,7 +81,7 @@ def test_usb_search_applies_the_only_printer_found(qapp, tmp_path, monkeypatch):
 
     win = _temp_window(qapp, tmp_path)
     monkeypatch.setattr(
-        media_panel_module, "usb_devices", lambda: ["usb://0x04f9:0x209b"]
+        media_panel_module, "usb_printers", lambda: ["usb://0x04f9:0x209b"]
     )
 
     win._on_usb_search()
@@ -97,7 +97,7 @@ def test_usb_search_switches_the_model_from_the_usb_id(qapp, tmp_path, monkeypat
     win = _temp_window(qapp, tmp_path)
     win._media_panel.set_model("QL-820NWB")
     monkeypatch.setattr(
-        media_panel_module, "usb_devices", lambda: ["usb://0x04f9:0x2042"]
+        media_panel_module, "usb_printers", lambda: ["usb://0x04f9:0x2042"]
     )
 
     win._on_usb_search()
@@ -113,7 +113,7 @@ def test_usb_search_keeps_the_model_when_it_is_unknown(qapp, tmp_path, monkeypat
     win = _temp_window(qapp, tmp_path)
     win._media_panel.set_model("QL-820NWB")
     monkeypatch.setattr(
-        media_panel_module, "usb_devices", lambda: ["usb://0x04f9:0x9999"]
+        media_panel_module, "usb_printers", lambda: ["usb://0x04f9:0x9999"]
     )
 
     win._on_usb_search()
@@ -139,7 +139,7 @@ def test_media_panel_switches_between_network_and_usb_rows(qapp, monkeypatch):
     from ql_editor import media_panel as media_panel_module
     from ql_editor.media_panel import CONNECTION_NETWORK, CONNECTION_USB, MediaPanel
 
-    monkeypatch.setattr(media_panel_module, "usb_devices", lambda: [])
+    monkeypatch.setattr(media_panel_module, "usb_printers", lambda: [])
     panel = MediaPanel()
     assert panel.connection() == CONNECTION_NETWORK
     assert panel._printer_form.isRowVisible(panel._row_host)
@@ -171,7 +171,7 @@ def test_media_panel_usb_switch_finds_and_applies_the_device(qapp, monkeypatch):
     from ql_editor.media_panel import CONNECTION_USB, MediaPanel
 
     monkeypatch.setattr(
-        media_panel_module, "usb_devices", lambda: ["usb://0x04f9:0x2042"]
+        media_panel_module, "usb_printers", lambda: ["usb://0x04f9:0x2042"]
     )
     panel = MediaPanel()
     panel.set_model("QL-820NWB")
@@ -189,7 +189,7 @@ def test_media_panel_usb_placeholder_is_not_an_address(qapp, monkeypatch):
 
     monkeypatch.setattr(
         media_panel_module,
-        "usb_devices",
+        "usb_printers",
         lambda: ["usb://0x04f9:0x2042", "/dev/usb/lp1"],
     )
     panel = MediaPanel()
@@ -205,7 +205,7 @@ def test_media_panel_keeps_a_stored_usb_address_when_unplugged(qapp, monkeypatch
     from ql_editor import media_panel as media_panel_module
     from ql_editor.media_panel import CONNECTION_USB, MediaPanel
 
-    monkeypatch.setattr(media_panel_module, "usb_devices", lambda: [])
+    monkeypatch.setattr(media_panel_module, "usb_printers", lambda: [])
     panel = MediaPanel()
     panel.set_address("usb://0x04f9:0x2042")
 
@@ -218,12 +218,30 @@ def test_media_panel_keeps_a_stored_usb_address_when_unplugged(qapp, monkeypatch
     assert "nicht angeschlossen" in panel._usb_combo.currentText()
 
 
+def test_media_panel_migrates_a_stored_libusb_address(qapp, monkeypatch):
+    """Eine frueher gespeicherte libusb-Adresse zeigt auf den Kernel-Anschluss."""
+    from ql_editor import media_panel as media_panel_module
+    from ql_editor import printer as printer_module
+    from ql_editor.media_panel import CONNECTION_USB, MediaPanel
+
+    monkeypatch.setattr(media_panel_module, "usb_printers", lambda: ["/dev/usb/lp1"])
+    monkeypatch.setattr(printer_module, "model_for_address", lambda address: "QL-700")
+    panel = MediaPanel()
+    panel.set_address("usb://0x04f9:0x2042")
+    panel._conn_buttons[CONNECTION_USB].setChecked(True)
+
+    panel.refresh_usb_devices()
+
+    assert panel.address() == "/dev/usb/lp1"
+    assert "nicht angeschlossen" not in panel._usb_combo.currentText()
+
+
 def test_media_panel_offers_access_help_when_rights_are_missing(qapp, monkeypatch):
     """Ohne Rechte am Geraet steht im Panel, was zu tun ist."""
     from ql_editor import media_panel as media_panel_module
     from ql_editor.media_panel import CONNECTION_USB, MediaPanel
 
-    monkeypatch.setattr(media_panel_module, "usb_devices", lambda: ["/dev/usb/lp1"])
+    monkeypatch.setattr(media_panel_module, "usb_printers", lambda: ["/dev/usb/lp1"])
     monkeypatch.setattr(media_panel_module, "usb_access", lambda address: False)
     panel = MediaPanel()
 
@@ -243,7 +261,7 @@ def test_media_panel_hides_access_help_when_the_device_works(qapp, monkeypatch):
     from ql_editor import media_panel as media_panel_module
     from ql_editor.media_panel import CONNECTION_USB, MediaPanel
 
-    monkeypatch.setattr(media_panel_module, "usb_devices", lambda: ["/dev/usb/lp1"])
+    monkeypatch.setattr(media_panel_module, "usb_printers", lambda: ["/dev/usb/lp1"])
     monkeypatch.setattr(media_panel_module, "usb_access", lambda address: True)
     panel = MediaPanel()
 
@@ -259,7 +277,7 @@ def test_media_panel_refresh_access_follows_the_new_state(qapp, monkeypatch):
     from ql_editor.media_panel import CONNECTION_USB, MediaPanel
 
     allowed = {"value": False}
-    monkeypatch.setattr(media_panel_module, "usb_devices", lambda: ["/dev/usb/lp1"])
+    monkeypatch.setattr(media_panel_module, "usb_printers", lambda: ["/dev/usb/lp1"])
     monkeypatch.setattr(
         media_panel_module, "usb_access", lambda address: allowed["value"]
     )
