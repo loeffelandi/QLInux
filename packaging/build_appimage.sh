@@ -60,7 +60,11 @@ fi
 
 echo "==> AppImage"
 mkdir -p "$ROOT/dist"
-ARCH=x86_64 "$TOOL" --appimage-extract-and-run "$APPDIR" "$APPIMAGE"
+# Update-Info fuer GearLever: neueste GitHub-Release, .zsync-Datei daneben.
+UPDATE_INFO="gh-releases-zsync|loeffelandi|QLInux|latest|QLInux-*-x86_64.AppImage.zsync"
+ARCH=x86_64 "$TOOL" --appimage-extract-and-run -u "$UPDATE_INFO" "$APPDIR" "$APPIMAGE"
+# appimagetool legt die .zsync im Home-Verzeichnis ab, nicht neben dem AppImage.
+mv -f "$HOME/$(basename "$APPIMAGE").zsync" "$ROOT/dist/"
 
 echo
 echo "fertig: $APPIMAGE ($(du -h "$APPIMAGE" | cut -f1))"
