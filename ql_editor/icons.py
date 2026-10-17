@@ -55,10 +55,39 @@ _CURSOR_CACHE: dict[tuple[str, int, int], QCursor] = {}
 # --------------------------------------------------------------------------- #
 # Oeffentliche API
 # --------------------------------------------------------------------------- #
+#: Farben der Symbole, aus dem COSMIC-Theme des Desktops: Akzent, Erfolg und
+#: Fehler sind die Basisfarben der hellen Palette. Die uebrigen Toene sind die
+#: Zusatzfarben, auf etwa 60 % abgedunkelt - die hellen Originale waeren auf dem
+#: weissen Hintergrund zu blass. Nicht gelistete Symbole bleiben in Textfarbe.
+ICON_COLORS: dict[str, str] = {
+    # Einfuegen
+    "text": "#00525A",       # Akzent
+    "image": "#407982",      # Zusatzfarbe blau
+    "barcode": "#805499",    # Zusatzfarbe lila
+    "qr": "#995E85",         # Zusatzfarbe pink
+    "line": "#597697",       # Zusatzfarbe indigo
+    "rect": "#597697",
+    # Datei und Vorlagen
+    "open": "#5D5553",       # Zusatzfarbe warmgrau
+    "save": "#5D5553",
+    "save_as": "#5D5553",
+    "label": "#976E41",      # Zusatzfarbe orange
+    # Ausgabe
+    "preview": "#00525A",
+    "print": "#185529",      # Erfolg
+    "delete": "#78292E",     # Fehler
+}
+
+
 def icon(name: str, color: QColor | None = None) -> QIcon:
-    """Liefere ein (gecachtes) Icon fuer ``name`` in der gewuenschten Farbe."""
+    """Liefere ein (gecachtes) Icon fuer ``name`` in der gewuenschten Farbe.
+
+    Ohne ``color`` gilt :data:`ICON_COLORS`, sonst die Textfarbe der Anwendung.
+    """
     if name not in _DRAW:
         raise KeyError(f"Unbekanntes Icon: {name}")
+    if color is None and name in ICON_COLORS:
+        color = QColor(ICON_COLORS[name])
     color = color or text_color()
     key = (name, color.name())
     cached = _CACHE.get(key)

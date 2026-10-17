@@ -395,6 +395,7 @@ class LabelCanvas(QGraphicsView):
 
         self._label: LabelSpec | None = None
         self._length_dots = 0
+        self._margins_mm: tuple[float, float, float, float] = (0.0, 0.0, 0.0, 0.0)
         self._orientation = Orientation.ACROSS
         self._needs_fit = True
         self._auto_fit = True
@@ -768,6 +769,22 @@ class LabelCanvas(QGraphicsView):
     def _handle_size(self) -> float:
         return HANDLE_SIZE_PX / self._scale()
 
+    def set_margins(self, left: float, right: float, top: float, bottom: float) -> None:
+        """Ränder in mm - werden als gepunkteter Rahmen im Etikett gezeigt."""
+        self._margins_mm = (float(left), float(right), float(top), float(bottom))
+        self.viewport().update()
+
+    def margin_rect(self) -> QRectF:
+        """Innenfläche innerhalb der Ränder (Szenenkoordinaten)."""
+        printable = self.printable_rect()
+        left, right, top, bottom = (mm_to_dots(v) for v in self._margins_mm)
+        return QRectF(
+            printable.left() + left,
+            printable.top() + top,
+            max(0.0, printable.width() - left - right),
+            max(0.0, printable.height() - top - bottom),
+        )
+
     def drawBackground(self, painter: QPainter, rect: QRectF) -> None:  # noqa: N802
         super().drawBackground(painter, rect)
         if self._label is None:
@@ -797,6 +814,14 @@ class LabelCanvas(QGraphicsView):
         pen.setWidthF(0)
         painter.setPen(pen)
         painter.drawRect(printable)
+        if any(self._margins_mm):
+            # Randrahmen: gepunktet und heller als der Bandrand, damit er sich
+            # von der Bandgrenze unterscheidet. Liegt unter den Objekten.
+            margin_pen = QPen(QColor("#9aa5b1"))
+            margin_pen.setStyle(Qt.PenStyle.DotLine)
+            margin_pen.setWidthF(0)
+            painter.setPen(margin_pen)
+            painter.drawRect(self.margin_rect())
         painter.setPen(Qt.PenStyle.NoPen)
 
     def _draw_size_labels(self, painter: QPainter) -> None:

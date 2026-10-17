@@ -1067,6 +1067,10 @@ class MainWindow(QMainWindow):
             self._canvas.set_label(
                 self._media_panel.label, length, orientation=orientation
             )
+            margins = self._media_panel.margins()
+            self._canvas.set_margins(
+                margins.left, margins.right, margins.top, margins.bottom
+            )
         finally:
             self._adjusting = False
 
