@@ -13,6 +13,7 @@ venv/
 build/
 dist/
 *.spec
+!packaging/ql_editor.spec
 *.deb
 *.AppImage
 AppDir/

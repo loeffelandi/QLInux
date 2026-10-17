@@ -6,11 +6,15 @@ je nach Item-Typ neu auf und meldet Aenderungen ueber :attr:`changed`.
 
 Das Panel kennt nur die oeffentlichen Setter der Items aus
 :mod:`ql_editor.items` - keine Render- oder Drucklogik.
+
+Undo: :attr:`edit_begun` vor der ersten Aenderung eines Feldes,
+:attr:`edit_committed` wenn das Feld fertig ist (``editingFinished`` bzw.
+sofort bei Schaltern).
 """
 
 from __future__ import annotations
 
-from PySide6.QtCore import Qt, Signal
+from PySide6.QtCore import QEvent, Qt, QTimer, Signal
 from PySide6.QtGui import QFont
 from PySide6.QtWidgets import (
     QCheckBox,
@@ -37,12 +41,17 @@ class InspectorPanel(QWidget):
     """Zeigt die Eigenschaften des aktuell ausgewaehlten Items."""
 
     changed = Signal()
+    edit_begun = Signal()
+    edit_committed = Signal()
+    #: Eingabe abgelehnt (Barcode passt nicht zur Symbologie) - mit Begruendung.
+    rejected = Signal(str)
 
     def __init__(self, parent: QWidget | None = None):
         super().__init__(parent)
         self._item = None
         self._allow_red = False
         self._loading = False
+        self._edit_open = False
 
         self._root = QVBoxLayout(self)
         self._root.setContentsMargins(8, 8, 8, 8)
@@ -54,6 +63,7 @@ class InspectorPanel(QWidget):
 
     # --------------------------------------------------------------- API --
     def set_item(self, item, allow_red: bool = False) -> None:
+        self._finish_edit()
         self._item = item
         self._allow_red = allow_red
         self._rebuild()
@@ -109,7 +119,10 @@ class InspectorPanel(QWidget):
     def _build_text(self, item, form: QFormLayout) -> None:
         edit = QPlainTextEdit(item.text_value)
         edit.setFixedHeight(64)
-        edit.textChanged.connect(lambda: self._apply(lambda: item.set_text_value(edit.toPlainText())))
+        edit.textChanged.connect(
+            lambda: self._apply_live(lambda: item.set_text_value(edit.toPlainText()))
+        )
+        edit.installEventFilter(self)
         form.addRow(tr("Text"), edit)
 
         family = QFontComboBox()
@@ -118,23 +131,25 @@ class InspectorPanel(QWidget):
         )
         family.setMinimumContentsLength(8)
         family.setCurrentFont(QFont(item.font_family))
-        family.currentFontChanged.connect(lambda f: self._apply(lambda: item.set_font_family(f.family())))
+        family.currentFontChanged.connect(
+            lambda f: self._apply_now(lambda: item.set_font_family(f.family()))
+        )
         form.addRow(tr("Schrift"), family)
 
         size = QSpinBox()
         size.setRange(4, 2000)
         size.setValue(item.font_pixel_size)
-        size.valueChanged.connect(lambda v: self._apply(lambda: item.set_font_pixel_size(v)))
+        self._wire_spin(size, lambda v: item.set_font_pixel_size(v))
         form.addRow(tr("Größe (px)"), size)
 
         bold = QCheckBox(tr("Fett"))
         bold.setChecked(item.bold)
-        bold.toggled.connect(lambda v: self._apply(lambda: item.set_bold(v)))
+        bold.toggled.connect(lambda v: self._apply_now(lambda: item.set_bold(v)))
         form.addRow("", bold)
 
         italic = QCheckBox(tr("Kursiv"))
         italic.setChecked(item.italic)
-        italic.toggled.connect(lambda v: self._apply(lambda: item.set_italic(v)))
+        italic.toggled.connect(lambda v: self._apply_now(lambda: item.set_italic(v)))
         form.addRow("", italic)
 
         color = QComboBox()
@@ -142,23 +157,29 @@ class InspectorPanel(QWidget):
         color.addItem(tr("rot"), "red")
         color.setCurrentIndex(0 if item.color == "black" else 1)
         color.setEnabled(self._allow_red)
-        color.currentIndexChanged.connect(lambda: self._apply(lambda: item.set_text_color(color.currentData())))
+        color.currentIndexChanged.connect(
+            lambda: self._apply_now(lambda: item.set_text_color(color.currentData()))
+        )
         form.addRow(tr("Farbe"), color)
 
     def _build_qr(self, item, form: QFormLayout) -> None:
         data = QLineEdit(item._data)
-        data.editingFinished.connect(lambda: self._apply(lambda: item.set_data(data.text())))
+        data.editingFinished.connect(
+            lambda: self._apply_now(lambda: item.set_data(data.text()))
+        )
         form.addRow(tr("Inhalt"), data)
 
         size = QSpinBox()
         size.setRange(20, 4000)
         size.setValue(item._size_dots)
-        size.valueChanged.connect(lambda v: self._apply(lambda: item.set_size_dots(v)))
+        self._wire_spin(size, lambda v: item.set_size_dots(v))
         form.addRow(tr("Größe (Dots)"), size)
 
     def _build_barcode(self, item, form: QFormLayout) -> None:
         value = QLineEdit(item.value)
-        value.editingFinished.connect(lambda: self._guard(item, lambda: item.set_value(value.text())))
+        value.editingFinished.connect(
+            lambda: self._guard_now(item, lambda: item.set_value(value.text()))
+        )
         form.addRow(tr("Inhalt"), value)
 
         sym = QComboBox()
@@ -166,18 +187,25 @@ class InspectorPanel(QWidget):
             sym.addItem(name, name)
         idx = sym.findData(item.symbology)
         sym.setCurrentIndex(idx if idx >= 0 else 0)
-        sym.currentIndexChanged.connect(lambda: self._guard(item, lambda: item.set_symbology(sym.currentData())))
+        sym.currentIndexChanged.connect(
+            lambda: self._guard_now(item, lambda: item.set_symbology(sym.currentData()))
+        )
         form.addRow(tr("Symbologie"), sym)
 
         show_text = QCheckBox(tr("Klartext"))
         show_text.setChecked(item._show_text)
-        show_text.toggled.connect(lambda v: self._guard(item, lambda: item.set_show_text(v)))
+        show_text.toggled.connect(
+            lambda v: self._guard_now(item, lambda: item.set_show_text(v))
+        )
         form.addRow("", show_text)
 
         height = QSpinBox()
         height.setRange(20, 2000)
         height.setValue(item._height_dots)
-        height.valueChanged.connect(lambda v: self._guard(item, lambda: item.set_height_dots(v)))
+        height.valueChanged.connect(
+            lambda v: self._guard_live(item, lambda: item.set_height_dots(v))
+        )
+        height.editingFinished.connect(self._finish_edit)
         form.addRow(tr("Höhe (Dots)"), height)
 
     def _build_image(self, item, form: QFormLayout) -> None:
@@ -216,7 +244,7 @@ class InspectorPanel(QWidget):
             if self._loading:
                 return
             w_dots = mm_to_dots(value)
-            self._apply(lambda: item.apply_resize(w_dots, w_dots * ratio))
+            self._apply_live(lambda: item.apply_resize(w_dots, w_dots * ratio))
             sync(w_dots, w_dots * ratio)
 
         def resize_height(value: float) -> None:
@@ -224,11 +252,13 @@ class InspectorPanel(QWidget):
                 return
             h_dots = mm_to_dots(value)
             w_dots = h_dots / ratio if ratio > 0 else h_dots
-            self._apply(lambda: item.apply_resize(w_dots, h_dots))
+            self._apply_live(lambda: item.apply_resize(w_dots, h_dots))
             sync(w_dots, h_dots)
 
         width.valueChanged.connect(resize_width)
         height.valueChanged.connect(resize_height)
+        width.editingFinished.connect(self._finish_edit)
+        height.editingFinished.connect(self._finish_edit)
         form.addRow(tr("Breite"), width)
         form.addRow(tr("Höhe"), height)
 
@@ -243,7 +273,7 @@ class InspectorPanel(QWidget):
         width.setRange(0.5, 200.0)
         width.setSuffix(" px")
         width.setValue(item._width_px)
-        width.valueChanged.connect(lambda v: self._apply(lambda: item.set_line_width(v)))
+        self._wire_spin(width, lambda v: item.set_line_width(v))
         form.addRow(tr("Linienbreite"), width)
 
     def _build_rect(self, item, form: QFormLayout) -> None:
@@ -251,12 +281,12 @@ class InspectorPanel(QWidget):
         width.setRange(0.5, 200.0)
         width.setSuffix(" px")
         width.setValue(item._width_px)
-        width.valueChanged.connect(lambda v: self._apply(lambda: item.set_line_width(v)))
+        self._wire_spin(width, lambda v: item.set_line_width(v))
         form.addRow(tr("Linienbreite"), width)
 
         filled = QCheckBox(tr("Gefüllt"))
         filled.setChecked(item._filled)
-        filled.toggled.connect(lambda v: self._apply(lambda: item.set_filled(v)))
+        filled.toggled.connect(lambda v: self._apply_now(lambda: item.set_filled(v)))
         form.addRow("", filled)
 
     # -- Gemeinsam ----------------------------------------------------------
@@ -265,40 +295,97 @@ class InspectorPanel(QWidget):
         x = QSpinBox()
         x.setRange(-10000, 10000)
         x.setValue(int(pos.x()))
-        x.valueChanged.connect(lambda v: self._apply(lambda: item.setPos(v, item.pos().y())))
+        self._wire_spin(x, lambda v: item.setPos(v, item.pos().y()))
         form.addRow(tr("X (Dots)"), x)
 
         y = QSpinBox()
         y.setRange(-10000, 10000)
         y.setValue(int(pos.y()))
-        y.valueChanged.connect(lambda v: self._apply(lambda: item.setPos(item.pos().x(), v)))
+        self._wire_spin(y, lambda v: item.setPos(item.pos().x(), v))
         form.addRow(tr("Y (Dots)"), y)
 
         rot = QSpinBox()
         rot.setRange(-180, 180)
         rot.setSuffix(" °")
         rot.setValue(int(item.rotation()))
-        rot.valueChanged.connect(lambda v: self._apply(lambda: item.setRotation(v)))
+        self._wire_spin(rot, lambda v: item.setRotation(v))
         form.addRow(tr("Drehung"), rot)
 
     # -- Helpers ------------------------------------------------------------
-    def _apply(self, action) -> None:
+    def _wire_spin(self, spin, apply_fn) -> None:
+        spin.valueChanged.connect(lambda v: self._apply_live(lambda: apply_fn(v)))
+        spin.editingFinished.connect(self._finish_edit)
+
+    def _begin_edit(self) -> None:
+        if self._edit_open:
+            return
+        self._edit_open = True
+        self.edit_begun.emit()
+
+    def _finish_edit(self) -> None:
+        if not self._edit_open:
+            return
+        self._edit_open = False
+        self.edit_committed.emit()
+
+    def _apply_live(self, action) -> None:
         if self._loading:
             return
+        self._begin_edit()
         action()
         self.changed.emit()
 
-    def _guard(self, item, action) -> None:
-        """Wie :meth:`_apply`, faengt aber ungueltige Barcode-Inhalte ab."""
+    def _apply_now(self, action) -> None:
         if self._loading:
             return
+        self._begin_edit()
+        action()
+        self.changed.emit()
+        self._finish_edit()
+
+    def _guard_live(self, item, action) -> None:
+        if self._loading:
+            return
+        self._begin_edit()
         try:
             action()
-        except ValueError:
-            # Ungueltiger Inhalt (z. B. Buchstaben in EAN): alten Zustand behalten.
-            pass
+        except ValueError as exc:
+            self.rejected.emit(str(exc))
         else:
             self.changed.emit()
+
+    def _guard_now(self, item, action) -> None:
+        if self._loading:
+            return
+        self._begin_edit()
+        try:
+            action()
+        except ValueError as exc:
+            # Ungueltig (z. B. Buchstaben in EAN, zu lang fuer EAN-8): nichts
+            # geaendert - der Benutzer erfaehrt warum. Trotzdem abschliessen,
+            # damit der Undo-Schnappschuss nicht offen bleibt.
+            self._finish_edit()
+            self.rejected.emit(str(exc))
+            # Feld wieder auf den gueltigen Wert - verzoegert, weil der
+            # Aufruf aus dem Signal genau dieses Feldes kommt.
+            QTimer.singleShot(0, self._rebuild_if_same(item))
+            return
+        self.changed.emit()
+        self._finish_edit()
+
+    def _rebuild_if_same(self, item):
+        """Neu aufbauen, sofern inzwischen kein anderes Objekt gewaehlt ist."""
+
+        def rebuild() -> None:
+            if self._item is item:
+                self._rebuild()
+
+        return rebuild
+
+    def eventFilter(self, obj, event):  # noqa: N802
+        if event.type() == QEvent.Type.FocusOut and isinstance(obj, QPlainTextEdit):
+            self._finish_edit()
+        return super().eventFilter(obj, event)
 
 
 _KIND_TITLES = {

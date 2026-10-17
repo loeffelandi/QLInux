@@ -463,11 +463,13 @@ def parse_snmp_response(data: bytes, source_host: str = "") -> list[NetworkPrint
     ]
 
 
-def interface_broadcast(index: int) -> str:
+def interface_broadcast(name: str) -> str:
     """Broadcast-Adresse einer Schnittstelle (Linux; sonst leer).
 
-    ``255.255.255.255`` geht nur ueber die Standardschnittstelle; mit der
-    Adresse je Schnittstelle werden auch mehrere Netze abgedeckt.
+    ``SIOCGIFBRDADDR`` erwartet den Schnittstellennamen in ``ifr_name``
+    (``en0``, ``eth0``), nicht den Index. ``255.255.255.255`` geht nur ueber
+    die Standardschnittstelle; mit der Adresse je Schnittstelle werden auch
+    mehrere Netze abgedeckt.
     """
     try:
         import fcntl
@@ -475,19 +477,19 @@ def interface_broadcast(index: int) -> str:
         return ""
     try:
         with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as sock:
-            request = struct.pack("256s", str(index).encode("ascii")[:15])
+            request = struct.pack("256s", name.encode("utf-8")[:15])
             reply = fcntl.ioctl(sock.fileno(), IOCTL_INTERFACE_BROADCAST, request)
         return socket.inet_ntoa(reply[20:24])
     except OSError as exc:
-        logger.debug("Broadcast-Adresse fuer Schnittstelle %s: %s", index, exc)
+        logger.debug("Broadcast-Adresse fuer Schnittstelle %s: %s", name, exc)
         return ""
 
 
 def broadcast_targets() -> tuple[str, ...]:
     """Alle Adressen, an die ein Suchpaket geht."""
     targets = [BROADCAST_ADDRESS]
-    for index, _name in socket.if_nameindex():
-        address = interface_broadcast(index)
+    for _index, name in socket.if_nameindex():
+        address = interface_broadcast(name)
         if address and address not in targets:
             targets.append(address)
     return tuple(targets)

@@ -164,6 +164,56 @@ def test_discovery_stops_when_nothing_answers(monkeypatch):
     assert discovery.mdns_printers(timeout=0.05) == []
 
 
+def test_interface_broadcast_uses_interface_name(monkeypatch):
+    """SIOCGIFBRDADDR braucht den Namen (en0), nicht den Index."""
+    import fcntl
+
+    captured: list[bytes] = []
+
+    class _FakeSocket:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return False
+
+        def fileno(self):
+            return 3
+
+    def fake_ioctl(fd, request, buf):
+        captured.append(bytes(buf[:16]))
+        # Antwort: Name + sockaddr_in mit Broadcast 192.168.1.255 ab Offset 20.
+        out = bytearray(256)
+        out[0:3] = b"en0"
+        out[20:24] = bytes((192, 168, 1, 255))
+        return bytes(out)
+
+    monkeypatch.setattr(discovery.socket, "socket", lambda *a, **k: _FakeSocket())
+    monkeypatch.setattr(fcntl, "ioctl", fake_ioctl)
+
+    assert discovery.interface_broadcast("en0") == "192.168.1.255"
+    assert captured, "ioctl wurde nicht aufgerufen"
+    assert captured[0].startswith(b"en0")
+    assert not captured[0].startswith(b"1")
+
+
+def test_broadcast_targets_keeps_default_and_asks_by_name(monkeypatch):
+    monkeypatch.setattr(
+        discovery.socket, "if_nameindex", lambda: [(1, "en0"), (2, "lo0")]
+    )
+    seen: list[str] = []
+
+    def fake_broadcast(name: str) -> str:
+        seen.append(name)
+        return "10.0.0.255" if name == "en0" else ""
+
+    monkeypatch.setattr(discovery, "interface_broadcast", fake_broadcast)
+    targets = discovery.broadcast_targets()
+    assert discovery.BROADCAST_ADDRESS in targets
+    assert "10.0.0.255" in targets
+    assert seen == ["en0", "lo0"]
+
+
 class _DeadSocket:
     """Steht fuer einen Socket, auf dem nie etwas ankommt."""
 

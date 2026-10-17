@@ -366,6 +366,8 @@ class LabelCanvas(QGraphicsView):
     context_menu_requested = Signal(QPoint, QPointF)
     zoom_changed = Signal(float)
     items_changed = Signal()
+    #: Vor einer Mausgeste (Ziehen, Groesse, Drehen) - fuer den Undo-Schnappschuss.
+    gesture_begun = Signal()
     image_dropped = Signal(str, QPointF)
     text_dropped = Signal(str, QPointF)
     print_preview_exit_requested = Signal()
@@ -786,11 +788,23 @@ class LabelCanvas(QGraphicsView):
         self.resetCachedContent()
         self.viewport().update()
 
-    def translate_items(self, dx: float, dy: float) -> None:
-        """Alle verschiebbaren Objekte um (dx, dy) Punkte verschieben."""
+    def translate_items(self, dx: float, dy: float, *, clamp: bool = True) -> None:
+        """Alle verschiebbaren Objekte um (dx, dy) Punkte verschieben.
+
+        ``clamp=False`` setzt die Positionsklemme aus - noetig, wenn der
+        linke/obere Rand die Objekte mitzieht und die Laenge erst danach aus
+        der neuen Huelle kommt (sonst schluckt das alte ``sceneRect`` die
+        Verschiebung).
+        """
         for item in self._scene.items():
             if item.flags() & QGraphicsItem.GraphicsItemFlag.ItemIsMovable:
-                item.moveBy(dx, dy)
+                if not clamp:
+                    item._clamp_suspended = True
+                try:
+                    item.moveBy(dx, dy)
+                finally:
+                    if not clamp:
+                        item._clamp_suspended = False
         self.viewport().update()
 
     def margin_rect(self) -> QRectF:
@@ -1130,6 +1144,7 @@ class LabelCanvas(QGraphicsView):
         super().mousePressEvent(event)
 
     def _begin_handle_op(self, handle: str, item, scene_pos: QPointF) -> None:
+        self.gesture_begun.emit()
         self._op_item = item
         self._op_handle = handle
         self._op_start_scene = scene_pos
@@ -1147,6 +1162,7 @@ class LabelCanvas(QGraphicsView):
             self._op = "resize"
 
     def _begin_move(self, scene_pos: QPointF) -> None:
+        self.gesture_begun.emit()
         self._op = "move"
         self._op_start_scene = scene_pos
         self._move_items = [(it, QPointF(it.pos())) for it in self.selected_items()]
@@ -1413,8 +1429,9 @@ class LabelCanvas(QGraphicsView):
             super().keyPressEvent(event)
             return
         if key in (Qt.Key.Key_Delete, Qt.Key.Key_Backspace):
-            self.delete_selected()
-            self.items_changed.emit()
+            if self.selected_items():
+                self.gesture_begun.emit()
+                self.delete_selected()
             event.accept()
             return
         step = 10.0 if event.modifiers() & Qt.KeyboardModifier.ShiftModifier else 1.0
@@ -1428,6 +1445,7 @@ class LabelCanvas(QGraphicsView):
         elif key == Qt.Key.Key_Down:
             dy = step
         if dx or dy:
+            self.gesture_begun.emit()
             for item in self.selected_items():
                 item.moveBy(dx, dy)
             self.items_changed.emit()

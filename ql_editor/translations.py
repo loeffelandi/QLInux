@@ -31,6 +31,18 @@ EN: dict[str, str] = {
     "Sprache": "Language",
     "Einfügen": "Insert",
     "Bearbeiten": "Edit",
+    "Rückgängig": "Undo",
+    "Wiederholen": "Redo",
+    "Links ausrichten": "Align left",
+    "Horizontal zentrieren": "Align center horizontally",
+    "Rechts ausrichten": "Align right",
+    "Oben ausrichten": "Align top",
+    "Vertikal zentrieren": "Align center vertically",
+    "Unten ausrichten": "Align bottom",
+    "Ausrichten": "Align",
+    "Eigenschaften": "Properties",
+    "Ränder": "Margins",
+    "Reihenfolge": "Order",
     "Etikett": "Label",
     "Ansicht": "View",
     "Drucken": "Print",
@@ -473,6 +485,11 @@ EN: dict[str, str] = {
         "Image width {width} px != {expected} px (label {label!r}, factor "
         "{scale}). Please create it through the renderer."
     ),
+    "Bildhöhe {height} px != {expected} px (Band {label!r}, Faktor {scale}). Bitte ueber den Renderer erzeugen.": (
+        "Image height {height} px != {expected} px (label {label!r}, factor "
+        "{scale}). Please create it through the renderer."
+    ),
+    "libusb": "libusb",
     "Rotdruck ist mit Band {label!r} ({name}) nicht moeglich.": (
         "Red printing is not possible with label {label!r} ({name})."
     ),
@@ -508,6 +525,9 @@ EN: dict[str, str] = {
     "Bild konnte nicht geladen werden: {path}": "Image could not be loaded: {path}",
     "Barcode '{value}' ({symbology}): {error}": (
         "Barcode '{value}' ({symbology}): {error}"
+    ),
+    "Eingabe '{value}' passt nicht zur Symbologie - gedruckt würde '{full}'.": (
+        "Input '{value}' does not fit the symbology - '{full}' would be printed."
     ),
     "Unbekannter Item-Typ: {kind!r}": "Unknown item type: {kind!r}",
 }

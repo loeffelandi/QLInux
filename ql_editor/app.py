@@ -22,6 +22,7 @@ from __future__ import annotations
 import math
 import sys
 import threading
+from copy import deepcopy
 from functools import partial
 from pathlib import Path
 from typing import Any, Mapping
@@ -38,7 +39,14 @@ from PySide6.QtCore import (
     Qt,
     Signal,
 )
-from PySide6.QtGui import QAction, QActionGroup, QFontMetrics, QIcon, QKeySequence
+from PySide6.QtGui import (
+    QAction,
+    QActionGroup,
+    QFontMetrics,
+    QIcon,
+    QKeySequence,
+    QUndoStack,
+)
 from PySide6.QtWidgets import (
     QApplication,
     QCheckBox,
@@ -65,6 +73,7 @@ from . import resources
 from . import templates
 from .canvas import LabelCanvas
 from .discovery import discover_network_printers
+from .history import design_snapshot, push_if_changed
 from .i18n import (
     DEFAULT_LANGUAGE,
     LANGUAGES,
@@ -121,6 +130,16 @@ NETWORK_CANCEL_WAIT_MS = 1000
 #: Zugabe auf die reine Textbreite der Beschriftungsspalte in den
 #: Druckoptionen (Kopien / Zuschnitt) - sonst schneidet die Schrift ab.
 ROW_LABEL_EXTRA_PX = 8
+#: Entprellung der Druckvorschau (Millisekunden).
+PREVIEW_REFRESH_MS = 150
+#: Startgroesse des Fensters (Breite, Hoehe).
+DEFAULT_WINDOW_SIZE = (1320, 860)
+#: Abstand neuer Objekte vom linken/oberen Rand (Druckpunkte).
+DEFAULT_ITEM_INSET_DOTS = 10
+#: Schriftgroesse neuer Textfelder als Anteil der Designflaechen-Hoehe.
+DEFAULT_FONT_HEIGHT_RATIO = 0.25
+#: Mindestschriftgroesse neuer Textfelder (Druckpunkte).
+DEFAULT_FONT_MIN_PX = 16
 
 
 class PrintWorker(QThread):
@@ -165,6 +184,25 @@ class NetworkSearchWorker(QThread):
         except Exception as exc:  # pragma: no cover - defensiv
             logger.info("Netzwerksuche fehlgeschlagen: %s", exc)
         self.succeeded.emit(printers)
+
+
+class DetectLabelWorker(QThread):
+    """Fragt das eingelegte Band abseits der Oberflaeche ab (USB-Readback)."""
+
+    succeeded = Signal(object)
+    failed = Signal(str)
+
+    def __init__(self, config, parent=None):
+        super().__init__(parent)
+        self._config = config
+
+    def run(self) -> None:  # noqa: D401
+        try:
+            label = detect_label(self._config)
+        except Exception as exc:  # pragma: no cover - defensiv
+            self.failed.emit(str(exc))
+        else:
+            self.succeeded.emit(label)
 
 
 #: Das aktuelle Hauptfenster. Beim Sprachwechsel entsteht ein neues Fenster;
@@ -214,6 +252,13 @@ class MainWindow(QMainWindow):
         self._access_retry.timeout.connect(self._check_usb_access)
         #: Ansicht (Zoom + Mittelpunkt) vor dem Einschalten der Druckvorschau.
         self._preview_view: tuple[float, QPointF] | None = None
+        self._undo_stack = QUndoStack(self)
+        self._history_before: dict[str, Any] | None = None
+        self._history_suppress = False
+        #: Medienwerte vor der letzten Aenderung - Bezug fuer den Band-Befehl.
+        self._media_prev: dict[str, Any] | None = None
+        #: Stern unabhaengig vom Undo-Stapel (Druckeradresse gehoert dem Rechner).
+        self._address_dirty = False
 
         self._canvas = LabelCanvas(self)
         self._canvas.setMinimumSize(240, 180)
@@ -234,14 +279,22 @@ class MainWindow(QMainWindow):
 
         self._refresh_timer = QTimer(self)
         self._refresh_timer.setSingleShot(True)
-        self._refresh_timer.setInterval(150)
+        self._refresh_timer.setInterval(PREVIEW_REFRESH_MS)
         self._refresh_timer.timeout.connect(self._refresh_now)
+        self._detect_worker: DetectLabelWorker | None = None
 
         self._media_panel.changed.connect(self._on_media_changed)
         self._media_panel.margins_reset.connect(self._sync_margin_base)
-        for key in ("left", "top"):
-            self._media_panel._margin_spins[key].valueChanged.connect(
-                self._on_margin_edited
+        self._margin_prev = {
+            key: spin.value()
+            for key, spin in self._media_panel._margin_spins.items()
+        }
+        for key, spin in self._media_panel._margin_spins.items():
+            spin.valueChanged.connect(
+                lambda value, k=key: self._on_margin_spin_changed(k, value)
+            )
+            spin.editingFinished.connect(
+                lambda _=False: self._commit_history(tr("Ränder"))
             )
         self._media_panel.detect_requested.connect(self._on_detect_label)
         self._media_panel.usb_search_requested.connect(self._on_usb_search)
@@ -251,6 +304,7 @@ class MainWindow(QMainWindow):
         self._canvas.item_double_clicked.connect(self._on_item_double_clicked)
         self._canvas.context_menu_requested.connect(self._show_context_menu)
         self._canvas.items_changed.connect(self._on_items_changed)
+        self._canvas.gesture_begun.connect(self._capture_history)
         self._canvas.image_dropped.connect(self._on_image_dropped)
         self._canvas.text_dropped.connect(self._on_text_dropped)
         self._canvas.print_preview_exit_requested.connect(self._exit_print_preview)
@@ -259,10 +313,16 @@ class MainWindow(QMainWindow):
         # Vorschau live; die Bandgroesse wird erst am Ende der Geste neu berechnet.
         self._canvas.scene().changed.connect(self._on_scene_changed)
         self._inspector.changed.connect(self._on_inspector_changed)
-        # Aenderungen am Band/Design markieren das Dokument als geaendert
-        # (die Adresse zaehlt mit - ein falscher Stern ist harmloser als
-        # ein fehlender).
-        self._media_panel.changed.connect(self._mark_document_dirty)
+        self._inspector.edit_begun.connect(self._capture_history)
+        self._inspector.edit_committed.connect(
+            lambda: self._commit_history(tr("Eigenschaften"))
+        )
+        self._inspector.rejected.connect(
+            lambda message: self.statusBar().showMessage(message, 8000)
+        )
+        self._undo_stack.cleanChanged.connect(self._on_undo_clean_changed)
+        # Adresswechsel setzt den Stern unabhaengig vom Undo-Stapel.
+        self._media_panel.changed.connect(self._on_media_panel_dirty)
 
         # Rad-Ereignisse duerfen keine Werte in Feldern aendern (auch nicht in
         # den dynamisch erzeugten Inspector-Feldern - die sichern sich selbst).
@@ -279,6 +339,13 @@ class MainWindow(QMainWindow):
         self._apply_saved_settings()
         self._on_media_changed()
         self._sync_margin_base()
+        self._sync_media_prev()
+        # Startzustand ist sauber - Medien-Sync oben zaehlt nicht als Bearbeitung.
+        self._document_dirty = False
+        self._address_dirty = False
+        self._undo_stack.clear()
+        self._undo_stack.setClean()
+        self._update_window_title()
 
         # Fokus auf dem Canvas: kein Formularfeld ist anfangs "aktiv", damit das
         # Mausrad über den Panels scrollt statt Werte zu veraendern.
@@ -622,6 +689,38 @@ class MainWindow(QMainWindow):
         self._act_add_rect.setToolTip(tr("Rahmen einfügen"))
         self._act_add_rect.triggered.connect(self._add_rect)
 
+        self._act_undo = self._undo_stack.createUndoAction(self, tr("Rückgängig"))
+        self._act_undo.setIcon(icon("chevron_left"))
+        self._act_undo.setShortcut(QKeySequence.StandardKey.Undo)
+        self._act_redo = self._undo_stack.createRedoAction(self, tr("Wiederholen"))
+        self._act_redo.setIcon(icon("chevron_right"))
+        self._act_redo.setShortcut(QKeySequence.StandardKey.Redo)
+
+        self._act_align_left = QAction(icon("align_left"), tr("Links ausrichten"), self)
+        self._act_align_left.triggered.connect(lambda: self._align_selected("left"))
+        self._act_align_hcenter = QAction(
+            icon("align_hcenter"), tr("Horizontal zentrieren"), self
+        )
+        self._act_align_hcenter.triggered.connect(
+            lambda: self._align_selected("hcenter")
+        )
+        self._act_align_right = QAction(
+            icon("align_right"), tr("Rechts ausrichten"), self
+        )
+        self._act_align_right.triggered.connect(lambda: self._align_selected("right"))
+        self._act_align_top = QAction(icon("align_top"), tr("Oben ausrichten"), self)
+        self._act_align_top.triggered.connect(lambda: self._align_selected("top"))
+        self._act_align_vcenter = QAction(
+            icon("align_vcenter"), tr("Vertikal zentrieren"), self
+        )
+        self._act_align_vcenter.triggered.connect(
+            lambda: self._align_selected("vcenter")
+        )
+        self._act_align_bottom = QAction(
+            icon("align_bottom"), tr("Unten ausrichten"), self
+        )
+        self._act_align_bottom.triggered.connect(lambda: self._align_selected("bottom"))
+
         self._act_front = QAction(icon("front"), tr("In den Vordergrund"), self)
         self._act_front.setToolTip(tr("In den Vordergrund"))
         self._act_front.triggered.connect(lambda: self._bump_z(+1))
@@ -725,7 +824,6 @@ class MainWindow(QMainWindow):
         # Der Dateiname steht im Fenstertitel; ein Stern markiert Aenderungen.
         self._document_path = ""
         self._document_dirty = False
-        self._canvas.items_changed.connect(self._mark_document_dirty)
 
     def _build_toolbar(self) -> None:
         bar = self.addToolBar("Werkzeuge")
@@ -816,7 +914,19 @@ class MainWindow(QMainWindow):
         ):
             menu.addAction(act)
         menu.addSection(tr("Bearbeiten"))
-        for act in (self._act_front, self._act_back, self._act_delete):
+        for act in (
+            self._act_undo,
+            self._act_redo,
+            self._act_align_left,
+            self._act_align_hcenter,
+            self._act_align_right,
+            self._act_align_top,
+            self._act_align_vcenter,
+            self._act_align_bottom,
+            self._act_front,
+            self._act_back,
+            self._act_delete,
+        ):
             menu.addAction(act)
         menu.addSection(tr("Etikett"))
         for act in self._media_panel.orientation_actions():
@@ -951,6 +1061,9 @@ class MainWindow(QMainWindow):
 
         Das neue Fenster wird **vor** dem Schliessen des alten gezeigt: sonst
         gilt das letzte Fenster als geschlossen und Qt beendet das Programm.
+
+        Der Undo-Stapel geht dabei verloren (neues Fenster); der Stern im Titel
+        bleibt ueber ``document_dirty`` / ``address_dirty`` erhalten.
         """
         if code not in LANGUAGES or code == language():
             return
@@ -980,11 +1093,18 @@ class MainWindow(QMainWindow):
             "resolution": self._resolution().key,
             "copies": self._copies_spin.value(),
             "cut_mode": self._cut_combo.currentData(),
+            "document_path": self._document_path,
+            "document_dirty": self._is_document_dirty(),
+            "address_dirty": self._address_dirty,
         }
 
     def apply_state(self, state: Mapping[str, Any]) -> None:
         """Zustand aus :meth:`_state` uebernehmen (nach einem Neuaufbau)."""
-        self._media_panel.apply_state(state.get("media") or {})
+        self._history_suppress = True
+        try:
+            self._media_panel.apply_state(state.get("media") or {})
+        finally:
+            self._history_suppress = False
         self._threshold_spin.setValue(int(state.get("threshold", DEFAULT_THRESHOLD)))
         self._dither_check.setChecked(bool(state.get("dither", False)))
         self._hq_check.setChecked(bool(state.get("hq", False)))
@@ -996,11 +1116,23 @@ class MainWindow(QMainWindow):
         # Erst wenn beide Werte stehen: „Nur am Ende" haengt an der Kopienzahl.
         self._sync_cut_options()
         self._canvas.load_items(list(state.get("items") or []))
+        self._wire_loaded_text_items()
         self._sync_margin_base()
+        self._sync_media_prev()
+        self._undo_stack.clear()
         self._recompute_canvas()
         self._schedule_refresh()
         if state.get("preview"):
             self._act_print_preview.setChecked(True)
+        self._document_path = str(state.get("document_path") or "")
+        self._address_dirty = bool(state.get("address_dirty", False))
+        if state.get("document_dirty"):
+            self._document_dirty = True
+            self._undo_stack.resetClean()
+        else:
+            self._document_dirty = False
+            self._undo_stack.setClean()
+        self._update_window_title()
         self._canvas.setFocus()
 
     # ------------------------------------------------------------- Settings --
@@ -1029,7 +1161,7 @@ class MainWindow(QMainWindow):
         if geometry is not None:
             self.restoreGeometry(geometry)
         else:
-            self.resize(1320, 860)
+            self.resize(*DEFAULT_WINDOW_SIZE)
         index = self._media_panel._model_combo.findData(model)
         if index >= 0:
             self._media_panel._model_combo.setCurrentIndex(index)
@@ -1057,6 +1189,8 @@ class MainWindow(QMainWindow):
     def _on_media_changed(self) -> None:
         if self._adjusting:
             return
+        prev_media = self._media_prev
+        self._media_prev = deepcopy(dict(self._media_panel.media_state()))
         self._recompute_canvas()
         self._settings.last_label = self._media_panel.label_id()
         self._settings.address = self._media_panel.address()
@@ -1065,6 +1199,43 @@ class MainWindow(QMainWindow):
         self._sync_resolution_options()
         self._on_selection_changed()
         self._schedule_refresh()
+        self._record_media_change(prev_media)
+
+    def _record_media_change(self, prev_media: dict[str, Any] | None) -> None:
+        """Band/Modell/Ausrichtung/Länge als eigenen Undo-Befehl ablegen.
+
+        Ränder laufen über :meth:`_on_margin_spin_changed` (ein Befehl pro
+        Feld, Commit bei ``editingFinished``) und werden hier uebersprungen,
+        solange sich *nur* die Ränder geaendert haben. Ein Bandwechsel setzt
+        die Ränder mit um - das gehoert dann in denselben Befehl.
+        """
+        if (
+            prev_media is None
+            or self._history_suppress
+            or self._history_before is not None
+        ):
+            return
+        now_media = self._media_prev or {}
+        if prev_media == now_media:
+            return
+        only_margins = all(
+            prev_media.get(key) == now_media.get(key)
+            for key in set(prev_media) | set(now_media)
+            if key != "margins"
+        )
+        if only_margins:
+            return
+        items = self._canvas.items_serialized()
+        selection = self._selection_keys()
+        before = design_snapshot(prev_media, items, selection)
+        after = design_snapshot(now_media, items, selection)
+        push_if_changed(
+            self._undo_stack, before, after, self._restore_design, tr("Band")
+        )
+
+    def _sync_media_prev(self) -> None:
+        """Bezug fuer den naechsten Band-Befehl auf den aktuellen Stand setzen."""
+        self._media_prev = deepcopy(dict(self._media_panel.media_state()))
 
     def _recompute_canvas(self) -> None:
         self._adjusting = True
@@ -1091,6 +1262,27 @@ class MainWindow(QMainWindow):
         """Den Rand merken, auf den sich die Objekte beziehen (links, oben)."""
         margins = self._media_panel.margins()
         self._margin_base = (margins.left, margins.top)
+        self._margin_prev = {
+            key: spin.value()
+            for key, spin in self._media_panel._margin_spins.items()
+        }
+
+    def _on_margin_spin_changed(self, key: str, value: float) -> None:
+        """Randfeld geaendert: Undo merken, links/oben Objekte mitziehen."""
+        if self._adjusting:
+            self._margin_prev[key] = float(value)
+            return
+        if self._history_before is None:
+            media = dict(self._media_panel.media_state())
+            margins = dict(media.get("margins") or {})
+            margins[key] = self._margin_prev.get(key, value)
+            media["margins"] = margins
+            self._history_before = design_snapshot(
+                media, self._canvas.items_serialized(), self._selection_keys()
+            )
+        self._margin_prev[key] = float(value)
+        if key in ("left", "top"):
+            self._on_margin_edited()
 
     def _on_margin_edited(self) -> None:
         """Linker oder oberer Rand geaendert: die Objekte wandern mit.
@@ -1106,9 +1298,124 @@ class MainWindow(QMainWindow):
         dx = _signed_dots(margins.left - base_left)
         dy = _signed_dots(margins.top - base_top)
         self._sync_margin_base()
-        if dx or dy:
-            self._canvas.translate_items(dx, dy)
-            self._schedule_refresh()
+        if not dx and not dy:
+            return
+        # Klemme aus: die Laenge ist noch die alte und wuerde die Verschiebung
+        # schlucken. Danach die Laenge aus der neuen Huelle.
+        self._canvas.translate_items(dx, dy, clamp=False)
+        self._recompute_canvas()
+        self._schedule_refresh()
+
+    # -------------------------------------------------------------- History --
+    def _selection_keys(self) -> list[dict[str, Any]]:
+        return [
+            {"x": item.pos().x(), "y": item.pos().y(), "z": item.zValue()}
+            for item in self._canvas.selected_items()
+            if hasattr(item, "to_dict")
+        ]
+
+    def _design_snapshot(self) -> dict[str, Any]:
+        return design_snapshot(
+            self._media_panel.media_state(),
+            self._canvas.items_serialized(),
+            self._selection_keys(),
+        )
+
+    def _capture_history(self) -> None:
+        if self._adjusting or self._history_suppress or self._history_before is not None:
+            return
+        self._history_before = self._design_snapshot()
+
+    def _commit_history(self, text: str = "") -> None:
+        if self._adjusting or self._history_suppress:
+            return
+        before = self._history_before
+        self._history_before = None
+        after = self._design_snapshot()
+        if push_if_changed(
+            self._undo_stack, before, after, self._restore_design, text
+        ):
+            self._update_window_title()
+
+    def _restore_design(self, snapshot: dict[str, Any]) -> None:
+        """Medien und Objekte aus einem Undo-Schnappschuss setzen."""
+        self._adjusting = True
+        self._history_suppress = True
+        try:
+            self._media_panel.apply_media_state(snapshot.get("media") or {})
+            self._canvas.load_items(list(snapshot.get("items") or []))
+            self._sync_margin_base()
+            keys = list(snapshot.get("selection") or [])
+            self._canvas.scene().clearSelection()
+            if keys:
+                for item in self._canvas.scene().items():
+                    if not hasattr(item, "to_dict"):
+                        continue
+                    pos = item.pos()
+                    for key in keys:
+                        if (
+                            abs(pos.x() - float(key.get("x", 0))) < 0.5
+                            and abs(pos.y() - float(key.get("y", 0))) < 0.5
+                            and abs(item.zValue() - float(key.get("z", 0))) < 0.5
+                        ):
+                            item.setSelected(True)
+                            break
+        finally:
+            self._adjusting = False
+            self._history_suppress = False
+        self._wire_loaded_text_items()
+        # Ueber den normalen Medien-Pfad: Aufloesungen, Einstellungen, Canvas.
+        # ``_media_prev`` steht schon auf dem neuen Stand - kein neuer Befehl.
+        self._sync_media_prev()
+        self._on_media_changed()
+        self._update_window_title()
+
+    def _align_selected(self, mode: str) -> None:
+        """Auswahl aneinander oder am Randrahmen ausrichten."""
+        items = [
+            item
+            for item in self._canvas.selected_items()
+            if hasattr(item, "to_dict")
+        ]
+        if not items:
+            return
+        self._capture_history()
+        if len(items) == 1:
+            ref = self._canvas.margin_rect()
+        else:
+            ref = items[0].sceneBoundingRect()
+            for item in items[1:]:
+                ref = ref.united(item.sceneBoundingRect())
+        for item in items:
+            box = item.sceneBoundingRect()
+            dx = dy = 0.0
+            if mode == "left":
+                dx = ref.left() - box.left()
+            elif mode == "hcenter":
+                dx = ref.center().x() - box.center().x()
+            elif mode == "right":
+                dx = ref.right() - box.right()
+            elif mode == "top":
+                dy = ref.top() - box.top()
+            elif mode == "vcenter":
+                dy = ref.center().y() - box.center().y()
+            elif mode == "bottom":
+                dy = ref.bottom() - box.bottom()
+            if dx or dy:
+                item.moveBy(dx, dy)
+        self._commit_history(tr("Ausrichten"))
+        self._on_items_changed()
+
+    def _on_media_panel_dirty(self) -> None:
+        """Adresse/Anschluss: Stern ohne Undo-Eintrag."""
+        if self._adjusting:
+            return
+        # Medien-Design laeuft ueber den Undo-Stapel (Ränder, Band, …).
+        # Die Adresse gehoert dem Rechner - nur den Stern setzen.
+        address = self._media_panel.address()
+        if address != self._settings.address:
+            self._address_dirty = True
+            self._update_window_title()
 
     def _content_length_dots(self, orientation: media.Orientation) -> int:
         """Laenge des Inhalts in Bandrichtung (Dots), inkl. Rand an der Bandkante."""
@@ -1117,8 +1424,10 @@ class MainWindow(QMainWindow):
             return 0
         margins = self._media_panel.margins()
         if orientation is media.Orientation.ALONG:
-            return int(rect.right()) + media.mm_to_dots(margins.right)
-        return int(rect.bottom()) + media.mm_to_dots(margins.bottom)
+            edge = math.ceil(rect.right())
+            return edge + media.mm_to_dots(margins.right)
+        edge = math.ceil(rect.bottom())
+        return edge + media.mm_to_dots(margins.bottom)
 
     # ----------------------------------------------------------- Rendering --
     def _schedule_refresh(self) -> None:
@@ -1238,10 +1547,18 @@ class MainWindow(QMainWindow):
     # ------------------------------------------------------------- Items ----
     def _default_item_pos(self) -> QPointF:
         margins = self._media_panel.margins()
-        return QPointF(media.mm_to_dots(margins.left) + 10, media.mm_to_dots(margins.top) + 10)
+        inset = DEFAULT_ITEM_INSET_DOTS
+        return QPointF(
+            media.mm_to_dots(margins.left) + inset,
+            media.mm_to_dots(margins.top) + inset,
+        )
 
     def _default_font_size(self) -> int:
-        return max(16, int(self._canvas.height_dots * 0.25) or 40)
+        return max(
+            DEFAULT_FONT_MIN_PX,
+            int(self._canvas.height_dots * DEFAULT_FONT_HEIGHT_RATIO)
+            or DEFAULT_FONT_MIN_PX,
+        )
 
     def _fit_item_into_label(self, item) -> bool:
         """Zu grosse Objekte auf die bedruckbare Flaeche verkleinern.
@@ -1269,18 +1586,50 @@ class MainWindow(QMainWindow):
         item.apply_resize(width * factor, height * factor)
         return True
 
-    def _add_item(self, item, pos: QPointF | None = None) -> None:
-        self._fit_item_into_label(item)
-        item.setPos(pos if pos is not None else self._default_item_pos())
-        if isinstance(item, TextItem):
-            item.document().contentsChanged.connect(self._on_text_edited)
-            item.editing_finished.connect(self._on_text_editing_finished)
-        self._canvas.add_item(item)
-        self._canvas.setFocus()
-        self._mark_document_dirty()
-        self._recompute_canvas()
-        self._schedule_refresh()
-        self._on_selection_changed()
+    def _add_item(
+        self, item, pos: QPointF | None = None, *, commit: bool = True
+    ) -> None:
+        """Objekt einfuegen - als ein Undo-Schritt.
+
+        ``commit=False`` laesst den Schnappschuss offen: ein neues Textfeld
+        wird erst mit dem Ende der Bearbeitung ein Schritt („Text"), und ein
+        leer gebliebenes verschwindet ohne Spur auf dem Stapel.
+        """
+        self._capture_history()
+        self._history_suppress = True
+        try:
+            self._fit_item_into_label(item)
+            item.setPos(pos if pos is not None else self._default_item_pos())
+            self._wire_text_item(item)
+            self._canvas.add_item(item)
+            self._canvas.setFocus()
+            self._recompute_canvas()
+            self._schedule_refresh()
+            self._on_selection_changed()
+        finally:
+            self._history_suppress = False
+        if commit:
+            self._commit_history(tr("Einfügen"))
+
+    def _wire_text_item(self, item) -> None:
+        """Textfeld an Undo und Aufraeumen haengen (Tippen, Bearbeitungsende)."""
+        if not isinstance(item, TextItem):
+            return
+        # Schnappschuss beim Start der Bearbeitung - ``contentsChanged`` kommt
+        # erst *nach* dem ersten Zeichen und waere als Bezug zu spaet.
+        item.editing_started.connect(self._capture_history)
+        item.document().contentsChanged.connect(self._on_text_edited)
+        item.editing_finished.connect(self._on_text_editing_finished)
+
+    def _wire_loaded_text_items(self) -> None:
+        """Nach ``load_items`` (Öffnen, Undo, Sprachwechsel) neu verdrahten.
+
+        ``item_from_dict`` erzeugt frische Objekte - ohne diesen Schritt
+        wuerde ein spaeter bearbeitetes Textfeld weder im Undo landen noch
+        leer aufgeraeumt.
+        """
+        for item in self._canvas.scene().items():
+            self._wire_text_item(item)
 
     def _new_text(self, pos: QPointF | None = None, text: str = "") -> TextItem:
         """Neues Textfeld anlegen und direkt bearbeiten.
@@ -1291,7 +1640,9 @@ class MainWindow(QMainWindow):
         :meth:`_on_text_editing_finished`) - wie im P-touch Editor.
         """
         item = TextItem(text, font_pixel_size=self._default_font_size())
-        self._add_item(item, pos)
+        # Einfuegen und Tippen sind *ein* Schritt; der Commit kommt mit dem
+        # Ende der Bearbeitung (_on_text_editing_finished).
+        self._add_item(item, pos, commit=False)
         item.start_editing()
         return item
 
@@ -1310,7 +1661,10 @@ class MainWindow(QMainWindow):
         Items kommt - dort darf es sich nicht selbst aus der Szene nehmen.
         """
         item = self.sender()
-        if not isinstance(item, TextItem) or str(item.toPlainText()).strip():
+        if not isinstance(item, TextItem):
+            return
+        if str(item.toPlainText()).strip():
+            self._commit_history(tr("Text"))
             return
         QTimer.singleShot(0, lambda: self._discard_text_if_empty(item))
 
@@ -1322,10 +1676,17 @@ class MainWindow(QMainWindow):
         # wird nur, was wirklich nicht mehr in Bearbeitung ist.
         if item.is_editing:
             return
-        self._canvas.remove_item(item)
+        self._capture_history()
+        self._history_suppress = True
+        try:
+            self._canvas.remove_item(item)
+        finally:
+            self._history_suppress = False
+        self._commit_history(tr("Löschen"))
         self._on_items_changed()
 
     def _on_text_edited(self) -> None:
+        self._capture_history()
         self._recompute_canvas()
         self._schedule_refresh()
 
@@ -1336,15 +1697,22 @@ class MainWindow(QMainWindow):
         self._inspector.set_item(item, allow_red=allow_red)
 
     def _on_inspector_changed(self) -> None:
-        self._mark_document_dirty()
         self._canvas.viewport().update()
         self._recompute_canvas()
         self._schedule_refresh()
 
     def _delete_selected(self) -> None:
         """Objekte loeschen - und das Dokument als geaendert markieren."""
-        self._mark_document_dirty()
-        self._canvas.delete_selected()
+        if not self._canvas.selected_items():
+            return
+        self._capture_history()
+        self._history_suppress = True
+        try:
+            self._canvas.delete_selected()
+        finally:
+            self._history_suppress = False
+        self._commit_history(tr("Löschen"))
+        self._on_items_changed()
 
     def _on_zoom_changed(self, percent: float) -> None:
         self._update_zoom_label(percent)
@@ -1372,6 +1740,14 @@ class MainWindow(QMainWindow):
 
     def _on_items_changed(self) -> None:
         """Nach Abschluss einer Geste: Bandgroesse + Inspector aktualisieren."""
+        if not self._history_suppress:
+            text = tr("Bearbeiten")
+            before = self._history_before
+            if before is not None and len(self._canvas.items_serialized()) < len(
+                before.get("items") or []
+            ):
+                text = tr("Löschen")  # Entf-Taste im Canvas
+            self._commit_history(text)
         self._canvas.viewport().update()
         self._recompute_canvas()
         self._schedule_refresh()
@@ -1408,13 +1784,19 @@ class MainWindow(QMainWindow):
         menu.addAction(icon("rect"), tr("Rahmen"), self._add_rect)
         if self._canvas.selected_items():
             menu.addSeparator()
-            menu.addAction(
-                icon("front"), tr("In den Vordergrund"), lambda: self._bump_z(+1)
-            )
-            menu.addAction(
-                icon("back"), tr("In den Hintergrund"), lambda: self._bump_z(-1)
-            )
-            menu.addAction(icon("delete"), tr("Löschen"), self._delete_selected)
+            for act in (
+                self._act_align_left,
+                self._act_align_hcenter,
+                self._act_align_right,
+                self._act_align_top,
+                self._act_align_vcenter,
+                self._act_align_bottom,
+            ):
+                menu.addAction(act)
+            menu.addSeparator()
+            menu.addAction(self._act_front)
+            menu.addAction(self._act_back)
+            menu.addAction(self._act_delete)
         return menu
 
     def _show_context_menu(self, global_pos, scene_pos: QPointF) -> None:
@@ -1496,8 +1878,13 @@ class MainWindow(QMainWindow):
         self._add_item(item)
 
     def _bump_z(self, direction: int) -> None:
+        if not self._canvas.selected_items():
+            return
+        self._capture_history()
         for item in self._canvas.selected_items():
             item.setZValue(item.zValue() + direction)
+        self._commit_history(tr("Reihenfolge"))
+        self._canvas.viewport().update()
 
     # -------------------------------------------------------------- Print ---
     def _on_print(self) -> None:
@@ -1708,21 +2095,28 @@ class MainWindow(QMainWindow):
         )
 
     def _on_detect_label(self) -> None:
+        if self._detect_worker is not None and self._detect_worker.isRunning():
+            return
         config = self._media_panel.printer_config()
         QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
-        try:
-            label = detect_label(config)
-        except Exception as exc:  # pragma: no cover - defensiv
-            QApplication.restoreOverrideCursor()
-            show_message(
-                self,
-                "warning",
-                tr("Band erkennen"),
-                tr("Abfrage fehlgeschlagen:\n{error}").format(error=exc),
-            )
-            return
-        finally:
-            QApplication.restoreOverrideCursor()
+        self._detect_worker = DetectLabelWorker(config, self)
+        self._detect_worker.succeeded.connect(self._on_detect_label_done)
+        self._detect_worker.failed.connect(self._on_detect_label_failed)
+        self._detect_worker.finished.connect(self._on_detect_label_finished)
+        self._detect_worker.start()
+
+    def _on_detect_label_finished(self) -> None:
+        QApplication.restoreOverrideCursor()
+
+    def _on_detect_label_failed(self, message: str) -> None:
+        show_message(
+            self,
+            "warning",
+            tr("Band erkennen"),
+            tr("Abfrage fehlgeschlagen:\n{error}").format(error=message),
+        )
+
+    def _on_detect_label_done(self, label) -> None:
         if label is None:
             # Der Knopf steht nur dort, wo es einen Rueckkanal gibt - hier ist
             # also nur noch die Frage, ob die Rechte fehlen oder das Band
@@ -1761,39 +2155,61 @@ class MainWindow(QMainWindow):
     def _apply_document(self, data: dict) -> None:
         """Dokumentdaten uebernehmen - Adresse und Anschluss bleiben stehen."""
         self._adjusting = True
+        self._history_suppress = True
         try:
             self._media_panel.apply_media_state(data.get("media") or {})
             self._canvas.load_items(list(data.get("items") or []))
             self._sync_margin_base()
         finally:
             self._adjusting = False
+            self._history_suppress = False
+        self._wire_loaded_text_items()
+        self._sync_media_prev()
+        self._undo_stack.clear()
+        self._undo_stack.setClean()
+        self._document_dirty = False
+        self._address_dirty = False
+        self._history_before = None
         self._recompute_canvas()
         self._schedule_refresh()
+        self._update_window_title()
 
     def _set_document_path(self, path: str) -> None:
         self._document_path = path
         self._document_dirty = False
+        self._address_dirty = False
+        self._undo_stack.setClean()
         self._update_window_title()
 
-    def _mark_document_dirty(self) -> None:
-        """Etwas am Etikett geaendert - Stern im Titel."""
-        if self._adjusting or self._document_dirty:
-            return
-        self._document_dirty = True
+    def _on_undo_clean_changed(self, _clean: bool = False) -> None:
+        """Titel nach Undo-Stapel-Clean-Flag aktualisieren."""
         self._update_window_title()
+
+    def _is_document_dirty(self) -> bool:
+        """Stern: Undo-Stapel unsauber, Vorlage angewendet oder Adresswechsel."""
+        try:
+            stack_dirty = not self._undo_stack.isClean()
+        except RuntimeError:
+            stack_dirty = False
+        return self._document_dirty or self._address_dirty or stack_dirty
 
     def _update_window_title(self) -> None:
-        base = tr("QLInux - P-touch Editor")
-        if not self._document_path and not self._document_dirty:
-            self.setWindowTitle(base)
+        try:
+            base = tr("QLInux - P-touch Editor")
+            dirty = self._is_document_dirty()
+            if not self._document_path and not dirty:
+                self.setWindowTitle(base)
+                return
+            name = (
+                Path(self._document_path).name
+                if self._document_path
+                else tr("Unbenannt")
+            )
+            star = "*" if dirty else ""
+            self.setWindowTitle(f"{name}{star} – {base}")
+        except RuntimeError:
+            # Fenster oder Undo-Stapel schon freigegeben (Teardown).
             return
-        name = (
-            Path(self._document_path).name
-            if self._document_path
-            else tr("Unbenannt")
-        )
-        star = "*" if self._document_dirty else ""
-        self.setWindowTitle(f"{name}{star} – {base}")
 
     def _on_file_open(self) -> None:
         """„Öffnen…": Datei waehlen und laden."""
@@ -1871,6 +2287,8 @@ class MainWindow(QMainWindow):
         self._network_cancel.set()
         if self._network_worker is not None and self._network_worker.isRunning():
             self._network_worker.wait(NETWORK_CANCEL_WAIT_MS)
+        if self._detect_worker is not None and self._detect_worker.isRunning():
+            self._detect_worker.wait(NETWORK_CANCEL_WAIT_MS)
         self._settings.save_geometry(self.saveGeometry())
         self._settings.address = self._media_panel.address()
         self._settings.model = self._media_panel.model_id()

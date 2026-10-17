@@ -90,13 +90,10 @@ COPIES_MAX = 99
 #: Auto Cut. **1 = nach jedem Etikett schneiden.** Das ist die Vorgabe von
 #: ``brother_ql.convert()`` (Parameter ``cut=True``) - und genau deshalb
 #: schneidet der Drucker ohne weiteres Zutun nach jeder Kopie.
-_VARIOUS_MODE = b"\x1b\x69\x4d"
 AUTO_CUT_BIT = 0x40
 
 #: Befehl "Expanded mode" (``ESC i K {n}``), Bit 4 (1-basiert, hier ``0x08``):
 #: "Cut at End" - **1 = am Ende schneiden** (Vorgabe), 0 = nicht schneiden.
-#: Aus ist er nur, wenn ``convert()`` mit ``cut=False`` aufgerufen wird.
-_EXPANDED_MODE = b"\x1b\x69\x4b"
 CUT_AT_END_BIT = 0x08
 
 
@@ -400,8 +397,10 @@ def preferred_usb_address(address: str, devices: list[str] | None = None) -> str
     """Bevorzugte Adresse fuer einen USB-Drucker.
 
     Eine gespeicherte libusb-Adresse wird auf den Kernel-Anschluss desselben
-    Druckers umgeschrieben, sobald es ihn gibt - so bleibt eine aeltere Auswahl
-    gueltig, statt als "nicht angeschlossen" zu erscheinen.
+    Druckers umgeschrieben, sobald es **genau einen** solchen Knoten gibt -
+    so bleibt eine aeltere Auswahl gueltig. Bei zwei Geraeten desselben Typs
+    bleibt die libusb-Adresse stehen: die Modellkennung allein reicht dann
+    nicht, um den richtigen Knoten zu waehlen.
     """
     address = (address or "").strip()
     if not address:
@@ -411,9 +410,14 @@ def preferred_usb_address(address: str, devices: list[str] | None = None) -> str
         return address
     if backend_for_address(address) == "pyusb":
         model = model_for_address(address)
-        for device in printers:
-            if backend_for_address(device) == "linux_kernel" and model_for_address(device) == model:
-                return device
+        matches = [
+            device
+            for device in printers
+            if backend_for_address(device) == "linux_kernel"
+            and model_for_address(device) == model
+        ]
+        if len(matches) == 1:
+            return matches[0]
     return address
 
 
@@ -455,7 +459,7 @@ def usb_device_detail(address: str) -> str:
     backend = backend_for_address(address)
     if backend not in READBACK_BACKENDS:
         return address
-    kind = tr("Kernel-Anschluss") if backend == "linux_kernel" else "libusb"
+    kind = tr("Kernel-Anschluss") if backend == "linux_kernel" else tr("libusb")
     model = model_for_address(address)
     suffix = f", {model}" if model else ""
     return f"{address}  ({kind}{suffix})"
@@ -576,7 +580,9 @@ def validate_for_print(
 
     Erzwingt das Kernprinzip: Bildbreite == ``scale * label.dots_printable[0]``.
     ``scale=2`` ist der 600-dpi-Modus - dort erwartet ``convert()`` genau die
-    doppelte Breite (``dots_expected``).
+    doppelte Breite (``dots_expected``). Bei Die-cut/Rund muss auch die Hoehe
+    exakt ``scale * dots_printable[1]`` sein - sonst wirft ``convert()``
+    ``ValueError``.
     """
     expected = label.width_dots * scale
     if image.width != expected:
@@ -591,6 +597,20 @@ def validate_for_print(
                 scale=scale,
             )
         )
+    if label.kind.is_fixed_size:
+        expected_h = label.height_dots * scale
+        if image.height != expected_h:
+            raise PrinterError(
+                tr(
+                    "Bildhöhe {height} px != {expected} px (Band {label!r}, "
+                    "Faktor {scale}). Bitte ueber den Renderer erzeugen."
+                ).format(
+                    height=image.height,
+                    expected=expected_h,
+                    label=label.identifier,
+                    scale=scale,
+                )
+            )
     if red and not label.color.supports_red:
         raise PrinterError(
             tr("Rotdruck ist mit Band {label!r} ({name}) nicht moeglich.").format(
@@ -641,7 +661,7 @@ def build_raster(
     _validate_copies(copies)
     _validate_cut_mode(cut_mode, model)
 
-    qlr = _JobRaster(model=config.model, pages=copies)
+    qlr = _JobRaster(model=config.model, pages=copies, cut_mode=cut_mode)
     qlr.exception_on_warning = True  # Warnungen als Fehler sichtbar machen
     try:
         convert(
@@ -653,10 +673,11 @@ def build_raster(
             dither=dither,
             compress=compress,
             red=red,
-            # Immer `cut=True`: damit steht "Auto Cut" (ESC i M) *explizit* im
-            # Strom. Fehlt der Befehl, gilt die Einstellung im Druckermenue
-            # weiter - und die steht ab Werk auf "Auto Cut: an", also Schnitt
-            # nach jedem Etikett. `_patch_cut` schaltet es danach aus.
+            # Immer `cut=True`: damit ruft convert() add_autocut/add_expanded_mode
+            # auf. Fehlt ESC i M, gilt die Menue-Einstellung (ab Werk "an").
+            # Die eigentlichen Bits setzt _JobRaster je cut_mode - nicht per
+            # Byte-Suche im fertigen Strom (Bilddaten koennen dieselben Bytes
+            # enthalten).
             cut=True,
             dpi_600=dpi_600,
             hq=hq,
@@ -668,7 +689,7 @@ def build_raster(
             tr("Konvertierung fehlgeschlagen: {error}").format(error=exc)
         ) from exc
 
-    return _patch_cut(bytes(qlr.data), cut_mode)
+    return bytes(qlr.data)
 
 
 class _JobRaster(BrotherQLRaster):
@@ -680,59 +701,30 @@ class _JobRaster(BrotherQLRaster):
     egal, was ``ESC i M``/``ESC i K`` sagen. Zwischen den Kopien muss stattdessen
     ``0x0C`` (Form Feed, "Print command") stehen; nur die letzte Seite endet
     mit ``0x1A``.
+
+    Schnitt-Bits schreibt diese Unterklasse in ``add_autocut`` /
+    ``add_expanded_mode`` (von ``convert()`` pro Etikett aufgerufen), damit
+    Bilddaten mit denselben Bytefolgen unangetastet bleiben.
     """
 
-    def __init__(self, model: str, pages: int) -> None:
+    def __init__(self, model: str, pages: int, cut_mode: str = CUT_EACH) -> None:
         super().__init__(model=model)
         self._pages = pages
         self._finished = 0
+        self._cut_mode = cut_mode
+
+    def add_autocut(self, autocut: bool = False) -> None:
+        # convert() uebergibt immer True (cut=True); der echte Modus entscheidet.
+        super().add_autocut(self._cut_mode == CUT_EACH)
+
+    def add_expanded_mode(self) -> None:
+        # convert() setzt cut_at_end = cut (= True) kurz vorher - hier ueberschreiben.
+        self.cut_at_end = self._cut_mode != CUT_NONE
+        super().add_expanded_mode()
 
     def add_print(self, last_page: bool = True) -> None:
         self._finished += 1
         super().add_print(last_page=self._finished >= self._pages)
-
-
-def _patch_cut(data: bytes, cut_mode: str) -> bytes:
-    """Zuschnitt-Flags in **jedem** Etikett-Block setzen.
-
-    ``convert()`` schreibt den kompletten Kopf *pro Etikett* - bei drei Kopien
-    also dreimal. Der Schnitt laesst sich daher nicht einmal am Anfang
-    einstellen; jedes Vorkommen muss stimmen.
-
-    Wichtig sind zwei Bits aus der Raster Command Reference:
-
-    * ``ESC i M`` Bit 7: **Auto Cut** - 1 heisst "nach jedem Etikett
-      schneiden". Nur :data:`CUT_EACH` will das.
-    * ``ESC i K`` Bit 4: **Cut at End** - 1 heisst "am Ende schneiden"
-      (Vorgabe). Zusammen mit ausgeschaltetem Auto Cut druckt der Drucker alle
-      Kopien durch und schneidet einmal am Ende.
-
-    Auto Cut wird *immer* ausdruecklich geschrieben (auch als 0): fehlt der
-    Befehl, behaelt der Drucker seine Menue-Einstellung - und die ist ab Werk
-    "an", also Schnitt nach jedem Etikett.
-    """
-    if cut_mode == CUT_EACH:
-        return data
-    data = _set_flags(data, _VARIOUS_MODE, AUTO_CUT_BIT, False)
-    if cut_mode == CUT_NONE:
-        data = _set_flags(data, _EXPANDED_MODE, CUT_AT_END_BIT, False)
-    return data
-
-
-def _set_flags(data: bytes, command: bytes, bit: int, value: bool) -> bytes:
-    """Ein Bit im Parameterbyte jedes ``command``-Befehls setzen oder loeschen."""
-    parts = data.split(command)
-    if len(parts) == 1:
-        return data
-    out = [parts[0]]
-    for part in parts[1:]:
-        if not part:
-            out.append(part)
-            continue
-        flags = part[0]
-        flags = flags | bit if value else flags & ~bit
-        out.append(bytes([flags]) + part[1:])
-    return command.join(out)
 
 
 def _validate_copies(copies: int) -> None:

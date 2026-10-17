@@ -188,10 +188,11 @@ Drei Fallen, die beim Erkunden eine Stunde gekostet haben:
 1. **Auto cut muss explizit geschrieben werden - auch als 0.** Fehlt
    `ESC i M`, gilt die Einstellung aus dem Druckermenue, und die steht ab Werk
    auf "an". `brother_ql` schreibt den Befehl nur bei `cut=True`; deshalb
-   erzeugen wir immer `cut=True` und setzen das Bit danach (`_patch_cut`).
+   erzeugen wir immer `cut=True` und setzen die Bits in `_JobRaster.add_autocut`
+   / `add_expanded_mode` je `cut_mode` (nicht per Byte-Suche im fertigen Strom).
 2. **Der Kopf wiederholt sich pro Etikett.** `convert()` schreibt bei drei Kopien
-   dreimal `ESC i M`/`ESC i K`/`ESC i A`. Ein einmaliges Ersetzen am Anfang
-   erwischt nur den ersten Block. `_patch_cut` geht deshalb ueber alle Bloecke.
+   dreimal `ESC i M`/`ESC i K`/`ESC i A`. Die Ueberschreibungen in `_JobRaster`
+   laufen deshalb bei jedem Etikett mit.
 3. **`brother_ql` schliesst jede Seite mit `0x1A` ab** ("Print command with
    feeding", laut Referenz "am Ende der letzten Seite"). Der Drucker behandelt
    jede so abgeschlossene Seite als fertigen Auftrag und schneidet danach, egal

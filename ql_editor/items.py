@@ -3,10 +3,11 @@
 Jedes Item:
 
 * ist ein ``QGraphicsItem`` (direkt in der Szene platzierbar/verschiebbar),
-* **klemmt seine Position auf den bedruckbaren Bereich** (``scene.sceneRect()``)
-  - das ist die "Randbegrenzung" wie im P-touch Editor: nichts landet in der
-  nicht bedruckbaren Zone. Bei gedrehten Objekten zaehlt die gedrehte Huelle,
-  also das, was auf dem Band sichtbar ist,
+* **klemmt beim Ziehen** die Position auf den bedruckbaren Bereich
+  (``scene.sceneRect()``) - Maus und Pfeiltasten bleiben innerhalb der
+  Designflaeche. Die Klemme gilt nicht fuer die Randverschiebung (dort wird
+  sie kurz ausgesetzt, damit der Inhalt mit dem linken/oberen Rand wandern
+  kann). Was hinter dem Rand liegt, wird beim Rendern abgeschnitten,
 * kann sich per :meth:`to_dict` / :meth:`from_dict` serialisieren
   (Grundlage fuer Vorlagen, M4).
 
@@ -65,6 +66,26 @@ def make_qr_image(data: str, *, box_size: int = 10, border: int = 1) -> Image.Im
     return qr.make_image(fill_color="black", back_color="white").convert("RGB")
 
 
+def _check_barcode_matches(value: str, full: str) -> None:
+    """Der gedruckte Code muss der Eingabe entsprechen.
+
+    ``python-barcode`` kuerzt zu lange Werte stillschweigend (13 Stellen in
+    EAN-8 werden zu 7 + Pruefziffer) und ersetzt eine falsch eingegebene
+    Pruefziffer kommentarlos. Beides druckt einen anderen Code als den, den
+    der Benutzer eingegeben hat. Erlaubt bleiben nur die regulaeren
+    Ergaenzungen: angehaengte Pruefziffer, fuehrende Null bei ITF (ungerade
+    Stellenzahl) und Grossschreibung bei Code 39.
+    """
+    for candidate in (value, value.upper()):
+        if full in (candidate, "0" + candidate) or full[:-1] == candidate:
+            return
+    raise ValueError(
+        tr(
+            "Eingabe '{value}' passt nicht zur Symbologie - gedruckt würde '{full}'."
+        ).format(value=value, full=full)
+    )
+
+
 def make_barcode_image(
     value: str,
     symbology: str = "code128",
@@ -79,6 +100,7 @@ def make_barcode_image(
 
     barcode_class = barcode.get_barcode_class(symbology)
     bc = barcode_class(value, writer=ImageWriter())
+    _check_barcode_matches(value, bc.get_fullcode())
     return bc.render(
         writer_options={
             "module_height": module_height,
@@ -110,12 +132,23 @@ def _clamp_pos(item: QGraphicsItem, new_pos: QPointF) -> QPointF:
 
 
 class _ClampMixin:
-    """Klemmt die Position auf den bedruckbaren Bereich + Serialisierungs-Basis."""
+    """Klemmt die Position beim Ziehen/Pfeiltasten auf die aktuelle Szene.
+
+    Der bedruckbare Rand schneidet erst beim Rendern ab - Objekte duerfen
+    deshalb mit dem linken/oberen Rand wandern, bevor die Laenge neu berechnet
+    wird. ``_clamp_suspended`` setzt die Klemme dafuer kurz aus (siehe
+    :meth:`ql_editor.canvas.LabelCanvas.translate_items`).
+    """
 
     kind = "item"
+    _clamp_suspended = False
 
     def itemChange(self, change, value):  # noqa: N802 (Qt-API)
-        if change == QGraphicsItem.GraphicsItemChange.ItemPositionChange:
+        suspend = getattr(self, "_clamp_suspended", False)
+        if (
+            change == QGraphicsItem.GraphicsItemChange.ItemPositionChange
+            and not suspend
+        ):
             value = _clamp_pos(self, value)
         return super().itemChange(change, value)
 
@@ -167,6 +200,9 @@ class LabelItem(_ClampMixin):
 class TextItem(_ClampMixin, QGraphicsTextItem):
     kind = "text"
 
+    #: Bearbeitung begonnen (Doppelklick, neues Feld). Die App nimmt hier den
+    #: Undo-Schnappschuss - *vor* dem ersten Zeichen, nicht erst danach.
+    editing_started = Signal()
     #: Bearbeitung beendet (Fokus weg oder Esc). Die App raeumt damit leere
     #: Textfelder auf, die nur durch einen Doppelklick entstanden sind.
     editing_finished = Signal()
@@ -281,11 +317,14 @@ class TextItem(_ClampMixin, QGraphicsTextItem):
         Ein **neu** angelegtes Feld ist leer: dort gibt es nichts zu markieren,
         deshalb stoert die Vorauswahl beim Erstellen nicht mehr.
         """
+        was_editing = self.is_editing
         self.setTextInteractionFlags(Qt.TextInteractionFlag.TextEditorInteraction)
         self.setFocus(Qt.FocusReason.MouseFocusReason)
         cursor = self.textCursor()
         cursor.select(QTextCursor.SelectionType.Document)
         self.setTextCursor(cursor)
+        if not was_editing:
+            self.editing_started.emit()
 
     def finish_editing(self) -> None:
         was_editing = self.is_editing
@@ -512,21 +551,35 @@ class BarcodeItem(_ClampMixin, QGraphicsPixmapItem):
             pixmap = pixmap.scaledToHeight(self._height_dots, Qt.TransformationMode.SmoothTransformation)
         self.setPixmap(pixmap)
 
+    def _update(self, **changes: Any) -> None:
+        """Eigenschaften setzen und neu zeichnen - oder *nichts* aendern.
+
+        Schlaegt das Zeichnen fehl (ungueltiger Inhalt fuer die Symbologie),
+        bleibt der alte Zustand vollstaendig stehen. Sonst zeigte das Bild den
+        alten Code, waehrend ``_value`` schon den ungueltigen trug - und die
+        gespeicherte Datei liess sich nicht mehr oeffnen.
+        """
+        previous = {key: getattr(self, key) for key in changes}
+        for key, value in changes.items():
+            setattr(self, key, value)
+        try:
+            self._regenerate()
+        except ValueError:
+            for key, value in previous.items():
+                setattr(self, key, value)
+            raise
+
     def set_value(self, value: str) -> None:
-        self._value = value
-        self._regenerate()
+        self._update(_value=value)
 
     def set_symbology(self, symbology: str) -> None:
-        self._symbology = symbology
-        self._regenerate()
+        self._update(_symbology=symbology)
 
     def set_height_dots(self, height: int) -> None:
-        self._height_dots = max(20, int(height))
-        self._regenerate()
+        self._update(_height_dots=max(20, int(height)))
 
     def set_show_text(self, show: bool) -> None:
-        self._show_text = bool(show)
-        self._regenerate()
+        self._update(_show_text=bool(show))
 
     @property
     def value(self) -> str:
@@ -639,12 +692,19 @@ class RectItem(_ClampMixin, QGraphicsRectItem):
     def to_dict(self) -> dict[str, Any]:
         r = self.rect()
         d = self._base_dict()
-        d.update(x=r.x(), y=r.y(), w=r.width(), h=r.height(), width_px=self._width_px, filled=self._filled)
+        # Position steckt in ``x``/``y`` (Szene); die lokale Rechteckursprung
+        # ist ueblich 0/0 und darf die Position nicht ueberschreiben.
+        d.update(
+            w=r.width(),
+            h=r.height(),
+            width_px=self._width_px,
+            filled=self._filled,
+        )
         return d
 
     @classmethod
     def from_dict(cls, d: dict[str, Any]) -> "RectItem":
-        rect = QRectF(d.get("x", 0), d.get("y", 0), d.get("w", 200), d.get("h", 100))
+        rect = QRectF(0.0, 0.0, d.get("w", 200), d.get("h", 100))
         item = cls(rect, d.get("width_px", 2), bool(d.get("filled", False)))
         item._apply_base(d)
         return item

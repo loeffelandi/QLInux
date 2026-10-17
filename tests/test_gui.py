@@ -868,6 +868,90 @@ def test_barcode_item_invalid_value_raises(qapp):
         BarcodeItem("not-a-number", "ean13")
 
 
+def test_barcode_item_keeps_its_state_after_an_invalid_change(qapp):
+    """Ungueltiger Inhalt aendert nichts - auch nicht den gespeicherten Wert.
+
+    Frueher stand nach dem Fehler schon der neue Wert im Item, waehrend das
+    Bild den alten zeigte; die gespeicherte Datei liess sich nicht mehr oeffnen.
+    """
+    from ql_editor.items import item_from_dict
+
+    item = BarcodeItem("4006381333931", "ean13")
+    width = item.pixmap().width()
+    with pytest.raises(ValueError):
+        item.set_value("abc")
+    assert item.value == "4006381333931"
+    assert item.pixmap().width() == width
+    with pytest.raises(ValueError):
+        item.set_symbology("ean8")  # 13 Stellen wuerden still auf 8 gekuerzt
+    assert item.symbology == "ean13"
+    assert item_from_dict(item.to_dict()).value == "4006381333931"
+
+
+@pytest.mark.parametrize(
+    ("symbology", "value", "printed"),
+    [
+        ("ean8", "4006381333931", "40063812"),  # gekuerzt
+        ("ean13", "4006381333930", "4006381333931"),  # Pruefziffer ersetzt
+        ("ean13", "40063813339312", "4006381333931"),  # zu lang
+        ("upca", "036000291453", "036000291452"),  # Pruefziffer ersetzt
+    ],
+)
+def test_barcode_rejects_input_that_would_print_differently(
+    qapp, symbology, value, printed
+):
+    """Was python-barcode still umbaut, lehnen wir mit Hinweis ab."""
+    with pytest.raises(ValueError, match=printed):
+        BarcodeItem(value, symbology)
+
+
+@pytest.mark.parametrize(
+    ("symbology", "value"),
+    [
+        ("ean13", "400638133393"),  # 12 Stellen + Pruefziffer
+        ("ean13", "4006381333931"),  # komplett mit richtiger Pruefziffer
+        ("ean8", "1234567"),
+        ("upca", "03600029145"),
+        ("itf", "123"),  # fuehrende Null bei ungerader Stellenzahl
+        ("code39", "abc"),  # Grossschreibung + Pruefzeichen
+        ("code128", "Hallo Welt"),
+        ("codabar", "A1234B"),
+    ],
+)
+def test_barcode_accepts_regular_completions(qapp, symbology, value):
+    BarcodeItem(value, symbology)
+
+
+def test_inspector_reports_a_rejected_barcode_and_restores_the_field(qapp, tmp_path):
+    """Ungueltige Eingabe: Meldung in der Statusleiste, Feld zeigt den alten Wert."""
+    from PySide6.QtCore import QEvent, QPointF
+    from PySide6.QtWidgets import QApplication, QLineEdit
+
+    win = _temp_window(qapp, tmp_path)
+    item = BarcodeItem("4006381333931", "ean13")
+    win._add_item(item, QPointF(10, 10))
+    qapp.processEvents()
+    item.setSelected(True)
+    qapp.processEvents()
+    field = next(
+        e for e in win._inspector.findChildren(QLineEdit) if e.text() == item.value
+    )
+    field.setText("abc")
+    field.editingFinished.emit()
+    qapp.processEvents()
+    qapp.processEvents()
+
+    assert item.value == "4006381333931"
+    assert "abc" in win.statusBar().currentMessage()
+    assert win._history_before is None
+    # Der alte Formularkoerper geht ueber deleteLater - erst aufraeumen lassen.
+    QApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete)
+    fields = [e.text() for e in win._inspector.findChildren(QLineEdit)]
+    assert "4006381333931" in fields and "abc" not in fields
+    win.close()
+    qapp.processEvents()
+
+
 # --------------------------------------------------------------------------- #
 # MainWindow
 # --------------------------------------------------------------------------- #
@@ -3670,13 +3754,13 @@ def test_editing_marks_the_document_and_opening_a_broken_file_does_not(
     from ql_editor.sheet import Sheet
 
     win = _temp_window(qapp, tmp_path)
-    assert win._document_dirty is False
+    assert win._is_document_dirty() is False
 
-    win._canvas.add_item(TextItem("Hallo", font_pixel_size=30))
+    win._add_item(TextItem("Hallo", font_pixel_size=30))
     qapp.processEvents()
 
-    assert win._document_dirty is True
-    assert win.windowTitle().startswith("*") or "* " in win.windowTitle()
+    assert win._is_document_dirty() is True
+    assert "*" in win.windowTitle()
 
     broken = tmp_path / "kaputt.qlx"
     broken.write_text("{ kein json", encoding="utf-8")
@@ -3686,7 +3770,7 @@ def test_editing_marks_the_document_and_opening_a_broken_file_does_not(
     # Fehler sichtbar (Sheet), aber kein halb geoeffnetes Etikett.
     assert win.findChild(Sheet) is not None
     assert [item["text"] for item in win._canvas.items_serialized()] == ["Hallo"]
-    assert win._document_dirty is True
+    assert win._is_document_dirty() is True
     win.close()
     qapp.processEvents()
 
@@ -3859,9 +3943,60 @@ def test_margin_edit_moves_objects_and_frame(qapp, tmp_path):
     left_before = win._canvas._margins_mm  # Rahmen folgt dem Wert
     assert left_before[0] == 8.0
     assert win._canvas.margin_rect().left() == media.mm_to_dots(8.0)
-    # Um die Differenz zum Standardrand verschoben (der ist beim Start 0/3 mm).
-    assert text.pos().x() > x_before
-    assert text.pos().y() > y_before
+    # Um die Differenz zum Standardrand verschoben (der ist beim Start 0 mm).
+    assert text.pos().x() == pytest.approx(x_before + media.mm_to_dots(8.0))
+    assert text.pos().y() == pytest.approx(y_before + media.mm_to_dots(6.0))
+    win.close()
+    qapp.processEvents()
+
+
+def test_margin_edit_moves_full_label_and_grows_length(qapp, tmp_path):
+    """Voller Inhalt: oberer Rand verschiebt trotzdem, die Laenge waechst mit."""
+    from PySide6.QtCore import QRectF
+
+    from ql_editor import media
+    from ql_editor.items import RectItem
+
+    win = _temp_window(qapp, tmp_path)
+    # Etikett von oben bis unten fuellen, damit die Klemme vorher die
+    # Verschiebung geschluckt haette.
+    height = int(win._canvas.printable_rect().height())
+    win._add_item(RectItem(QRectF(0, 0, 200, height), width_px=4))
+    qapp.processEvents()
+    rect = next(i for i in win._canvas.scene().items() if isinstance(i, RectItem))
+    y_before = rect.pos().y()
+    height_before = win._canvas.printable_rect().height()
+
+    win._media_panel._margin_spins["top"].setValue(5.0)
+    qapp.processEvents()
+
+    delta = media.mm_to_dots(5.0)
+    assert rect.pos().y() == pytest.approx(y_before + delta)
+    assert win._canvas.printable_rect().height() >= height_before + delta
+    win.close()
+    qapp.processEvents()
+
+
+def test_content_length_ceils_fractional_dots(qapp, tmp_path):
+    """Bruchteile eines Punktes in der Huelle runden die Laenge nach oben."""
+    from PySide6.QtCore import QPointF, QRectF
+
+    from ql_editor import media
+    from ql_editor.items import RectItem
+
+    win = _temp_window(qapp, tmp_path)
+    item = RectItem(QRectF(0, 0, 100, 50), width_px=2)
+    win._add_item(item)
+    qapp.processEvents()
+    # Klemme aus: Position bewusst mit Bruchteil setzen.
+    item._clamp_suspended = True
+    item.setPos(QPointF(10.0, 100.6))
+    item._clamp_suspended = False
+    qapp.processEvents()
+    hull = win._canvas.scene().itemsBoundingRect()
+    length = win._content_length_dots(media.Orientation.ACROSS)
+    assert length == math.ceil(hull.bottom())
+    assert length > int(hull.bottom())  # Bruchteil vorhanden, sonst waere der Test leer
     win.close()
     qapp.processEvents()
 
@@ -3892,6 +4027,161 @@ def test_loading_a_document_does_not_shift_its_objects(qapp, tmp_path):
     again.close()
     qapp.processEvents()
     assert document.load(path)["media"]["margins"]["left"] == 8.0
+
+
+def test_undo_redo_restores_item_position(qapp, tmp_path):
+    """Verschieben + Undo stellt die Position wieder her; Redo ebenso."""
+    from ql_editor.items import TextItem
+
+    win = _temp_window(qapp, tmp_path)
+    win._add_item(TextItem("Undo", font_pixel_size=40))
+    qapp.processEvents()
+    text = next(i for i in win._canvas.scene().items() if isinstance(i, TextItem))
+    x0, y0 = text.pos().x(), text.pos().y()
+
+    win._canvas.gesture_begun.emit()
+    text._clamp_suspended = True
+    text.setPos(x0 + 40, y0 + 20)
+    text._clamp_suspended = False
+    win._canvas.items_changed.emit()
+    qapp.processEvents()
+    assert text.pos().x() == pytest.approx(x0 + 40)
+
+    win._act_undo.trigger()
+    qapp.processEvents()
+    text = next(i for i in win._canvas.scene().items() if isinstance(i, TextItem))
+    assert text.pos().x() == pytest.approx(x0)
+    assert text.pos().y() == pytest.approx(y0)
+
+    win._act_redo.trigger()
+    qapp.processEvents()
+    text = next(i for i in win._canvas.scene().items() if isinstance(i, TextItem))
+    assert text.pos().x() == pytest.approx(x0 + 40)
+    win.close()
+    qapp.processEvents()
+
+
+def test_align_left_and_undo(qapp, tmp_path):
+    """Zwei Objekte links ausrichten; Undo stellt beide x-Werte zurueck."""
+    from PySide6.QtCore import QPointF, QRectF
+
+    from ql_editor.items import RectItem
+
+    win = _temp_window(qapp, tmp_path)
+    first = RectItem(QRectF(0, 0, 40, 30), width_px=2)
+    second = RectItem(QRectF(0, 0, 40, 30), width_px=2)
+    win._add_item(first, QPointF(20, 10))
+    win._add_item(second, QPointF(80, 50))
+    qapp.processEvents()
+    first.setSelected(True)
+    second.setSelected(True)
+    x_before = sorted(i.pos().x() for i in (first, second))
+    win._align_selected("left")
+    qapp.processEvents()
+    assert first.pos().x() == pytest.approx(second.pos().x())
+    win._act_undo.trigger()
+    qapp.processEvents()
+    again = [i for i in win._canvas.scene().items() if isinstance(i, RectItem)]
+    assert sorted(i.pos().x() for i in again) == pytest.approx(x_before)
+    win.close()
+    qapp.processEvents()
+
+
+def test_opening_a_document_clears_the_undo_stack(qapp, tmp_path):
+    from ql_editor.items import TextItem
+
+    win = _temp_window(qapp, tmp_path)
+    win._add_item(TextItem("A", font_pixel_size=40))
+    qapp.processEvents()
+    assert win._undo_stack.count() >= 1
+    path = tmp_path / "clear.qlx"
+    win._save_document_to(str(path))
+    win._add_item(TextItem("B", font_pixel_size=40))
+    qapp.processEvents()
+    assert not win._undo_stack.isClean()
+    win._open_document_chosen(str(path))
+    qapp.processEvents()
+    assert win._undo_stack.count() == 0
+    assert win._undo_stack.isClean()
+    win.close()
+    qapp.processEvents()
+
+
+def test_band_change_is_an_undo_step_and_keeps_the_star(qapp, tmp_path):
+    """Bandwechsel liegt auf dem Stapel: Undo dreht ihn zurueck, und ein
+    Undo eines spaeteren Schritts laesst das Band in Ruhe."""
+    from PySide6.QtCore import QPointF, QRectF
+
+    from ql_editor.items import RectItem
+
+    win = _temp_window(qapp, tmp_path)
+    combo = win._media_panel._band_combo
+    original = win._media_panel.label_id()
+    combo.setCurrentIndex((combo.currentIndex() + 1) % combo.count())
+    qapp.processEvents()
+    changed = win._media_panel.label_id()
+    assert changed != original
+    assert win._undo_stack.count() == 1
+    assert "*" in win.windowTitle()
+
+    win._add_item(RectItem(QRectF(0, 0, 40, 30), width_px=2), QPointF(10, 10))
+    qapp.processEvents()
+    win._act_undo.trigger()
+    qapp.processEvents()
+    # Nur das Einfuegen ist weg; das Band bleibt, der Stern auch.
+    assert win._media_panel.label_id() == changed
+    assert win._canvas.items_serialized() == []
+    assert "*" in win.windowTitle()
+
+    win._act_undo.trigger()
+    qapp.processEvents()
+    assert win._media_panel.label_id() == original
+    assert win._undo_stack.isClean()
+    assert "*" not in win.windowTitle()
+    win.close()
+    qapp.processEvents()
+
+
+def test_text_items_restored_by_undo_are_wired(qapp, tmp_path):
+    """Nach Undo sind Textfelder neue Objekte - Tippen muss weiter im Undo landen."""
+    from PySide6.QtCore import QPointF, QRectF
+
+    from ql_editor.items import RectItem, TextItem
+
+    win = _temp_window(qapp, tmp_path)
+    text = win._new_text(QPointF(50, 50))
+    text.textCursor().insertText("Abc")
+    win._canvas.cancel_editing()
+    qapp.processEvents()
+    win._add_item(RectItem(QRectF(0, 0, 40, 30), width_px=2), QPointF(10, 10))
+    qapp.processEvents()
+    win._act_undo.trigger()
+    qapp.processEvents()
+
+    restored = next(
+        i for i in win._canvas.scene().items() if isinstance(i, TextItem)
+    )
+    assert restored is not text
+    index = win._undo_stack.index()
+    restored.start_editing()
+    restored.textCursor().insertText("X")
+    win._canvas.cancel_editing()
+    qapp.processEvents()
+    # Ein neuer Befehl ersetzt den Redo-Zweig: Index rueckt vor, Text "Text".
+    assert win._undo_stack.index() == index + 1
+    assert win._undo_stack.undoText() == "Text"
+
+    # Leer gemacht: wird wie ein frisches Feld aufgeraeumt.
+    restored.start_editing()
+    cursor = restored.textCursor()
+    cursor.select(cursor.SelectionType.Document)
+    cursor.removeSelectedText()
+    win._canvas.cancel_editing()
+    qapp.processEvents()
+    qapp.processEvents()
+    assert restored not in win._canvas.scene().items()
+    win.close()
+    qapp.processEvents()
 
 
 def test_content_beyond_a_margin_is_not_printed(qapp, tmp_path):

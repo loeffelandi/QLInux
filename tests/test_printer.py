@@ -279,6 +279,34 @@ def test_build_raster_cut_at_end_keeps_the_other_flags():
     assert all(f & printer.CUT_AT_END_BIT for f in flags)
 
 
+def test_build_raster_cut_leaves_payload_esc_im_untouched(monkeypatch):
+    """Schnitt schreibt nur echte Befehle - Bildbytes mit ESC i M bleiben."""
+    label = get_label("50")
+    img = Image.new("RGB", (label.width_dots, 472), "white")
+    sentinel = b"\x1b\x69\x4d\xff"
+
+    original = printer._JobRaster.add_raster_data
+
+    def inject(self, image, second_image=None):
+        original(self, image, second_image)
+        self.data += sentinel
+
+    monkeypatch.setattr(printer._JobRaster, "add_raster_data", inject)
+    data = build_raster(img, label, CONFIG, cut_mode=printer.CUT_AT_END, copies=1)
+    assert sentinel in data
+    # Echte Auto-Cut-Befehle sind aus; das Payload-Byte \xff bleibt \xff
+    # (eine Byte-Suche haette Bit 0x40 geloescht -> \xbf).
+    head, _, _ = data.partition(sentinel)
+    assert _flags(head, b"\x1b\x69\x4d") == [0]
+
+
+def test_validate_rejects_wrong_die_cut_height():
+    label = get_label("62x100")
+    img = Image.new("RGB", (label.width_dots, label.height_dots - 10), "white")
+    with pytest.raises(PrinterError, match="Bildhöhe"):
+        validate_for_print(img, label)
+
+
 @pytest.mark.parametrize("copies", [0, -1, printer.COPIES_MAX + 1])
 def test_build_raster_rejects_impossible_copies(copies):
     label = get_label("50")
@@ -666,6 +694,18 @@ def test_preferred_usb_address_migrates_an_old_libusb_entry(monkeypatch):
     assert printer.preferred_usb_address("tcp://192.168.178.62:9100") == (
         "tcp://192.168.178.62:9100"
     )
+
+
+def test_preferred_usb_address_keeps_libusb_when_two_same_models(monkeypatch):
+    """Zwei gleiche Modelle: libusb nicht still auf den ersten Kernel-Knoten legen."""
+    monkeypatch.setattr(
+        printer,
+        "usb_devices",
+        lambda: ["usb://0x04f9:0x2042", "/dev/usb/lp0", "/dev/usb/lp1"],
+    )
+    monkeypatch.setattr(printer, "model_for_address", lambda address: "QL-700")
+
+    assert printer.preferred_usb_address("usb://0x04f9:0x2042") == "usb://0x04f9:0x2042"
 
 
 # --------------------------------------------------------------------------- #

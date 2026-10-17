@@ -491,6 +491,54 @@ def _draw_preview(p: QPainter, color: QColor) -> None:
     p.drawEllipse(QPointF(12.0, 12.0), 2.8, 2.8)
 
 
+def _draw_align_left(p: QPainter, color: QColor) -> None:
+    _stroke_only(p, color, 1.7)
+    _line(p, 4.5, 4.0, 4.5, 20.0)
+    _fill_only(p, color)
+    p.drawRect(QRectF(6.5, 6.0, 10.0, 4.0))
+    p.drawRect(QRectF(6.5, 14.0, 14.0, 4.0))
+
+
+def _draw_align_hcenter(p: QPainter, color: QColor) -> None:
+    _stroke_only(p, color, 1.7)
+    _line(p, 12.0, 4.0, 12.0, 20.0)
+    _fill_only(p, color)
+    p.drawRect(QRectF(7.0, 6.0, 10.0, 4.0))
+    p.drawRect(QRectF(5.0, 14.0, 14.0, 4.0))
+
+
+def _draw_align_right(p: QPainter, color: QColor) -> None:
+    _stroke_only(p, color, 1.7)
+    _line(p, 19.5, 4.0, 19.5, 20.0)
+    _fill_only(p, color)
+    p.drawRect(QRectF(7.5, 6.0, 10.0, 4.0))
+    p.drawRect(QRectF(3.5, 14.0, 14.0, 4.0))
+
+
+def _draw_align_top(p: QPainter, color: QColor) -> None:
+    _stroke_only(p, color, 1.7)
+    _line(p, 4.0, 4.5, 20.0, 4.5)
+    _fill_only(p, color)
+    p.drawRect(QRectF(6.0, 6.5, 4.0, 10.0))
+    p.drawRect(QRectF(14.0, 6.5, 4.0, 14.0))
+
+
+def _draw_align_vcenter(p: QPainter, color: QColor) -> None:
+    _stroke_only(p, color, 1.7)
+    _line(p, 4.0, 12.0, 20.0, 12.0)
+    _fill_only(p, color)
+    p.drawRect(QRectF(6.0, 7.0, 4.0, 10.0))
+    p.drawRect(QRectF(14.0, 5.0, 4.0, 14.0))
+
+
+def _draw_align_bottom(p: QPainter, color: QColor) -> None:
+    _stroke_only(p, color, 1.7)
+    _line(p, 4.0, 19.5, 20.0, 19.5)
+    _fill_only(p, color)
+    p.drawRect(QRectF(6.0, 7.5, 4.0, 10.0))
+    p.drawRect(QRectF(14.0, 3.5, 4.0, 14.0))
+
+
 def _draw_rotate(p: QPainter, color: QColor) -> None:
     """Kreisbogen mit Pfeilspitze - das uebliche "drehen"-Symbol.
 
@@ -540,6 +588,12 @@ _DRAW = {
     "front": _draw_front,
     "back": _draw_back,
     "delete": _draw_delete,
+    "align_left": _draw_align_left,
+    "align_hcenter": _draw_align_hcenter,
+    "align_right": _draw_align_right,
+    "align_top": _draw_align_top,
+    "align_vcenter": _draw_align_vcenter,
+    "align_bottom": _draw_align_bottom,
     "zoom_in": _draw_zoom_in,
     "zoom_out": _draw_zoom_out,
     "zoom_fit": _draw_zoom_fit,
