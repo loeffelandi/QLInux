@@ -1,19 +1,20 @@
 # QLInux
 
-**A native Linux label editor for Brother QL printers — a P-touch Editor
-clone, in Python.**
+**A native label editor for Brother QL printers — a P-touch Editor
+clone, in Python. It runs on Linux, macOS and Windows.**
 
 ![License: GPL-3.0-or-later](https://img.shields.io/badge/license-GPL--3.0--or--later-blue)
 ![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-blue)
 ![GUI: PySide6](https://img.shields.io/badge/GUI-PySide6-green)
-![Platform: Linux](https://img.shields.io/badge/platform-Linux-lightgrey)
+![Platform: Linux, macOS, Windows](https://img.shields.io/badge/platform-Linux%20%7C%20macOS%20%7C%20Windows-lightgrey)
 
 ![QLInux main window](assets/screenshot-main.png)
 
 QLInux designs labels on a real canvas (text, images, barcodes, QR codes),
 shows an exact monochrome print preview and prints straight to the printer —
-over the network (`tcp://…:9100`) or USB. No browser, no WebUSB, no vendor
-driver.
+over the network (`tcp://…:9100`) or USB. No browser, no WebUSB. Linux and
+macOS talk to the printer directly; Windows uses the installed Brother driver
+as a RAW queue.
 
 ## Supported printers
 
@@ -49,9 +50,31 @@ The model list even appears in the app: *menu → About QLInux*.
 
 ## Requirements
 
-- Linux with a desktop (X11 or Wayland), Python ≥ 3.10
+- Python ≥ 3.10 and a desktop session
+  - **Linux:** X11 or Wayland
+  - **macOS** and **Windows:** the usual desktop; no extra USB library to install
 - A Brother QL printer, reachable over the network or via USB
 - Everything else is pinned in `requirements.txt`
+
+## Platforms
+
+Printing over the network (`tcp://host:9100`) is the same on Linux, macOS and
+Windows, including discovery (mDNS and SNMP). USB differs:
+
+- **Linux:** libusb or the kernel device `/dev/usb/lpN`. Reading the inserted
+  tape needs write access; *Set up access* installs a udev rule.
+- **macOS:** libusb, bundled via `libusb-package` — no Homebrew step. If a
+  Brother CUPS driver already holds the interface, libusb reports *Access
+  denied*; disable that driver or print over the network. *Detect label*
+  works over USB.
+- **Windows:** the installed Brother driver. QLInux sends the raster as a RAW
+  job to that queue (`spooler://…`). There is no read-back, so *Detect label*
+  is unavailable, the same as on the network port. pywin32 is installed only
+  on Windows.
+
+Settings and your own templates follow the platform: `~/.config/QLInux` on
+Linux, `~/Library/Application Support/QLInux` on macOS,
+`%APPDATA%\QLInux` on Windows.
 
 ## Install
 
@@ -70,9 +93,10 @@ chmod +x QLInux-*-x86_64.AppImage
 ```bash
 git clone https://github.com/loeffelandi/QLInux.git
 cd QLInux
-bash scripts/bootstrap_venv.sh     # creates .venv, installs pinned deps,
+python scripts/bootstrap_venv.py   # creates .venv, installs pinned deps,
                                    # applies the Pillow-10 patch to brother_ql
-.venv/bin/python -m ql_editor
+# Linux and macOS can also use: bash scripts/bootstrap_venv.sh
+.venv/bin/python -m ql_editor      # Windows: .venv\Scripts\python -m ql_editor
 ```
 
 Releases carry a **single-file AppImage** — build it yourself with one command
@@ -138,14 +162,16 @@ machine, so opening a label from somebody else never changes your printer.
 The window title shows the file name, with a `*` while there are unsaved
 changes.
 
-### USB permissions
+### USB permissions (Linux)
 
 Reading the inserted tape (and the printer status) over USB needs write access
-to the device node. QLInux offers **“Set up access”** in the *Printer* panel
-when it is missing; it installs a udev rule with `TAG+="uaccess"`
-(`scripts/install-udev-rule.sh` → `/etc/udev/rules.d/70-brother-ql.rules`).
-The network port (TCP 9100) needs no permissions — but it has no read-back,
-so *Detect label* only works over USB.
+to the device node. On Linux, QLInux offers **“Set up access”** in the
+*Printer* panel when it is missing; it installs a udev rule with
+`TAG+="uaccess"` (`scripts/install-udev-rule.sh` →
+`/etc/udev/rules.d/70-brother-ql.rules`). macOS and Windows have no udev rule;
+see [Platforms](#platforms). The network port (TCP 9100) needs no permissions
+— but it has no read-back, so *Detect label* only works over USB (and not via
+the Windows queue).
 
 ## Development
 

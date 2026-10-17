@@ -127,7 +127,7 @@ EN: dict[str, str] = {
     ),
     "· Vorschau: 1:1 für Details (Strg+1)": "· Preview: 1:1 for detail (Ctrl+1)",
     "Einpassen": "Fit",
-    "Zoom: Einpassen (Ctrl+0)": "Zoom: fit (Ctrl+0)",
+    "Zoom: Einpassen ({shortcut})": "Zoom: fit ({shortcut})",
     "Vergrößern": "Zoom in",
     "Vergrößern (Strg ++)": "Zoom in (Ctrl ++)",
     "Verkleinern": "Zoom out",
@@ -136,8 +136,8 @@ EN: dict[str, str] = {
         "Zoom 1:1 (Ctrl+1) - real print dots,\nexactly as the printer places them"
     ),
     "Druckvorschau": "Print preview",
-    "Druckvorschau: echte 1-bit-Ausgabe (Ctrl+Shift+P)": (
-        "Print preview: real 1-bit output (Ctrl+Shift+P)"
+    "Druckvorschau: echte 1-bit-Ausgabe ({shortcut})": (
+        "Print preview: real 1-bit output ({shortcut})"
     ),
     "Druckvorschau aktiv - echte 1-bit-Ausgabe bei 1:1 (Esc beendet)": (
         "Print preview active - real 1-bit output at 1:1 (Esc exits)"
@@ -349,7 +349,7 @@ EN: dict[str, str] = {
     "Objekt": "Object",
     # -- Druckoptionen ------------------------------------------------------
     "Drucken": "Print",
-    "Drucken (Ctrl+P)": "Print (Ctrl+P)",
+    "Drucken ({shortcut})": "Print ({shortcut})",
     "Auflösung": "Resolution",
     "Tintenmenge": "Ink amount",
     "Tintenmenge (ohne Wirkung)": "Ink amount (no effect)",
@@ -467,6 +467,24 @@ EN: dict[str, str] = {
         "{reason}\n\nRun once in a terminal:\n\n    {command}"
     ),
     "Abgebrochen.": "Cancelled.",
+    "Unter macOS läuft USB über libusb. Hält ein installierter Brother-Treiber das Gerät, meldet libusb „Access denied“ – dann den Treiber kurz deaktivieren oder über das Netzwerk drucken.": (
+        "On macOS, USB goes through libusb. If an installed Brother driver holds "
+        "the device, libusb reports “Access denied” – disable that driver briefly "
+        "or print over the network."
+    ),
+    "Unter Windows muss der Brother-Drucker im System installiert sein. Gedruckt wird über die Druckerwarteschlange, nicht über eine udev-Regel.": (
+        "On Windows the Brother printer must be installed in the system. "
+        "Printing goes through the printer queue, not a udev rule."
+    ),
+    "USB-Rechte lassen sich hier nicht automatisch einrichten.": (
+        "USB permissions cannot be set up automatically here."
+    ),
+    "{model} (Windows)": "{model} (Windows)",
+    "Windows-Warteschlange": "Windows queue",
+    "Installierte Brother-QL-Drucker. Die Auswahl setzt die Windows-Warteschlange und – wenn der Name das Modell enthält – auch das Modell.": (
+        "Installed Brother QL printers. The choice sets the Windows queue and, "
+        "when the name contains the model, the model as well."
+    ),
     "Der Helfer für die udev-Regel fehlt.": "The helper for the udev rule is missing.",
     "pkexec (polkit) ist nicht installiert.": "pkexec (polkit) is not installed.",
     "Einrichten fehlgeschlagen (Code {code}).": "Setup failed (code {code}).",

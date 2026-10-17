@@ -82,12 +82,32 @@ def test_builtin_texts_follow_the_language():
 
 
 def test_user_templates_are_stored_in_the_config_dir(monkeypatch, tmp_path):
-    """Eigene Vorlagen liegen bei den Einstellungen (XDG_CONFIG_HOME)."""
+    """Eigene Vorlagen liegen unter Linux bei den Einstellungen (XDG_CONFIG_HOME)."""
+    monkeypatch.setattr(templates, "IS_MAC", False)
+    monkeypatch.setattr(templates, "IS_WINDOWS", False)
     monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
     monkeypatch.delenv(templates.TEMPLATE_DIR_ENV, raising=False)
 
     assert templates.user_dir() == tmp_path / "QLInux" / "templates"
     assert templates.list_user() == []
+
+
+def test_user_dir_follows_the_platform(monkeypatch, tmp_path):
+    """macOS und Windows legen Vorlagen neben die dortigen Einstellungen."""
+    monkeypatch.delenv(templates.TEMPLATE_DIR_ENV, raising=False)
+
+    monkeypatch.setattr(templates, "IS_WINDOWS", False)
+    monkeypatch.setattr(templates, "IS_MAC", True)
+    expected_mac = (
+        tmp_path / "Library" / "Application Support" / "QLInux" / "templates"
+    )
+    monkeypatch.setattr(templates.Path, "home", staticmethod(lambda: tmp_path))
+    assert templates.user_dir() == expected_mac
+
+    monkeypatch.setattr(templates, "IS_MAC", False)
+    monkeypatch.setattr(templates, "IS_WINDOWS", True)
+    monkeypatch.setenv("APPDATA", str(tmp_path / "Roaming"))
+    assert templates.user_dir() == tmp_path / "Roaming" / "QLInux" / "templates"
 
 
 def test_saving_and_listing_own_templates(monkeypatch, tmp_path):

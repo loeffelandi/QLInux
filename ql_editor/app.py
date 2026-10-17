@@ -119,6 +119,11 @@ from .widgets import SmoothScrollArea, install_wheel_guard_recursive
 
 BARCODE_SYMBOLOGIES = ["code128", "code39", "ean13", "ean8", "upca", "itf", "codabar"]
 
+
+def _native_shortcut(sequence: str) -> str:
+    """Tastenkürzel in der Schreibweise der Plattform (macOS: ⌘ statt Ctrl)."""
+    return QKeySequence(sequence).toString(QKeySequence.SequenceFormat.NativeText)
+
 #: Wie lange auf den Passwort-Dialog gewartet wird, bevor der Einzeiler kommt.
 PERMISSION_TIMEOUT_MS = 90_000
 #: Nach dem Einrichten der Regel greift udev erst kurz verzoegert: so lange
@@ -735,7 +740,9 @@ class MainWindow(QMainWindow):
         self._act_delete.triggered.connect(self._delete_selected)
 
         self._act_zoom_fit = QAction(icon("zoom_fit"), tr("Einpassen"), self)
-        self._act_zoom_fit.setToolTip(tr("Zoom: Einpassen (Ctrl+0)"))
+        self._act_zoom_fit.setToolTip(
+            tr("Zoom: Einpassen ({shortcut})").format(shortcut=_native_shortcut("Ctrl+0"))
+        )
         self._act_zoom_fit.setShortcut("Ctrl+0")
         self._act_zoom_fit.triggered.connect(self._canvas.zoom_fit)
 
@@ -758,13 +765,19 @@ class MainWindow(QMainWindow):
         self._act_zoom_100.triggered.connect(self._canvas.zoom_100)
 
         self._act_print = QAction(icon("print"), tr("Drucken"), self)
-        self._act_print.setToolTip(tr("Drucken (Ctrl+P)"))
+        self._act_print.setToolTip(
+            tr("Drucken ({shortcut})").format(shortcut=_native_shortcut("Ctrl+P"))
+        )
         self._act_print.setShortcut("Ctrl+P")
         self._act_print.triggered.connect(self._on_print)
 
         self._act_print_preview = QAction(icon("preview"), tr("Druckvorschau"), self)
         self._act_print_preview.setCheckable(True)
-        self._act_print_preview.setToolTip(tr("Druckvorschau: echte 1-bit-Ausgabe (Ctrl+Shift+P)"))
+        self._act_print_preview.setToolTip(
+            tr("Druckvorschau: echte 1-bit-Ausgabe ({shortcut})").format(
+                shortcut=_native_shortcut("Ctrl+Shift+P")
+            )
+        )
         self._act_print_preview.setShortcut("Ctrl+Shift+P")
         self._act_print_preview.toggled.connect(self._on_toggle_print_preview)
 

@@ -36,6 +36,7 @@ from PySide6.QtWidgets import (
 from . import media
 from .discovery import NetworkPrinter, discover_network_printers
 from .i18n import tr
+from .platform import IS_LINUX, IS_WINDOWS
 from .icons import icon
 from .media import (
     DEFAULT_MODEL,
@@ -239,8 +240,16 @@ class MediaPanel(QWidget):
         self._usb_combo.setMinimumContentsLength(USB_COMBO_MIN_CHARS)
         self._usb_combo.setPlaceholderText(tr("Bitte Gerät wählen"))
         self._usb_combo.setToolTip(
-            tr("Angeschlossene USB-Drucker. Die Auswahl setzt Adresse und – wenn "
-            "sie sich aus der USB-Kennung ableiten lässt – auch das Modell.")
+            tr(
+                "Installierte Brother-QL-Drucker. Die Auswahl setzt die "
+                "Windows-Warteschlange und – wenn der Name das Modell enthält – "
+                "auch das Modell."
+            )
+            if IS_WINDOWS
+            else tr(
+                "Angeschlossene USB-Drucker. Die Auswahl setzt Adresse und – wenn "
+                "sie sich aus der USB-Kennung ableiten lässt – auch das Modell."
+            )
         )
         self._usb_button = self._build_search_button(
             tr("Angeschlossene USB-Drucker suchen und in die Liste eintragen.")
@@ -253,10 +262,11 @@ class MediaPanel(QWidget):
         self._access_label.setWordWrap(True)
         self._access_label.setStyleSheet("color:#b3261e;")
         self._access_button = QPushButton(icon("detect"), tr("Zugriff einrichten"))
-        self._access_button.setToolTip(
-            tr("Richtet eine udev-Regel ein, die den USB-Drucker für dich "
-            "freigibt (das System fragt nach dem Passwort).")
-        )
+        if IS_LINUX:
+            self._access_button.setToolTip(
+                tr("Richtet eine udev-Regel ein, die den USB-Drucker für dich "
+                "freigibt (das System fragt nach dem Passwort).")
+            )
 
         # Band-Erkennung braucht einen Rueckkanal - den gibt es nur ueber USB.
         # Deshalb steht der Knopf nur dort (siehe _sync_connection_rows).
@@ -1158,7 +1168,15 @@ class MediaPanel(QWidget):
         self._sync_access()
 
     def _sync_access(self) -> None:
-        """Fehlende Rechte anzeigen - der haeufigste Grund, warum USB nicht druckt."""
+        """Fehlende Rechte anzeigen - der haeufigste Grund, warum USB nicht druckt.
+
+        Die udev-Regel gibt es nur unter Linux. Auf macOS und Windows bleibt
+        die Zeile zu - dort entscheidet libusb bzw. die installierte Warteschlange.
+        """
+        if not IS_LINUX:
+            self.access_allowed = None
+            self._usb_form.setRowVisible(self._row_access, False)
+            return
         address = self.address()
         self.access_allowed = usb_access(address) if address else None
         needed = self.access_allowed is False

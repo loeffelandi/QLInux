@@ -29,8 +29,34 @@ from brother_ql.raster import BrotherQLRaster
 
 from .i18n import tr
 from .media import DEFAULT_MODEL, Kind, LabelSpec, get_model
+from .platform import IS_LINUX, IS_WINDOWS
+from .spooler import SPOOLER_PREFIX, queue_name
 
 logger = logging.getLogger(__name__)
+
+
+def _register_libusb_backend() -> None:
+    """libusb aus ``libusb-package`` registrieren, bevor pyusb sucht.
+
+    pyusb merkt sich das erste gefundene Backend. Steht die mitgelieferte
+    Bibliothek zuerst, braucht weder macOS noch Windows ein systemweites
+    ``brew install libusb`` - und Linux kommt ohne Paket ``libusb-1.0`` aus.
+    Schlaegt das fehl, bleibt der bisherige Suchweg (Systembibliothek).
+    """
+    try:
+        import libusb_package
+    except ImportError:
+        return
+    try:
+        backend = libusb_package.get_libusb1_backend()
+    except Exception as exc:  # pragma: no cover - haengt an der Bibliothek
+        logger.info("libusb-Backend nicht registriert: %s", exc)
+        return
+    if backend is None:
+        logger.info("libusb-Backend nicht gefunden")
+
+
+_register_libusb_backend()
 
 #: Standard-Druckport der Brother-Netzwerkdrucker (RAW/JetDirect).
 NETWORK_PORT = 9100
@@ -180,19 +206,33 @@ class PrinterConnectionError(PrinterError):
 #: readback", ``backends/helpers.py``).
 READBACK_BACKENDS = frozenset({"pyusb", "linux_kernel"})
 
+#: Backend der Windows-Druckwarteschlange (kein brother_ql-Backend).
+BACKEND_WINDOWS_SPOOLER = "windows_spooler"
+
+
+def address_examples() -> tuple[str, ...]:
+    """Beispiele fuer Adressfelder und Fehlermeldungen, je Plattform.
+
+    ``/dev/usb/lp0`` gibt es nur unter Linux, ``spooler://`` nur unter Windows.
+    """
+    examples = ["tcp://192.168.178.62:9100", "usb://0x04f9:0x209b"]
+    if IS_LINUX:
+        examples.append("/dev/usb/lp0")
+    if IS_WINDOWS:
+        examples.append("spooler://Brother QL-820NWB")
+    return tuple(examples)
+
+
 #: Beispiele fuer die Adressfelder der Oberflaeche und Fehlermeldungen.
-ADDRESS_EXAMPLES = (
-    "tcp://192.168.178.62:9100",
-    "usb://0x04f9:0x209b",
-    "/dev/usb/lp0",
-)
+ADDRESS_EXAMPLES = address_examples()
 
 
 def backend_for_address(address: str) -> str:
     """Backend aus der Adresse ableiten (``brother_ql.backends.guess_backend``).
 
     ``usb://0x04f9:0x209b`` -> ``pyusb``, ``/dev/usb/lp0`` -> ``linux_kernel``,
-    ``tcp://host:9100`` -> ``network``. Eine nackte ``host:port``-Angabe gilt
+    ``tcp://host:9100`` -> ``network``, ``spooler://…`` ->
+    :data:`BACKEND_WINDOWS_SPOOLER`. Eine nackte ``host:port``-Angabe gilt
     ebenfalls als Netzwerk - brother_ql kennt sie nicht, hier ist sie
     offensichtlich. Alles Unbekannte faellt auf ``network`` zurueck (dann
     scheitert spaetestens der Verbindungsaufbau sichtbar, statt still das
@@ -201,6 +241,8 @@ def backend_for_address(address: str) -> str:
     value = (address or "").strip()
     if not value:
         return "network"
+    if value.lower().startswith(SPOOLER_PREFIX):
+        return BACKEND_WINDOWS_SPOOLER
     try:
         return guess_backend(value)
     except ValueError:
@@ -266,12 +308,16 @@ def network_host(address: str) -> str:
 def usb_devices() -> list[str]:
     """Angeschlossene USB-Drucker als Adressen fuer :class:`PrinterConfig`.
 
-    Liefert ``usb://0x04f9:0x209b`` (pyusb) **und** ``/dev/usb/lp0``
-    (Kernel-Treiber, falls ``usblp`` das Geraet haelt). Die pyusb-Kennung wird
-    auf Hersteller und Produkt gekuerzt: die Seriennummer aus
+    Unter Linux und macOS: ``usb://0x04f9:0x209b`` (pyusb). Unter Linux
+    zusaetzlich ``/dev/usb/lp0``, falls ``usblp`` das Geraet haelt. Unter
+    Windows die installierten QL-Warteschlangen (``spooler://…``) - pyusb
+    wuerde dort den Brother-Treiber verdraengen. Die pyusb-Kennung wird auf
+    Hersteller und Produkt gekuerzt: die Seriennummer aus
     ``list_available_devices()`` ist in brother_ql 0.9.4 nicht
     rueckuebersetzbar (``int("0x209b_SERIAL", 16)`` scheitert).
     """
+    if IS_WINDOWS:
+        return _windows_spooler_devices()
     found: list[str] = []
     try:
         backend = backend_factory("pyusb")
@@ -283,10 +329,48 @@ def usb_devices() -> list[str]:
                 found.append(address)
     except Exception as exc:  # pragma: no cover - haengt an libusb/Rechten
         logger.info("USB-Suche (pyusb) fehlgeschlagen: %s", exc)
-    for path in sorted(glob.glob("/dev/usb/lp*")):
-        if path not in found:
-            found.append(path)
+    if IS_LINUX:
+        for path in sorted(glob.glob("/dev/usb/lp*")):
+            if path not in found:
+                found.append(path)
     return found
+
+
+def _windows_spooler_devices() -> list[str]:
+    """QL-Warteschlangen als ``spooler://``-Adressen."""
+    try:
+        from .spooler import list_printers
+    except ImportError as exc:  # pragma: no cover - pywin32 fehlt
+        logger.info("Windows-Druckersuche nicht verfuegbar: %s", exc)
+        return []
+    found: list[str] = []
+    try:
+        names = list_printers()
+    except Exception as exc:  # pragma: no cover - haengt am Spooler
+        logger.info("Windows-Druckersuche fehlgeschlagen: %s", exc)
+        return []
+    for name in names:
+        address = f"{SPOOLER_PREFIX}{name}"
+        if address not in found:
+            found.append(address)
+    return found
+
+
+def model_in_text(text: str) -> str | None:
+    """Modellname aus einem Freitext (Warteschlange, Geraetename).
+
+    Laengere Namen zuerst: ``QL-820NWB`` enthaelt kein kuerzeres Modell,
+    ``QL-800`` soll aber nicht in ``QL-810W`` treffen - der Vergleich ist
+    eine Teilzeichenkette, die Sortierung nach Laenge entscheidet bei
+    echten Praefixen.
+    """
+    lowered = (text or "").lower()
+    if not lowered:
+        return None
+    for model in sorted(set(USB_MODELS.values()), key=len, reverse=True):
+        if model.lower() in lowered:
+            return model
+    return None
 
 
 #: USB-Kennungen (Hersteller:Produkt) der Modelle, die ``brother_ql`` kennt.
@@ -332,8 +416,11 @@ def usb_id_for_path(path: str, *, sysfs_root: str = "/sys") -> str | None:
     ``usblp`` legt ``/sys/class/usbmisc/lpN`` an; dessen ``device``-Verweis zeigt
     auf das USB-Interface, eine Ebene darueber liegt das Geraet mit
     ``idVendor``/``idProduct``. Ohne Kernel-Treiber gibt es diesen Weg nicht -
-    dann bleibt nur die pyusb-Adresse.
+    dann bleibt nur die pyusb-Adresse. Ausserhalb von Linux gibt es diesen
+    Baum nicht - ein injiziertes ``sysfs_root`` (Tests) bleibt nutzbar.
     """
+    if not IS_LINUX and sysfs_root == "/sys":
+        return None
     name = path.strip().removeprefix("file://").rsplit("/", 1)[-1]
     try:
         interface = (Path(sysfs_root) / "class" / "usbmisc" / name / "device").resolve()
@@ -350,10 +437,14 @@ def model_for_address(address: str) -> str | None:
     """Modell zu einer USB-Adresse - ``None``, wenn es nicht ableitbar ist.
 
     Netzwerkadressen liefern bewusst ``None``: welcher Drucker dort antwortet,
-    verraet die reine TCP-Druckschnittstelle nicht.
+    verraet die reine TCP-Druckschnittstelle nicht. Eine Windows-Warteschlange
+    traegt das Modell im Namen (``Brother QL-820NWB``).
     """
     address = address.strip()
-    if backend_for_address(address) not in READBACK_BACKENDS:
+    backend = backend_for_address(address)
+    if backend == BACKEND_WINDOWS_SPOOLER:
+        return model_in_text(queue_name(address))
+    if backend not in READBACK_BACKENDS:
         return None
     usb_id = (
         usb_id_from_identifier(address)
@@ -428,8 +519,12 @@ def usb_device_label(address: str) -> str:
     (:func:`usb_device_detail`) - hier zaehlt der Druckertyp.
     """
     model = model_for_address(address)
+    if model and backend_for_address(address) == BACKEND_WINDOWS_SPOOLER:
+        return tr("{model} (Windows)").format(model=model)
     if model:
         return tr("{model} (USB)").format(model=model)
+    if backend_for_address(address) == BACKEND_WINDOWS_SPOOLER:
+        return queue_name(address) or address
     return address
 
 
@@ -449,14 +544,21 @@ def usb_device_labels(addresses: list[str]) -> list[str]:
 
 def usb_device_hint(address: str) -> str:
     """Kurzer Anschlusspfad eines USB-Druckers (``lp1`` bzw. Hersteller:Produkt)."""
-    if backend_for_address(address) == "linux_kernel":
+    backend = backend_for_address(address)
+    if backend == "linux_kernel":
         return Path(address.removeprefix("file://")).name
+    if backend == BACKEND_WINDOWS_SPOOLER:
+        return queue_name(address) or address
     return usb_id_from_identifier(address) or address
 
 
 def usb_device_detail(address: str) -> str:
     """Technische Zeile zu einem USB-Geraet (Tooltip der Auswahlliste)."""
     backend = backend_for_address(address)
+    if backend == BACKEND_WINDOWS_SPOOLER:
+        model = model_for_address(address)
+        suffix = f", {model}" if model else ""
+        return f"{queue_name(address)}  ({tr('Windows-Warteschlange')}{suffix})"
     if backend not in READBACK_BACKENDS:
         return address
     kind = tr("Kernel-Anschluss") if backend == "linux_kernel" else tr("libusb")
@@ -490,8 +592,12 @@ def usb_access(
     libusb: der rohe Knoten ``/dev/bus/usb/BBB/DDD``, ueber sysfs aufgeloest
     (``busnum``/``devnum`` des Geraets mit passender USB-Kennung).
 
-    ``sysfs_root``/``dev_root`` sind fuer Tests injizierbar.
+    ``sysfs_root``/``dev_root`` sind fuer Tests injizierbar. Ausserhalb von
+    Linux gibt es diese Knoten nicht - dann ist die Antwort ``None``, ausser
+    ein Test legt eigene Wurzeln daneben.
     """
+    if not IS_LINUX and sysfs_root == "/sys" and dev_root == "/dev":
+        return None
     address = (address or "").strip()
     backend = backend_for_address(address)
     if backend == "linux_kernel":
@@ -758,7 +864,13 @@ def _validate_cut_mode(cut_mode: str, model) -> None:
 def send_instructions(
     data: bytes, config: PrinterConfig, *, blocking: bool = True
 ) -> dict:
-    """Sende ``data`` an den Drucker. Uebersetzt Verbindungsfehler."""
+    """Sende ``data`` an den Drucker. Uebersetzt Verbindungsfehler.
+
+    Die Windows-Warteschlange ist kein brother_ql-Backend: die Rasterdaten
+    gehen als RAW-Auftrag an den installierten Treiber.
+    """
+    if config.backend == BACKEND_WINDOWS_SPOOLER:
+        return _send_via_spooler(data, config)
     try:
         status = send(
             instructions=data,
@@ -797,6 +909,26 @@ def print_image(
     return send_instructions(data, config)
 
 
+def _send_via_spooler(data: bytes, config: PrinterConfig) -> dict:
+    """Rasterdaten an die Windows-Warteschlange geben."""
+    from .spooler import send_raw
+
+    name = queue_name(config.address)
+    try:
+        send_raw(name, data)
+    except OSError as exc:
+        raise PrinterConnectionError(
+            tr("Drucker {address!r} nicht erreichbar: {error}").format(
+                address=config.address, error=exc
+            )
+        ) from exc
+    except Exception as exc:  # pragma: no cover - pywin32 meldet eigene Typen
+        raise PrinterError(
+            tr("Senden fehlgeschlagen: {error}").format(error=exc)
+        ) from exc
+    return {"outcome": "sent_to_spooler"}
+
+
 # --------------------------------------------------------------------------- #
 # Status / Band-Erkennung
 # --------------------------------------------------------------------------- #
@@ -806,8 +938,11 @@ def probe_status(config: PrinterConfig, *, timeout: float = 2.0) -> PrinterStatu
     :returns: :class:`PrinterStatus` oder ``None``, wenn der Drucker keinen
         Readback liefert (z. B. reine TCP-Druckschnittstelle) oder nicht
         erreichbar ist. Wirft in diesem Fall **nicht** - die UI soll sauber
-        auf manuelle Auswahl zurueckfallen koennen.
+        auf manuelle Auswahl zurueckfallen koennen. Die Windows-Warteschlange
+        hat keinen Rueckkanal.
     """
+    if config.backend == BACKEND_WINDOWS_SPOOLER:
+        return None
     from brother_ql.reader import interpret_response
 
     try:
@@ -904,6 +1039,7 @@ def _match_labels(width_mm: int, length_mm: int, *, endless: bool) -> list[Label
 
 __all__ = [
     "ADDRESS_EXAMPLES",
+    "BACKEND_WINDOWS_SPOOLER",
     "COPIES_MAX",
     "AUTO_CUT_BIT",
     "CUT_AT_END",
@@ -922,6 +1058,7 @@ __all__ = [
     "backend_for_address",
     "backend_supports_readback",
     "model_for_address",
+    "model_in_text",
     "network_host",
     "parse_network_address",
     "usb_access",

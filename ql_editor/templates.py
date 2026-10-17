@@ -6,8 +6,10 @@ gebaute Vorlage ist automatisch ein speicherbares Etikett (und umgekehrt).
 
 Die eingebauten Vorlagen entstehen im Code: sie stehen damit auch in einem
 frischen AppImage zur Verfuegung und sind uebersetzbar (die Beispieltexte
-kommen in der Oberflaechensprache). Eigene Vorlagen liegen als ``.qlx`` unter
-``~/.config/QLInux/templates/``.
+kommen in der Oberflaechensprache). Eigene Vorlagen liegen als ``.qlx`` neben
+den Einstellungen: unter Linux in ``~/.config/QLInux/templates/``, unter
+macOS in ``~/Library/Application Support/QLInux/templates/``, unter Windows
+in ``%APPDATA%\\QLInux\\templates``.
 
 Alle eingebauten Vorlagen nehmen **62 mm Endlosband** und automatische Laenge -
 so passen sie auf jedes Endlosband und der Benutzer wechselt hoechstens das
@@ -24,6 +26,7 @@ from typing import Any
 from . import APP_NAME, media
 from .document import DOCUMENT_SUFFIX, DocumentError, build
 from .i18n import tr
+from .platform import IS_MAC, IS_WINDOWS
 
 #: Umgebungsvariable, die das Vorlagenverzeichnis uebersteuert (Tests).
 TEMPLATE_DIR_ENV = "QLINUX_TEMPLATE_DIR"
@@ -49,12 +52,18 @@ WRAP = 620.0
 def user_dir() -> Path:
     """Verzeichnis der eigenen Vorlagen.
 
-    Orientiert sich an ``XDG_CONFIG_HOME`` - dieselbe Ecke, in der auch die
-    Einstellungen liegen (``~/.config/QLInux``).
+    Dieselbe Ecke wie die Einstellungen: unter Linux ``XDG_CONFIG_HOME``
+    (sonst ``~/.config``), unter macOS ``~/Library/Application Support``,
+    unter Windows ``%APPDATA%``. ``QLINUX_TEMPLATE_DIR`` uebersteuert das.
     """
     override = os.environ.get(TEMPLATE_DIR_ENV)
     if override:
         return Path(override)
+    if IS_WINDOWS:
+        base = os.environ.get("APPDATA") or str(Path.home() / "AppData" / "Roaming")
+        return Path(base) / APP_NAME / "templates"
+    if IS_MAC:
+        return Path.home() / "Library" / "Application Support" / APP_NAME / "templates"
     base = os.environ.get("XDG_CONFIG_HOME") or str(Path.home() / ".config")
     return Path(base) / APP_NAME / "templates"
 

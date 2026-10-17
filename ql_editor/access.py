@@ -20,6 +20,7 @@ from pathlib import Path
 import shutil
 
 from .i18n import tr
+from .platform import IS_LINUX, IS_MAC, IS_WINDOWS
 
 #: Ablage der Regel, die der Helfer schreibt (gilt fuer alle Benutzer).
 UDEV_RULE_FILE = "/etc/udev/rules.d/70-brother-ql.rules"
@@ -62,7 +63,13 @@ def helper_path() -> Path | None:
 
 
 def rule_installed() -> bool:
-    """Ist die udev-Regel bereits eingerichtet?"""
+    """Ist die udev-Regel bereits eingerichtet?
+
+    Ausserhalb von Linux gibt es keine udev-Regel - dort ist die Antwort
+    immer ``False``, ohne ``/etc`` anzufassen.
+    """
+    if not IS_LINUX:
+        return False
     return Path(UDEV_RULE_FILE).is_file()
 
 
@@ -78,6 +85,8 @@ def install_command() -> list[str] | None:
     Passwort-Dialog (:func:`auth_agent_running`). Dann bleibt der Einzeiler
     fuer die Hand (:func:`manual_command`).
     """
+    if not IS_LINUX:
+        return None
     helper = helper_path()
     pkexec = pkexec_path()
     if helper is None or pkexec is None or not auth_agent_running():
@@ -92,6 +101,8 @@ def auth_agent_running(*, proc_root: str = "/proc") -> bool:
     nicht. Sie ist bewusst vorsichtig: ein uebersehener Agent kostet nur den
     Einzeiler, ein ueberschaetzter kostet einen haengenden Dialog.
     """
+    if not IS_LINUX and proc_root == "/proc":
+        return False
     for entry in Path(proc_root).glob("[0-9]*"):
         try:
             name = (entry / "comm").read_text().strip()
@@ -103,7 +114,24 @@ def auth_agent_running(*, proc_root: str = "/proc") -> bool:
 
 
 def reason_no_prompt() -> str:
-    """Warum kein Passwort-Dialog gestartet wird (fuer die Meldung)."""
+    """Warum kein Passwort-Dialog gestartet wird (fuer die Meldung).
+
+    Ausserhalb von Linux gibt es keinen polkit-Dialog. Der Text sagt dann,
+    wie der USB-Zugriff auf dieser Plattform zustande kommt.
+    """
+    if not IS_LINUX:
+        if IS_MAC:
+            return tr(
+                "Unter macOS läuft USB über libusb. Hält ein installierter "
+                "Brother-Treiber das Gerät, meldet libusb „Access denied“ – "
+                "dann den Treiber kurz deaktivieren oder über das Netzwerk drucken."
+            )
+        if IS_WINDOWS:
+            return tr(
+                "Unter Windows muss der Brother-Drucker im System installiert sein. "
+                "Gedruckt wird über die Druckerwarteschlange, nicht über eine udev-Regel."
+            )
+        return tr("USB-Rechte lassen sich hier nicht automatisch einrichten.")
     if helper_path() is None:
         return tr("Der Helfer für die udev-Regel fehlt.")
     if pkexec_path() is None:

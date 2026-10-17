@@ -19,13 +19,29 @@ if str(ROOT) not in sys.path:
 # Testlauf auf ein frisches temporaeres Verzeichnis, kann kein Test die echten
 # Einstellungen lesen oder loeschen - vorher tat er genau das: die Fixture
 # unten raeumt "QLInux/QLInux" auf, und damit war die Datei des Nutzers weg.
-os.environ["XDG_CONFIG_HOME"] = tempfile.mkdtemp(prefix="qlinux-test-config-")
+_SETTINGS_DIR = tempfile.mkdtemp(prefix="qlinux-test-config-")
+os.environ["XDG_CONFIG_HOME"] = _SETTINGS_DIR
 
 # Muss *vor* dem ersten Qt-Import gesetzt sein. Absichtlich hart gesetzt:
 # laeuft pytest in einer Desktop-Sitzung, waere QT_QPA_PLATFORM dort schon
 # gesetzt (z. B. "wayland;xcb") und ginge fuer jeden Test ein echtes Fenster
 # auf. Wer wirklich auf dem Bildschirm testen will, setzt QLINUX_TEST_PLATFORM.
 os.environ["QT_QPA_PLATFORM"] = os.environ.get("QLINUX_TEST_PLATFORM", "offscreen")
+
+# QSettings schreibt unter macOS nach ~/Library/Preferences und unter Windows
+# in die Registry - XDG_CONFIG_HOME allein faengt das nicht ab. Ini-Format und
+# ein fester Pfad legen jede Einstellung in das temporaere Verzeichnis.
+# QStandardPaths.setTestModeEnabled muss vor der ersten QApplication stehen.
+from PySide6.QtCore import QSettings, QStandardPaths
+
+QStandardPaths.setTestModeEnabled(True)
+QSettings.setDefaultFormat(QSettings.Format.IniFormat)
+QSettings.setPath(
+    QSettings.Format.IniFormat, QSettings.Scope.UserScope, _SETTINGS_DIR
+)
+QSettings.setPath(
+    QSettings.Format.NativeFormat, QSettings.Scope.UserScope, _SETTINGS_DIR
+)
 
 
 @pytest.fixture(scope="session")

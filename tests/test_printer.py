@@ -15,6 +15,7 @@ from PIL import Image
 
 from ql_editor import printer
 from ql_editor.media import get_label, get_model
+from ql_editor.platform import IS_LINUX
 from ql_editor.printer import (
     PrinterConfig,
     PrinterConnectionError,
@@ -103,6 +104,7 @@ def test_usb_devices_normalizes_pyusb_identifiers(monkeypatch):
     assert guess_backend("usb://0x04f9:0x2015") == "pyusb"
 
 
+@pytest.mark.skipif(not IS_LINUX, reason="Kernel-Geraeteknoten gibt es nur unter Linux")
 def test_usb_devices_includes_kernel_paths(monkeypatch):
     monkeypatch.setattr(
         printer, "backend_factory", lambda name: {"list_available_devices": lambda: []}
@@ -822,6 +824,59 @@ def test_usb_access_resolves_the_raw_node_for_libusb(tmp_path):
         is None
     )
 
+
+
+def test_spooler_address_maps_to_the_windows_backend():
+    address = "spooler://Brother QL-820NWB"
+    assert printer.backend_for_address(address) == printer.BACKEND_WINDOWS_SPOOLER
+    assert printer.backend_supports_readback(printer.BACKEND_WINDOWS_SPOOLER) is False
+    assert printer.model_for_address(address) == "QL-820NWB"
+    assert printer.model_for_address("spooler://Brother QL-800") == "QL-800"
+    assert printer.model_for_address("spooler://Brother QL-810W") == "QL-810W"
+    config = PrinterConfig(address=address)
+    assert config.backend == printer.BACKEND_WINDOWS_SPOOLER
+    assert "Windows" in printer.usb_device_label(address)
+    assert "Windows-Warteschlange" in printer.usb_device_detail(address)
+
+
+def test_usb_devices_lists_windows_queues(monkeypatch):
+    monkeypatch.setattr(printer, "IS_WINDOWS", True)
+    monkeypatch.setattr(
+        "ql_editor.spooler.list_printers",
+        lambda: ["Brother QL-820NWB", "Brother QL-700"],
+    )
+    assert printer.usb_devices() == [
+        "spooler://Brother QL-820NWB",
+        "spooler://Brother QL-700",
+    ]
+
+
+def test_send_instructions_uses_the_windows_spooler(monkeypatch):
+    captured: dict = {}
+
+    def fake_send(name, data):
+        captured["name"] = name
+        captured["data"] = data
+
+    monkeypatch.setattr("ql_editor.spooler.send_raw", fake_send)
+    config = PrinterConfig(address="spooler://Brother QL-820NWB")
+    assert send_instructions(b"\x1b", config) == {"outcome": "sent_to_spooler"}
+    assert captured == {"name": "Brother QL-820NWB", "data": b"\x1b"}
+
+    def offline(name, data):
+        raise OSError("offline")
+
+    monkeypatch.setattr("ql_editor.spooler.send_raw", offline)
+    with pytest.raises(PrinterConnectionError):
+        send_instructions(b"\x1b", config)
+
+
+def test_probe_status_skips_the_spooler(monkeypatch):
+    def boom(name):
+        raise AssertionError(f"backend_factory({name}) darf nicht laufen")
+
+    monkeypatch.setattr(printer, "backend_factory", boom)
+    assert probe_status(PrinterConfig(address="spooler://Brother QL-700")) is None
 
 
 def test_copies_are_one_job_with_form_feeds_between_pages():

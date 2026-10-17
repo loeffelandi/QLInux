@@ -14,6 +14,7 @@ import subprocess
 import pytest
 
 from ql_editor import access
+from ql_editor.platform import IS_LINUX
 
 
 def test_the_helper_ships_with_the_project():
@@ -24,7 +25,11 @@ def test_the_helper_ships_with_the_project():
     assert os.access(helper, os.X_OK), "Helfer muss ausfuehrbar sein"
 
 
-@pytest.mark.skipif(os.geteuid() == 0, reason="als root wuerde der Helfer wirklich installieren")
+@pytest.mark.skipif(not IS_LINUX, reason="udev-Helfer nur unter Linux")
+@pytest.mark.skipif(
+    hasattr(os, "geteuid") and os.geteuid() == 0,
+    reason="als root wuerde der Helfer wirklich installieren",
+)
 def test_the_helper_is_valid_shell_and_needs_root():
     helper = access.helper_path()
     assert helper is not None
@@ -53,6 +58,7 @@ def test_the_helper_rule_targets_only_brother_devices():
     assert access.UDEV_RULE_FILE in text
 
 
+@pytest.mark.skipif(not IS_LINUX, reason="pkexec nur unter Linux")
 def test_install_command_needs_helper_pkexec_and_agent(monkeypatch):
     monkeypatch.setattr(access, "helper_path", lambda: Path("/x/install-udev-rule"))
     monkeypatch.setattr(access, "pkexec_path", lambda: "/usr/bin/pkexec")
@@ -71,6 +77,7 @@ def test_install_command_needs_helper_pkexec_and_agent(monkeypatch):
     assert access.install_command() is None
 
 
+@pytest.mark.skipif(not IS_LINUX, reason="polkit nur unter Linux")
 def test_reason_no_prompt_names_the_missing_piece(monkeypatch):
     monkeypatch.setattr(access, "helper_path", lambda: None)
     assert "Helfer" in access.reason_no_prompt()
@@ -87,6 +94,7 @@ def test_reason_no_prompt_names_the_missing_piece(monkeypatch):
     assert access.reason_no_prompt() == ""
 
 
+@pytest.mark.skipif(not IS_LINUX, reason="/proc-Scan nur unter Linux")
 def test_auth_agent_running_reads_the_process_names(tmp_path):
     proc_root = tmp_path / "proc"
     (proc_root / "1").mkdir(parents=True)
@@ -131,6 +139,20 @@ def test_failure_hint_only_answers_permission_errors():
         hint = access.failure_hint(message)
         assert hint is not None
         assert "Zugriff einrichten" in hint
+
+
+def test_non_linux_does_not_offer_a_udev_prompt(monkeypatch):
+    monkeypatch.setattr(access, "IS_LINUX", False)
+    monkeypatch.setattr(access, "IS_MAC", True)
+    monkeypatch.setattr(access, "IS_WINDOWS", False)
+    assert access.install_command() is None
+    assert access.rule_installed() is False
+    assert access.auth_agent_running() is False
+    assert "libusb" in access.reason_no_prompt()
+
+    monkeypatch.setattr(access, "IS_MAC", False)
+    monkeypatch.setattr(access, "IS_WINDOWS", True)
+    assert "Druckerwarteschlange" in access.reason_no_prompt()
 
 
 def test_manual_command_is_a_copyable_one_liner():

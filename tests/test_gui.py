@@ -13,6 +13,7 @@ from PySide6.QtCore import QSettings, Qt
 
 from ql_editor import media
 from ql_editor.canvas import ROTATE_OFFSET_PX, LabelCanvas
+from ql_editor.platform import IS_LINUX
 from ql_editor.items import BarcodeItem, QRItem, TextItem, item_from_dict
 from ql_editor.media import get_label
 from ql_editor.printer import RESOLUTION_HIGH, RESOLUTION_STANDARD
@@ -555,6 +556,7 @@ def test_media_panel_keeps_the_stored_printer_when_several_are_attached(
     assert "nicht angeschlossen" in panel._usb_combo.currentText()
 
 
+@pytest.mark.skipif(not IS_LINUX, reason="udev-Hinweis nur unter Linux")
 def test_media_panel_offers_access_help_when_rights_are_missing(qapp, monkeypatch):
     """Ohne Rechte am Geraet steht im Panel, was zu tun ist."""
     from ql_editor import media_panel as media_panel_module
@@ -590,6 +592,7 @@ def test_media_panel_hides_access_help_when_the_device_works(qapp, monkeypatch):
     assert not panel._access_button.isVisibleTo(panel)
 
 
+@pytest.mark.skipif(not IS_LINUX, reason="udev-Hinweis nur unter Linux")
 def test_media_panel_refresh_access_follows_the_new_state(qapp, monkeypatch):
     """Nach dem Einrichten der Regel verschwindet der Hinweis."""
     from ql_editor import media_panel as media_panel_module
