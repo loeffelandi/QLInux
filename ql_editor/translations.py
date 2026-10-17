@@ -109,23 +109,22 @@ EN: dict[str, str] = {
     "Anschluss": "Connection",
     "Netzwerk": "Network",
     "USB": "USB",
-    "IP-Adresse": "IP address",
+    "Netzwerkdrucker": "Network printer",
     "Zugriff": "Access",
     "Zugriff einrichten": "Set up access",
     "Band": "Label",
     "Band erkennen": "Detect label",
-    "Suchen": "Search",
     "Gerät": "Device",
     "Handeingabe": "Manual entry",
-    "eingeben…": "enter…",
     "IP-Adresse von Hand eintragen, wenn die Suche den Drucker nicht findet.": (
         "Enter the IP address by hand if the search does not find the printer."
     ),
-    "Der Port {port} wird automatisch ergänzt.": (
-        "Port {port} is added automatically."
-    ),
+    "Per IP-Adresse hinzufügen…": "Add by IP address…",
     "Suche läuft …": "Searching …",
     "Netzwerk wird durchsucht …": "Searching the network …",
+    "Kein Drucker gefunden.": "No printer found.",
+    "Abbrechen": "Cancel",
+    "Öffnen": "Open",
     "Keine Netzwerk-Drucker gefunden.": "No network printers found.",
     "Netzwerk nach Druckern durchsuchen (mDNS und SNMP).": (
         "Search the network for printers (mDNS and SNMP)."

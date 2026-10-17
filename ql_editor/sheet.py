@@ -36,6 +36,8 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from .i18n import tr
+
 #: Abdunklung hinter dem Sheet (Alpha 0..255).
 _SCRIM_ALPHA = 120
 
@@ -239,8 +241,8 @@ def choose_file(
     dialog.setAcceptMode(QFileDialog.AcceptMode.AcceptOpen)
     dialog.setNameFilter(name_filter)
     dialog.setDirectory(start_dir or QDir.homePath())
-    dialog.setLabelText(QFileDialog.DialogLabel.Accept, "Öffnen")
-    dialog.setLabelText(QFileDialog.DialogLabel.Reject, "Abbrechen")
+    dialog.setLabelText(QFileDialog.DialogLabel.Accept, tr("Öffnen"))
+    dialog.setLabelText(QFileDialog.DialogLabel.Reject, tr("Abbrechen"))
     dialog.setMinimumSize(560, 380)
     sheet = _open_sheet(
         parent, dialog, title=caption, sizing="fill", max_size=QSize(980, 700)
@@ -271,7 +273,7 @@ def ask_text(
     dialog.setLabelText(label)
     dialog.setTextValue(default)
     dialog.setOkButtonText("OK")
-    dialog.setCancelButtonText("Abbrechen")
+    dialog.setCancelButtonText(tr("Abbrechen"))
     dialog.setMinimumWidth(340)
     sheet = _open_sheet(parent, dialog, title=title, sizing="hint")
 
@@ -300,7 +302,7 @@ def ask_choice(
     dialog.setComboBoxItems(list(items))
     dialog.setComboBoxEditable(False)
     dialog.setOkButtonText("OK")
-    dialog.setCancelButtonText("Abbrechen")
+    dialog.setCancelButtonText(tr("Abbrechen"))
     dialog.setMinimumWidth(340)
     sheet = _open_sheet(parent, dialog, title=title, sizing="hint")
 

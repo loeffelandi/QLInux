@@ -125,11 +125,11 @@ def test_usb_search_keeps_the_model_when_it_is_unknown(qapp, tmp_path, monkeypat
 # Druckerauswahl: Anschluss waehlen statt Adresse auswendig lernen
 # --------------------------------------------------------------------------- #
 def test_media_panel_asks_only_for_the_ip(qapp):
-    """Netzwerk: nur die IP eintippen - Praefix und Port ergaenzt die App."""
+    """Netzwerk: nur die IP eintragen - Praefix und Port ergaenzt die App."""
     from ql_editor.media_panel import MediaPanel
 
     panel = MediaPanel()
-    panel._host_edit.setText("192.168.178.77")
+    panel.set_network_host("192.168.178.77")
 
     assert panel.address() == "tcp://192.168.178.77:9100"
     assert panel.printer_config().backend == "network"
@@ -142,13 +142,13 @@ def test_media_panel_switches_between_network_and_usb_rows(qapp, monkeypatch):
     monkeypatch.setattr(media_panel_module, "usb_printers", lambda: [])
     panel = MediaPanel()
     assert panel.connection() == CONNECTION_NETWORK
-    assert panel._host_button.isVisibleTo(panel)
+    assert panel._net_combo.isVisibleTo(panel)
     assert not panel._usb_combo.isVisibleTo(panel)
 
     panel._conn_buttons[CONNECTION_USB].setChecked(True)
 
     assert panel.connection() == CONNECTION_USB
-    assert not panel._host_button.isVisibleTo(panel)
+    assert not panel._net_combo.isVisibleTo(panel)
     assert panel._usb_combo.isVisibleTo(panel)
     # Ohne Geraet gibt es keine Adresse - und der Druckdialog sagt das dann.
     assert panel.address() == ""
@@ -191,12 +191,11 @@ def test_connection_tabs_keep_the_layout_stable(qapp, monkeypatch):
         return widget.mapTo(panel, QPoint(0, 0)).x()
 
     network = snapshot()
-    assert field_x(panel._host_button) == field_x(panel._model_combo)
+    assert field_x(panel._net_combo) == field_x(panel._model_combo)
 
     panel._conn_buttons[CONNECTION_USB].setChecked(True)
     usb = snapshot()
     assert field_x(panel._usb_combo) == field_x(panel._model_combo)
-    assert field_x(panel._usb_button) == field_x(panel._model_combo)
 
     panel._conn_buttons[CONNECTION_NETWORK].setChecked(True)
     back = snapshot()
@@ -205,19 +204,58 @@ def test_connection_tabs_keep_the_layout_stable(qapp, monkeypatch):
     assert back == network
 
 
-def test_network_address_lives_in_a_popover(qapp):
-    """Das IP-Feld steckt im Popover - das Panel bleibt fuer Liste und Suche."""
-    from ql_editor.media_panel import MediaPanel
+def test_network_address_is_asked_for_by_the_list_entry(qapp):
+    """Die IP-Eingabe liegt hinter dem letzten Listeneintrag - nicht im Panel.
+
+    Das Panel selbst zeigt nur Liste und Suchsymbol; wer die Adresse von Hand
+    braucht, findet sie genau dort, wo die anderen Drucker stehen.
+    """
+    from ql_editor.media_panel import NET_ADD_ENTRY, MediaPanel
+    from ql_editor.sheet import Sheet
 
     panel = MediaPanel()
+    panel.resize(280, 720)
+    panel.show()
+    qapp.processEvents()
 
-    assert panel._host_button.menu() is panel._host_menu
-    assert panel._host_menu.isAncestorOf(panel._host_edit)
-    assert not panel._host_button.isAncestorOf(panel._host_edit)
+    last = panel._net_combo.count() - 1
+    assert panel._net_combo.itemText(last) == "Per IP-Adresse hinzufügen…"
+    assert panel._net_combo.itemData(last) == NET_ADD_ENTRY
+    # Der Befehlseintrag ist nie die aktuelle Auswahl - sonst wuerde ein Klick
+    # darauf keine Aenderung melden.
+    assert panel._net_combo.currentData() != NET_ADD_ENTRY
+    # Nur eine Zeile fuer Liste + Suche: das Panel bleibt kurz.
+    assert panel._net_button.text() == ""
+    assert panel._net_button.isVisibleTo(panel)
 
-    # Der Wert ist trotzdem sichtbar: als Handeingabe in der Liste.
-    panel._host_edit.setText("192.168.178.77")
-    assert panel._net_combo.currentText() == "192.168.178.77 – Handeingabe"
+    panel._net_combo.setCurrentIndex(last)  # oeffnet die IP-Abfrage
+    qapp.processEvents()
+    sheet = panel.findChild(Sheet)
+    assert sheet is not None
+    # ... und nimmt die Auswahl gleich wieder zurueck (Befehl, keine Adresse).
+    assert panel._net_combo.currentData() != NET_ADD_ENTRY
+    sheet.close_sheet()
+    qapp.processEvents()
+
+
+def test_network_address_is_taken_over_from_the_sheet(qapp, monkeypatch):
+    """Der Befehlseintrag fuehrt zur Handeingabe - inklusive Liste."""
+    from ql_editor import media_panel as media_panel_module
+    from ql_editor.media_panel import MediaPanel
+
+    monkeypatch.setattr(media_panel_module, "usb_printers", lambda: [])
+    panel = MediaPanel()
+
+    panel.set_network_host("192.168.178.99")
+
+    assert panel.address() == "tcp://192.168.178.99:9100"
+    assert panel._net_combo.currentText() == "192.168.178.99 – Handeingabe"
+    assert panel._net_combo.currentData() == "tcp://192.168.178.99:9100"
+    # Kein Wildwuchs: erneut eintragen erweitert die Liste nicht (nur die
+    # Handeingabe und der Befehlseintrag stehen darin).
+    panel.set_network_host("192.168.178.98")
+    assert panel._net_combo.count() == 2
+    assert panel._net_combo.currentData() == "tcp://192.168.178.98:9100"
 
 
 def test_media_panel_fills_the_network_list_from_a_search(qapp):
@@ -245,7 +283,7 @@ def test_media_panel_takes_the_only_found_printer_without_an_address(qapp):
     from ql_editor.media_panel import MediaPanel
 
     panel = MediaPanel()
-    panel._host_edit.setText("")
+    panel.apply_state({"connection": "network", "host": ""})
     assert panel.address() == ""
 
     changed = []
@@ -256,7 +294,7 @@ def test_media_panel_takes_the_only_found_printer_without_an_address(qapp):
 
     assert panel.address() == "tcp://192.168.178.77:9100"
     assert panel.model_id() == "QL-800"
-    assert panel._host_edit.text() == "192.168.178.77"
+    assert panel._net_combo.currentText() == "192.168.178.77 (QL-800)"
     assert changed  # das Hauptfenster muss davon erfahren
 
 
@@ -275,7 +313,6 @@ def test_picking_a_found_printer_sets_address_and_model(qapp):
 
     panel._net_combo.setCurrentIndex(1)
 
-    assert panel._host_edit.text() == "192.168.178.70"
     assert panel.address() == "tcp://192.168.178.70:9100"
     assert panel.model_id() == "QL-700"
 
@@ -300,26 +337,6 @@ def test_network_search_pulls_the_model_for_the_current_printer(qapp):
 
     assert panel.model_id() == "QL-820NWB"
     assert panel.address() == "tcp://192.168.178.62:9100"
-    assert panel._host_edit.text() == "192.168.178.62"
-
-
-def test_typing_an_ip_keeps_it_as_manual_entry(qapp, monkeypatch):
-    """Eine getippte Adresse bleibt waehlbar, auch wenn sie nicht gefunden wurde."""
-    from ql_editor import media_panel as media_panel_module
-    from ql_editor.media_panel import MediaPanel
-
-    monkeypatch.setattr(media_panel_module, "usb_printers", lambda: [])
-    panel = MediaPanel()
-
-    panel._host_edit.setText("192.168.178.99")
-
-    assert panel.address() == "tcp://192.168.178.99:9100"
-    assert panel._net_combo.currentText() == "192.168.178.99 – Handeingabe"
-    assert panel._net_combo.currentData() == "tcp://192.168.178.99:9100"
-    # Kein Wildwuchs: erneutes Tippen erweitert die Liste nicht.
-    panel._host_edit.setText("192.168.178.98")
-    assert panel._net_combo.count() == 1
-    assert panel._net_combo.currentData() == "tcp://192.168.178.98:9100"
 
 
 def test_switching_to_network_starts_a_search(qapp):
@@ -346,7 +363,8 @@ def test_network_search_shows_its_state(qapp):
     from ql_editor.media_panel import MediaPanel
 
     panel = MediaPanel()
-    assert "Port 9100" in panel._net_hint.text()
+    # Im Ruhezustand steht hier nichts - der Platz bleibt aber reserviert.
+    assert panel._net_hint.text() == ""
 
     panel.set_network_searching(True)
     assert panel._net_button.isEnabled() is False
@@ -354,10 +372,10 @@ def test_network_search_shows_its_state(qapp):
 
     panel.set_network_searching(False)
     assert panel._net_button.isEnabled() is True
-    assert panel._net_hint.text() == "Der Port 9100 wird automatisch ergänzt."
+    assert panel._net_hint.text() == ""
 
     panel.refresh_network_devices([])
-    assert panel._net_hint.text() == "Keine Netzwerk-Drucker gefunden."
+    assert panel._net_hint.text() == "Kein Drucker gefunden."
 
 
 def test_media_panel_restores_a_network_address_from_settings(qapp):
@@ -367,8 +385,9 @@ def test_media_panel_restores_a_network_address_from_settings(qapp):
     panel.set_address("tcp://192.168.178.99:9100")
 
     assert panel.connection() == CONNECTION_NETWORK
-    assert panel._host_edit.text() == "192.168.178.99"
     assert panel.address() == "tcp://192.168.178.99:9100"
+    # Die Adresse steht sichtbar in der Liste (Handeingabe).
+    assert panel._net_combo.currentData() == "tcp://192.168.178.99:9100"
 
 
 def test_media_panel_usb_switch_finds_and_applies_the_device(qapp, monkeypatch):
@@ -2969,13 +2988,12 @@ def test_connection_and_address_are_persisted(qapp, tmp_path):
     from ql_editor.media_panel import CONNECTION_NETWORK
 
     win = _temp_window(qapp, tmp_path)
-    win._media_panel._host_edit.setText("192.168.178.99")
+    win._media_panel.set_network_host("192.168.178.99")
     win.close()
     qapp.processEvents()
 
     again = _temp_window(qapp, tmp_path)
     assert again._media_panel.connection() == CONNECTION_NETWORK
-    assert again._media_panel._host_edit.text() == "192.168.178.99"
     assert again._media_panel.address() == "tcp://192.168.178.99:9100"
 
 

@@ -24,6 +24,8 @@ Kein Browser-Tool, kein WebUSB.
 | M3.17 | Lineale wie im P-touch Editor (Einheit, mm-Beschriftung, Größe am Etikett); USB: ein Eintrag pro Drucker, Kernel-Weg bevorzugt, Druck über beide Wege verifiziert | ✅ |
 | M3.18 | Mausrad scrollt (Zoom nur mit Strg/Zoomgeste); Panels klappen bei schmalem Fenster automatisch ein; Lineale über die volle Länge mit 1/5/10-mm-Strichen und grauem Etikettenstreifen | ✅ |
 | M3.19 | Netzwerk-Drucker finden: mDNS + SNMP-Broadcast (ohne Zusatzpaket), Liste im Panel, Suche beim Umschalten und auf Knopfdruck | ✅ |
+| M3.20 | Start hält gespeicherte Adresse; Netzwerk zieht das Modell nach; IP-Eingabe nur noch hinter dem Listeneintrag (Sheet), Suchsymbol neben der Liste | ✅ |
+| M3.21 | Kopien pro Auftrag (1 … 99) und Zuschnitt (nach jeder Kopie / nur am Ende / nicht schneiden) | ✅ |
 | M4 | Vorlagen, Settings, `.deb`-Paket | ⏳ |
 
 ## Architektur
@@ -86,13 +88,18 @@ python -m ql_editor
   readback"*). Über `tcp://…` antwortet der Drucker nicht (am QL-820NWB
   nachgemessen), die Oberfläche sagt das dann und man wählt das Band von Hand.
 * **Anschluss wählen statt Adresse tippen**: zwei Knöpfe „Netzwerk“ / „USB“
-  in der Gruppe „Drucker“. Darunter erscheint nur, was dazu nötig ist -
-  im Netzwerk die Liste der **gefundenen** Drucker plus „Suchen“; die
-  **IP-Adresse** braucht man selten (die Suche findet den Drucker) und steckt
-  deshalb in einem kleinen Popover hinter „IP-Adresse · eingeben…“ (Port 9100
-  ergänzt die App, ein anderer Port geht als `192.168.178.62:9101`). Am USB
-  steht die Liste der gefundenen Geräte plus „Suchen“. Beim Umschalten wird
-  gleich gesucht; genau ein Gerät wird direkt übernommen.
+  in der Gruppe „Drucker“. Darunter erscheint nur, was dazu nötig ist - die
+  Geräteliste und ein **Suchsymbol** daneben (beide Anschlüsse gleich), im
+  Netzwerk die Liste der **gefundenen** Drucker. Beim Umschalten wird gleich
+  gesucht; genau ein Gerät wird direkt übernommen.
+* **Die IP bleibt weg**: sie ist der Sonderfall (die Suche findet den Drucker)
+  und liegt deshalb als letzter Listeneintrag **„Per IP-Adresse hinzufügen…“**
+  dahinter - nicht als eigenes Feld im Panel. Ausgewählt öffnet er ein Sheet
+  (wie alle Dialoge dieser App) mit einem Feld für IP oder Name; Port 9100
+  ergänzt die App, ein anderer Port geht als `192.168.178.62:9101`. Der
+  Befehlseintrag ist nie die aktuelle Auswahl, sondern wird gleich wieder
+  zurückgenommen. So steht im Panel nur Liste + Suchsymbol; eintippen muss
+  man nur, was die Suche nicht findet.
 * **Netzwerk-Drucker werden gefunden** (`ql_editor.discovery`, ohne
   Zusatzpaket): **mDNS** (`_pdl-datastream._tcp.local`, Modell aus den
   TXT-Records) und **SNMP-Broadcast** (`hrDeviceDescr` → „Brother QL-820NWB“)
@@ -108,8 +115,9 @@ python -m ql_editor
   Beide Anschlussarten liegen im selben Stapel an derselben Stelle, die
   Beschriftungsspalte ist fest breit und der Platz für „Band erkennen“ bleibt
   reserviert: **beim Umschalten verschiebt sich nichts** - weder die Felder
-  noch die Kästen darunter. „Suchen“ steht in einer eigenen Zeile unter der
-  Geräteliste, damit die Liste im schmalen Panel nicht gequetscht wird.
+  noch die Kästen darunter. Das Suchsymbol sitzt rechts neben der Liste
+  (eine Zeile statt zwei), der Hinweis unter der Liste hat eine reservierte
+  Zeilenhöhe, damit auch „Suche läuft …“ nichts verschiebt.
 * **Ein Eintrag pro Drucker**: derselbe Drucker ist über USB oft zweimal
   auffindbar - als Kernel-Knoten (`/dev/usb/lpN`) und als libusb-Gerät
   (`usb://0x04f9:0x2042`). Beide Wege sind gleichwertig (am QL-700
@@ -204,7 +212,7 @@ python -m ql_editor
   ohne herauszoomen zu müssen. Die Renderquelle bleibt davon unberührt - die
   Szene selbst ist weiterhin exakt die bedruckbare Fläche.
 * **Rechts**: Inspector (Eigenschaften des ausgewählten Objekts) + Druckoptionen
-  (Auflösung, HQ, Graustufen, Tintenmenge, Schnitt, Drucken).
+  (Auflösung, HQ, Graustufen, Tintenmenge, Kopien, Zuschnitt, Drucken).
 
 Der Canvas ist **räumlich WYSIWYG** (Position, Größe, mm, Randbegrenzung).
 Was er *nicht* zeigt, ist die **Binarisierung**: der Drucker kennt nur 1 bit
@@ -357,6 +365,18 @@ Panel-Sichtbarkeit bleiben dabei erhalten.
   statt hart geschwellt. Dann ist die Tintenmenge **wirkungslos** (die
   Bibliothek ignoriert sie); das Feld wird ausgegraut, statt still nichts zu
   tun.
+* **Kopien** (1 … 99): dasselbe Etikett mehrfach - in **einem** Auftrag, also
+  ein Datenstrom und eine Verbindung (nicht 5× neu verbinden). Der Countdown
+  beginnt bei 1, die Zahl steht als ein Byte im Druckerbefehl.
+* **Zuschnitt**: *Nach jeder Kopie* (einzelne Etiketten), *Nur am Ende* (die
+  Kopien hängen zusammen und werden zuletzt getrennt) oder *Nicht schneiden*
+  (der Streifen bleibt am Band). Technisch ist das die Kombination, die die
+  Brother-Rasterreferenz dafür vorsieht: **Auto Cut** an (`ESC i M 40h`) und
+  **„cut each \* labels“** (`ESC i A n`) - bei *Nur am Ende* steht dort die
+  Kopienzahl statt 1. `convert()` schreibt dort fest 1, deshalb wird dieser
+  Wert nach dem Konvertieren ersetzt (siehe `printer._set_cut_every`).
+  Modelle **ohne** Schneideeinrichtung (QL-500) bekommen eine klare Meldung
+  statt eines Häkchens, das nichts tut.
 * Alle Druckoptionen werden gemerkt. Die Werte gehen 1:1 an den Drucker: die
   Vorschau zeigt genau das Ergebnis.
 * **Ausrichtung** (Gruppe „Band" im linken Panel, auch im Hamburger-Menü):
