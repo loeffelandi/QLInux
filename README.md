@@ -147,12 +147,14 @@ label — *Save* asks for a `.qlx`, it does not write back into the `.lbx`.
 
 What comes across: text (one font per box; horizontal alignment; rotation in
 90° steps stays inside the box), images (resampled from the embedded bitmap
-down to the label size), lines and frames. Text is not shrunk to fit the way
-P-touch does it. What does not: barcodes, tables, database fields, date/time
-fields and cable templates. Those are listed in a note after import. Mixed-style
-runs inside one text box keep the box's base font, and Brother's monochrome
-image settings (threshold, dither) are not copied — the print dialog has its
-own.
+down to the label size), lines and frames. Text inside a cable template comes
+across too; the template itself does not. Text is not shrunk to fit the way
+P-touch does it. Rotation in the file is counter-clockwise (checked against
+P-touch Editor on a vertical logo). What does not: barcodes, tables, database
+fields, date/time fields, image cropping, and red ink on two-colour tapes.
+Those are listed in a note after import. Mixed-style runs inside one text box
+keep the box's base font, and Brother's monochrome image settings (threshold,
+dither) are not copied — the print dialog has its own.
 
 ### USB permissions
 

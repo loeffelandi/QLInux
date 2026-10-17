@@ -197,6 +197,13 @@ EN: dict[str, str] = {
     "Zeichnung": "Drawing",
     "Nicht übernommen: {kind} ({count}×)": "Not imported: {kind} ({count}×)",
     "Nicht übernommen: {kind}": "Not imported: {kind}",
+    "Nicht übernommen: {kind} – {recovered} enthaltene Objekte übernommen": (
+        "Not imported: {kind} – kept {recovered} objects inside it"
+    ),
+    "Bildzuschnitt nicht übernommen: {name}": "Image crop not imported: {name}",
+    "Zweifarbiges Etikett – Rot wird nicht übernommen.": (
+        "Two-colour label – red is not imported."
+    ),
     "Kein passendes Band für {size} mm – {name} wird verwendet.": (
         "No matching tape for {size} mm – using {name}."
     ),
