@@ -2413,6 +2413,47 @@ def test_permission_success_refreshes_the_panel(qapp, tmp_path, monkeypatch):
     assert "eingerichtet" in win.statusBar().currentMessage()
 
 
+def test_permission_success_retries_until_udev_applied_the_rule(
+    qapp, tmp_path, monkeypatch
+):
+    """udev greift kurz verzoegert - die Anzeige darf kein zweites Klicken verlangen."""
+    win = _temp_window(qapp, tmp_path)
+    win._permission_process = _FakePermissionProcess()
+    answers = [False, False, True]
+    monkeypatch.setattr(
+        win._media_panel, "refresh_access", lambda: answers.pop(0) if answers else True
+    )
+
+    win._on_permission_finished(0)
+    assert win._access_retry.isActive()
+    assert "geprüft" in win.statusBar().currentMessage()
+
+    win._check_usb_access()
+    assert win._access_retry.isActive()
+
+    win._check_usb_access()
+    assert not win._access_retry.isActive()
+    assert "eingerichtet" in win.statusBar().currentMessage()
+
+
+def test_permission_success_without_effect_hints_at_replugging(
+    qapp, tmp_path, monkeypatch
+):
+    """Bleibt es bei fehlenden Rechten, sagt die App was zu tun ist."""
+    from ql_editor.app import ACCESS_RETRY_COUNT
+
+    win = _temp_window(qapp, tmp_path)
+    win._permission_process = _FakePermissionProcess()
+    monkeypatch.setattr(win._media_panel, "refresh_access", lambda: False)
+
+    win._on_permission_finished(0)
+    for _ in range(ACCESS_RETRY_COUNT + 1):
+        win._check_usb_access()
+
+    assert not win._access_retry.isActive()
+    assert "ab- und anstecken" in win.statusBar().currentMessage()
+
+
 def test_permission_timeout_kills_and_shows_the_one_liner(
     qapp, tmp_path, monkeypatch
 ):

@@ -99,6 +99,10 @@ BARCODE_SYMBOLOGIES = ["code128", "code39", "ean13", "ean8", "upca", "itf", "cod
 
 #: Wie lange auf den Passwort-Dialog gewartet wird, bevor der Einzeiler kommt.
 PERMISSION_TIMEOUT_MS = 90_000
+#: Nach dem Einrichten der Regel greift udev erst kurz verzoegert: so lange
+#: (in Schritten von ACCESS_RETRY_MS) werden die Rechte nachgefasst.
+ACCESS_RETRY_MS = 400
+ACCESS_RETRY_COUNT = 8
 
 
 class PrintWorker(QThread):
@@ -153,6 +157,11 @@ class MainWindow(QMainWindow):
         self._permission_timer.setSingleShot(True)
         self._permission_timer.setInterval(PERMISSION_TIMEOUT_MS)
         self._permission_timer.timeout.connect(self._on_permission_timeout)
+        # Rechte nachfassen, bis udev die neue Regel angewendet hat.
+        self._access_attempts = 0
+        self._access_retry = QTimer(self)
+        self._access_retry.setInterval(ACCESS_RETRY_MS)
+        self._access_retry.timeout.connect(self._check_usb_access)
         #: Ansicht (Zoom + Mittelpunkt) vor dem Einschalten der Druckvorschau.
         self._preview_view: tuple[float, QPointF] | None = None
 
@@ -1247,10 +1256,11 @@ class MainWindow(QMainWindow):
             "utf-8", "replace"
         )
         if code == 0:
-            self._media_panel.refresh_access()
-            self.statusBar().showMessage(
-                tr("USB-Zugriff eingerichtet – der Drucker ist freigegeben."), 8000
-            )
+            # Die Regel ist geschrieben, aber udev wendet sie erst kurz danach
+            # an - sofortiges Nachsehen meldete sonst "keine Rechte" und man
+            # klickt ein zweites Mal.
+            self._access_attempts = ACCESS_RETRY_COUNT
+            self._check_usb_access()
             return
         text = access.describe_failure(code, stderr)
         if access.rule_installed():
@@ -1258,6 +1268,24 @@ class MainWindow(QMainWindow):
                 "Regel ist schon eingerichtet – Drucker kurz ab- und anstecken."
             )
         show_message(self, "warning", tr("USB-Zugriff"), text, selectable=True)
+
+    def _check_usb_access(self) -> None:
+        """Rechte am Drucker nachsehen - und nachfassen, solange sie fehlen."""
+        allowed = self._media_panel.refresh_access()
+        if allowed is False and self._access_attempts > 0:
+            self._access_attempts -= 1
+            self._access_retry.start()
+            self.statusBar().showMessage(tr("Zugriff einrichten: Rechte werden geprüft …"))
+            return
+        self._access_retry.stop()
+        if allowed is False:
+            self.statusBar().showMessage(
+                tr("Rechte noch nicht aktiv – Drucker kurz ab- und anstecken."), 10_000
+            )
+            return
+        self.statusBar().showMessage(
+            tr("USB-Zugriff eingerichtet – der Drucker ist freigegeben."), 8000
+        )
 
     def _show_manual_permission(self) -> None:
         """Ohne Passwort-Dialog bleibt der Einzeiler fuer das Terminal."""

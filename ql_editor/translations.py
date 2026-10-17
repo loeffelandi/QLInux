@@ -305,6 +305,12 @@ EN: dict[str, str] = {
         "USB access set up - the printer is unlocked."
     ),
     "Zugriff einrichten: Passwort-Dialog …": "Setting up access: password prompt …",
+    "Zugriff einrichten: Rechte werden geprüft …": (
+        "Setting up access: checking permissions …"
+    ),
+    "Rechte noch nicht aktiv – Drucker kurz ab- und anstecken.": (
+        "Permissions not active yet - unplug and replug the printer briefly."
+    ),
     "Kein Passwort-Dialog erschienen.": "No password prompt appeared.",
     "Kein Passwort-Dialog (polkit-Agent) vorhanden.": (
         "No password prompt (polkit agent) available."
