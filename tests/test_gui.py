@@ -3435,8 +3435,11 @@ def test_language_switch_is_offered_in_the_menu(qapp, tmp_path):
     """Die Sprachwahl sitzt im Hamburger-Menue und ist angehakt."""
     win = _temp_window(qapp, tmp_path)
     menu = win._menu_button.menu()
+    # Nach Titel suchen: im Menue liegen mehrere Untermenues (Vorlagen, Sprache).
     submenu = next(
-        action.menu() for action in menu.actions() if action.menu() is not None
+        action.menu()
+        for action in menu.actions()
+        if action.menu() is not None and action.menu().title() == "Sprache"
     )
     assert submenu.title() == "Sprache"
     labels = {action.text(): action.isChecked() for action in submenu.actions()}
@@ -3708,3 +3711,63 @@ def test_bundled_assets_are_found_via_the_environment(monkeypatch, tmp_path):
 
     assert resources.assets_dir() == tmp_path
     assert resources.asset(resources.APP_ICON) == tmp_path / resources.APP_ICON
+
+
+# --------------------------------------------------------------------------- #
+# Vorlagen
+# --------------------------------------------------------------------------- #
+def test_templates_menu_applies_a_template_as_a_new_label(qapp, tmp_path):
+    """Vorlage anlegen = neues, ungespeichertes Etikett (kein alter Dateiname)."""
+    from ql_editor import templates
+
+    win = _temp_window(qapp, tmp_path)
+    # Erst ein eigenes Etikett speichern - die Vorlage darf es nicht beerben.
+    saved = tmp_path / "eigenes.qlx"
+    win._save_document_to(str(saved))
+    assert win._document_path == str(saved)
+
+    name = templates.builtins()[0][0]
+    win._on_template_builtin(name)
+    qapp.processEvents()
+
+    assert win._canvas.items_serialized(), "Vorlage hat keine Objekte angelegt"
+    assert win._document_path == ""
+    assert win._document_dirty is True
+    assert win.windowTitle().startswith("Unbenannt*")
+
+    # Band/Design der Vorlage sind uebernommen, der Drucker bleibt.
+    assert win._media_panel.label_id() == templates.TEMPLATE_LABEL
+    assert win._media_panel.auto_length() is True
+    win.close()
+    qapp.processEvents()
+
+
+def test_the_template_menu_offers_builtins_and_saving(qapp, tmp_path, monkeypatch):
+    """Das Menue hat die eingebauten Vorlagen und „Als Vorlage speichern…"."""
+    from ql_editor import templates
+    from ql_editor.templates import TEMPLATE_DIR_ENV
+
+    monkeypatch.setenv(TEMPLATE_DIR_ENV, str(tmp_path))
+
+    win = _temp_window(qapp, tmp_path)
+    submenu = win._template_menu
+    entries = [action.text() for action in submenu.actions()]
+
+    for name, _data in templates.builtins():
+        assert name in entries
+    assert "Als Vorlage speichern…" in entries
+
+    # Eigene Vorlage speichern und im Menue wiederfinden.
+    win._save_template_named("Meins")
+    win._fill_template_menu()
+
+    assert "Meins" in [action.text() for action in submenu.actions()]
+    assert templates.list_user() == [tmp_path / "Meins.qlx"]
+
+    # Und anwenden.
+    win._on_template_open(str(tmp_path / "Meins.qlx"))
+    qapp.processEvents()
+
+    assert win._document_path == ""
+    win.close()
+    qapp.processEvents()

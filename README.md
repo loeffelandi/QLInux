@@ -39,6 +39,8 @@ The model list even appears in the app: *menu → About QLInux*.
   discovery of network printers (mDNS + SNMP) and USB devices; *Detect label*
   reads the inserted tape (USB only — the network port has no read-back).
 - **Preview** in real print dots, plus a print preview mode at 1:1 (Ctrl+Shift+P).
+- **Templates**: seven ready-made labels plus your own stored as `.qlx`
+  files.
 - **German and English UI** (switch at runtime), macOS-like sheets instead of
   extra windows.
 
@@ -135,6 +137,19 @@ Architecture and every measured printer detail (raster commands, cut commands,
 600 dpi mode, USB permissions) are documented in
 [docs/API_NOTES.md](docs/API_NOTES.md).
 
+## Templates
+
+*Menu → Templates* has ready-made labels — address label, parcel label, cable,
+folder spine, price tag, WiFi QR, inventory. They all use 62 mm endless tape
+with automatic length, so they fit on any endless tape; the printer model is
+deliberately not part of a template (that is the printer's business). The
+sample texts come in the interface language.
+
+*Save as template…* stores the current label in
+`~/.config/QLInux/templates/` — as a `.qlx` file, the same format *Save* uses.
+That means a template is an ordinary label file: you can copy, mail or edit it.
+Your own templates then appear in the same menu.
+
 ## Status
 
 | Milestone | Content | Status |
@@ -147,7 +162,7 @@ Architecture and every measured printer detail (raster commands, cut commands,
 | M3.17–M3.19 | Rulers, network printer discovery (mDNS + SNMP) | ✅ |
 | M3.20–M3.21 | IP entry behind a list entry, copies and cutting | ✅ |
 | M4.1 | Labels as files: open, save, save as (`.qlx`), unsaved-changes marker | ✅ |
-| M4.2 | Templates | ⏳ |
+| M4.2 | Templates (built-in and your own) | ✅ |
 | M4.3 | Packaging: AppImage (PyInstaller + appimagetool) | ✅ |
 
 ## License

@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import sys
 import threading
+from functools import partial
 from pathlib import Path
 from typing import Any, Mapping
 
@@ -60,6 +61,7 @@ from . import about
 from . import document
 from . import media
 from . import resources
+from . import templates
 from .canvas import LabelCanvas
 from .discovery import discover_network_printers
 from .i18n import (
@@ -765,6 +767,7 @@ class MainWindow(QMainWindow):
             self._act_file_save_as,
         ):
             menu.addAction(act)
+        self._build_template_menu(menu)
         menu.addSection(tr("Einfügen"))
         for act in (
             self._act_add_text,
@@ -799,6 +802,86 @@ class MainWindow(QMainWindow):
         menu.addAction(self._act_about)
         menu.addAction(self._act_quit)
         return menu
+
+    def _build_template_menu(self, menu: QMenu) -> None:
+        """„Vorlagen": eingebaute und eigene Etiketten als Untermenue."""
+        submenu = menu.addMenu(icon("label"), tr("Vorlagen"))
+        submenu.aboutToShow.connect(self._fill_template_menu)
+        self._template_menu = submenu
+        self._fill_template_menu()
+
+    def _fill_template_menu(self) -> None:
+        """Vorlagenliste fuellen - auch die eigenen, die gerade dazukamen."""
+        submenu = self._template_menu
+        submenu.clear()
+        for name, data in templates.builtins():
+            action = submenu.addAction(icon("label"), name)
+            action.setToolTip(tr("Vorlage anlegen: {name}").format(name=name))
+            action.triggered.connect(partial(self._on_template_builtin, name))
+        own = templates.list_user()
+        if own:
+            submenu.addSeparator()
+            for path in own:
+                action = submenu.addAction(icon("open"), path.stem)
+                action.setToolTip(tr("Eigene Vorlage öffnen"))
+                action.triggered.connect(partial(self._on_template_open, str(path)))
+        submenu.addSeparator()
+        action = submenu.addAction(icon("save"), tr("Als Vorlage speichern…"))
+        action.setToolTip(tr("Das aktuelle Etikett als Vorlage ablegen"))
+        action.triggered.connect(self._on_template_save)
+
+    def _on_template_builtin(self, name: str) -> None:
+        """Eingebaute Vorlage anlegen: ein neues, ungespeichertes Etikett."""
+        data = templates.find_builtin(name)
+        if data is None:
+            return
+        self._apply_template(data, tr("Vorlage angelegt: {name}").format(name=name))
+
+    def _on_template_open(self, path: str) -> None:
+        """Eigene Vorlage oeffnen - gleiche Datei wie ein gespeichertes Etikett."""
+        try:
+            data = document.load(path)
+        except document.DocumentError as exc:
+            show_message(self, "critical", tr("Vorlagen"), str(exc))
+            return
+        self._apply_template(
+            data, tr("Vorlage geöffnet: {name}").format(name=Path(path).name)
+        )
+
+    def _apply_template(self, data: dict, message: str) -> None:
+        """Vorlage anwenden - bewusst als *neues* Etikett ohne Dateinamen.
+
+        Sonst wuerde „Speichern" das zuletzt geoeffnete Etikett ueberschreiben.
+        """
+        self._apply_document(data)
+        self._document_path = ""
+        self._document_dirty = True
+        self._update_window_title()
+        self.statusBar().showMessage(message, 8000)
+
+    def _on_template_save(self) -> None:
+        """Aktuelles Etikett als eigene Vorlage ablegen."""
+        ask_text(
+            self,
+            title=tr("Als Vorlage speichern"),
+            label=tr("Name der Vorlage:"),
+            default=(
+                Path(self._document_path).stem if self._document_path else ""
+            ),
+            on_ok=self._save_template_named,
+        )
+
+    def _save_template_named(self, name: str) -> None:
+        if not name.strip():
+            return
+        try:
+            path = templates.save_user(name, self._document_data())
+        except document.DocumentError as exc:
+            show_message(self, "critical", tr("Als Vorlage speichern"), str(exc))
+            return
+        self.statusBar().showMessage(
+            tr("Vorlage gespeichert: {name}").format(name=path.stem), 8000
+        )
 
     def _build_language_menu(self, menu: QMenu) -> None:
         """Sprachwahl als Untermenue ("Deutsch"/"English")."""
