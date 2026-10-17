@@ -22,5 +22,5 @@ _logging.getLogger("brother_ql.devicedependent").setLevel(_logging.ERROR)
 
 __all__ = ["__version__", "APP_NAME"]
 
-__version__ = "0.1.0"
+__version__ = "0.1.1"
 APP_NAME = "QLInux"
