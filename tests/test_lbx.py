@@ -6,90 +6,15 @@ einem kleinen BMP. Keine echten Etiketten im Repository.
 
 from __future__ import annotations
 
+import base64
 import io
 import zipfile
-from pathlib import Path
 
 import pytest
 from PIL import Image
 
 from ql_editor import document, lbx
-
-NS = """xmlns:pt="http://schemas.brother.info/ptouch/2007/lbx/main" xmlns:style="http://schemas.brother.info/ptouch/2007/lbx/style" xmlns:text="http://schemas.brother.info/ptouch/2007/lbx/text" xmlns:draw="http://schemas.brother.info/ptouch/2007/lbx/draw" xmlns:image="http://schemas.brother.info/ptouch/2007/lbx/image" """
-
-
-def _pt(mm: float) -> str:
-    return f"{mm / 25.4 * 72:.4f}pt"
-
-
-def write_lbx(
-    path: Path,
-    *,
-    width_mm: float,
-    height_mm: float,
-    orientation: str = "landscape",
-    auto_length: bool = True,
-    objects: str = "",
-    background: str | None = None,
-    images: dict[str, Image.Image] | None = None,
-) -> Path:
-    """Minimale ``.lbx`` schreiben."""
-    if background is None:
-        background = (
-            f'<style:backGround x="{_pt(1.5)}" y="{_pt(1.5)}" '
-            f'width="{_pt(width_mm)}" height="{_pt(10)}"/>'
-        )
-    xml = f"""<?xml version="1.0"?>
-<pt:document {NS} version="1.7">
-  <pt:body currentSheet="Sheet 1">
-    <style:sheet name="Sheet 1">
-      <style:paper width="{_pt(width_mm)}" height="{_pt(height_mm)}"
-        orientation="{orientation}" autoLength="{"true" if auto_length else "false"}"/>
-      {background}
-      <pt:objects>
-        {objects}
-      </pt:objects>
-    </style:sheet>
-  </pt:body>
-</pt:document>
-"""
-    with zipfile.ZipFile(path, "w") as archive:
-        archive.writestr("label.xml", xml)
-        for name, image in (images or {}).items():
-            buffer = io.BytesIO()
-            image.save(buffer, format="BMP")
-            archive.writestr(name, buffer.getvalue())
-    return path
-
-
-def _text(
-    *,
-    x: float = 2,
-    y: float = 2,
-    width: float = 40,
-    height: float = 10,
-    size: str = "15.3pt",
-    weight: int = 700,
-    align: str = "CENTER",
-    control: str = "AUTOLEN",
-    auto_lf: str = "false",
-    body: str = "Hallo",
-    font: str = "DIN",
-) -> str:
-    return f"""
-    <text:text>
-      <pt:objectStyle x="{_pt(x)}" y="{_pt(y)}" width="{_pt(width)}" height="{_pt(height)}" angle="0">
-        <pt:pen widthX="0.5pt"/>
-      </pt:objectStyle>
-      <text:ptFontInfo>
-        <text:logFont name="{font}" italic="false" weight="{weight}"/>
-        <text:fontExt size="{size}" textColor="#000000"/>
-      </text:ptFontInfo>
-      <text:textControl control="{control}" autoLF="{auto_lf}"/>
-      <text:textAlign horizontalAlignment="{align}"/>
-      <pt:data>{body}</pt:data>
-    </text:text>
-    """
+from tests.lbx_samples import pt, text_object, write_lbx
 
 
 def test_endless_62_landscape_is_along_the_tape(tmp_path):
@@ -102,6 +27,7 @@ def test_endless_62_landscape_is_along_the_tape(tmp_path):
     assert data["media"]["orientation"] == "along"
     assert data["media"]["auto_length"] is True
     assert data["media"]["margins"] == {"left": 0.0, "right": 0.0, "top": 0.0, "bottom": 0.0}
+    assert "length_mm" not in data["media"]
     assert data["warnings"] == []
 
 
@@ -111,7 +37,7 @@ def test_portrait_text_keeps_font_weight_and_alignment(tmp_path):
         width_mm=50,
         height_mm=1000,
         orientation="portrait",
-        objects=_text(),
+        objects=text_object(),
     )
 
     data = lbx.load(path)
@@ -148,13 +74,13 @@ def test_image_is_placed_against_the_background_and_shrunk(tmp_path):
     image = Image.new("RGB", (200, 100), "black")
     objects = f"""
     <image:image>
-      <pt:objectStyle x="{_pt(11.5)}" y="{_pt(6.5)}" width="{_pt(10)}" height="{_pt(5)}" angle="0">
+      <pt:objectStyle x="{pt(11.5)}" y="{pt(6.5)}" width="{pt(10)}" height="{pt(5)}" angle="0">
         <pt:pen widthX="0.5pt"/>
       </pt:objectStyle>
       <image:imageStyle fileName="Object0.bmp" originalName="logo.png">
         <image:trimming flag="false"/>
         <image:transparent flag="false"/>
-        <image:orgPos x="{_pt(11.5)}" y="{_pt(6.5)}" width="{_pt(10)}" height="{_pt(5)}"/>
+        <image:orgPos x="{pt(11.5)}" y="{pt(6.5)}" width="{pt(10)}" height="{pt(5)}"/>
       </image:imageStyle>
     </image:image>
     """
@@ -168,7 +94,7 @@ def test_image_is_placed_against_the_background_and_shrunk(tmp_path):
 
     data = lbx.load(path)
     item = data["items"][0]
-    raw = __import__("base64").b64decode(item["data_b64"])
+    raw = base64.b64decode(item["data_b64"])
     loaded = Image.open(io.BytesIO(raw))
 
     assert item["x"] == pytest.approx(10 / 25.4 * lbx.media.DPI, abs=0.05)
@@ -182,15 +108,15 @@ def test_image_is_placed_against_the_background_and_shrunk(tmp_path):
 def test_line_and_frame(tmp_path):
     objects = f"""
     <draw:poly>
-      <pt:objectStyle x="{_pt(3.5)}" y="{_pt(4.5)}" width="{_pt(20)}" height="{_pt(1)}" angle="0">
+      <pt:objectStyle x="{pt(3.5)}" y="{pt(4.5)}" width="{pt(20)}" height="{pt(1)}" angle="0">
         <pt:pen widthX="0.5pt"/>
       </pt:objectStyle>
       <draw:polyStyle shape="LINE">
-        <draw:polyLinePoints points="{_pt(3.5)},{_pt(4.5)} {_pt(23.5)},{_pt(4.5)}"/>
+        <draw:polyLinePoints points="{pt(3.5)},{pt(4.5)} {pt(23.5)},{pt(4.5)}"/>
       </draw:polyStyle>
     </draw:poly>
     <draw:frame>
-      <pt:objectStyle x="{_pt(3.5)}" y="{_pt(8)}" width="{_pt(12)}" height="{_pt(6)}" angle="90">
+      <pt:objectStyle x="{pt(3.5)}" y="{pt(8)}" width="{pt(12)}" height="{pt(6)}" angle="90">
         <pt:pen widthX="0.5pt"/>
       </pt:objectStyle>
       <draw:frameStyle category="SIMPLE"/>
@@ -205,11 +131,11 @@ def test_line_and_frame(tmp_path):
     assert line["x2"] == pytest.approx(20 / 25.4 * lbx.media.DPI)
     assert line["width_px"] == pytest.approx(0.5 * lbx.DOTS_PER_PT)
     assert frame["type"] == "rect"
-    # 90° im Uhrzeigersinn: der Kasten bleibt 12 x 6 mm, der Anker wandert
-    # um die Breite nach rechts, lokal sind die Seiten vertauscht.
-    assert frame["rotation"] == 90
-    assert frame["x"] == pytest.approx(14 / 25.4 * lbx.media.DPI, abs=0.05)
-    assert frame["y"] == pytest.approx(6.5 / 25.4 * lbx.media.DPI, abs=0.05)
+    # Datei-Winkel 90° ist gegen den Uhrzeigersinn: Qt-Drehung 270°, der Anker
+    # wandert um die Höhe nach unten, lokal sind die Seiten vertauscht.
+    assert frame["rotation"] == 270
+    assert frame["x"] == pytest.approx(2 / 25.4 * lbx.media.DPI, abs=0.05)
+    assert frame["y"] == pytest.approx(12.5 / 25.4 * lbx.media.DPI, abs=0.05)
     assert frame["w"] == pytest.approx(6 / 25.4 * lbx.media.DPI, abs=0.05)
     assert frame["h"] == pytest.approx(12 / 25.4 * lbx.media.DPI, abs=0.05)
     assert frame["filled"] is False
@@ -218,7 +144,7 @@ def test_line_and_frame(tmp_path):
 def test_unknown_objects_are_warnings_not_fatal(tmp_path):
     objects = """
     <table:table xmlns:table="http://schemas.brother.info/ptouch/2007/lbx/table"/>
-    """ + _text(body="bleibt")
+    """ + text_object(body="bleibt")
     path = write_lbx(tmp_path / "tabelle.lbx", width_mm=62, height_mm=1000, objects=objects)
 
     data = lbx.load(path)
@@ -233,6 +159,140 @@ def test_not_a_zip(tmp_path):
 
     with pytest.raises(document.DocumentError):
         lbx.load(path)
+
+
+def test_place_turns_file_angles_counterclockwise():
+    """180° bleibt, 270° in der Datei ist 90° im Uhrzeigersinn für Qt."""
+    assert lbx._place(10, 20, 30, 40, 180) == (40, 60, 30, 40, 180.0)
+    assert lbx._place(10, 20, 30, 40, 270) == (40, 20, 40, 30, 90.0)
+    assert lbx._place(10, 20, 30, 40, 90) == (10, 60, 40, 30, 270.0)
+
+
+def test_trim_flag_warns_and_keeps_the_whole_image(tmp_path):
+    image = Image.new("RGB", (8, 4), "red")
+    objects = f"""
+    <image:image>
+      <pt:objectStyle x="{pt(2)}" y="{pt(2)}" width="{pt(20)}" height="{pt(10)}" angle="0"/>
+      <image:imageStyle fileName="Object0.bmp" originalName="logo.png">
+        <image:trimming flag="true" trimOrgX="0pt" trimOrgY="0pt" trimOrgWidth="1pt" trimOrgHeight="1pt"/>
+      </image:imageStyle>
+    </image:image>
+    """
+    path = write_lbx(
+        tmp_path / "schnitt.lbx",
+        width_mm=62,
+        height_mm=1000,
+        objects=objects,
+        images={"Object0.bmp": image},
+    )
+
+    data = lbx.load(path)
+    loaded = Image.open(io.BytesIO(base64.b64decode(data["items"][0]["data_b64"])))
+
+    assert loaded.size == (8, 4)
+    assert any("logo.png" in warning for warning in data["warnings"])
+
+
+def test_transparent_color_becomes_alpha(tmp_path):
+    image = Image.new("RGB", (2, 1))
+    image.putpixel((0, 0), (255, 255, 255))
+    image.putpixel((1, 0), (0, 0, 0))
+    objects = f"""
+    <image:image>
+      <pt:objectStyle x="{pt(2)}" y="{pt(2)}" width="{pt(20)}" height="{pt(10)}" angle="0"/>
+      <image:imageStyle fileName="Object0.bmp">
+        <image:transparent flag="true" color="#FFFFFF"/>
+      </image:imageStyle>
+    </image:image>
+    """
+    path = write_lbx(
+        tmp_path / "transparent.lbx",
+        width_mm=62,
+        height_mm=1000,
+        objects=objects,
+        images={"Object0.bmp": image},
+    )
+
+    loaded = Image.open(
+        io.BytesIO(base64.b64decode(lbx.load(path)["items"][0]["data_b64"]))
+    ).convert("RGBA")
+
+    assert loaded.getpixel((0, 0))[3] == 0
+    assert loaded.getpixel((1, 0))[3] == 255
+
+
+def test_fixed_length_endless_when_no_die_cut_matches(tmp_path):
+    path = write_lbx(
+        tmp_path / "fest.lbx",
+        width_mm=62,
+        height_mm=26,
+        auto_length=False,
+    )
+
+    media = lbx.load(path)["media"]
+
+    assert media["label"] == "62"
+    assert media["auto_length"] is False
+    assert media["length_mode"] == "finished"
+    assert media["length_mm"] == pytest.approx(26, abs=0.05)
+
+
+def test_unknown_width_warns_and_picks_the_closest_tape(tmp_path):
+    path = write_lbx(tmp_path / "schmal.lbx", width_mm=36, height_mm=1000)
+
+    data = lbx.load(path)
+
+    assert data["media"]["label"] == "38"
+    assert any("Kein passendes Band" in warning for warning in data["warnings"])
+
+
+def test_cable_template_keeps_its_text(tmp_path):
+    objects = """
+    <cable:cable xmlns:cable="http://schemas.brother.info/ptouch/2007/lbx/cable">
+    """ + text_object(body="eins") + text_object(body="zwei") + """
+    </cable:cable>
+    """
+    path = write_lbx(tmp_path / "kabel.lbx", width_mm=62, height_mm=1000, objects=objects)
+
+    data = lbx.load(path)
+
+    assert [item["text"] for item in data["items"]] == ["eins", "zwei"]
+    assert any("Kabelvorlage" in warning for warning in data["warnings"])
+
+
+def test_broken_numbers_do_not_abort(tmp_path):
+    path = write_lbx(
+        tmp_path / "zahl.lbx",
+        width_mm=62,
+        height_mm=1000,
+        objects=text_object(weight="fett", angle="schief"),
+    )
+
+    item = lbx.load(path)["items"][0]
+
+    assert item["bold"] is False
+    assert item["rotation"] == 0
+
+
+def test_a_broken_bitmap_is_a_warning(tmp_path):
+    objects = """
+    <image:image>
+      <pt:objectStyle x="2pt" y="2pt" width="10pt" height="10pt" angle="0"/>
+      <image:imageStyle fileName="Object0.bmp" originalName="kaputt.bmp"/>
+    </image:image>
+    """
+    path = write_lbx(
+        tmp_path / "kaputtbild.lbx",
+        width_mm=62,
+        height_mm=1000,
+        objects=objects,
+        raw_files={"Object0.bmp": b"das ist kein bild"},
+    )
+
+    data = lbx.load(path)
+
+    assert data["items"] == []
+    assert any("Object0.bmp" in warning for warning in data["warnings"])
 
 
 def test_zip_without_label_xml(tmp_path):

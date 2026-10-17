@@ -3781,7 +3781,7 @@ def test_opening_an_lbx_imports_without_keeping_that_path(qapp, tmp_path):
     Sonst schriebe „Speichern" JSON in die Brother-Datei. Stattdessen bleibt
     das Fenster „Unbenannt*".
     """
-    from test_lbx import write_lbx
+    from tests.lbx_samples import write_lbx
 
     path = write_lbx(
         tmp_path / "logo.lbx",
@@ -3798,6 +3798,32 @@ def test_opening_an_lbx_imports_without_keeping_that_path(qapp, tmp_path):
     assert win.windowTitle().startswith("Unbenannt*")
     assert win._media_panel.label_id() == "62"
     assert win._media_panel.orientation().value == "along"
+
+    win.close()
+    qapp.processEvents()
+
+
+def test_an_lbx_warning_is_shown(qapp, tmp_path):
+    """Was nicht übernommen wird, steht danach in einem Hinweis."""
+    from PySide6.QtWidgets import QLabel
+
+    from ql_editor.sheet import Sheet
+    from tests.lbx_samples import write_lbx
+
+    path = write_lbx(
+        tmp_path / "tabelle.lbx",
+        width_mm=62,
+        height_mm=1000,
+        objects='<table:table xmlns:table="http://schemas.brother.info/ptouch/2007/lbx/table"/>',
+    )
+    win = _temp_window(qapp, tmp_path)
+    win._open_document_chosen(str(path))
+    qapp.processEvents()
+
+    sheet = win.findChild(Sheet)
+    assert sheet is not None
+    labels = [label.text() for label in sheet.findChildren(QLabel)]
+    assert any("Tabelle" in text for text in labels)
 
     win.close()
     qapp.processEvents()

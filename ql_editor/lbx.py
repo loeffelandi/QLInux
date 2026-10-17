@@ -21,7 +21,7 @@ from collections import Counter
 from pathlib import Path
 from typing import Any
 
-from PIL import Image
+from PIL import Image, ImageChops
 
 from . import document, media
 from .i18n import tr
@@ -64,6 +64,7 @@ class _Lbx:
         self.root = root
         self.warnings: list[str] = []
         self._skipped: Counter[str] = Counter()
+        self._recovered: Counter[str] = Counter()
         paper = root.find(f".//{{{_STYLE}}}paper")
         if paper is None:
             raise document.DocumentError(
@@ -87,7 +88,14 @@ class _Lbx:
         }
         for local, count in self._skipped.items():
             kind = names.get(local, tr("Objekt"))
-            if count > 1:
+            recovered = self._recovered[local]
+            if recovered:
+                self.warnings.append(
+                    tr(
+                        "Nicht übernommen: {kind} – {recovered} enthaltene Objekte übernommen"
+                    ).format(kind=kind, recovered=recovered)
+                )
+            elif count > 1:
                 self.warnings.append(
                     tr("Nicht übernommen: {kind} ({count}×)").format(
                         kind=kind, count=count
@@ -133,6 +141,7 @@ def load(path: str | Path) -> dict[str, Any]:
         lbx = _Lbx(path, archive, root)
         media_state = lbx_media(lbx)
         items = lbx_items(lbx)
+        _note_red(lbx)
         lbx.finish_warnings()
     data = document.build(media_state, items)
     data["warnings"] = lbx.warnings
@@ -155,11 +164,14 @@ def lbx_media(lbx: _Lbx) -> dict[str, Any]:
         "color": "black",
         "margins": {"left": 0.0, "right": 0.0, "top": 0.0, "bottom": 0.0},
         "orientation": orientation,
-        "length_mm": height_mm,
     }
     if auto:
         label, guessed = _endless_for_width(width_mm)
-        state.update(label=label.identifier, auto_length=True, length_mode=media.LengthMode.CONTENT.value)
+        state.update(
+            label=label.identifier,
+            auto_length=True,
+            length_mode=media.LengthMode.CONTENT.value,
+        )
     else:
         label = _fixed_label(width_mm, height_mm)
         if label is not None:
@@ -168,6 +180,7 @@ def lbx_media(lbx: _Lbx) -> dict[str, Any]:
                 label=label.identifier,
                 auto_length=False,
                 length_mode=media.LengthMode.CONTENT.value,
+                length_mm=height_mm,
             )
         else:
             label, guessed = _endless_for_width(width_mm)
@@ -186,30 +199,71 @@ def lbx_media(lbx: _Lbx) -> dict[str, Any]:
     return state
 
 
+_CONTENT = {"text", "image", "poly", "frame"}
+_CONTAINERS = {"cable", "table"}
+
+
 def lbx_items(lbx: _Lbx) -> list[dict[str, Any]]:
-    """Objekte unter ``pt:objects`` in die Canvas-Serialisierung übersetzen."""
+    """Objekte unter ``pt:objects`` in die Canvas-Serialisierung übersetzen.
+
+    Kabel- und Tabellenvorlagen bleiben selbst draußen, ihre enthaltenen
+    Texte, Bilder und Zeichnungen werden aber übernommen.
+    """
     objects = lbx.root.find(f".//{{{_PT}}}objects")
     if objects is None:
         return []
     items: list[dict[str, Any]] = []
     for element in list(objects):
-        local = _local(element.tag)
-        if local == "text":
-            item = _text_item(lbx, element)
-        elif local == "image":
-            item = _image_item(lbx, element)
-        elif local == "poly":
-            item = _line_item(lbx, element)
-        elif local == "frame":
-            item = _rect_item(lbx, element)
-        else:
-            lbx._skipped[local] += 1
-            continue
+        _take(lbx, element, items, nested=False)
+    return items
+
+
+def _take(lbx: _Lbx, element: ET.Element, items: list[dict[str, Any]], *, nested: bool) -> None:
+    local = _local(element.tag)
+    if local in _CONTENT:
+        item = _content_item(lbx, element, local)
         if item is None:
-            continue
+            return
         item["z"] = float(len(items))
         items.append(item)
-    return items
+        return
+    if local in _CONTAINERS:
+        lbx._skipped[local] += 1
+        before = len(items)
+        for child in element.iter():
+            if child is element or _local(child.tag) not in _CONTENT:
+                continue
+            _take(lbx, child, items, nested=True)
+        lbx._recovered[local] += len(items) - before
+        return
+    if not nested:
+        lbx._skipped[local] += 1
+
+
+def _content_item(lbx: _Lbx, element: ET.Element, local: str) -> dict[str, Any] | None:
+    if local == "text":
+        return _text_item(lbx, element)
+    if local == "image":
+        return _image_item(lbx, element)
+    if local == "poly":
+        return _line_item(lbx, element)
+    return _rect_item(lbx, element)
+
+
+def _note_red(lbx: _Lbx) -> None:
+    """Zweifarbdruck können wir nicht abbilden - dann wenigstens sagen."""
+    colors = lbx.paper.get("printColorsID")
+    if colors not in (None, "", "0"):
+        lbx.warnings.append(tr("Zweifarbiges Etikett – Rot wird nicht übernommen."))
+        return
+    for element in lbx.root.iter():
+        if "2" in (
+            element.get("printColorNumber"),
+            element.get("textPrintColorNumber"),
+            element.get("backPrintColorNumber"),
+        ):
+            lbx.warnings.append(tr("Zweifarbiges Etikett – Rot wird nicht übernommen."))
+            return
 
 
 def _endless_for_width(width_mm: float) -> tuple[media.LabelSpec, bool]:
@@ -261,7 +315,7 @@ def _text_item(lbx: _Lbx, element: ET.Element) -> dict[str, Any] | None:
     control = element.find(f"{{{_TEXT}}}textControl")
     align_el = element.find(f"{{{_TEXT}}}textAlign")
     size_pt = _pt(font_ext.get("size")) if font_ext is not None else 12.0
-    weight = int(log_font.get("weight") or 400) if log_font is not None else 400
+    weight = _int(log_font.get("weight") if log_font is not None else None, 400)
     align = _ALIGN.get(
         (align_el.get("horizontalAlignment") if align_el is not None else "LEFT")
         or "LEFT",
@@ -301,7 +355,7 @@ def _image_item(lbx: _Lbx, element: ET.Element) -> dict[str, Any] | None:
         raw = lbx.archive.read(filename)
         image = Image.open(io.BytesIO(raw))
         image.load()
-    except (KeyError, OSError) as exc:
+    except (KeyError, OSError, ValueError, Image.DecompressionBombError) as exc:
         lbx.warnings.append(
             tr("Bild {name} konnte nicht gelesen werden: {error}").format(
                 name=filename, error=exc
@@ -309,7 +363,15 @@ def _image_item(lbx: _Lbx, element: ET.Element) -> dict[str, Any] | None:
         )
         return None
     image = image.convert("RGBA")
-    image = _apply_trim(image, image_style)
+    trimming = image_style.find(f"{{{_IMAGE}}}trimming")
+    if trimming is not None and trimming.get("flag") == "true":
+        # trimOrg* ist in den vorliegenden Dateien nicht als Ausschnitt im
+        # Bildraster lesbar. Lieber das ganze Bild als ein zufälliger Crop.
+        lbx.warnings.append(
+            tr("Bildzuschnitt nicht übernommen: {name}").format(
+                name=image_style.get("originalName") or filename
+            )
+        )
     image = _apply_transparency(image, image_style)
     target_w = max(1, round(local_w))
     target_h = max(1, round(local_h))
@@ -331,33 +393,6 @@ def _image_item(lbx: _Lbx, element: ET.Element) -> dict[str, Any] | None:
     return item
 
 
-def _apply_trim(image: Image.Image, image_style: ET.Element | None) -> Image.Image:
-    if image_style is None:
-        return image
-    trimming = image_style.find(f"{{{_IMAGE}}}trimming")
-    origin = image_style.find(f"{{{_IMAGE}}}orgPos")
-    if trimming is None or trimming.get("flag") != "true" or origin is None:
-        return image
-    org_w = _pt(origin.get("width"))
-    org_h = _pt(origin.get("height"))
-    if org_w <= 0 or org_h <= 0:
-        return image
-
-    def _px(value: str | None, org: float, span: float, pixels: int) -> int:
-        return int(round((_pt(value) - org) / span * pixels))
-
-    left = _px(trimming.get("trimOrgX"), _pt(origin.get("x")), org_w, image.width)
-    top = _px(trimming.get("trimOrgY"), _pt(origin.get("y")), org_h, image.height)
-    # trimOrgWidth/Height sind Breiten, keine Koordinaten.
-    right = left + max(1, int(round(_pt(trimming.get("trimOrgWidth")) / org_w * image.width)))
-    bottom = top + max(1, int(round(_pt(trimming.get("trimOrgHeight")) / org_h * image.height)))
-    left = min(max(0, left), image.width - 1)
-    top = min(max(0, top), image.height - 1)
-    right = min(max(left + 1, right), image.width)
-    bottom = min(max(top + 1, bottom), image.height)
-    return image.crop((left, top, right, bottom))
-
-
 def _apply_transparency(image: Image.Image, image_style: ET.Element | None) -> Image.Image:
     if image_style is None:
         return image
@@ -365,13 +400,11 @@ def _apply_transparency(image: Image.Image, image_style: ET.Element | None) -> I
     if transparent is None or transparent.get("flag") != "true":
         return image
     color = _hex_rgb(transparent.get("color") or "#FFFFFF")
-    pixels = image.getdata()
-    image.putdata(
-        [
-            (red, green, blue, 0) if (red, green, blue) == color else (red, green, blue, alpha)
-            for red, green, blue, alpha in pixels
-        ]
-    )
+    rgb = image.convert("RGB")
+    # Schwarz, wo die Farbe exakt trifft. Lookup-Tabelle, kein Python-Loop.
+    mask = ImageChops.difference(rgb, Image.new("RGB", image.size, color)).convert("L")
+    mask = mask.point([0] + [255] * 255)
+    image.putalpha(ImageChops.multiply(image.getchannel("A"), mask))
     return image
 
 
@@ -432,7 +465,9 @@ def _base(lbx: _Lbx, style: ET.Element, kind: str) -> tuple[dict[str, Any], floa
     y = (_pt(style.get("y")) - lbx.bg_y) * DOTS_PER_PT
     width = _pt(style.get("width")) * DOTS_PER_PT
     height = _pt(style.get("height")) * DOTS_PER_PT
-    x, y, width, height, rotation = _place(x, y, width, height, float(style.get("angle") or 0.0))
+    x, y, width, height, rotation = _place(
+        x, y, width, height, _float(style.get("angle"), 0.0)
+    )
     return (
         {"type": kind, "x": x, "y": y, "rotation": rotation, "z": 0.0},
         width,
@@ -443,16 +478,22 @@ def _base(lbx: _Lbx, style: ET.Element, kind: str) -> tuple[dict[str, Any], floa
 def _place(
     x: float, y: float, width: float, height: float, angle: float
 ) -> tuple[float, float, float, float, float]:
-    """Kasten (x, y, Breite, Höhe) plus Drehung in Qt-Lage (Ursprung oben links)."""
-    quarter = round(angle / 90.0)
-    if abs(angle - quarter * 90.0) > 0.1:
-        return x, y, width, height, angle
+    """Kasten plus Drehung in Qt-Lage (Uhrzeigersinn, Ursprung oben links).
+
+    ``angle`` in der Datei läuft **gegen** den Uhrzeigersinn. Geprüft an
+    ``Logo Full Small Vert``: das Symbol sitzt rechts in der Grafik und unten
+    auf dem hochformatigen Etikett, also eine Vierteldrehung nach links.
+    """
+    qt_angle = -angle
+    quarter = round(qt_angle / 90.0)
+    if abs(qt_angle - quarter * 90.0) > 0.1:
+        return x, y, width, height, qt_angle
     quarter %= 4
-    if quarter == 1:  # 90° im Uhrzeigersinn
+    if quarter == 1:  # Datei 270° -> 90° im Uhrzeigersinn
         return x + width, y, height, width, 90.0
     if quarter == 2:
         return x + width, y + height, width, height, 180.0
-    if quarter == 3:  # 270°
+    if quarter == 3:  # Datei 90° -> 270° im Uhrzeigersinn
         return x, y + height, height, width, 270.0
     return x, y, width, height, 0.0
 
@@ -477,6 +518,24 @@ def _points(raw: str | None) -> list[tuple[float, float]]:
             continue
         points.append((_pt(parts[0]), _pt(parts[1])))
     return points
+
+
+def _int(value: str | None, default: int) -> int:
+    if value is None:
+        return default
+    try:
+        return int(str(value).strip())
+    except ValueError:
+        return default
+
+
+def _float(value: str | None, default: float) -> float:
+    if value is None or not str(value).strip():
+        return default
+    try:
+        return float(str(value).strip())
+    except ValueError:
+        return default
 
 
 def _pt(value: str | None) -> float:
