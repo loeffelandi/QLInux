@@ -3775,6 +3775,34 @@ def test_editing_marks_the_document_and_opening_a_broken_file_does_not(
     qapp.processEvents()
 
 
+def test_opening_an_lbx_imports_without_keeping_that_path(qapp, tmp_path):
+    """``.lbx`` wird geladen, aber nicht als Speicherziel gemerkt.
+
+    Sonst schriebe „Speichern" JSON in die Brother-Datei. Stattdessen bleibt
+    das Fenster „Unbenannt*".
+    """
+    from test_lbx import write_lbx
+
+    path = write_lbx(
+        tmp_path / "logo.lbx",
+        width_mm=62,
+        height_mm=1000,
+        orientation="landscape",
+    )
+    win = _temp_window(qapp, tmp_path)
+    win._open_document_chosen(str(path))
+    qapp.processEvents()
+
+    assert win._document_path == ""
+    assert win._is_document_dirty() is True
+    assert win.windowTitle().startswith("Unbenannt*")
+    assert win._media_panel.label_id() == "62"
+    assert win._media_panel.orientation().value == "along"
+
+    win.close()
+    qapp.processEvents()
+
+
 # --------------------------------------------------------------------------- #
 # Mitgelieferte Dateien (App-Symbol, Bundle-Pfade)
 # --------------------------------------------------------------------------- #

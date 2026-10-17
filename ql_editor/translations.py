@@ -179,7 +179,31 @@ EN: dict[str, str] = {
     "Etikett öffnen": "Open label",
     "Etikett speichern": "Save label",
     "QLInux-Etiketten (*{suffix})": "QLInux labels (*{suffix})",
+    "QLInux-Etiketten (*{suffix});;Brother P-touch (*{lbx});;Alle Etiketten (*{suffix} *{lbx})": (
+        "QLInux labels (*{suffix});;Brother P-touch (*{lbx});;All labels (*{suffix} *{lbx})"
+    ),
     "Etikett geöffnet: {name}": "Label opened: {name}",
+    "Importiert: {name}": "Imported: {name}",
+    "Brother P-touch": "Brother P-touch",
+    "{path} ist keine Brother-P-touch-Datei: {error}": (
+        "{path} is not a Brother P-touch file: {error}"
+    ),
+    "{path} enthält kein label.xml.": "{path} does not contain label.xml.",
+    "{path} enthält kein Etikett.": "{path} does not contain a label.",
+    "Tabelle": "Table",
+    "Datenbankfeld": "Database field",
+    "Kabelvorlage": "Cable template",
+    "Datum/Uhrzeit": "Date/time",
+    "Zeichnung": "Drawing",
+    "Nicht übernommen: {kind} ({count}×)": "Not imported: {kind} ({count}×)",
+    "Nicht übernommen: {kind}": "Not imported: {kind}",
+    "Kein passendes Band für {size} mm – {name} wird verwendet.": (
+        "No matching tape for {size} mm – using {name}."
+    ),
+    "Bild ohne Datei – nicht übernommen.": "Image without a file – not imported.",
+    "Bild {name} konnte nicht gelesen werden: {error}": (
+        "Could not read image {name}: {error}"
+    ),
     "Etikett gespeichert: {name}": "Label saved: {name}",
     "Konnte {path} nicht speichern: {error}": "Could not save {path}: {error}",
     "Konnte {path} nicht lesen: {error}": "Could not read {path}: {error}",

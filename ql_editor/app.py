@@ -68,6 +68,7 @@ from PySide6.QtWidgets import (
 from . import access
 from . import about
 from . import document
+from . import lbx
 from . import media
 from . import resources
 from . import templates
@@ -2216,9 +2217,11 @@ class MainWindow(QMainWindow):
         choose_file(
             self,
             caption=tr("Etikett öffnen"),
-            name_filter=tr("QLInux-Etiketten (*{suffix})").format(
-                suffix=document.DOCUMENT_SUFFIX
-            ),
+            name_filter=tr(
+                "QLInux-Etiketten (*{suffix});;"
+                "Brother P-touch (*{lbx});;"
+                "Alle Etiketten (*{suffix} *{lbx})"
+            ).format(suffix=document.DOCUMENT_SUFFIX, lbx=lbx.LBX_SUFFIX),
             start_dir=self._settings.document_dir or "",
             on_selected=self._open_document_chosen,
         )
@@ -2226,15 +2229,36 @@ class MainWindow(QMainWindow):
     def _open_document_chosen(self, path: str | None) -> None:
         if not path:
             return
+        imported = path.lower().endswith(lbx.LBX_SUFFIX)
         try:
-            data = document.load(path)
+            data = lbx.load(path) if imported else document.load(path)
         except document.DocumentError as exc:
             show_message(self, "critical", tr("Etikett öffnen"), str(exc))
             return
         self._apply_document(data)
+        name = Path(path).name
+        if imported:
+            # Nicht als .lbx-Pfad merken: „Speichern" würde JSON hineinschreiben.
+            # Das Fenster bleibt „Unbenannt*", der nächste Speicherdialog fragt
+            # nach einer .qlx.
+            self._document_path = ""
+            self._document_dirty = True
+            self._update_window_title()
+            self.statusBar().showMessage(
+                tr("Importiert: {name}").format(name=name), 8000
+            )
+            warnings = [str(entry) for entry in data.get("warnings") or [] if entry]
+            if warnings:
+                show_message(
+                    self,
+                    "info",
+                    tr("Brother P-touch"),
+                    "\n".join(warnings),
+                )
+            return
         self._set_document_path(path)
         self.statusBar().showMessage(
-            tr("Etikett geöffnet: {name}").format(name=Path(path).name), 8000
+            tr("Etikett geöffnet: {name}").format(name=name), 8000
         )
 
     def _on_file_save(self) -> None:

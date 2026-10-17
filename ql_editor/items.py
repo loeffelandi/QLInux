@@ -31,6 +31,7 @@ from PySide6.QtGui import (
     QPen,
     QPixmap,
     QTextCursor,
+    QTextOption,
     QTransform,
 )
 from PySide6.QtWidgets import (
@@ -220,6 +221,7 @@ class TextItem(_ClampMixin, QGraphicsTextItem):
         self._bold = False
         self._italic = False
         self._color = "black"
+        self._align = "left"
         self._caret_hidden = False
         self.setTextWidth(-1)
         self._apply_font()
@@ -304,6 +306,27 @@ class TextItem(_ClampMixin, QGraphicsTextItem):
         self._color = color
         self.setDefaultTextColor(QColor(color))
 
+    @property
+    def align(self) -> str:
+        return self._align
+
+    def set_align(self, align: str) -> None:
+        """Horizontale Ausrichtung: ``left``, ``center`` oder ``right``.
+
+        Wirkt erst, wenn eine Umbruchbreite gesetzt ist - sonst ist das
+        Textfeld nur so breit wie der Text und hat nichts zu zentrieren.
+        """
+        align = align if align in ("left", "center", "right") else "left"
+        self._align = align
+        flags = {
+            "left": Qt.AlignmentFlag.AlignLeft,
+            "center": Qt.AlignmentFlag.AlignHCenter,
+            "right": Qt.AlignmentFlag.AlignRight,
+        }[align]
+        option = QTextOption(self.document().defaultTextOption())
+        option.setAlignment(flags | Qt.AlignmentFlag.AlignTop)
+        self.document().setDefaultTextOption(option)
+
     def set_text_width(self, width: float) -> None:
         self.setTextWidth(width if width > 0 else -1)
 
@@ -376,6 +399,7 @@ class TextItem(_ClampMixin, QGraphicsTextItem):
             bold=self._bold,
             italic=self._italic,
             color=self._color,
+            align=self._align,
             text_width=self.textWidth(),
         )
         return d
@@ -386,6 +410,7 @@ class TextItem(_ClampMixin, QGraphicsTextItem):
         item.set_bold(bool(d.get("bold", False)))
         item.set_italic(bool(d.get("italic", False)))
         item.set_text_color(d.get("color", "black"))
+        item.set_align(d.get("align", "left"))
         item.set_text_width(float(d.get("text_width", -1)))
         item._apply_base(d)
         return item
