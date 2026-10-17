@@ -94,6 +94,8 @@ class AdaptivePages(QWidget):
                 # Jede Seite behaelt ihre Hoehe - gequetscht wird nur der Rest.
                 widget.setMinimumHeight(height())
                 self._splitter.addWidget(widget)
+                # setParent(None) hat die Seite versteckt; der Splitter zeigt sie nicht von selbst wieder.
+                widget.show()
             self._splitter.setStretchFactor(0, 1)
             self._splitter.setStretchFactor(1, 0)
         else:

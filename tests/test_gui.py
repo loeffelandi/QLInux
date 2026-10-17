@@ -3144,6 +3144,39 @@ def test_print_options_reach_the_print_job(qapp, tmp_path, monkeypatch):
     qapp.processEvents()
 
 
+def test_second_print_after_first_finished(qapp, tmp_path, monkeypatch):
+    """Nach einem abgeschlossenen Druck darf ein zweiter Druck nicht abstuerzen."""
+    from PySide6.QtCore import QThread, Signal
+    from shiboken6 import delete
+
+    from ql_editor import app as app_module
+
+    created: list = []
+
+    class FakeWorker(QThread):
+        succeeded = Signal(dict)
+        failed = Signal(str)
+
+        def __init__(self, image, label, config, options):
+            super().__init__()
+            created.append(self)
+
+        def run(self) -> None:
+            pass
+
+    monkeypatch.setattr(app_module, "PrintWorker", FakeWorker)
+    win = _temp_window(qapp, tmp_path)
+    win._media_panel.set_network_host("192.168.178.62")
+    win._on_print()
+    created[0].wait()
+    qapp.processEvents()
+    delete(created[0])
+    win._on_print()
+    assert len(created) == 2
+    win.close()
+    qapp.processEvents()
+
+
 def test_connection_and_address_are_persisted(qapp, tmp_path):
     """Der gewaehlte Anschluss samt Adresse ueberlebt einen Neustart."""
     from ql_editor.media_panel import CONNECTION_NETWORK
@@ -4018,6 +4051,12 @@ def test_right_panel_stacks_when_tall_and_tabs_when_short(qapp, tmp_path):
     win.resize(1280, 420)
     qapp.processEvents()
     assert win._right_pages.mode == TABS
+
+    win.resize(1280, 900)
+    qapp.processEvents()
+    assert win._right_pages.mode == STACKED
+    assert win._right_pages.page(0).isVisible()
+    assert win._right_pages.page(1).isVisible()
     win.close()
     qapp.processEvents()
 
