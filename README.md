@@ -4,6 +4,7 @@
 clone, in Python.**
 
 ![License: GPL-3.0-or-later](https://img.shields.io/badge/license-GPL--3.0--or--later-blue)
+![Tests](https://github.com/loeffelandi/QLInux/actions/workflows/tests.yml/badge.svg)
 ![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-blue)
 ![GUI: PySide6](https://img.shields.io/badge/GUI-PySide6-green)
 ![Platform: Linux](https://img.shields.io/badge/platform-Linux-lightgrey)
@@ -155,6 +156,9 @@ bash scripts/bootstrap_venv.sh
 QT_QPA_PLATFORM=offscreen .venv/bin/python -m pytest -q      # headless test suite
 python scripts/verify_api.py            # documents the real brother_ql API
 ```
+
+The same suite runs on every push and pull request
+([`.github/workflows/tests.yml`](.github/workflows/tests.yml), Python 3.10 and 3.12).
 
 The tests run headless: `tests/conftest.py` forces the Qt *offscreen* platform
 and redirects `XDG_CONFIG_HOME` to a temporary directory, so a test run never
