@@ -24,3 +24,4 @@ packaging/.cache/
 .vscode/
 .idea/
 *.swp
+docs/MAC-CURSOR.md
