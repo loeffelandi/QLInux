@@ -110,6 +110,20 @@ AppImage and a source checkout share them.
 Settings (last printer, tape, print options, language) are stored in
 `~/.config/QLInux/QLInux.conf`.
 
+## Margins
+
+Margins start at 0 mm. The printer's feed and the non-printable strip at each
+edge of the tape are already included automatically, so they are not margins.
+
+- **Left and top** move the objects when you change them; they keep their distance
+  to the edge, and the dotted frame moves with them.
+- **Bottom** sets the tape length when the length is automatic.
+- **Right** cuts off everything beyond it, also across the tape, where it does not
+  change the tape width. Along the tape it also sets the length.
+
+Content that lies beyond a margin is hatched on the canvas and is neither shown in
+the preview nor printed.
+
 ## Saving and opening labels
 
 *File → Open…* (Ctrl+O) and *File → Save* (Ctrl+S, *Save as…* Ctrl+Shift+S)
