@@ -40,4 +40,4 @@ jobs:
           python scripts/patch_brother_ql.py
 
       - name: Test
-        run: python -m pytest -q
+        run: python -X faulthandler -m pytest -q
