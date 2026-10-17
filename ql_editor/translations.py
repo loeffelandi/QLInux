@@ -115,6 +115,10 @@ EN: dict[str, str] = {
     "Band": "Label",
     "Band erkennen": "Detect label",
     "Suchen": "Search",
+    "Gerät": "Device",
+    "Der Port {port} wird automatisch ergänzt.": (
+        "Port {port} is added automatically."
+    ),
     "USB suchen": "Search USB",
     "Kein USB-Drucker gefunden": "No USB printer found",
     "Kein USB-Drucker gefunden. Kabel und Strom prüfen.": (

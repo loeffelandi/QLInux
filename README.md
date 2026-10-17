@@ -90,6 +90,11 @@ python -m ql_editor
   anderer Port geht als `192.168.178.62:9101`), am USB die Liste der
   gefundenen Geräte plus „Suchen“. Beim Umschalten auf USB wird gleich
   gesucht; genau ein Gerät wird direkt übernommen.
+  Beide Anschlussarten liegen im selben Stapel an derselben Stelle, die
+  Beschriftungsspalte ist fest breit und der Platz für „Band erkennen“ bleibt
+  reserviert: **beim Umschalten verschiebt sich nichts** - weder die Felder
+  noch die Kästen darunter. „Suchen“ steht in einer eigenen Zeile unter der
+  Geräteliste, damit die Liste im schmalen Panel nicht gequetscht wird.
 * **Ein Eintrag pro Drucker**: derselbe Drucker ist über USB oft zweimal
   auffindbar - als Kernel-Knoten (`/dev/usb/lpN`) und als libusb-Gerät
   (`usb://0x04f9:0x2042`). Beide Wege sind gleichwertig (am QL-700

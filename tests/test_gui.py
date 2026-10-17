@@ -52,18 +52,18 @@ def test_media_panel_shows_band_erkennen_only_where_it_works(qapp):
 
     panel = MediaPanel()
     assert panel.printer_config().backend == "network"
-    assert not panel._printer_form.isRowVisible(panel._row_detect)
+    assert not panel._detect_button.isVisibleTo(panel)
 
     panel.set_address("usb://0x04f9:0x209b")
     assert panel.printer_config().backend == "pyusb"
-    assert panel._printer_form.isRowVisible(panel._row_detect)
+    assert panel._detect_button.isVisibleTo(panel)
 
     panel.set_address("/dev/usb/lp1")
     assert panel.printer_config().backend == "linux_kernel"
-    assert panel._printer_form.isRowVisible(panel._row_detect)
+    assert panel._detect_button.isVisibleTo(panel)
 
     panel.set_address("tcp://192.168.178.62:9100")
-    assert not panel._printer_form.isRowVisible(panel._row_detect)
+    assert not panel._detect_button.isVisibleTo(panel)
 
 
 def test_media_panel_emits_a_usb_search(qapp):
@@ -142,16 +142,67 @@ def test_media_panel_switches_between_network_and_usb_rows(qapp, monkeypatch):
     monkeypatch.setattr(media_panel_module, "usb_printers", lambda: [])
     panel = MediaPanel()
     assert panel.connection() == CONNECTION_NETWORK
-    assert panel._printer_form.isRowVisible(panel._row_host)
-    assert not panel._printer_form.isRowVisible(panel._row_usb)
+    assert panel._host_edit.isVisibleTo(panel)
+    assert not panel._usb_combo.isVisibleTo(panel)
 
     panel._conn_buttons[CONNECTION_USB].setChecked(True)
 
     assert panel.connection() == CONNECTION_USB
-    assert not panel._printer_form.isRowVisible(panel._row_host)
-    assert panel._printer_form.isRowVisible(panel._row_usb)
+    assert not panel._host_edit.isVisibleTo(panel)
+    assert panel._usb_combo.isVisibleTo(panel)
     # Ohne Geraet gibt es keine Adresse - und der Druckdialog sagt das dann.
     assert panel.address() == ""
+
+
+def test_connection_tabs_keep_the_layout_stable(qapp, monkeypatch):
+    """Netzwerk/USB umschalten verschiebt weder Felder noch Nachbarkaesten.
+
+    Beide Anschlussarten liegen in einem Stapel an derselben Stelle; die
+    Beschriftungsspalte ist fest breit.
+    """
+    from PySide6.QtCore import QPoint
+
+    from ql_editor import media_panel as media_panel_module
+    from ql_editor.media_panel import CONNECTION_NETWORK, CONNECTION_USB, MediaPanel
+
+    monkeypatch.setattr(media_panel_module, "usb_printers", lambda: ["/dev/usb/lp1"])
+    monkeypatch.setattr(media_panel_module, "usb_access", lambda address: True)
+    panel = MediaPanel()
+    panel.resize(280, 720)
+    panel.show()
+    qapp.processEvents()
+
+    box = panel._printer_form.parentWidget()
+    groups = [w for w in panel.findChildren(type(box))]
+
+    def snapshot():
+        qapp.processEvents()
+        return (
+            box.height(),
+            [g.y() for g in groups],
+            (
+                panel._model_combo.pos(),
+                panel._conn_buttons[CONNECTION_NETWORK].size(),
+                panel._conn_buttons[CONNECTION_USB].size(),
+            ),
+        )
+
+    def field_x(widget) -> int:
+        return widget.mapTo(panel, QPoint(0, 0)).x()
+
+    network = snapshot()
+    assert field_x(panel._host_edit) == field_x(panel._model_combo)
+
+    panel._conn_buttons[CONNECTION_USB].setChecked(True)
+    usb = snapshot()
+    assert field_x(panel._usb_combo) == field_x(panel._model_combo)
+    assert field_x(panel._usb_button) == field_x(panel._model_combo)
+
+    panel._conn_buttons[CONNECTION_NETWORK].setChecked(True)
+    back = snapshot()
+
+    assert usb == network
+    assert back == network
 
 
 def test_media_panel_restores_a_network_address_from_settings(qapp):
@@ -248,7 +299,7 @@ def test_media_panel_offers_access_help_when_rights_are_missing(qapp, monkeypatc
     panel._conn_buttons[CONNECTION_USB].setChecked(True)
 
     assert panel.access_allowed is False
-    assert panel._printer_form.isRowVisible(panel._row_access)
+    assert panel._access_button.isVisibleTo(panel)
     assert "Kein Zugriff" in panel._access_label.text()
 
     requested = []
@@ -268,7 +319,7 @@ def test_media_panel_hides_access_help_when_the_device_works(qapp, monkeypatch):
     panel._conn_buttons[CONNECTION_USB].setChecked(True)
 
     assert panel.access_allowed is True
-    assert not panel._printer_form.isRowVisible(panel._row_access)
+    assert not panel._access_button.isVisibleTo(panel)
 
 
 def test_media_panel_refresh_access_follows_the_new_state(qapp, monkeypatch):
@@ -283,11 +334,11 @@ def test_media_panel_refresh_access_follows_the_new_state(qapp, monkeypatch):
     )
     panel = MediaPanel()
     panel._conn_buttons[CONNECTION_USB].setChecked(True)
-    assert panel._printer_form.isRowVisible(panel._row_access)
+    assert panel._access_button.isVisibleTo(panel)
 
     allowed["value"] = True
     assert panel.refresh_access() is True
-    assert not panel._printer_form.isRowVisible(panel._row_access)
+    assert not panel._access_button.isVisibleTo(panel)
 
 
 def test_media_panel_has_no_access_row_for_network(qapp):
@@ -298,7 +349,7 @@ def test_media_panel_has_no_access_row_for_network(qapp):
     panel.set_address("tcp://192.168.178.62:9100")
 
     assert panel.access_allowed is None
-    assert not panel._printer_form.isRowVisible(panel._row_access)
+    assert not panel._access_button.isVisibleTo(panel)
 
 
 def test_detect_button_only_works_where_readback_is_possible(qapp):
@@ -306,13 +357,13 @@ def test_detect_button_only_works_where_readback_is_possible(qapp):
     from ql_editor.media_panel import MediaPanel
 
     panel = MediaPanel()
-    assert not panel._printer_form.isRowVisible(panel._row_detect)  # Netzwerk
+    assert not panel._detect_button.isVisibleTo(panel)  # Netzwerk
 
     panel.set_address("usb://0x04f9:0x2042")
-    assert panel._printer_form.isRowVisible(panel._row_detect)  # USB
+    assert panel._detect_button.isVisibleTo(panel)  # USB
 
     panel.set_address("tcp://192.168.178.62:9100")
-    assert not panel._printer_form.isRowVisible(panel._row_detect)
+    assert not panel._detect_button.isVisibleTo(panel)
 
 
 def test_media_panel_finished_vs_content(qapp):

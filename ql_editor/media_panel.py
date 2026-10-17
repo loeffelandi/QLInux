@@ -16,7 +16,7 @@ import logging
 from typing import Any, Mapping
 
 from PySide6.QtCore import QLocale, QSize, Qt, Signal
-from PySide6.QtGui import QAction, QActionGroup
+from PySide6.QtGui import QAction, QActionGroup, QFontMetrics
 from PySide6.QtWidgets import (
     QButtonGroup,
     QCheckBox,
@@ -28,6 +28,7 @@ from PySide6.QtWidgets import (
     QLabel,
     QLineEdit,
     QPushButton,
+    QStackedWidget,
     QToolButton,
     QVBoxLayout,
     QWidget,
@@ -64,6 +65,26 @@ from .printer import (
 #: (``network``) bzw. fassen die beiden USB-Backends zusammen.
 CONNECTION_NETWORK = "network"
 CONNECTION_USB = "usb"
+#: Beschriftungen der Druckerzeilen. Die breiteste bestimmt die feste Breite
+#: der Beschriftungsspalte - so bleibt die Feldspalte beim Umschalten stehen.
+PRINTER_LABELS = (
+    "Modell",
+    "Anschluss",
+    "IP-Adresse",
+    "Gerät",
+    "Zugriff",
+)
+#: Kleinste Breite eines Anschluss-Knopfs (Bildschirmpixel).
+CONNECTION_BUTTON_MIN_WIDTH = 88
+#: Hoehe der Anschluss-Knoepfe (Bildschirmpixel).
+CONNECTION_BUTTON_HEIGHT = 26
+#: Hinweiszeile im Drucker-Formular (zurueckgenommen grau).
+HINT_STYLE = "color:#6b7280;"
+#: Zeichen, die die USB-Liste mindestens zeigen soll. Laengere Geraetenamen
+#: werden abgeschnitten (der volle Text steht im Tooltip) - so bleibt die
+#: Feldspalte schmal und das Panel behaelt seine Breite.
+USB_COMBO_MIN_CHARS = 12
+
 
 def usb_placeholder() -> str:
     """Eintrag in der USB-Liste, solange kein Geraet gewaehlt ist (Datenwert leer)."""
@@ -113,6 +134,12 @@ class MediaPanel(QWidget):
         printer_form.setRowWrapPolicy(QFormLayout.RowWrapPolicy.WrapLongRows)
         printer_form.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.AllNonFixedFieldsGrow)
         self._printer_form = printer_form
+        # Feste Breite der Beschriftungsspalte (breiteste Beschriftung dieser
+        # Sprache): sonst wandert die Feldspalte um ein paar Pixel, sobald eine
+        # Zeile mit kuerzerer Beschriftung erscheint.
+        self._label_width = max(
+            QFontMetrics(self.font()).horizontalAdvance(tr(text)) for text in PRINTER_LABELS
+        )
 
         self._model_combo = QComboBox()
 
@@ -162,6 +189,12 @@ class MediaPanel(QWidget):
         )
 
         self._usb_combo = QComboBox()
+        # Lange Geraetenamen duerfen das Panel nicht breiter machen; der volle
+        # Text steht weiterhin im Tooltip des Eintrags.
+        self._usb_combo.setSizeAdjustPolicy(
+            QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon
+        )
+        self._usb_combo.setMinimumContentsLength(USB_COMBO_MIN_CHARS)
         self._usb_combo.setToolTip(
             tr("Angeschlossene USB-Drucker. Die Auswahl setzt Adresse und – wenn "
             "sie sich aus der USB-Kennung ableiten lässt – auch das Modell.")
@@ -189,17 +222,25 @@ class MediaPanel(QWidget):
         self._detect_button.setToolTip(
             tr("Band am Drucker erfragen (Statusabfrage).")
         )
+        # Sein Platz bleibt auch ohne Rueckkanal reserviert: sonst springt der
+        # Kasten, sobald ein Geraet gefunden wird oder der Anschluss wechselt.
+        self._detect_holder = QWidget()
+        detect_layout = QVBoxLayout(self._detect_holder)
+        detect_layout.setContentsMargins(0, 0, 0, 0)
+        detect_layout.addWidget(self._detect_button)
+        self._detect_holder.setMinimumHeight(self._detect_button.sizeHint().height())
 
-        printer_form.addRow(tr("Modell"), self._model_combo)
-        printer_form.addRow(tr("Anschluss"), self._build_connection_row())
-        self._row_host = printer_form.rowCount()
-        printer_form.addRow(tr("IP-Adresse"), self._host_edit)
-        self._row_usb = printer_form.rowCount()
-        printer_form.addRow(tr("USB"), self._build_usb_row())
-        self._row_access = printer_form.rowCount()
-        printer_form.addRow(tr("Zugriff"), self._build_access_row())
-        self._row_detect = printer_form.rowCount()
-        printer_form.addRow("", self._detect_button)
+        printer_form.addRow(self._printer_label(tr("Modell")), self._model_combo)
+        printer_form.addRow(
+            self._printer_label(tr("Anschluss")), self._build_connection_row()
+        )
+        # Netzwerk und USB liegen im Stapel an derselben Stelle. Der Stapel ist
+        # so hoch wie die groessere Seite - beim Umschalten verschiebt sich also
+        # weder die Feldspalte noch der Rest des Panels.
+        self._connection_stack = QStackedWidget()
+        self._connection_stack.addWidget(self._build_host_page())
+        self._connection_stack.addWidget(self._build_usb_page())
+        printer_form.addRow(self._connection_stack)
         outer.addWidget(printer_box)
         # Startzustand: Netzwerk mit der gespeicherten/Standardadresse. Die
         # USB-Liste wird erst bei Bedarf gefuellt (Anschlusswechsel/Suche) -
@@ -290,27 +331,69 @@ class MediaPanel(QWidget):
                 lambda checked, value=mode: self._on_connection_toggled(value, checked)
             )
 
+    def _printer_label(self, text: str) -> QLabel:
+        """Beschriftung im Drucker-Formular mit fester Breite.
+
+        Alle Beschriftungen sind gleich breit gesetzt, damit die Feldspalte
+        unabhaengig davon stehen bleibt, welche Zeilen gerade sichtbar sind.
+        """
+        label = QLabel(text)
+        label.setFixedWidth(self._label_width)
+        label.setWordWrap(True)
+        return label
+
+    def _build_host_page(self) -> QWidget:
+        """Seite „Netzwerk“: IP-Adresse (der Port wird automatisch ergaenzt)."""
+        page = QWidget()
+        form = QFormLayout(page)
+        form.setContentsMargins(0, 0, 0, 0)
+        form.setRowWrapPolicy(QFormLayout.RowWrapPolicy.WrapLongRows)
+        form.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.AllNonFixedFieldsGrow)
+        hint = QLabel(
+            tr("Der Port {port} wird automatisch ergänzt.").format(port=NETWORK_PORT)
+        )
+        hint.setWordWrap(True)
+        hint.setStyleSheet(HINT_STYLE)
+        form.addRow(self._printer_label(tr("IP-Adresse")), self._host_edit)
+        form.addRow("", hint)
+        return page
+
+    def _build_usb_page(self) -> QWidget:
+        """Seite „USB“: Geraet waehlen und suchen, Rechte, Band-Erkennung."""
+        page = QWidget()
+        form = QFormLayout(page)
+        form.setContentsMargins(0, 0, 0, 0)
+        form.setRowWrapPolicy(QFormLayout.RowWrapPolicy.WrapLongRows)
+        form.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.AllNonFixedFieldsGrow)
+        self._usb_form = form
+        # Suchen steht in einer eigenen Zeile: zusammen mit der Liste waere die
+        # Feldspalte im Panel zu eng.
+        form.addRow(self._printer_label(tr("Gerät")), self._usb_combo)
+        form.addRow("", self._usb_button)
+        self._row_access = form.rowCount()
+        form.addRow(self._printer_label(tr("Zugriff")), self._build_access_row())
+        form.addRow("", self._detect_holder)
+        return page
+
     def _build_connection_row(self) -> QWidget:
-        """Anschluss waehlen: Netzwerk oder USB (zwei Umschaltknoepfe)."""
+        """Anschluss waehlen: Netzwerk oder USB (zwei Umschaltknoepfe).
+
+        Beide Knoepfe sind gleich breit; sonst haengt die Kante an der Laenge
+        der Beschriftung und wirkt beim Umschalten verschoben.
+        """
         row = QWidget()
         layout = QHBoxLayout(row)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(4)
-        for mode in (CONNECTION_NETWORK, CONNECTION_USB):
-            button = self._conn_buttons[mode]
-            button.setMinimumSize(88, 26)
+        buttons = [self._conn_buttons[mode] for mode in (CONNECTION_NETWORK, CONNECTION_USB)]
+        width = max(
+            CONNECTION_BUTTON_MIN_WIDTH,
+            max(button.sizeHint().width() for button in buttons),
+        )
+        for button in buttons:
+            button.setFixedSize(width, CONNECTION_BUTTON_HEIGHT)
             layout.addWidget(button)
         layout.addStretch(1)
-        return row
-
-    def _build_usb_row(self) -> QWidget:
-        """Gefundene USB-Drucker waehlen + Suche neu starten."""
-        row = QWidget()
-        layout = QHBoxLayout(row)
-        layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(4)
-        layout.addWidget(self._usb_combo, 1)
-        layout.addWidget(self._usb_button)
         return row
 
     def _build_access_row(self) -> QWidget:
@@ -775,13 +858,14 @@ class MediaPanel(QWidget):
     def _sync_connection_rows(self) -> None:
         """Nur zeigen, was zum gewaehlten Anschluss gehoert."""
         usb = self.connection() == CONNECTION_USB
-        self._printer_form.setRowVisible(self._row_host, not usb)
-        self._printer_form.setRowVisible(self._row_usb, usb)
-        # Band-Erkennung braucht einen Rueckkanal: ueber Netzwerk (TCP 9100)
-        # gibt es keinen - dort waere der Knopf nur ein Fehlschlag.
-        self._printer_form.setRowVisible(
-            self._row_detect,
-            backend_supports_readback(backend_for_address(self.address())),
+        # Beide Anschlussarten liegen im Stapel an derselben Stelle: der Wechsel
+        # verschiebt weder Felder noch die Hoehe des Kastens (die IP-Zeile hat
+        # darum bewusst einen Hinweis, damit die Netzwerk-Seite nicht leer wirkt).
+        self._connection_stack.setCurrentIndex(1 if usb else 0)
+        # Band-Erkennung braucht einen Rueckkanal: den gibt es nur ueber USB -
+        # und nur, wenn wirklich ein Geraet gewaehlt ist.
+        self._detect_button.setVisible(
+            backend_supports_readback(backend_for_address(self.address()))
         )
         self._sync_access()
 
@@ -790,7 +874,7 @@ class MediaPanel(QWidget):
         address = self.address()
         self.access_allowed = usb_access(address) if address else None
         needed = self.access_allowed is False
-        self._printer_form.setRowVisible(self._row_access, needed)
+        self._usb_form.setRowVisible(self._row_access, needed)
         if needed:
             self._access_label.setText(
                 tr("Kein Zugriff auf {address}.").format(address=address)
