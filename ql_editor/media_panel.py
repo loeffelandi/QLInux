@@ -300,20 +300,17 @@ class MediaPanel(QWidget):
         self._color_combo = QComboBox()
         self._color_combo.addItem(tr("schwarz"), "black")
         self._color_combo.addItem(tr("schwarz/rot"), "red")
-        self._border_label = QLabel("-")
-        self._border_label.setWordWrap(True)
         media_form.addRow(tr("Band"), self._band_combo)
         media_form.addRow(tr("Farbe"), self._color_combo)
         media_form.addRow(tr("Ausrichtung"), self._build_orientation_row())
-        media_form.addRow(tr("Nicht bedruckbar"), self._border_label)
         outer.addWidget(media_box)
 
         # -- Laenge ---------------------------------------------------------
-        length_box = QGroupBox(tr("Laenge"))
+        length_box = QGroupBox(tr("Länge"))
         length_form = QFormLayout(length_box)
         length_form.setRowWrapPolicy(QFormLayout.RowWrapPolicy.WrapLongRows)
         length_form.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.AllNonFixedFieldsGrow)
-        self._auto_check = QCheckBox(tr("Auto Length (Inhalt)"))
+        self._auto_check = QCheckBox(tr("Automatische Länge (Inhalt)"))
         self._auto_check.setChecked(True)
         self._length_spin = QDoubleSpinBox()
         self._length_spin.setSuffix(" mm")
@@ -332,7 +329,7 @@ class MediaPanel(QWidget):
         outer.addWidget(length_box)
 
         # -- Margins --------------------------------------------------------
-        margin_box = QGroupBox(tr("Margins (mm)"))
+        margin_box = QGroupBox(tr("Ränder (mm)"))
         margin_form = QFormLayout(margin_box)
         margin_form.setRowWrapPolicy(QFormLayout.RowWrapPolicy.WrapLongRows)
         margin_form.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.AllNonFixedFieldsGrow)
@@ -1197,11 +1194,6 @@ class MediaPanel(QWidget):
         if not red_possible and self._color_combo.currentData() == "red":
             self._color_combo.setCurrentIndex(0)
 
-        self._border_label.setText(
-            tr("{mm} mm je Seite (schraffiert)").format(
-                mm=QLocale().toString(label.side_border_mm, "f", 2)
-            )
-        )
         self._update_result()
 
     def _update_result(self) -> None:

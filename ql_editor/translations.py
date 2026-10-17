@@ -277,8 +277,8 @@ EN: dict[str, str] = {
     ),
     # -- Band, Laenge, Margins ----------------------------------------------
     "Länge": "Length",
-    "Laenge": "Length",
-    "Auto Length (Inhalt)": "Auto length (content)",
+    "Länge": "Length",
+    "Automatische Länge (Inhalt)": "Automatic length (content)",
     "nur Inhalt": "content only",
     "Gesamtlänge (inkl. Rand)": "Total length (incl. margins)",
     "Bedeutung": "Meaning",
@@ -303,11 +303,9 @@ EN: dict[str, str] = {
         "The content runs along the tape; the length follows the content width "
         "(saves tape with tall, multi-line content)."
     ),
-    "Nicht bedruckbar": "Not printable",
     "mm": "mm",
     "{value} mm": "{value} mm",
-    "{mm} mm je Seite (schraffiert)": "{mm} mm per side (hatched)",
-    "Margins (mm)": "Margins (mm)",
+    "Ränder (mm)": "Margins (mm)",
     "links": "left",
     "rechts": "right",
     "oben": "top",

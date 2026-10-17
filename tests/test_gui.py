@@ -3419,7 +3419,7 @@ def test_language_switch_keeps_content_and_media(qapp, tmp_path):
     assert new._settings.language == "en"
     # Englische Oberflaeche ...
     assert new._act_about.text() == "About QLInux"
-    assert new._media_panel._auto_check.text() == "Auto length (content)"
+    assert new._media_panel._auto_check.text() == "Automatic length (content)"
     assert new._left_panel._title == "Label & printer"
     # ... bei unveraendertem Inhalt und unveraenderter Bandauswahl.
     assert len(new._canvas.items_serialized()) == 1
