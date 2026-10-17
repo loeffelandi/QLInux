@@ -316,6 +316,19 @@ class InspectorPanel(QWidget):
         spin.valueChanged.connect(lambda v: self._apply_live(lambda: apply_fn(v)))
         spin.editingFinished.connect(self._finish_edit)
 
+    @property
+    def edit_open(self) -> bool:
+        """Eine Feld-Aenderung ist angefangen, aber noch nicht abgeschlossen."""
+        return self._edit_open
+
+    def flush_edit(self) -> None:
+        """Offene Bearbeitung abschliessen (Undo-Schritt „Eigenschaften")."""
+        self._finish_edit()
+
+    def cancel_edit_tracking(self) -> None:
+        """Flag loeschen, ohne ``edit_committed`` - der Aufrufer committet selbst."""
+        self._edit_open = False
+
     def _begin_edit(self) -> None:
         if self._edit_open:
             return
@@ -350,6 +363,8 @@ class InspectorPanel(QWidget):
         try:
             action()
         except ValueError as exc:
+            # Nichts angewandt: den Schnappschuss nicht offen stehen lassen.
+            self._finish_edit()
             self.rejected.emit(str(exc))
         else:
             self.changed.emit()
