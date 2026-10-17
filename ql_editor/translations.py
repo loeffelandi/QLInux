@@ -131,10 +131,6 @@ EN: dict[str, str] = {
         "Print preview active - real 1-bit output at 1:1 (Esc exits)"
     ),
     "Druckvorschau aus": "Print preview off",
-    "Die Druckvorschau (Strg+Umschalt+P) zeigt die gewählte Auflösung in echten Druckpunkten.": (
-        "The print preview (Ctrl+Shift+P) shows the chosen resolution in real "
-        "print dots."
-    ),
     # -- Druckerauswahl -----------------------------------------------------
     "Drucker": "Printer",
     "Modell": "Model",
@@ -342,7 +338,6 @@ EN: dict[str, str] = {
     "Klartext": "Plain text",
     "Objekt": "Object",
     # -- Druckoptionen ------------------------------------------------------
-    "Druckoptionen": "Print options",
     "Drucken": "Print",
     "Drucken (Ctrl+P)": "Print (Ctrl+P)",
     "Auflösung": "Resolution",

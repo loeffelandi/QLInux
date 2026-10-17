@@ -3214,7 +3214,7 @@ def test_resolution_combo_follows_a_model_change(qapp, tmp_path):
     assert [
         win._resolution_combo.itemData(i) for i in range(win._resolution_combo.count())
     ] == [RESOLUTION_STANDARD.key]
-    assert "300 × 300 dpi" in win._resolution_hint.text()
+    assert "300 × 300 dpi" in win._resolution_combo.toolTip()
 
     # Zurueck zum QL-820NWB: 600 dpi ist wieder waehlbar.
     combo.setCurrentIndex(combo.findData("QL-820NWB"))
@@ -3232,15 +3232,17 @@ def test_resolution_combo_follows_a_model_change(qapp, tmp_path):
     combo.setCurrentIndex(combo.findData("QL-500"))
     qapp.processEvents()
     assert win._resolution().scale == 1
-    assert "QL-500" in win._resolution_hint.text()
+    assert "QL-500" in win._resolution_combo.toolTip()
 
 
-def test_print_options_are_never_cut_off(qapp, tmp_path):
-    """Der Drucken-Knopf darf nicht hinter dem Scrollbalken verschwinden."""
+def test_print_options_fit_on_a_small_screen(qapp, tmp_path):
+    """Auf dem Reiter "Drucken" braucht das Panel wenig Hoehe - der Drucken-
+    Knopf bleibt ohne Scrollen sichtbar, auch auf kleinen Bildschirmen."""
     win = _temp_window(qapp, tmp_path)
-    area = win._right_panel.content.widget(1)
-    assert area.minimumHeight() >= area.widget().sizeHint().height()
-    assert area.verticalScrollBar().maximum() == 0
+    win._right_tabs.setCurrentIndex(1)
+    qapp.processEvents()
+    page = win._right_tabs.widget(1)
+    assert page.widget().sizeHint().height() <= 300
     assert win._print_button.isVisible()
 
 

@@ -51,6 +51,7 @@ from PySide6.QtWidgets import (
     QScrollArea,
     QSpinBox,
     QSplitter,
+    QTabWidget,
     QToolButton,
     QVBoxLayout,
     QWidget,
@@ -296,21 +297,17 @@ class MainWindow(QMainWindow):
         )
         self._host.add_panel(self._left_panel)
 
-        splitter = QSplitter(Qt.Orientation.Vertical, self)
-        splitter.addWidget(self._scroll_wrap(self._inspector))
-        print_area = self._scroll_wrap(self._build_print_panel())
-        # Die Druckoptionen sind eine feste Formularhoehe - sie muessen immer
-        # ganz sichtbar bleiben (der Drucken-Knopf darf nie hinter dem
-        # Scrollbalken verschwinden). Der Inspector darueber gibt dafuer nach;
-        # er scrollt selbst.
-        print_area.setMinimumHeight(print_area.sizeHint().height())
-        splitter.addWidget(print_area)
-        splitter.setStretchFactor(0, 1)
-        splitter.setStretchFactor(1, 0)
-        splitter.setSizes([300, print_area.minimumHeight()])
+        # Zwei Reiter statt geteiltem Stapel: jeder Reiter bekommt die ganze
+        # Hoehe und scrollt bei Bedarf selbst. Auf kleinen Bildschirmen stoeren
+        # sich Objekt und Druckoptionen so nicht mehr um den Platz.
+        tabs = QTabWidget(self)
+        tabs.setDocumentMode(True)
+        tabs.addTab(self._scroll_wrap(self._inspector), tr("Objekt"))
+        tabs.addTab(self._scroll_wrap(self._build_print_panel()), tr("Drucken"))
+        self._right_tabs = tabs
         self._right_panel = OverlayPanel(
             tr("Eigenschaften & Druck"),
-            splitter,
+            tabs,
             Qt.Edge.RightEdge,
             self,
         )
@@ -319,32 +316,23 @@ class MainWindow(QMainWindow):
     def _build_print_panel(self) -> QWidget:
         widget = QWidget(self)
         layout = QVBoxLayout(widget)
-        layout.setContentsMargins(4, 4, 4, 4)
-
-        title = QLabel(tr("Druckoptionen"))
-        title.setStyleSheet("color:#555; font-weight:600;")
-        layout.addWidget(title)
-
-        hint = QLabel(
-            tr("Die Druckvorschau (Strg+Umschalt+P) zeigt die gewählte Auflösung in "
-            "echten Druckpunkten.")
-        )
-        hint.setWordWrap(True)
-        hint.setStyleSheet("color:#777;")
-        layout.addWidget(hint)
+        # Knapp bemessen: das Panel ist auf kleinen Bildschirmen nur ~170 px breit.
+        layout.setContentsMargins(2, 2, 2, 2)
 
         # Aufloesung: nur was das gewaehlte Modell kann (die Liste kommt aus den
         # Datenblaettern, siehe printer.resolution_options). Der High-Resolution-
         # Modus ist bewusst *nicht* voreingestellt - er druckt langsamer.
         resolution_label = QLabel(tr("Auflösung"))
         self._resolution_combo = QComboBox()
+        self._resolution_combo.setSizeAdjustPolicy(
+            QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon
+        )
+        self._resolution_combo.setMinimumContentsLength(8)
         resolution_label.setBuddy(self._resolution_combo)
-        self._resolution_hint = QLabel()
-        self._resolution_hint.setWordWrap(True)
-        self._resolution_hint.setStyleSheet("color:#777;")
+        # Die Erklaerung zur gewaehlten Aufloesung steht im Tooltip des Feldes
+        # (siehe _update_resolution_hint) - nicht dauerhaft im Panel.
         layout.addWidget(resolution_label)
         layout.addWidget(self._resolution_combo)
-        layout.addWidget(self._resolution_hint)
 
         # Eigener Schalter: "Qualitaet vor Tempo" (brother_ql ``pquality``/hq).
         # Das ist *keine* Aufloesung - deshalb getrennt vom Feld darueber.
@@ -402,6 +390,10 @@ class MainWindow(QMainWindow):
 
         self._cut_label = QLabel(tr("Zuschnitt"))
         self._cut_combo = QComboBox()
+        self._cut_combo.setSizeAdjustPolicy(
+            QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon
+        )
+        self._cut_combo.setMinimumContentsLength(8)
         self._cut_label.setBuddy(self._cut_combo)
         for mode, text in (
             (CUT_EACH, tr("Nach jeder Kopie")),
@@ -568,7 +560,7 @@ class MainWindow(QMainWindow):
             ).format(model=model_id)
         if not self._hq_check.isChecked():
             text += " " + tr("Ohne HQ druckt der Drucker schneller.")
-        self._resolution_hint.setText(text)
+        self._resolution_combo.setToolTip(text)
 
     def _resolution(self) -> PrintResolution:
         """Die gewaehlte Aufloesung - auf die Faehigkeiten des Modells begrenzt."""
