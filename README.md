@@ -95,8 +95,8 @@ python -m ql_editor
   | `usb://0x04f9:0x209b` | pyusb (libusb) | **ja** |
   | `/dev/usb/lp0` | Kernel-Treiber (`usblp`) | **ja** |
 
-  Unter der Auswahl steht, was daraus folgt und ob dort eine Statusabfrage
-  möglich ist; „Band erkennen“ ist nur aktiv, wo sie auch geht. Beim Wählen
+  „Band erkennen“ erscheint nur, wo es auch geht: über USB (Rückkanal), im
+  Netzwerk gar nicht erst. Beim Wählen
   eines USB-Geräts wird das **Modell** nachgezogen, wenn es sich aus der
   USB-Kennung ableiten lässt (`usb://0x04f9:0x2042` bzw. über `sysfs`
   auch `/dev/usb/lp1` → QL-700); ohne Kennung bleibt die Modellwahl stehen.

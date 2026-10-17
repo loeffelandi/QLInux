@@ -173,16 +173,11 @@ class MediaPanel(QWidget):
             "Danach gilt der Zugriff dauerhaft (auch nach dem Umstecken)."
         )
 
-        # Zeigt, was aus der Auswahl folgt - vor allem, ob der Anschluss einen
-        # Rueckkanal hat (nur dann geht die Band-Erkennung).
-        self._backend_label = QLabel()
-        self._backend_label.setWordWrap(True)
-        self._backend_label.setStyleSheet("color:#777;")
+        # Band-Erkennung braucht einen Rueckkanal - den gibt es nur ueber USB.
+        # Deshalb steht der Knopf nur dort (siehe _sync_connection_rows).
         self._detect_button = QPushButton(icon("detect"), "Band erkennen")
         self._detect_button.setToolTip(
-            "Band am Drucker erfragen (Statusabfrage).\n"
-            "Geht nur über USB: der Netzwerk-Anschluss (TCP 9100) ist eine reine "
-            "Druckschnittstelle und antwortet nicht."
+            "Band am Drucker erfragen (Statusabfrage)."
         )
 
         printer_form.addRow("Modell", self._model_combo)
@@ -193,7 +188,7 @@ class MediaPanel(QWidget):
         printer_form.addRow("USB", self._build_usb_row())
         self._row_access = printer_form.rowCount()
         printer_form.addRow("Zugriff", self._build_access_row())
-        printer_form.addRow("", self._backend_label)
+        self._row_detect = printer_form.rowCount()
         printer_form.addRow("", self._detect_button)
         outer.addWidget(printer_box)
         # Startzustand: Netzwerk mit der gespeicherten/Standardadresse. Die
@@ -279,7 +274,6 @@ class MediaPanel(QWidget):
             button.toggled.connect(
                 lambda checked, value=mode: self._on_connection_toggled(value, checked)
             )
-        self._sync_backend_label()
 
     def _build_connection_row(self) -> QWidget:
         """Anschluss waehlen: Netzwerk oder USB (zwei Umschaltknoepfe)."""
@@ -517,7 +511,6 @@ class MediaPanel(QWidget):
             self._adjusting = False
         self._apply_model_for_address(address)
         self._sync_connection_rows()
-        self._sync_backend_label()
         self.changed.emit()
 
     def refresh_usb_devices(self, devices: list[str] | None = None) -> list[str]:
@@ -629,7 +622,6 @@ class MediaPanel(QWidget):
         """Gewaehltes USB-Geraet uebernehmen - Modell zieht nach, wenn ableitbar."""
         self._apply_model_for_address(self._usb_combo.currentData() or "")
         self._sync_connection_rows()
-        self._sync_backend_label()
         self.changed.emit()
 
     def _apply_model_for_address(self, address: str) -> bool:
@@ -665,11 +657,10 @@ class MediaPanel(QWidget):
 
     # ----------------------------------------------------------- Slots -----
     def _on_host_changed(self) -> None:
-        """IP/Name getippt: Hinweis nachziehen und Aenderung melden."""
+        """IP/Name getippt: Zeilen nachziehen und Aenderung melden."""
         if self._adjusting:
             return
         self._sync_connection_rows()
-        self._sync_backend_label()
         self.changed.emit()
 
     def _on_usb_combo_changed(self) -> None:
@@ -690,7 +681,6 @@ class MediaPanel(QWidget):
             # so muss niemand wissen, dass es den "Suchen"-Knopf gibt.
             self.refresh_usb_devices()
         self._sync_connection_rows()
-        self._sync_backend_label()
         self.changed.emit()
 
     def _sync_connection_rows(self) -> None:
@@ -698,9 +688,11 @@ class MediaPanel(QWidget):
         usb = self.connection() == CONNECTION_USB
         self._printer_form.setRowVisible(self._row_host, not usb)
         self._printer_form.setRowVisible(self._row_usb, usb)
-        # Band-Erkennung nur, wo sie auch gehen kann (USB mit Rueckkanal).
-        self._detect_button.setEnabled(
-            backend_supports_readback(backend_for_address(self.address()))
+        # Band-Erkennung braucht einen Rueckkanal: ueber Netzwerk (TCP 9100)
+        # gibt es keinen - dort waere der Knopf nur ein Fehlschlag.
+        self._printer_form.setRowVisible(
+            self._row_detect,
+            backend_supports_readback(backend_for_address(self.address())),
         )
         self._sync_access()
 
@@ -712,25 +704,6 @@ class MediaPanel(QWidget):
         self._printer_form.setRowVisible(self._row_access, needed)
         if needed:
             self._access_label.setText(f"Kein Zugriff auf {address}.")
-
-    def _sync_backend_label(self) -> None:
-        """Zeigen, welches Backend die Auswahl ergibt - und ob es antwortet."""
-        address = self.address()
-        if not address:
-            self._backend_label.setText("Noch kein Drucker gewählt.")
-            return
-        backend = backend_for_address(address)
-        names = {
-            "network": "Netzwerk (TCP 9100)",
-            "pyusb": "USB (libusb)",
-            "linux_kernel": "USB (Kernel-Treiber)",
-        }
-        name = names.get(backend, backend)
-        if backend_supports_readback(backend):
-            text = f"{name} – Statusabfrage möglich (Band erkennen)."
-        else:
-            text = f"{name} – kein Status: Band bitte von Hand wählen."
-        self._backend_label.setText(text)
 
     def _on_model_changed(self) -> None:
         self._populate_bands()

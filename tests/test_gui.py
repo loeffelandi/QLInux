@@ -43,22 +43,27 @@ def test_media_panel_defaults(qapp):
     assert height == panel.model.min_max_length_dots[0]
 
 
-def test_media_panel_shows_the_backend_from_the_address(qapp):
-    """Das Panel sagt, welcher Anschluss aus der Adresse folgt - und ob er antwortet.
+def test_media_panel_shows_band_erkennen_only_where_it_works(qapp):
+    """Der Knopf „Band erkennen" braucht einen Rueckkanal - den gibt es nur ueber USB.
 
-    Der Netzwerk-Anschluss hat keinen Rueckkanal, dort geht die Band-Erkennung
-    nicht; ueber USB schon.
+    Deshalb steht er im Netzwerk gar nicht erst da (statt ausgegraut).
     """
     from ql_editor.media_panel import MediaPanel
 
     panel = MediaPanel()
-    assert "Netzwerk" in panel._backend_label.text()
-    assert "kein Status" in panel._backend_label.text()
+    assert panel.printer_config().backend == "network"
+    assert not panel._printer_form.isRowVisible(panel._row_detect)
 
     panel.set_address("usb://0x04f9:0x209b")
-    assert "USB" in panel._backend_label.text()
-    assert "Statusabfrage möglich" in panel._backend_label.text()
     assert panel.printer_config().backend == "pyusb"
+    assert panel._printer_form.isRowVisible(panel._row_detect)
+
+    panel.set_address("/dev/usb/lp1")
+    assert panel.printer_config().backend == "linux_kernel"
+    assert panel._printer_form.isRowVisible(panel._row_detect)
+
+    panel.set_address("tcp://192.168.178.62:9100")
+    assert not panel._printer_form.isRowVisible(panel._row_detect)
 
 
 def test_media_panel_emits_a_usb_search(qapp):
@@ -283,13 +288,13 @@ def test_detect_button_only_works_where_readback_is_possible(qapp):
     from ql_editor.media_panel import MediaPanel
 
     panel = MediaPanel()
-    assert not panel._detect_button.isEnabled()  # Netzwerk
+    assert not panel._printer_form.isRowVisible(panel._row_detect)  # Netzwerk
 
     panel.set_address("usb://0x04f9:0x2042")
-    assert panel._detect_button.isEnabled()  # USB
+    assert panel._printer_form.isRowVisible(panel._row_detect)  # USB
 
     panel.set_address("tcp://192.168.178.62:9100")
-    assert not panel._detect_button.isEnabled()
+    assert not panel._printer_form.isRowVisible(panel._row_detect)
 
 
 def test_media_panel_finished_vs_content(qapp):
