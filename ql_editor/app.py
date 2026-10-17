@@ -1683,6 +1683,7 @@ class MainWindow(QMainWindow):
             self._canvas.add_item(item)
             self._canvas.setFocus()
             self._recompute_canvas()
+            self._canvas.keep_inside_printable(item)
             self._schedule_refresh()
             self._on_selection_changed()
         finally:
@@ -1919,7 +1920,7 @@ class MainWindow(QMainWindow):
             self,
             caption=tr("Bild wählen"),
             name_filter=tr(
-                "Bilder (*.png *.jpg *.jpeg *.bmp *.gif);;Alle Dateien (*)"
+                "Bilder (*.png *.webp *.jpg *.jpeg *.bmp *.gif);;Alle Dateien (*)"
             ),
             on_selected=_selected,
             start_dir=self._settings.image_dir,

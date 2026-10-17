@@ -419,6 +419,12 @@ class TextItem(_ClampMixin, QGraphicsTextItem):
 # --------------------------------------------------------------------------- #
 # Bild
 # --------------------------------------------------------------------------- #
+#: Groesste Kante, mit der ein Foto im Objekt gehalten wird. Ein Etikett hat
+#: hoechstens ~1200 Druckpunkte (50 mm bei 600 dpi) - mehr Pixel bringen beim
+#: Druck nichts, kosten aber bei jedem Speichern und Rendern Zeit.
+IMAGE_MAX_SIDE_PX = 2048
+
+
 class ImageItem(_ClampMixin, QGraphicsPixmapItem):
     kind = "image"
 
@@ -430,14 +436,32 @@ class ImageItem(_ClampMixin, QGraphicsPixmapItem):
             | QGraphicsItem.GraphicsItemFlag.ItemSendsGeometryChanges
         )
         self._source_path: str | None = None
+        #: Kodierung des Pixmaps (WebP) - wird nur einmal erzeugt (siehe to_dict).
+        self._encoded: bytes | None = None
 
     @classmethod
     def from_file(cls, path: str) -> "ImageItem":
         pixmap = QPixmap(path)
         if pixmap.isNull():
             raise ValueError(tr("Bild konnte nicht geladen werden: {path}").format(path=path))
+        original = pixmap.size()
+        if max(original.width(), original.height()) > IMAGE_MAX_SIDE_PX:
+            pixmap = pixmap.scaled(
+                IMAGE_MAX_SIDE_PX,
+                IMAGE_MAX_SIDE_PX,
+                Qt.AspectRatioMode.KeepAspectRatio,
+                Qt.TransformationMode.SmoothTransformation,
+            )
         item = cls(pixmap)
         item._source_path = path
+        if pixmap.size() != original:
+            # Die Anzeigegroesse bleibt wie vor dem Verkleinern: die Transformation gleicht aus.
+            item.setTransform(
+                QTransform().scale(
+                    original.width() / pixmap.width(),
+                    original.height() / pixmap.height(),
+                )
+            )
         return item
 
     @classmethod
@@ -455,13 +479,15 @@ class ImageItem(_ClampMixin, QGraphicsPixmapItem):
 
     def to_dict(self) -> dict[str, Any]:
         d = self._base_dict()
-        buf = QBuffer()
-        buf.open(QIODevice.OpenModeFlag.WriteOnly)
-        self.pixmap().toImage().save(buf, "PNG")
-        raw = bytes(buf.data())
-        buf.close()
+        if self._encoded is None:
+            buf = QBuffer()
+            buf.open(QIODevice.OpenModeFlag.WriteOnly)
+            # Verlustfrei: die Pixel bleiben exakt (Schwelle und Dithering haengen daran).
+            self.pixmap().toImage().save(buf, "WEBP", 100)
+            self._encoded = bytes(buf.data())
+            buf.close()
         d.update(
-            data_b64=base64.b64encode(raw).decode("ascii"),
+            data_b64=base64.b64encode(self._encoded).decode("ascii"),
             source_path=self._source_path,
             scale_x=self.transform().m11(),
             scale_y=self.transform().m22(),
@@ -472,8 +498,10 @@ class ImageItem(_ClampMixin, QGraphicsPixmapItem):
     def from_dict(cls, d: dict[str, Any]) -> "ImageItem":
         raw = base64.b64decode(d["data_b64"])
         pixmap = QPixmap()
-        pixmap.loadFromData(raw, "PNG")
+        # Ohne Formatangabe: alte Dateien enthalten PNG, neue WebP.
+        pixmap.loadFromData(raw)
         item = cls(pixmap)
+        item._encoded = raw
         item._source_path = d.get("source_path")
         sx = float(d.get("scale_x", 1.0))
         sy = float(d.get("scale_y", 1.0))

@@ -1302,12 +1302,27 @@ class LabelCanvas(QGraphicsView):
             angle = round(angle / 15.0) * 15.0
         angle = round(angle, 1)
 
+        was_inside = self._inside_printable(item)
+        old_rotation, old_pos = item.rotation(), item.pos()
         local_center = item.boundingRect().center()
         before = item.mapToScene(local_center)
         item.setRotation(angle)
         after = item.mapToScene(local_center)
         item.moveBy(before.x() - after.x(), before.y() - after.y())
+        if was_inside and not self._inside_printable(item):
+            # Gedreht wuerde das Objekt ueber den Rand ragen und beim Druck abgeschnitten.
+            item.setRotation(old_rotation)
+            item.setPos(old_pos)
         self.viewport().update()
+
+    def keep_inside_printable(self, item) -> None:
+        """Objekt in die bedruckbare Flaeche schieben, falls es darueber hinausragt."""
+        item.setPos(items_mod._clamp_pos(item, item.pos()))
+
+    def _inside_printable(self, item) -> bool:
+        """Liegt die (gedrehte) Huelle des Objekts komplett in der bedruckbaren Flaeche?"""
+        hull = item.mapToScene(item.boundingRect()).boundingRect()
+        return self._scene.sceneRect().adjusted(-0.5, -0.5, 0.5, 0.5).contains(hull)
 
     def mouseReleaseEvent(self, event) -> None:  # noqa: N802
         if self._pan_active and event.button() == Qt.MouseButton.MiddleButton:
