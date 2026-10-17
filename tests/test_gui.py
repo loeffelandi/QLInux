@@ -3894,3 +3894,38 @@ def test_loading_a_document_does_not_shift_its_objects(qapp, tmp_path):
     again.close()
     qapp.processEvents()
     assert document.load(path)["media"]["margins"]["left"] == 8.0
+
+
+def test_content_beyond_a_margin_is_not_printed(qapp, tmp_path):
+    """Der Rand schneidet ab: was hinter ihm liegt, fehlt im Druckbild -
+    auch im Querformat, wo der rechte Rand die Bandbreite nicht veraendert."""
+    from PySide6.QtCore import QRectF
+
+    from ql_editor import media
+    from ql_editor.items import RectItem
+
+    win = _temp_window(qapp, tmp_path)
+    win._add_item(RectItem(QRectF(0, 0, 690, 100), width_px=6))
+    qapp.processEvents()
+    win._media_panel._margin_spins["right"].setValue(0.0)
+    qapp.processEvents()
+    full = win._canvas.render_printable().convert("L")
+    win._media_panel._margin_spins["right"].setValue(20.0)
+    qapp.processEvents()
+    cut = win._canvas.render_printable().convert("L")
+
+    assert full.size == cut.size  # die Bandbreite bleibt gleich
+    edge = cut.width - media.mm_to_dots(20.0) + 4  # knapp hinter dem Rand
+    dark = [
+        cut.getpixel((x, y)) < 128
+        for x in range(edge, cut.width)
+        for y in range(0, cut.height, 2)
+    ]
+    assert not any(dark)
+    assert any(
+        full.getpixel((x, y)) < 128
+        for x in range(edge, full.width)
+        for y in range(0, full.height, 2)
+    )
+    win.close()
+    qapp.processEvents()

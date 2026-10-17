@@ -69,8 +69,12 @@ def render_scene_to_image(
     background: Qt.GlobalColor = Qt.GlobalColor.white,
     antialias: bool = True,
     rotate: bool = False,
+    clip_dots: QRectF | None = None,
 ) -> Image.Image:
     """Rendere ``scene`` in ein ``PIL.Image`` der Groesse ``width_dots`` x ``height_dots``.
+
+    ``clip_dots`` (Bildkoordinaten) schneidet alles ab, was ausserhalb liegt -
+    so bleibt hinter dem Rand nichts stehen, auch nicht im Druck.
 
     Die Szene wird 1:1 abgebildet (``source = sceneRect``, ``target = Bild``).
 
@@ -103,6 +107,8 @@ def render_scene_to_image(
         if source.isNull() or source.width() <= 0 or source.height() <= 0:
             raise RenderError(tr("sceneRect der Szene ist leer oder ungueltig."))
         target = QRectF(0, 0, width_dots, height_dots)
+        if clip_dots is not None:
+            painter.setClipRect(clip_dots)
         scene.render(painter, target, source)
     finally:
         painter.end()

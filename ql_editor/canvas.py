@@ -37,7 +37,7 @@ from contextlib import contextmanager
 from typing import Any, Iterator
 
 from PySide6.QtCore import QEvent, QLocale, QPoint, QPointF, QRectF, Qt, Signal
-from PySide6.QtGui import QBrush, QColor, QFont, QFontMetricsF, QImage, QPainter, QPen
+from PySide6.QtGui import QBrush, QColor, QFont, QFontMetricsF, QImage, QPainter, QPainterPath, QPen
 from PySide6.QtWidgets import QGraphicsItem, QGraphicsScene, QGraphicsView, QWidget
 from PIL import Image
 
@@ -654,12 +654,21 @@ class LabelCanvas(QGraphicsView):
         300 dpi, in Bandlaufrichtung 600 dpi).
         """
         rect = self.printable_rect()
+        # Alles hinter dem Randrahmen wird abgeschnitten (Druck und Vorschau).
+        inner = self.margin_rect()
+        clip = QRectF(
+            inner.x() * scale,
+            inner.y() * scale,
+            inner.width() * scale,
+            inner.height() * scale,
+        )
         with self.suspend_text_caret():
             return render_scene_to_image(
                 self.scene(),
                 int(rect.width()) * scale,
                 int(rect.height()) * scale,
                 rotate=rotate,
+                clip_dots=clip,
             )
 
     # -- Zoom / Scrollen ----------------------------------------------------
@@ -881,6 +890,15 @@ class LabelCanvas(QGraphicsView):
 
     def drawForeground(self, painter: QPainter, rect: QRectF) -> None:  # noqa: N802
         super().drawForeground(painter, rect)
+
+        # Randbereich schraffieren: was hier liegt, wird nicht gedruckt.
+        if self._label is not None and any(self._margins_mm) and not self._print_preview:
+            outside = QPainterPath()
+            outside.addRect(self.printable_rect())
+            outside.addRect(self.margin_rect())
+            painter.setPen(Qt.PenStyle.NoPen)
+            painter.setBrush(QBrush(QColor(120, 130, 140, 110), Qt.BrushStyle.BDiagPattern))
+            painter.drawPath(outside)
 
         # Druckvorschau: das binarisierte 1-bit-Bild deckt die Items ab.
         if self._print_preview:
