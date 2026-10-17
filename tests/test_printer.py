@@ -8,6 +8,7 @@ laeuft echt gegen die Bibliothek.
 from __future__ import annotations
 
 import logging
+import os
 
 import pytest
 from PIL import Image
@@ -521,3 +522,84 @@ def test_network_address_survives_the_display_roundtrip():
         "tcp://[::1]:9100",
     ):
         assert printer.parse_network_address(printer.network_host(address)) == address
+
+
+# --------------------------------------------------------------------------- #
+# Schreibrechte am Geraeteknoten (Grund fuer "Zugriff einrichten")
+# --------------------------------------------------------------------------- #
+# Als root sagt os.access() immer True - dann ist hier nichts zu pruefen.
+needs_unprivileged_user = pytest.mark.skipif(
+    os.geteuid() == 0, reason="Schreibrechte lassen sich als root nicht pruefen"
+)
+
+
+@needs_unprivileged_user
+def test_writable_reports_missing_node_and_rights(tmp_path):
+    assert printer.writable(tmp_path / "gibtsnicht") is None
+
+    node = tmp_path / "lp1"
+    node.write_text("")
+    node.chmod(0o600)
+    assert printer.writable(node) is True
+
+    node.chmod(0o000)
+    assert printer.writable(node) is False
+
+
+@needs_unprivileged_user
+def test_usb_access_checks_the_kernel_printer_node(tmp_path):
+    dev_root = tmp_path / "dev"
+    node = dev_root / "usb" / "lp1"
+    node.parent.mkdir(parents=True)
+    node.write_text("")
+    node.chmod(0o600)
+
+    assert printer.usb_access("/dev/usb/lp1", dev_root=str(dev_root)) is True
+    assert printer.usb_access("file:///dev/usb/lp1", dev_root=str(dev_root)) is True
+
+    node.chmod(0o000)
+    assert printer.usb_access("/dev/usb/lp1", dev_root=str(dev_root)) is False
+
+    # Abgesteckt oder unbekannt: keine Aussage.
+    assert printer.usb_access("/dev/usb/lp9", dev_root=str(dev_root)) is None
+    assert printer.usb_access("/dev/ttyUSB0", dev_root=str(dev_root)) is None
+
+
+@needs_unprivileged_user
+def test_usb_access_resolves_the_raw_node_for_libusb(tmp_path):
+    sysfs_root = tmp_path / "sys"
+    device = sysfs_root / "bus" / "usb" / "devices" / "1-9"
+    device.mkdir(parents=True)
+    (device / "idVendor").write_text("04f9\n")
+    (device / "idProduct").write_text("2042\n")
+    (device / "busnum").write_text("1\n")
+    (device / "devnum").write_text("5\n")
+
+    dev_root = tmp_path / "dev"
+    node = dev_root / "bus" / "usb" / "001" / "005"
+    node.parent.mkdir(parents=True)
+    node.write_text("")
+    node.chmod(0o600)
+
+    kwargs = {"sysfs_root": str(sysfs_root), "dev_root": str(dev_root)}
+    assert printer.usb_access("usb://0x04f9:0x2042", **kwargs) is True
+
+    node.chmod(0o000)
+    assert printer.usb_access("usb://0x04f9:0x2042", **kwargs) is False
+
+    # Anderes Geraet und Netzwerk: keine Aussage.
+    assert printer.usb_access("usb://0x04f9:0x209d", **kwargs) is None
+    assert printer.usb_access("tcp://192.168.178.62:9100", **kwargs) is None
+    assert printer.usb_access("", **kwargs) is None
+
+    # Geraet bekannt, aber kein Knoten im dev_root (z. B. anderer Namespace).
+    empty_dev = tmp_path / "leer"
+    assert (
+        printer.usb_access(
+            "usb://0x04f9:0x2042",
+            sysfs_root=str(sysfs_root),
+            dev_root=str(empty_dev),
+        )
+        is None
+    )
+

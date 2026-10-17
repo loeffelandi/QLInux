@@ -15,6 +15,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 import glob
 import logging
+import os
 from pathlib import Path
 import time
 
@@ -337,6 +338,61 @@ def usb_device_label(address: str) -> str:
     return f"{address}  ({kind}{suffix})"
 
 
+def writable(path: str | Path) -> bool | None:
+    """Darf der Benutzer diesen Geraeteknoten schreiben?
+
+    ``None``, wenn es den Knoten nicht gibt - dann ist die Frage nicht
+    beantwortbar (z. B. Drucker abgesteckt).
+    """
+    path = Path(path)
+    if not path.exists():
+        return None
+    return os.access(path, os.W_OK)
+
+
+def usb_access(
+    address: str,
+    *,
+    sysfs_root: str = "/sys",
+    dev_root: str = "/dev",
+) -> bool | None:
+    """Darf der Benutzer diesen USB-Drucker oeffnen? ``None`` = nicht feststellbar.
+
+    Es wird nur das Schreibrecht geprueft, kein Geraet geoeffnet - die Abfrage
+    hat also keinen Nebeneffekt am Drucker. Kernel-Anschluss: ``/dev/usb/lpN``.
+    libusb: der rohe Knoten ``/dev/bus/usb/BBB/DDD``, ueber sysfs aufgeloest
+    (``busnum``/``devnum`` des Geraets mit passender USB-Kennung).
+
+    ``sysfs_root``/``dev_root`` sind fuer Tests injizierbar.
+    """
+    address = (address or "").strip()
+    backend = backend_for_address(address)
+    if backend == "linux_kernel":
+        path = address.removeprefix("file://")
+        if not path.startswith("/dev/"):
+            return None
+        return writable(Path(dev_root, path[len("/dev/") :]))
+    if backend != "pyusb":
+        return None
+    usb_id = usb_id_from_identifier(address)
+    if not usb_id:
+        return None
+    vendor, _, product = usb_id.partition(":")
+    for device in sorted((Path(sysfs_root) / "bus" / "usb" / "devices").glob("*")):
+        try:
+            if (device / "idVendor").read_text().strip().lower() != vendor:
+                continue
+            if (device / "idProduct").read_text().strip().lower() != product:
+                continue
+            busnum = int((device / "busnum").read_text().strip())
+            devnum = int((device / "devnum").read_text().strip())
+        except (OSError, ValueError):
+            continue
+        node = Path(dev_root) / "bus" / "usb" / f"{busnum:03d}" / f"{devnum:03d}"
+        return writable(node)
+    return None
+
+
 @dataclass(frozen=True)
 class PrinterConfig:
     """Verbindungs- und Geraeteparameter.
@@ -626,6 +682,7 @@ __all__ = [
     "model_for_address",
     "network_host",
     "parse_network_address",
+    "usb_access",
     "usb_device_label",
     "usb_id_for_path",
     "usb_id_from_identifier",
@@ -636,4 +693,5 @@ __all__ = [
     "probe_status",
     "detect_label",
     "usb_devices",
+    "writable",
 ]

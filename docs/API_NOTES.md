@@ -261,10 +261,54 @@ Beide USB-Wege scheitern ohne Systemrechte, und zwar unterschiedlich:
 | `usb://0x04f9:0x2042` | `pyusb` | `Access denied (insufficient permissions)` | libusb braucht udev-Regel |
 
 Die Geräteerkennung selbst funktioniert in beiden Faellen (sie oeffnet das
-Geraet nicht). Abhilfe: `sudo usermod -aG lp "$USER"` (Kernel-Weg, empfohlen)
-oder eine udev-Regel fuer libusb. `pyusb` haengt beim Oeffnen den Kernel-Treiber
-ab und bindet ihn nicht wieder an - `/dev/usb/lp1` ist danach bis zum Umstecken
-weg; der Kernel-Weg hat dieses Problem nicht.
+Geraet nicht). `pyusb` haengt beim Oeffnen den Kernel-Treiber ab und bindet ihn
+nicht wieder an - `/dev/usb/lp1` ist danach bis zum Umstecken weg; der
+Kernel-Weg hat dieses Problem nicht.
+
+**Gewaehlte Abhilfe: eine udev-Regel mit `TAG+="uaccess"`**
+(`scripts/install-udev-rule.sh`, Ziel `/etc/udev/rules.d/99-brother-ql.rules`):
+
+```
+SUBSYSTEM=="usbmisc", KERNEL=="lp*", ATTRS{idVendor}=="04f9", TAG+="uaccess"
+SUBSYSTEM=="usb", ATTR{idVendor}=="04f9", ENV{DEVTYPE}=="usb_device", TAG+="uaccess"
+```
+
+Gruende gegen die naheliegenden Alternativen:
+
+* `usermod -aG lp "$USER"` wirkt erst nach einem **neuen Login** und deckt
+  den libusb-Weg nicht ab.
+* `MODE="0666"` gibt **allen** Benutzern Schreibzugriff auf das Geraet.
+* `TAG+="uaccess"` setzt einen ACL-Eintrag fuer den Benutzer der aktiven
+  Sitzung: sofort wirksam, nach dem Umstecken wieder da, kein Login noetig.
+  Muster bestaetigt in `/usr/lib/udev/rules.d/60-steam-input.rules`.
+
+`udevadm info /dev/usb/lp1` zeigt `SUBSYSTEM=usbmisc` (nicht `usb`) - deshalb
+braucht der Kernel-Weg eine eigene Zeile; `ATTRS{idVendor}` laeuft dafuer die
+Elternkette hoch bis zum Geraet.
+
+### `pkexec` ohne polkit-Agent (gemessen)
+
+Auf diesem System laeuft `polkitd`, aber **kein** Authentifizierungs-Agent
+(kein `lxpolkit`, `policykit-1-gnome`, `mate-polkit`; `gnome-shell` gibt es
+hier nicht). Gemessen:
+
+| Aufruf | Ergebnis |
+| --- | --- |
+| `pkexec /bin/true` (kein tty) | haengt, `timeout` greift nach 6 s (Exit 124) |
+| `pkexec --disable-internal-agent /bin/true` | haengt ebenfalls (Exit 124) |
+| `printf 'falsch\n' \| script -qec "pkexec /bin/true" /dev/null` | kein Prompt sichtbar, laeuft in den Timeout |
+
+`pkexec` **wartet also endlos**, statt abzubrechen - auch mit
+`--disable-internal-agent`. Ein haengender Dialog ist die schlechteste
+Bedienung, deshalb startet QLInux `pkexec` nur, wenn ein Agent erkannt wird
+(`access.auth_agent_running()`, Heuristik ueber die Prozessnamen in `/proc`)
+und beendet ihn notfalls nach `PERMISSION_TIMEOUT_MS` (90 s) mit dem
+Einzeiler-Dialog als Ausweg. Nebenbei: `QProcess` gibt dem Kind **kein**
+kontrollierendes Terminal (`ps -o tty=` → `?`), der interne Text-Agent von
+`pkexec` kann hier also ohnehin nicht fragen.
+
+Empfehlung fuer die Paketierung (M4): die Regel im `postinst` einrichten -
+dann ist ueberhaupt kein Passwort-Dialog noetig.
 
 ## Pillow-10-Patch
 

@@ -50,6 +50,7 @@ from .printer import (
     model_for_address,
     network_host,
     parse_network_address,
+    usb_access,
     usb_device_label,
     usb_devices,
 )
@@ -71,6 +72,7 @@ class MediaPanel(QWidget):
     changed = Signal()
     detect_requested = Signal()
     usb_search_requested = Signal()
+    usb_permission_requested = Signal()
 
     def __init__(self, parent: QWidget | None = None):
         super().__init__(parent)
@@ -84,6 +86,8 @@ class MediaPanel(QWidget):
         # Unterdrueckt Nebenwirkungen, waehrend Felder programmatisch gesetzt
         # werden (z. B. beim Laden der Einstellungen).
         self._adjusting = False
+        # Rechte am gewaehlten USB-Geraet (True/False, None = unklar/kein USB).
+        self.access_allowed: bool | None = None
         self._build_ui()
         self._populate_models()
         self._populate_bands()
@@ -155,6 +159,20 @@ class MediaPanel(QWidget):
             "Angeschlossene USB-Drucker suchen und in die Liste eintragen."
         )
 
+        # Fehlende Rechte sind der haeufigste Grund, warum ein gefundener
+        # Drucker nicht druckt. Das steht deshalb direkt hier - mit einem
+        # Knopf, der die udev-Regel einrichtet (Passwort-Dialog des Systems).
+        self._access_label = QLabel()
+        self._access_label.setWordWrap(True)
+        self._access_label.setStyleSheet("color:#b3261e;")
+        self._access_button = QPushButton(icon("detect"), "Zugriff einrichten")
+        self._access_button.setToolTip(
+            "USB-Drucker gehören unter Linux root. Dieser Knopf richtet eine "
+            "udev-Regel ein, die den Drucker für den angemeldeten Benutzer "
+            "freigibt – das System fragt dabei nach dem Passwort.\n"
+            "Danach gilt der Zugriff dauerhaft (auch nach dem Umstecken)."
+        )
+
         # Zeigt, was aus der Auswahl folgt - vor allem, ob der Anschluss einen
         # Rueckkanal hat (nur dann geht die Band-Erkennung).
         self._backend_label = QLabel()
@@ -173,6 +191,8 @@ class MediaPanel(QWidget):
         printer_form.addRow("IP-Adresse", self._host_edit)
         self._row_usb = printer_form.rowCount()
         printer_form.addRow("USB", self._build_usb_row())
+        self._row_access = printer_form.rowCount()
+        printer_form.addRow("Zugriff", self._build_access_row())
         printer_form.addRow("", self._backend_label)
         printer_form.addRow("", self._detect_button)
         outer.addWidget(printer_box)
@@ -252,6 +272,7 @@ class MediaPanel(QWidget):
             spin.valueChanged.connect(self._on_media_changed)
         self._detect_button.clicked.connect(self.detect_requested.emit)
         self._usb_button.clicked.connect(self.usb_search_requested.emit)
+        self._access_button.clicked.connect(self.usb_permission_requested.emit)
         self._host_edit.textChanged.connect(self._on_host_changed)
         self._usb_combo.currentIndexChanged.connect(self._on_usb_combo_changed)
         for mode, button in self._conn_buttons.items():
@@ -281,6 +302,16 @@ class MediaPanel(QWidget):
         layout.setSpacing(4)
         layout.addWidget(self._usb_combo, 1)
         layout.addWidget(self._usb_button)
+        return row
+
+    def _build_access_row(self) -> QWidget:
+        """Hinweis auf fehlende Rechte + Knopf zum Einrichten (nur bei Bedarf)."""
+        row = QWidget()
+        layout = QHBoxLayout(row)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(4)
+        layout.addWidget(self._access_label, 1)
+        layout.addWidget(self._access_button)
         return row
 
     def _build_orientation_row(self) -> QWidget:
@@ -535,7 +566,16 @@ class MediaPanel(QWidget):
 
         if apply_single:
             self._apply_usb_selection()
+        else:
+            # Auch ohne neues Geraet: die Rechte koennen sich geaendert haben
+            # (Regel eingerichtet, Drucker umgesteckt).
+            self._sync_access()
         return list(devices)
+
+    def refresh_access(self) -> bool | None:
+        """Rechte am gewaehlten Geraet neu pruefen (z. B. nach dem Einrichten)."""
+        self._sync_access()
+        return self.access_allowed
 
     def select_usb_device(self, address: str) -> bool:
         """USB-Geraet auswaehlen und uebernehmen (Adresse + Modell).
@@ -662,6 +702,16 @@ class MediaPanel(QWidget):
         self._detect_button.setEnabled(
             backend_supports_readback(backend_for_address(self.address()))
         )
+        self._sync_access()
+
+    def _sync_access(self) -> None:
+        """Fehlende Rechte anzeigen - der haeufigste Grund, warum USB nicht druckt."""
+        address = self.address()
+        self.access_allowed = usb_access(address) if address else None
+        needed = self.access_allowed is False
+        self._printer_form.setRowVisible(self._row_access, needed)
+        if needed:
+            self._access_label.setText(f"Kein Zugriff auf {address}.")
 
     def _sync_backend_label(self) -> None:
         """Zeigen, welches Backend die Auswahl ergibt - und ob es antwortet."""

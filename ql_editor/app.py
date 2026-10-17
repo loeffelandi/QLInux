@@ -23,7 +23,7 @@ import sys
 from pathlib import Path
 
 from PIL import Image
-from PySide6.QtCore import QPointF, QRectF, QSize, QThread, QTimer, Qt, Signal
+from PySide6.QtCore import QPointF, QProcess, QRectF, QSize, QThread, QTimer, Qt, Signal
 from PySide6.QtGui import QAction, QKeySequence
 from PySide6.QtWidgets import (
     QApplication,
@@ -43,6 +43,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from . import access
 from . import media
 from .canvas import LabelCanvas
 from .icons import icon
@@ -77,6 +78,9 @@ from .widgets import SmoothScrollArea, install_wheel_guard_recursive
 
 BARCODE_SYMBOLOGIES = ["code128", "code39", "ean13", "ean8", "upca", "itf", "codabar"]
 
+#: Wie lange auf den Passwort-Dialog gewartet wird, bevor der Einzeiler kommt.
+PERMISSION_TIMEOUT_MS = 90_000
+
 
 class PrintWorker(QThread):
     """Rendert nichts, sondern konvertiert und sendet in einem Thread."""
@@ -110,6 +114,13 @@ class MainWindow(QMainWindow):
         self.setWindowIcon(icon("label"))
         self._adjusting = False
         self._print_worker: PrintWorker | None = None
+        # Passwort-Dialog des Systems (pkexec + Helfer), siehe _on_usb_permission.
+        self._permission_process = QProcess(self)
+        self._permission_process.finished.connect(self._on_permission_finished)
+        self._permission_timer = QTimer(self)
+        self._permission_timer.setSingleShot(True)
+        self._permission_timer.setInterval(PERMISSION_TIMEOUT_MS)
+        self._permission_timer.timeout.connect(self._on_permission_timeout)
         #: Ansicht (Zoom + Mittelpunkt) vor dem Einschalten der Druckvorschau.
         self._preview_view: tuple[float, QPointF] | None = None
 
@@ -138,6 +149,7 @@ class MainWindow(QMainWindow):
         self._media_panel.changed.connect(self._on_media_changed)
         self._media_panel.detect_requested.connect(self._on_detect_label)
         self._media_panel.usb_search_requested.connect(self._on_usb_search)
+        self._media_panel.usb_permission_requested.connect(self._on_usb_permission)
         self._canvas.text_requested.connect(self._on_text_requested)
         self._canvas.item_double_clicked.connect(self._on_item_double_clicked)
         self._canvas.context_menu_requested.connect(self._show_context_menu)
@@ -1063,7 +1075,65 @@ class MainWindow(QMainWindow):
 
     def _on_print_failed(self, message: str) -> None:
         self.statusBar().showMessage("Druck fehlgeschlagen.", 8000)
-        show_message(self, "critical", "Druckfehler", message)
+        hint = access.failure_hint(message)
+        if hint:
+            message = f"{message}\n\n{hint}"
+        show_message(self, "critical", "Druckfehler", message, selectable=bool(hint))
+
+    # --------------------------------------------------------- USB-Zugriff --
+    def _on_usb_permission(self) -> None:
+        """udev-Regel einrichten: das System fragt dabei nach dem Passwort.
+
+        Der Befehl laeuft als eigener Prozess (``pkexec`` + Helfer), damit die
+        Oberflaeche waehrend des Passwort-Dialogs bedienbar bleibt.
+        """
+        command = access.install_command()
+        if command is None:
+            self._show_manual_permission()
+            return
+        self._permission_process.start(command[0], command[1:])
+        # Sicherheitsnetz: ein Agent, der den Dialog nicht zeigt, darf die
+        # Anzeige nicht ewig auf "Passwort-Dialog" stehen lassen.
+        self._permission_timer.start()
+        self.statusBar().showMessage("Zugriff einrichten: Passwort-Dialog …")
+
+    def _on_permission_timeout(self) -> None:
+        self._permission_process.kill()
+        self.statusBar().showMessage("Kein Passwort-Dialog erschienen.", 8000)
+        self._show_manual_permission()
+
+    def _on_permission_finished(self, code: int, _status=None) -> None:
+        self._permission_timer.stop()
+        stderr = bytes(self._permission_process.readAllStandardError()).decode(
+            "utf-8", "replace"
+        )
+        if code == 0:
+            self._media_panel.refresh_access()
+            self.statusBar().showMessage(
+                "USB-Zugriff eingerichtet – der Drucker ist freigegeben.", 8000
+            )
+            return
+        text = access.describe_failure(code, stderr)
+        if access.rule_installed():
+            text += (
+                "\n\nDie Regel ist schon eingerichtet – eventuell den Drucker "
+                "kurz ab- und wieder anstecken."
+            )
+        show_message(self, "warning", "USB-Zugriff", text, selectable=True)
+
+    def _show_manual_permission(self) -> None:
+        """Ohne Passwort-Dialog bleibt der Einzeiler fuer das Terminal."""
+        reason = access.reason_no_prompt()
+        show_message(
+            self,
+            "info",
+            "USB-Zugriff",
+            f"{reason}\n\n"
+            "Bitte einmalig im Terminal ausführen – danach ist der Drucker "
+            "dauerhaft freigegeben:\n\n"
+            f"    {access.manual_command()}",
+            selectable=True,
+        )
 
     # ------------------------------------------------------------- Detect ---
     def _on_usb_search(self) -> None:
@@ -1080,10 +1150,8 @@ class MainWindow(QMainWindow):
                 "info",
                 "USB suchen",
                 "Kein USB-Drucker gefunden.\n\n"
-                "Prüfen: Kabel steckt, Drucker ist an, und der Benutzer darf auf "
-                "das Gerät zugreifen (Gruppe „lp“, bzw. eine udev-Regel für "
-                "libusb). Über das Netzwerk angeschlossene Drucker erscheinen "
-                "hier nicht.",
+                "Prüfen: Kabel steckt, Drucker ist an. Über das Netzwerk "
+                "angeschlossene Drucker erscheinen hier nicht.",
             )
             return
         if len(devices) == 1:
@@ -1116,6 +1184,12 @@ class MainWindow(QMainWindow):
                     "(das bestätigt auch brother_ql selbst).\n\n"
                     "Band-Erkennung geht nur über USB. Bitte das Band manuell "
                     "auswählen."
+                )
+            elif self._media_panel.access_allowed is False:
+                reason = (
+                    "Kein Zugriff auf den USB-Drucker – die Abfrage kommt "
+                    "deshalb nicht durch.\n\nIm Panel unter „Drucker“ steht "
+                    "dafür „Zugriff einrichten“."
                 )
             else:
                 reason = (

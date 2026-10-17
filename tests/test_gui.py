@@ -213,6 +213,71 @@ def test_media_panel_keeps_a_stored_usb_address_when_unplugged(qapp, monkeypatch
     assert "nicht angeschlossen" in panel._usb_combo.currentText()
 
 
+def test_media_panel_offers_access_help_when_rights_are_missing(qapp, monkeypatch):
+    """Ohne Rechte am Geraet steht im Panel, was zu tun ist."""
+    from ql_editor import media_panel as media_panel_module
+    from ql_editor.media_panel import CONNECTION_USB, MediaPanel
+
+    monkeypatch.setattr(media_panel_module, "usb_devices", lambda: ["/dev/usb/lp1"])
+    monkeypatch.setattr(media_panel_module, "usb_access", lambda address: False)
+    panel = MediaPanel()
+
+    panel._conn_buttons[CONNECTION_USB].setChecked(True)
+
+    assert panel.access_allowed is False
+    assert panel._printer_form.isRowVisible(panel._row_access)
+    assert "Kein Zugriff" in panel._access_label.text()
+
+    requested = []
+    panel.usb_permission_requested.connect(lambda: requested.append(True))
+    panel._access_button.click()
+    assert requested == [True]
+
+
+def test_media_panel_hides_access_help_when_the_device_works(qapp, monkeypatch):
+    from ql_editor import media_panel as media_panel_module
+    from ql_editor.media_panel import CONNECTION_USB, MediaPanel
+
+    monkeypatch.setattr(media_panel_module, "usb_devices", lambda: ["/dev/usb/lp1"])
+    monkeypatch.setattr(media_panel_module, "usb_access", lambda address: True)
+    panel = MediaPanel()
+
+    panel._conn_buttons[CONNECTION_USB].setChecked(True)
+
+    assert panel.access_allowed is True
+    assert not panel._printer_form.isRowVisible(panel._row_access)
+
+
+def test_media_panel_refresh_access_follows_the_new_state(qapp, monkeypatch):
+    """Nach dem Einrichten der Regel verschwindet der Hinweis."""
+    from ql_editor import media_panel as media_panel_module
+    from ql_editor.media_panel import CONNECTION_USB, MediaPanel
+
+    allowed = {"value": False}
+    monkeypatch.setattr(media_panel_module, "usb_devices", lambda: ["/dev/usb/lp1"])
+    monkeypatch.setattr(
+        media_panel_module, "usb_access", lambda address: allowed["value"]
+    )
+    panel = MediaPanel()
+    panel._conn_buttons[CONNECTION_USB].setChecked(True)
+    assert panel._printer_form.isRowVisible(panel._row_access)
+
+    allowed["value"] = True
+    assert panel.refresh_access() is True
+    assert not panel._printer_form.isRowVisible(panel._row_access)
+
+
+def test_media_panel_has_no_access_row_for_network(qapp):
+    """Im Netzwerk gibt es keine Geraeterechte - also auch keinen Hinweis."""
+    from ql_editor.media_panel import MediaPanel
+
+    panel = MediaPanel()
+    panel.set_address("tcp://192.168.178.62:9100")
+
+    assert panel.access_allowed is None
+    assert not panel._printer_form.isRowVisible(panel._row_access)
+
+
 def test_detect_button_only_works_where_readback_is_possible(qapp):
     """Band-Erkennung braucht einen Rueckkanal - nur USB hat einen."""
     from ql_editor.media_panel import MediaPanel
@@ -2214,6 +2279,108 @@ def test_connection_and_address_are_persisted(qapp, tmp_path):
     assert again._media_panel.connection() == CONNECTION_NETWORK
     assert again._media_panel._host_edit.text() == "192.168.178.99"
     assert again._media_panel.address() == "tcp://192.168.178.99:9100"
+
+
+def _sheet(win):
+    """Das aktuell sichtbare Sheet im Hauptfenster (wie in test_sheet)."""
+    from ql_editor.sheet import Sheet
+
+    sheets = win.findChildren(Sheet)
+    for sheet in sheets:
+        if sheet.isVisible():
+            return sheet
+    return sheets[0] if sheets else None
+
+
+class _FakePermissionProcess:
+    """Steht fuer den laufenden pkexec-Prozess, damit der Abschluss pruefbar ist."""
+
+    def __init__(self, stderr: bytes = b"") -> None:
+        self._stderr = stderr
+        self.killed = False
+
+    def readAllStandardError(self) -> bytes:
+        return self._stderr
+
+    def kill(self) -> None:
+        self.killed = True
+
+
+def test_permission_button_without_a_prompt_shows_the_one_liner(
+    qapp, tmp_path, monkeypatch
+):
+    """Ohne Passwort-Dialog bleibt der Befehl zum Abschreiben."""
+    from PySide6.QtWidgets import QMessageBox
+
+    from ql_editor import access
+
+    win = _temp_window(qapp, tmp_path)
+    monkeypatch.setattr(access, "install_command", lambda: None)
+    monkeypatch.setattr(access, "reason_no_prompt", lambda: "Es läuft kein Dialog.")
+
+    win._on_usb_permission()
+    qapp.processEvents()
+
+    sheet = _sheet(win)
+    assert sheet is not None
+    box = sheet.findChild(QMessageBox)
+    assert "Es läuft kein Dialog." in box.text()
+    assert "install-udev-rule.sh" in box.text()
+    # Der Befehl muss sich markieren (und damit kopieren) lassen.
+    assert box.textInteractionFlags() & Qt.TextInteractionFlag.TextSelectableByMouse
+
+
+def test_permission_failure_explains_the_abort(qapp, tmp_path, monkeypatch):
+    from PySide6.QtWidgets import QMessageBox
+
+    from ql_editor import access
+
+    win = _temp_window(qapp, tmp_path)
+    monkeypatch.setattr(access, "rule_installed", lambda: False)
+    win._permission_process = _FakePermissionProcess()
+
+    win._on_permission_finished(access.PKEXEC_DISMISSED)
+    qapp.processEvents()
+
+    sheet = _sheet(win)
+    assert sheet is not None
+    assert "Abgebrochen" in sheet.findChild(QMessageBox).text()
+
+
+def test_permission_success_refreshes_the_panel(qapp, tmp_path, monkeypatch):
+    win = _temp_window(qapp, tmp_path)
+    win._permission_process = _FakePermissionProcess()
+    refreshed = []
+    monkeypatch.setattr(
+        win._media_panel, "refresh_access", lambda: refreshed.append(True)
+    )
+
+    win._on_permission_finished(0)
+
+    assert refreshed == [True]
+    assert "eingerichtet" in win.statusBar().currentMessage()
+
+
+def test_permission_timeout_kills_and_shows_the_one_liner(
+    qapp, tmp_path, monkeypatch
+):
+    """Ein Agent, der nicht fragt, darf die Anzeige nicht blockieren."""
+    from PySide6.QtWidgets import QMessageBox
+
+    from ql_editor import access
+
+    win = _temp_window(qapp, tmp_path)
+    process = _FakePermissionProcess()
+    win._permission_process = process
+    monkeypatch.setattr(access, "reason_no_prompt", lambda: "Kein Dialog gefunden.")
+
+    win._on_permission_timeout()
+    qapp.processEvents()
+
+    assert process.killed is True
+    sheet = _sheet(win)
+    assert sheet is not None
+    assert "Kein Dialog gefunden." in sheet.findChild(QMessageBox).text()
 
 
 def test_resolution_options_follow_the_printer_model(qapp):

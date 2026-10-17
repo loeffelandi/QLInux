@@ -19,6 +19,7 @@ Kein Browser-Tool, kein WebUSB.
 | M3.12 | Auflösung pro Modell (300 × 300 / 300 × 600 dpi), HQ-Schalter, Tintenmenge erklärt | ✅ |
 | M3.13 | USB: Backend aus Adresse, Gerätesuche, Modell aus USB-Kennung, Rechtelage dokumentiert | ✅ |
 | M3.14 | Druckerauswahl ohne Adress-Kenntnisse: Anschluss Netzwerk/USB, nur IP bzw. Geräteliste | ✅ |
+| M3.15 | USB-Rechte: udev-Regel (`uaccess`), Hinweis + „Zugriff einrichten“ im Panel, Helfer für die Installation | ✅ |
 | M4 | Vorlagen, Settings, `.deb`-Paket | ⏳ |
 
 ## Architektur
@@ -30,6 +31,7 @@ ql_editor/
   media.py       # Datenmodell (Baender, Modelle, Laenge/Ausrichtung) — kein Qt
   renderer.py    # Szene -> PIL.Image exakter Breite       (M2)
   printer.py     # brother_ql-Wrapper (convert + send)     (M2)
+  access.py      # USB-Rechte: udev-Regel, pkexec, Helfer   (M3.15)
   items.py       # Canvas-Items (Text/Bild/Barcode/QR/Linie) (M3)
   canvas.py      # QGraphicsScene mit fester px-Groesse       (M3)
   media_panel.py # Bandauswahl, Ausrichtung, Laenge, Margins  (M3)
@@ -106,18 +108,35 @@ python -m ql_editor
   zwar (das ist reine Geräteerkennung), aber Drucken und Band-Erkennung
   scheitern. Beide Wege am QL-700 nachgemessen:
 
-  | Weg | Fehler ohne Rechte | Abhilfe |
+  | Weg | Fehler ohne Rechte | Knoten |
   | --- | --- | --- |
-  | `/dev/usb/lp1` (Kernel) | `[Errno 13] Permission denied` | Mitgliedschaft in der Gruppe `lp` |
-  | `usb://0x04f9:0x2042` (libusb) | `Access denied (insufficient permissions)` | udev-Regel für libusb |
+  | `/dev/usb/lp1` (Kernel) | `[Errno 13] Permission denied` | `root:lp crw-rw----` |
+  | `usb://0x04f9:0x2042` (libusb) | `Access denied (insufficient permissions)` | `/dev/bus/usb/001/00x` |
+
+  Dagegen hilft genau **eine** udev-Regel mit `TAG+="uaccess"`
+  (`scripts/install-udev-rule.sh` schreibt sie nach
+  `/etc/udev/rules.d/99-brother-ql.rules`): systemd-logind setzt dann einen
+  ACL-Eintrag für den Benutzer der aktiven Sitzung. Das wirkt **sofort**
+  (kein Neuanmelden, keine Gruppe), überlebt das Umstecken und deckt beide
+  Wege ab - Kernel (`SUBSYSTEM=="usbmisc"`, `KERNEL=="lp*"`) und libusb
+  (`SUBSYSTEM=="usb"`), jeweils auf Hersteller `04f9` (Brother) begrenzt.
+
+  Eingerichtet wird sie auf zwei Wegen:
+  - **bei der Installation**: das Paket ruft den Helfer im `postinst` auf -
+     dann ist nie ein Passwort nötig (siehe M4);
+  - **zur Laufzeit**: im Panel unter „Drucker“ erscheint bei fehlenden Rechten
+     ein Hinweis samt Knopf „Zugriff einrichten“. Der startet den Helfer über
+     `pkexec`; das System zeigt seinen Passwort-Dialog, QLInux sieht das
+     Passwort nicht.
+
+  Ohne Passwort-Dialog (polkit-Agent) startet QLInux `pkexec` bewusst
+  **nicht**: am System nachgemessen wartet `pkexec` dann endlos, ohne zu
+  fragen oder abzubrechen. Stattdessen steht der Einzeiler markierbar im
+  Dialog:
 
   ```bash
-  # Weg 1 (empfohlen: kein Treiberstreit, Rückkanal bleibt) - danach neu anmelden
-  sudo usermod -aG lp "$USER"
-
-  # Weg 2 (Alternative, libusb direkt) - braucht zusaetzlich eine udev-Regel
-  # /etc/udev/rules.d/99-brother-ql.rules
-  SUBSYSTEM=="usb", ATTR{idVendor}=="04f9", MODE="0666", GROUP="plugdev"
+  sudo /usr/lib/ql-editor/install-udev-rule     # installiert
+  sudo scripts/install-udev-rule.sh             # aus dem Projekt
   ```
 
   Der Kernel-Weg ist zu bevorzugen: `pyusb` hängt den Kernel-Treiber ab

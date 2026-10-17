@@ -193,12 +193,28 @@ def _open_sheet(parent: QWidget, content: QWidget, **kwargs) -> Sheet:
     return sheet
 
 
-def show_message(parent: QWidget, kind: str, title: str, text: str) -> Sheet:
-    """Meldung (info/warning/critical) als Sheet."""
+def show_message(
+    parent: QWidget,
+    kind: str,
+    title: str,
+    text: str,
+    *,
+    selectable: bool = False,
+) -> Sheet:
+    """Meldung (info/warning/critical) als Sheet.
+
+    ``selectable=True`` macht den Text markierbar - fuer Befehle, die man
+    abschreiben soll.
+    """
     box = QMessageBox()
     box.setWindowFlags(Qt.WindowType.Widget)
     box.setIcon(_MESSAGE_ICONS.get(kind, QMessageBox.Icon.Information))
     box.setText(text)
+    if selectable:
+        box.setTextInteractionFlags(
+            Qt.TextInteractionFlag.TextSelectableByMouse
+            | Qt.TextInteractionFlag.TextSelectableByKeyboard
+        )
     box.setStandardButtons(QMessageBox.StandardButton.Ok)
     box.setDefaultButton(QMessageBox.StandardButton.Ok)
     sheet = _open_sheet(parent, box, title=title, sizing="hint")
