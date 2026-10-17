@@ -300,7 +300,6 @@ class MediaPanel(QWidget):
         self._color_combo.addItem(tr("schwarz/rot"), "red")
         self._border_label = QLabel("-")
         self._border_label.setWordWrap(True)
-        self._orientation_label = QLabel("-")
         media_form.addRow(tr("Band"), self._band_combo)
         media_form.addRow(tr("Farbe"), self._color_combo)
         media_form.addRow(tr("Ausrichtung"), self._build_orientation_row())
@@ -515,7 +514,11 @@ class MediaPanel(QWidget):
             button.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonIconOnly)
             layout.addWidget(button)
             self._orientation_buttons.append(button)
-        layout.addWidget(self._orientation_label, 1)
+        # Nur die beiden Knoepfe: ein Beschreibungstext daneben laesst die
+        # Zeile im schmalen Panel umbrechen (Layoutsprung). Was gerade
+        # gewaehlt ist, zeigt der eingerastete Knopf; die Erklaerung steht
+        # im Tooltip.
+        layout.addStretch(1)
         return row
 
     def orientation_actions(self) -> tuple[QAction, QAction]:
@@ -1196,7 +1199,6 @@ class MediaPanel(QWidget):
                 mm=QLocale().toString(label.side_border_mm, "f", 2)
             )
         )
-        self._orientation_label.setText(tr(self._orientation.label_de))
         self._update_result()
 
     def _update_result(self) -> None:

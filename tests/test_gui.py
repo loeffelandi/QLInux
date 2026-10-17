@@ -2136,7 +2136,7 @@ def test_panel_result_shows_real_content_length(qapp):
     win._media_panel.set_orientation(media.Orientation.ALONG)
     along = win._media_panel._size_label.text()
     assert across != along
-    assert "längs des Bandes" == win._media_panel._orientation_label.text()
+    assert win._media_panel._act_orient_along.isChecked()
 
 
 # --------------------------------------------------------------------------- #
@@ -3805,3 +3805,15 @@ def test_file_group_sits_right_after_the_burger(qapp, tmp_path):
     assert templates.builtins()[0][0] in entries
     win.close()
     qapp.processEvents()
+
+
+def test_orientation_row_cannot_wrap_at_narrow_panel_width(qapp):
+    """Die Ausrichtungs-Zeile ist nur die beiden Knoepfe - so passt sie in die
+    Feldspalte auch im schmalsten Panel (sonst springt das Layout)."""
+    from ql_editor.media_panel import MediaPanel
+
+    panel = MediaPanel()
+    row = panel._build_orientation_row()
+    assert row.sizeHint().width() <= 120
+    assert len(panel._orientation_buttons) == 2
+    row.deleteLater()
