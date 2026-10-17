@@ -22,7 +22,7 @@ import shutil
 from .i18n import tr
 
 #: Ablage der Regel, die der Helfer schreibt (gilt fuer alle Benutzer).
-UDEV_RULE_FILE = "/etc/udev/rules.d/99-brother-ql.rules"
+UDEV_RULE_FILE = "/etc/udev/rules.d/70-brother-ql.rules"
 
 #: Helfer im installierten Paket.
 INSTALLED_HELPER = "/usr/lib/ql-editor/install-udev-rule"

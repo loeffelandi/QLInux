@@ -118,11 +118,19 @@ python -m ql_editor
 
   Dagegen hilft genau **eine** udev-Regel mit `TAG+="uaccess"`
   (`scripts/install-udev-rule.sh` schreibt sie nach
-  `/etc/udev/rules.d/99-brother-ql.rules`): systemd-logind setzt dann einen
+  `/etc/udev/rules.d/70-brother-ql.rules`): systemd-logind setzt dann einen
   ACL-Eintrag für den Benutzer der aktiven Sitzung. Das wirkt **sofort**
   (kein Neuanmelden, keine Gruppe), überlebt das Umstecken und deckt beide
   Wege ab - Kernel (`SUBSYSTEM=="usbmisc"`, `KERNEL=="lp*"`) und libusb
   (`SUBSYSTEM=="usb"`), jeweils auf Hersteller `04f9` (Brother) begrenzt.
+
+  Die Dateinummer ist **nicht beliebig**: den ACL-Eintrag setzt der
+  `uaccess`-Builtin in `73-seat-late.rules` über
+  `TAG=="uaccess", ENV{MAJOR}!="", RUN{builtin}+="uaccess"`. Die Regel liest
+  das Tag also erst aus, wenn es schon gesetzt ist - eine `99-`Datei kommt
+  dafür zu spät (das Tag erscheint dann zwar in der udev-Datenbank, der
+  ACL-Eintrag entsteht aber nie). Deshalb `70-`, wie die Systemregeln in
+  `70-uaccess.rules` und `71-*-controllers.rules`.
 
   Eingerichtet wird sie auf zwei Wegen:
   - **bei der Installation**: das Paket ruft den Helfer im `postinst` auf -

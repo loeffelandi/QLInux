@@ -266,7 +266,7 @@ nicht wieder an - `/dev/usb/lp1` ist danach bis zum Umstecken weg; der
 Kernel-Weg hat dieses Problem nicht.
 
 **Gewaehlte Abhilfe: eine udev-Regel mit `TAG+="uaccess"`**
-(`scripts/install-udev-rule.sh`, Ziel `/etc/udev/rules.d/99-brother-ql.rules`):
+(`scripts/install-udev-rule.sh`, Ziel `/etc/udev/rules.d/70-brother-ql.rules`):
 
 ```
 SUBSYSTEM=="usbmisc", KERNEL=="lp*", ATTRS{idVendor}=="04f9", TAG+="uaccess"
@@ -281,6 +281,14 @@ Gruende gegen die naheliegenden Alternativen:
 * `TAG+="uaccess"` setzt einen ACL-Eintrag fuer den Benutzer der aktiven
   Sitzung: sofort wirksam, nach dem Umstecken wieder da, kein Login noetig.
   Muster bestaetigt in `/usr/lib/udev/rules.d/60-steam-input.rules`.
+
+**Am QL-700 nachgemessen (und dabei den Fehler gefunden):** mit dem Tag in
+einer `99-`Datei steht in `/run/udev/data/c180:1` zwar `G:uaccess`, der
+ACL-Eintrag fehlt aber - `getfacl /dev/usb/lp1` zeigt keinen Benutzer. Grund:
+`73-seat-late.rules` prueft `TAG=="uaccess"` und laeuft **vor** einer
+99-Datei; der `uaccess`-Builtin wird also nie aufgerufen. Mit `70-` (vor 73)
+greift es: `getfacl` zeigt `user:andraeas:rw-` auf `/dev/usb/lp1` und
+`/dev/bus/usb/001/00x`.
 
 `udevadm info /dev/usb/lp1` zeigt `SUBSYSTEM=usbmisc` (nicht `usb`) - deshalb
 braucht der Kernel-Weg eine eigene Zeile; `ATTRS{idVendor}` laeuft dafuer die
