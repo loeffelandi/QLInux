@@ -143,6 +143,19 @@ DEFAULT_FONT_HEIGHT_RATIO = 0.25
 DEFAULT_FONT_MIN_PX = 16
 
 
+#: Worker ohne Elternteil. Ein noch laufender Thread darf das schliessende
+#: Fenster nicht als Qt-Parent haben - sonst reisst der Abbau den Thread mit
+#: ("QThread: Destroyed while thread is still running").
+_orphan_workers: list[QThread] = []
+
+
+def _forget_orphan(worker: QThread) -> None:
+    try:
+        _orphan_workers.remove(worker)
+    except ValueError:
+        return
+
+
 class PrintWorker(QThread):
     """Rendert nichts, sondern konvertiert und sendet in einem Thread."""
 
@@ -150,7 +163,7 @@ class PrintWorker(QThread):
     failed = Signal(str)
 
     def __init__(self, image: Image.Image, label, config, options: dict):
-        super().__init__()
+        super().__init__(None)
         self._image = image
         self._label = label
         self._config = config
@@ -175,7 +188,8 @@ class NetworkSearchWorker(QThread):
     succeeded = Signal(list)
 
     def __init__(self, cancel: threading.Event, parent=None):
-        super().__init__(parent)
+        del parent  # absichtlich kein Qt-Parent, siehe _orphan_workers
+        super().__init__(None)
         self._cancel = cancel
 
     def run(self) -> None:  # noqa: D401
@@ -194,7 +208,8 @@ class DetectLabelWorker(QThread):
     failed = Signal(str)
 
     def __init__(self, config, parent=None):
-        super().__init__(parent)
+        del parent  # absichtlich kein Qt-Parent, siehe _orphan_workers
+        super().__init__(None)
         self._config = config
 
     def run(self) -> None:  # noqa: D401
@@ -1190,6 +1205,10 @@ class MainWindow(QMainWindow):
     def _on_media_changed(self) -> None:
         if self._adjusting:
             return
+        # Das Band ist schon umgestellt. Eine offene Inspector-Aenderung
+        # gehoert noch zum vorherigen Medium - sonst verschluckt sie der
+        # Band-Befehl oder beide landen in einem Schritt.
+        self._seal_open_inspector_edit()
         prev_media = self._media_prev
         self._media_prev = deepcopy(dict(self._media_panel.media_state()))
         self._recompute_canvas()
@@ -1273,6 +1292,7 @@ class MainWindow(QMainWindow):
         if self._adjusting:
             self._margin_prev[key] = float(value)
             return
+        self._seal_open_inspector_edit()
         if self._history_before is None:
             media = dict(self._media_panel.media_state())
             margins = dict(media.get("margins") or {})
@@ -1309,10 +1329,13 @@ class MainWindow(QMainWindow):
 
     # -------------------------------------------------------------- History --
     def _selection_keys(self) -> list[dict[str, Any]]:
+        """Auswahl als Index in ``ordered_items`` - Position allein ist nicht eindeutig."""
+        ordered = self._canvas.ordered_items()
+        index_of = {id(item): index for index, item in enumerate(ordered)}
         return [
-            {"x": item.pos().x(), "y": item.pos().y(), "z": item.zValue()}
+            {"index": index_of[id(item)]}
             for item in self._canvas.selected_items()
-            if hasattr(item, "to_dict")
+            if id(item) in index_of
         ]
 
     def _design_snapshot(self) -> dict[str, Any]:
@@ -1338,29 +1361,55 @@ class MainWindow(QMainWindow):
         ):
             self._update_window_title()
 
+    def _seal_open_inspector_edit(self) -> None:
+        """Offene Inspector-Bearbeitung abschliessen, ohne das neue Medium mitzunehmen.
+
+        ``changed`` vom Band-Panel kommt erst, wenn das Medium schon neu ist.
+        Der Schnappschuss der Inspector-Aenderung behaelt deshalb das Medium
+        aus ``before``; der Bandwechsel wird anschliessend ein eigener Schritt.
+        """
+        if not self._inspector.edit_open:
+            return
+        before = self._history_before
+        self._history_before = None
+        self._inspector.cancel_edit_tracking()
+        if before is None:
+            return
+        after = design_snapshot(
+            before.get("media") or {},
+            self._canvas.items_serialized(),
+            self._selection_keys(),
+        )
+        if push_if_changed(
+            self._undo_stack, before, after, self._restore_design, tr("Eigenschaften")
+        ):
+            self._update_window_title()
+
     def _restore_design(self, snapshot: dict[str, Any]) -> None:
         """Medien und Objekte aus einem Undo-Schnappschuss setzen."""
         self._adjusting = True
         self._history_suppress = True
         try:
             self._media_panel.apply_media_state(snapshot.get("media") or {})
-            self._canvas.load_items(list(snapshot.get("items") or []))
+            loaded = self._canvas.load_items(list(snapshot.get("items") or []))
             self._sync_margin_base()
             keys = list(snapshot.get("selection") or [])
             self._canvas.scene().clearSelection()
-            if keys:
-                for item in self._canvas.scene().items():
-                    if not hasattr(item, "to_dict"):
-                        continue
+            for key in keys:
+                index = key.get("index")
+                if isinstance(index, int) and 0 <= index < len(loaded):
+                    loaded[index].setSelected(True)
+                    continue
+                # Aeltere Schnappschuesse: Position, wenn der Index fehlt.
+                for item in loaded:
                     pos = item.pos()
-                    for key in keys:
-                        if (
-                            abs(pos.x() - float(key.get("x", 0))) < 0.5
-                            and abs(pos.y() - float(key.get("y", 0))) < 0.5
-                            and abs(item.zValue() - float(key.get("z", 0))) < 0.5
-                        ):
-                            item.setSelected(True)
-                            break
+                    if (
+                        abs(pos.x() - float(key.get("x", 0))) < 0.5
+                        and abs(pos.y() - float(key.get("y", 0))) < 0.5
+                        and abs(item.zValue() - float(key.get("z", 0))) < 0.5
+                    ):
+                        item.setSelected(True)
+                        break
         finally:
             self._adjusting = False
             self._history_suppress = False
@@ -1667,23 +1716,45 @@ class MainWindow(QMainWindow):
         if str(item.toPlainText()).strip():
             self._commit_history(tr("Text"))
             return
-        QTimer.singleShot(0, lambda: self._discard_text_if_empty(item))
+        # Schnappschuss sofort freigeben: der Klick, der die Bearbeitung
+        # beendet, startet oft im selben Atemzug die naechste Geste. Das
+        # leere Feld zaehlt ab hier nicht mehr mit (``_pending_discard``),
+        # der Undo-Schritt entsteht aber schon jetzt - nicht erst im Timer,
+        # der sonst die Geste dazwischen in denselben Befehl ziehen wuerde.
+        before = self._history_before
+        self._history_before = None
+        item._pending_discard = True
+        pushed = push_if_changed(
+            self._undo_stack,
+            before,
+            self._design_snapshot(),
+            self._restore_design,
+            tr("Löschen"),
+        )
+        if pushed:
+            self._update_window_title()
+        QTimer.singleShot(0, lambda: self._discard_text_if_empty(item, pushed))
 
-    def _discard_text_if_empty(self, item: TextItem) -> None:
-        if item.scene() is None or str(item.toPlainText()).strip():
+    def _discard_text_if_empty(self, item: TextItem, pushed: bool = False) -> None:
+        if item.scene() is None:
             return
         # Laeuft die Bearbeitung inzwischen wieder (z. B. nach einem Refresh,
         # der die Textmarke ausblendet), bleibt das Feld stehen - verworfen
         # wird nur, was wirklich nicht mehr in Bearbeitung ist.
-        if item.is_editing:
+        if item.is_editing or str(item.toPlainText()).strip():
+            item._pending_discard = False
+            if (
+                pushed
+                and self._undo_stack.undoText() == tr("Löschen")
+                and self._undo_stack.index() == self._undo_stack.count()
+            ):
+                self._undo_stack.undo()
             return
-        self._capture_history()
         self._history_suppress = True
         try:
             self._canvas.remove_item(item)
         finally:
             self._history_suppress = False
-        self._commit_history(tr("Löschen"))
         self._on_items_changed()
 
     def _on_text_edited(self) -> None:
@@ -1935,8 +2006,12 @@ class MainWindow(QMainWindow):
         self._print_worker = PrintWorker(image, label, config, options)
         self._print_worker.succeeded.connect(self._on_print_succeeded)
         self._print_worker.failed.connect(self._on_print_failed)
-        self._print_worker.finished.connect(lambda: self._print_button.setEnabled(True))
+        self._print_worker.finished.connect(self._on_print_finished)
+        self._print_worker.finished.connect(self._print_worker.deleteLater)
         self._print_worker.start()
+
+    def _on_print_finished(self) -> None:
+        self._print_button.setEnabled(True)
 
     def _on_print_succeeded(self, status: dict) -> None:
         self.statusBar().showMessage(
@@ -2033,9 +2108,10 @@ class MainWindow(QMainWindow):
         self._network_cancel.clear()
         self._media_panel.set_network_searching(True)
         self.statusBar().showMessage(tr("Netzwerk wird durchsucht …"), 4000)
-        self._network_worker = NetworkSearchWorker(self._network_cancel, self)
+        self._network_worker = NetworkSearchWorker(self._network_cancel)
         self._network_worker.succeeded.connect(self._on_network_found)
         self._network_worker.finished.connect(self._on_network_search_done)
+        self._network_worker.finished.connect(self._network_worker.deleteLater)
         self._network_worker.start()
 
     def _on_network_found(self, printers: list) -> None:
@@ -2100,10 +2176,11 @@ class MainWindow(QMainWindow):
             return
         config = self._media_panel.printer_config()
         QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
-        self._detect_worker = DetectLabelWorker(config, self)
+        self._detect_worker = DetectLabelWorker(config)
         self._detect_worker.succeeded.connect(self._on_detect_label_done)
         self._detect_worker.failed.connect(self._on_detect_label_failed)
         self._detect_worker.finished.connect(self._on_detect_label_finished)
+        self._detect_worker.finished.connect(self._detect_worker.deleteLater)
         self._detect_worker.start()
 
     def _on_detect_label_finished(self) -> None:
@@ -2305,14 +2382,64 @@ class MainWindow(QMainWindow):
         )
 
     # -------------------------------------------------------------- Close ---
+    def _disconnect_worker(self, worker: QThread | None, slots: list[tuple]) -> None:
+        """Ergebnis-Signale loesen, warten, und einen haengenden Thread behalten.
+
+        Ohne Qt-Parent ueberlebt der Thread das Fenster. Die Slots duerfen das
+        geschlossene Fenster nicht mehr ansprechen; ``deleteLater`` bleibt.
+        """
+        if worker is None or not hasattr(worker, "isRunning"):
+            return
+        for signal, slot in slots:
+            try:
+                signal.disconnect(slot)
+            except RuntimeError:
+                continue
+        if not worker.isRunning():
+            return
+        worker.wait(NETWORK_CANCEL_WAIT_MS)
+        if worker.isRunning():
+            _orphan_workers.append(worker)
+            worker.finished.connect(lambda worker=worker: _forget_orphan(worker))
+
     def closeEvent(self, event) -> None:  # noqa: N802
-        # Laufende Netzwerksuche abbrechen, damit kein Thread das geschlossene
+        # Laufende Suche abbrechen, damit kein Thread das geschlossene
         # Fenster anspricht.
         self._network_cancel.set()
-        if self._network_worker is not None and self._network_worker.isRunning():
-            self._network_worker.wait(NETWORK_CANCEL_WAIT_MS)
         if self._detect_worker is not None and self._detect_worker.isRunning():
-            self._detect_worker.wait(NETWORK_CANCEL_WAIT_MS)
+            QApplication.restoreOverrideCursor()
+        network = self._network_worker
+        self._disconnect_worker(
+            network,
+            [
+                (network.succeeded, self._on_network_found),
+                (network.finished, self._on_network_search_done),
+            ]
+            if network is not None
+            else [],
+        )
+        detect = self._detect_worker
+        self._disconnect_worker(
+            detect,
+            [
+                (detect.succeeded, self._on_detect_label_done),
+                (detect.failed, self._on_detect_label_failed),
+                (detect.finished, self._on_detect_label_finished),
+            ]
+            if detect is not None
+            else [],
+        )
+        printing = self._print_worker
+        self._disconnect_worker(
+            printing,
+            [
+                (printing.succeeded, self._on_print_succeeded),
+                (printing.failed, self._on_print_failed),
+                (printing.finished, self._on_print_finished),
+            ]
+            if printing is not None
+            else [],
+        )
         self._settings.save_geometry(self.saveGeometry())
         self._settings.address = self._media_panel.address()
         self._settings.model = self._media_panel.model_id()

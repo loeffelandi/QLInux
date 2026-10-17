@@ -4212,6 +4212,131 @@ def test_text_items_restored_by_undo_are_wired(qapp, tmp_path):
     qapp.processEvents()
 
 
+def test_cancelled_new_text_does_not_swallow_the_next_drag(qapp, tmp_path):
+    """Leeres neues Textfeld verschwindet ohne „Löschen"; der folgende Zug bleibt ein eigener Schritt."""
+    from PySide6.QtCore import QPointF, QRectF
+
+    from ql_editor.items import RectItem, TextItem
+
+    win = _temp_window(qapp, tmp_path)
+    rect = RectItem(QRectF(0, 0, 40, 30), width_px=2)
+    win._add_item(rect, QPointF(100, 80))
+    qapp.processEvents()
+    x0 = rect.pos().x()
+    count = win._undo_stack.count()
+
+    win._new_text(QPointF(20, 20))
+    win._canvas.cancel_editing()
+    # Noch vor dem verzoegerten Entfernen: die naechste Geste muss ihren
+    # eigenen Schnappschuss bekommen.
+    assert win._history_before is None
+    assert win._undo_stack.count() == count
+    win._canvas.gesture_begun.emit()
+    rect._clamp_suspended = True
+    rect.setPos(x0 + 30, rect.pos().y())
+    rect._clamp_suspended = False
+    win._canvas.items_changed.emit()
+    qapp.processEvents()
+
+    assert not any(isinstance(i, TextItem) for i in win._canvas.scene().items())
+    assert win._undo_stack.undoText() == "Bearbeiten"
+    win._act_undo.trigger()
+    qapp.processEvents()
+    again = next(i for i in win._canvas.scene().items() if isinstance(i, RectItem))
+    assert again.pos().x() == pytest.approx(x0)
+    assert not any(isinstance(i, TextItem) for i in win._canvas.scene().items())
+    win.close()
+    qapp.processEvents()
+
+
+def test_clearing_an_existing_text_field_is_one_delete_step(qapp, tmp_path):
+    """Bestehenden Text leeren: ein „Löschen"-Schritt, Undo stellt den Text her."""
+    from PySide6.QtCore import QPointF
+
+    from ql_editor.items import TextItem
+
+    win = _temp_window(qapp, tmp_path)
+    text = win._new_text(QPointF(40, 40))
+    text.textCursor().insertText("Hallo")
+    win._canvas.cancel_editing()
+    qapp.processEvents()
+    text = next(i for i in win._canvas.scene().items() if isinstance(i, TextItem))
+    text.start_editing()
+    cursor = text.textCursor()
+    cursor.select(cursor.SelectionType.Document)
+    cursor.removeSelectedText()
+    win._canvas.cancel_editing()
+    qapp.processEvents()
+
+    assert win._undo_stack.undoText() == "Löschen"
+    assert not any(isinstance(i, TextItem) for i in win._canvas.scene().items())
+    win._act_undo.trigger()
+    qapp.processEvents()
+    restored = next(i for i in win._canvas.scene().items() if isinstance(i, TextItem))
+    assert restored.toPlainText() == "Hallo"
+    win.close()
+    qapp.processEvents()
+
+
+def test_redo_selects_only_the_item_that_was_selected(qapp, tmp_path):
+    """Zwei Objekte am selben Ort: Redo stellt nur die vorherige Auswahl her."""
+    from PySide6.QtCore import QRectF
+
+    from ql_editor.items import RectItem
+
+    win = _temp_window(qapp, tmp_path)
+    win._add_item(RectItem(QRectF(0, 0, 40, 30), width_px=2))
+    win._add_item(RectItem(QRectF(0, 0, 50, 20), width_px=2))
+    qapp.processEvents()
+    assert sum(1 for i in win._canvas.ordered_items() if i.isSelected()) == 1
+
+    win._act_undo.trigger()
+    qapp.processEvents()
+    win._act_redo.trigger()
+    qapp.processEvents()
+
+    selected = [item for item in win._canvas.ordered_items() if item.isSelected()]
+    assert len(selected) == 1
+    # Das zweite, zuletzt eingefuegte Rechteck (50 breit), nicht beide.
+    assert selected[0].rect().width() == 50
+    win.close()
+    qapp.processEvents()
+
+
+def test_band_change_stays_its_own_step_after_an_open_inspector_edit(qapp, tmp_path):
+    """Spin ohne editingFinished, dann Bandwechsel: zwei getrennte Undo-Schritte."""
+    from PySide6.QtWidgets import QSpinBox
+
+    from ql_editor.items import TextItem
+
+    win = _temp_window(qapp, tmp_path)
+    win._add_item(TextItem("X", font_pixel_size=40))
+    qapp.processEvents()
+    item = next(i for i in win._canvas.scene().items() if isinstance(i, TextItem))
+    item.setSelected(True)
+    qapp.processEvents()
+    size = next(
+        spin
+        for spin in win._inspector.findChildren(QSpinBox)
+        if spin.minimum() == 4 and spin.maximum() == 2000
+    )
+    size.setValue(size.value() + 4)
+    assert win._inspector.edit_open is True
+    original = win._media_panel.label_id()
+    combo = win._media_panel._band_combo
+    combo.setCurrentIndex((combo.currentIndex() + 1) % combo.count())
+    qapp.processEvents()
+
+    names = [win._undo_stack.command(i).text() for i in range(win._undo_stack.count())]
+    assert "Eigenschaften" in names
+    assert "Band" in names
+    assert names.index("Band") > names.index("Eigenschaften")
+    assert win._inspector.edit_open is False
+    assert win._media_panel.label_id() != original
+    win.close()
+    qapp.processEvents()
+
+
 def test_content_beyond_a_margin_is_not_printed(qapp, tmp_path):
     """Der Rand schneidet ab: was hinter ihm liegt, fehlt im Druckbild -
     auch im Querformat, wo der rechte Rand die Bandbreite nicht veraendert."""

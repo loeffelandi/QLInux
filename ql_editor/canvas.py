@@ -1484,18 +1484,36 @@ class LabelCanvas(QGraphicsView):
             self._update_pasteboard()
             self.items_changed.emit()
 
-    def items_serialized(self) -> list[dict[str, Any]]:
-        result = [it.to_dict() for it in self._scene.items() if hasattr(it, "to_dict")]
-        result.sort(key=lambda d: d.get("z", 0.0))
-        return result
+    def ordered_items(self) -> list:
+        """Serialisierbare Objekte in derselben Reihenfolge wie ``items_serialized``.
 
-    def load_items(self, data: list[dict[str, Any]]) -> None:
+        Ein Objekt mit ``_pending_discard`` (leeres Textfeld, das gerade
+        verworfen wird) zaehlt nicht mit - der Undo-Schnappschuss der
+        naechsten Geste soll es nicht mehr sehen.
+        """
+        items = [
+            it
+            for it in self._scene.items()
+            if hasattr(it, "to_dict") and not getattr(it, "_pending_discard", False)
+        ]
+        items.sort(key=lambda it: it.zValue())
+        return items
+
+    def items_serialized(self) -> list[dict[str, Any]]:
+        return [it.to_dict() for it in self.ordered_items()]
+
+    def load_items(self, data: list[dict[str, Any]]) -> list:
+        """Objekte ersetzen. Liefert die neuen Items in ``data``-Reihenfolge."""
         for existing in list(self._scene.items()):
             if hasattr(existing, "to_dict"):
                 self._scene.removeItem(existing)
+        loaded = []
         for d in data:
-            self._scene.addItem(items_mod.item_from_dict(d))
+            item = items_mod.item_from_dict(d)
+            self._scene.addItem(item)
+            loaded.append(item)
         self._update_pasteboard()
+        return loaded
 
     def clear_items(self) -> None:
         for existing in list(self._scene.items()):
