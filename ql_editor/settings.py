@@ -79,6 +79,15 @@ class AppSettings:
     def image_dir(self, value: str) -> None:
         self.set_value("files/image_dir", value)
 
+    @property
+    def document_dir(self) -> str:
+        """Zuletzt benutzter Ordner fuer Etikett-Dateien (``.qlx``)."""
+        return str(self.value("files/document_dir", ""))
+
+    @document_dir.setter
+    def document_dir(self, value: str) -> None:
+        self.set_value("files/document_dir", value)
+
     # -- Druckoptionen ------------------------------------------------------
     @staticmethod
     def _as_int(value, default: int) -> int:

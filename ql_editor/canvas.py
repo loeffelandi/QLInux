@@ -1394,6 +1394,8 @@ class LabelCanvas(QGraphicsView):
         self._scene.clearSelection()
         item.setSelected(True)
         self._update_pasteboard()
+        # Die Objektliste hat sich geaendert - nicht erst nach einer Geste.
+        self.items_changed.emit()
 
     def selected_items(self) -> list:
         return list(self._scene.selectedItems())
@@ -1402,12 +1404,14 @@ class LabelCanvas(QGraphicsView):
         for item in self.selected_items():
             self._scene.removeItem(item)
         self._update_pasteboard()
+        self.items_changed.emit()
 
     def remove_item(self, item) -> None:
         """Ein einzelnes Item entfernen (Auswahl der uebrigen bleibt)."""
         if item.scene() is self._scene:
             self._scene.removeItem(item)
             self._update_pasteboard()
+            self.items_changed.emit()
 
     def items_serialized(self) -> list[dict[str, Any]]:
         result = [it.to_dict() for it in self._scene.items() if hasattr(it, "to_dict")]

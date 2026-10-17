@@ -158,6 +158,33 @@ EN: dict[str, str] = {
     "Kein Drucker gewählt.": "No printer selected.",
     "Abbrechen": "Cancel",
     "Öffnen": "Open",
+    "Speichern": "Save",
+    "Datei": "File",
+    "Öffnen…": "Open…",
+    "Etikett öffnen (Strg+O)": "Open label (Ctrl+O)",
+    "Etikett speichern (Strg+S)": "Save label (Ctrl+S)",
+    "Speichern unter…": "Save as…",
+    "Etikett unter neuem Namen speichern (Strg+Umschalt+S)": (
+        "Save label under a new name (Ctrl+Shift+S)"
+    ),
+    "Unbenannt": "Untitled",
+    "Etikett öffnen": "Open label",
+    "Etikett speichern": "Save label",
+    "QLInux-Etiketten (*{suffix})": "QLInux labels (*{suffix})",
+    "Etikett geöffnet: {name}": "Label opened: {name}",
+    "Etikett gespeichert: {name}": "Label saved: {name}",
+    "Konnte {path} nicht speichern: {error}": "Could not save {path}: {error}",
+    "Konnte {path} nicht lesen: {error}": "Could not read {path}: {error}",
+    "{path} ist kein QLInux-Dokument: {error}": (
+        "{path} is not a QLInux document: {error}"
+    ),
+    "{path} ist kein QLInux-Dokument.": "{path} is not a QLInux document.",
+    "{path} ist kein QLInux-Dokument: Objektliste fehlt.": (
+        "{path} is not a QLInux document: no list of objects."
+    ),
+    "Unbekanntes Format ({number}) - bitte mit einer neueren QLInux-Fassung öffnen.": (
+        "Unknown format ({number}) – please open it with a newer QLInux version."
+    ),
     "Keine Netzwerk-Drucker gefunden.": "No network printers found.",
     "Netzwerk nach Druckern durchsuchen (mDNS und SNMP).": (
         "Search the network for printers (mDNS and SNMP)."

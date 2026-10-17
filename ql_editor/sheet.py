@@ -276,6 +276,43 @@ def choose_file(
     return sheet
 
 
+def save_file(
+    parent: QWidget,
+    *,
+    caption: str,
+    name_filter: str,
+    on_selected: Callable[[str | None], None],
+    start_dir: str = "",
+    default_name: str = "",
+) -> Sheet:
+    """Speicherort waehlen - wie :func:`choose_file`, nur zum Schreiben."""
+    dialog = QFileDialog()
+    dialog.setWindowFlags(Qt.WindowType.Widget)
+    dialog.setOption(QFileDialog.Option.DontUseNativeDialog, True)
+    dialog.setSizeGripEnabled(False)
+    dialog.setFileMode(QFileDialog.FileMode.AnyFile)
+    dialog.setAcceptMode(QFileDialog.AcceptMode.AcceptSave)
+    dialog.setNameFilter(name_filter)
+    dialog.setDirectory(start_dir or QDir.homePath())
+    if default_name:
+        dialog.selectFile(default_name)
+    dialog.setLabelText(QFileDialog.DialogLabel.Accept, tr("Speichern"))
+    dialog.setLabelText(QFileDialog.DialogLabel.Reject, tr("Abbrechen"))
+    dialog.setMinimumSize(560, 380)
+    sheet = _open_sheet(
+        parent, dialog, title=caption, sizing="fill", max_size=QSize(980, 700)
+    )
+
+    def _finished(result: int) -> None:
+        files = dialog.selectedFiles()
+        sheet.close_sheet()
+        selected = files[0] if result == QDialog.DialogCode.Accepted and files else None
+        on_selected(selected)
+
+    dialog.finished.connect(_finished)
+    return sheet
+
+
 def ask_text(
     parent: QWidget,
     *,

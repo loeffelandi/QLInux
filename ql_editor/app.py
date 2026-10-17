@@ -57,6 +57,7 @@ from PySide6.QtWidgets import (
 
 from . import access
 from . import about
+from . import document
 from . import media
 from .canvas import LabelCanvas
 from .discovery import discover_network_printers
@@ -99,7 +100,7 @@ from .printer import (
     resolution_options,
 )
 from .settings import AppSettings
-from .sheet import ask_choice, ask_text, choose_file, show_message
+from .sheet import ask_choice, ask_text, choose_file, save_file, show_message
 from .widgets import SmoothScrollArea, install_wheel_guard_recursive
 
 BARCODE_SYMBOLOGIES = ["code128", "code39", "ean13", "ean8", "upca", "itf", "codabar"]
@@ -238,6 +239,10 @@ class MainWindow(QMainWindow):
         # Vorschau live; die Bandgroesse wird erst am Ende der Geste neu berechnet.
         self._canvas.scene().changed.connect(self._on_scene_changed)
         self._inspector.changed.connect(self._on_inspector_changed)
+        # Aenderungen am Band/Design markieren das Dokument als geaendert
+        # (die Adresse zaehlt mit - ein falscher Stern ist harmloser als
+        # ein fehlender).
+        self._media_panel.changed.connect(self._mark_document_dirty)
 
         # Rad-Ereignisse duerfen keine Werte in Feldern aendern (auch nicht in
         # den dynamisch erzeugten Inspector-Feldern - die sichern sich selbst).
@@ -607,7 +612,7 @@ class MainWindow(QMainWindow):
         self._act_delete = QAction(icon("delete"), tr("Löschen"), self)
         self._act_delete.setToolTip(tr("Löschen (Entf)"))
         self._act_delete.setShortcut(QKeySequence.StandardKey.Delete)
-        self._act_delete.triggered.connect(self._canvas.delete_selected)
+        self._act_delete.triggered.connect(self._delete_selected)
 
         self._act_zoom_fit = QAction(icon("zoom_fit"), tr("Einpassen"), self)
         self._act_zoom_fit.setToolTip(tr("Zoom: Einpassen (Ctrl+0)"))
@@ -680,6 +685,27 @@ class MainWindow(QMainWindow):
         self._act_about.setToolTip(tr("Über QLInux"))
         self._act_about.triggered.connect(self._show_about)
 
+        # Datei: ein Etikett ist eine Datei (JSON, .qlx) - nicht nur ein Fenster.
+        self._act_file_open = QAction(icon("open"), tr("Öffnen…"), self)
+        self._act_file_open.setToolTip(tr("Etikett öffnen (Strg+O)"))
+        self._act_file_open.setShortcut(QKeySequence.StandardKey.Open)
+        self._act_file_open.triggered.connect(self._on_file_open)
+
+        self._act_file_save = QAction(icon("save"), tr("Speichern"), self)
+        self._act_file_save.setToolTip(tr("Etikett speichern (Strg+S)"))
+        self._act_file_save.setShortcut(QKeySequence.StandardKey.Save)
+        self._act_file_save.triggered.connect(self._on_file_save)
+
+        self._act_file_save_as = QAction(icon("save_as"), tr("Speichern unter…"), self)
+        self._act_file_save_as.setToolTip(tr("Etikett unter neuem Namen speichern (Strg+Umschalt+S)"))
+        self._act_file_save_as.setShortcut(QKeySequence.StandardKey.SaveAs)
+        self._act_file_save_as.triggered.connect(self._on_file_save_as)
+
+        # Der Dateiname steht im Fenstertitel; ein Stern markiert Aenderungen.
+        self._document_path = ""
+        self._document_dirty = False
+        self._canvas.items_changed.connect(self._mark_document_dirty)
+
     def _build_toolbar(self) -> None:
         bar = self.addToolBar("Werkzeuge")
         bar.setObjectName("main_toolbar")
@@ -730,6 +756,13 @@ class MainWindow(QMainWindow):
         zustand automatisch synchron.
         """
         menu = QMenu(self)
+        menu.addSection(tr("Datei"))
+        for act in (
+            self._act_file_open,
+            self._act_file_save,
+            self._act_file_save_as,
+        ):
+            menu.addAction(act)
         menu.addSection(tr("Einfügen"))
         for act in (
             self._act_add_text,
@@ -1088,6 +1121,7 @@ class MainWindow(QMainWindow):
             item.editing_finished.connect(self._on_text_editing_finished)
         self._canvas.add_item(item)
         self._canvas.setFocus()
+        self._mark_document_dirty()
         self._recompute_canvas()
         self._schedule_refresh()
         self._on_selection_changed()
@@ -1146,9 +1180,15 @@ class MainWindow(QMainWindow):
         self._inspector.set_item(item, allow_red=allow_red)
 
     def _on_inspector_changed(self) -> None:
+        self._mark_document_dirty()
         self._canvas.viewport().update()
         self._recompute_canvas()
         self._schedule_refresh()
+
+    def _delete_selected(self) -> None:
+        """Objekte loeschen - und das Dokument als geaendert markieren."""
+        self._mark_document_dirty()
+        self._canvas.delete_selected()
 
     def _on_zoom_changed(self, percent: float) -> None:
         self._update_zoom_label(percent)
@@ -1218,7 +1258,7 @@ class MainWindow(QMainWindow):
             menu.addAction(
                 icon("back"), tr("In den Hintergrund"), lambda: self._bump_z(-1)
             )
-            menu.addAction(icon("delete"), tr("Löschen"), self._canvas.delete_selected)
+            menu.addAction(icon("delete"), tr("Löschen"), self._delete_selected)
         return menu
 
     def _show_context_menu(self, global_pos, scene_pos: QPointF) -> None:
@@ -1548,6 +1588,118 @@ class MainWindow(QMainWindow):
     def _show_about(self) -> None:
         """„Über QLInux": Modellliste, Lizenz, Danksagung (siehe about.py)."""
         about.show_about(self)
+
+    # ------------------------------------------------------------- Dateien --
+    def _document_data(self) -> dict:
+        """Aktuelles Design als Dokumentdaten (Band/Design + Objekte)."""
+        return document.build(
+            self._media_panel.media_state(), self._canvas.items_serialized()
+        )
+
+    def _apply_document(self, data: dict) -> None:
+        """Dokumentdaten uebernehmen - Adresse und Anschluss bleiben stehen."""
+        self._adjusting = True
+        try:
+            self._media_panel.apply_media_state(data.get("media") or {})
+            self._canvas.load_items(list(data.get("items") or []))
+        finally:
+            self._adjusting = False
+        self._recompute_canvas()
+        self._schedule_refresh()
+
+    def _set_document_path(self, path: str) -> None:
+        self._document_path = path
+        self._document_dirty = False
+        self._update_window_title()
+
+    def _mark_document_dirty(self) -> None:
+        """Etwas am Etikett geaendert - Stern im Titel."""
+        if self._adjusting or self._document_dirty:
+            return
+        self._document_dirty = True
+        self._update_window_title()
+
+    def _update_window_title(self) -> None:
+        base = tr("QLInux - P-touch Editor")
+        if not self._document_path and not self._document_dirty:
+            self.setWindowTitle(base)
+            return
+        name = (
+            Path(self._document_path).name
+            if self._document_path
+            else tr("Unbenannt")
+        )
+        star = "*" if self._document_dirty else ""
+        self.setWindowTitle(f"{name}{star} – {base}")
+
+    def _on_file_open(self) -> None:
+        """„Öffnen…": Datei waehlen und laden."""
+        choose_file(
+            self,
+            caption=tr("Etikett öffnen"),
+            name_filter=tr("QLInux-Etiketten (*{suffix})").format(
+                suffix=document.DOCUMENT_SUFFIX
+            ),
+            start_dir=self._settings.document_dir or "",
+            on_selected=self._open_document_chosen,
+        )
+
+    def _open_document_chosen(self, path: str | None) -> None:
+        if not path:
+            return
+        try:
+            data = document.load(path)
+        except document.DocumentError as exc:
+            show_message(self, "critical", tr("Etikett öffnen"), str(exc))
+            return
+        self._apply_document(data)
+        self._set_document_path(path)
+        self.statusBar().showMessage(
+            tr("Etikett geöffnet: {name}").format(name=Path(path).name), 8000
+        )
+
+    def _on_file_save(self) -> None:
+        """„Speichern": ohne Dateinamen erst nach ihm fragen."""
+        if not self._document_path:
+            self._on_file_save_as()
+            return
+        self._save_document_to(self._document_path)
+
+    def _on_file_save_as(self) -> None:
+        save_file(
+            self,
+            caption=tr("Etikett speichern"),
+            name_filter=tr("QLInux-Etiketten (*{suffix})").format(
+                suffix=document.DOCUMENT_SUFFIX
+            ),
+            start_dir=self._settings.document_dir or "",
+            default_name=(
+                Path(self._document_path).name
+                if self._document_path
+                else f"{tr('Unbenannt')}{document.DOCUMENT_SUFFIX}"
+            ),
+            on_selected=self._save_document_chosen,
+        )
+
+    def _save_document_chosen(self, path: str | None) -> None:
+        if not path:
+            return
+        if not path.endswith(document.DOCUMENT_SUFFIX):
+            path += document.DOCUMENT_SUFFIX
+        self._save_document_to(path)
+
+    def _save_document_to(self, path: str) -> None:
+        """Design schreiben - ohne Dialog (auch fuer Tests und „Speichern")."""
+        try:
+            document.save(path, self._document_data())
+        except document.DocumentError as exc:
+            show_message(self, "critical", tr("Etikett speichern"), str(exc))
+            return
+        self._settings.document_dir = str(Path(path).parent)
+        self._set_document_path(path)
+        self.statusBar().showMessage(
+            tr("Etikett gespeichert: {name}").format(name=Path(path).name), 8000
+        )
 
     # -------------------------------------------------------------- Close ---
     def closeEvent(self, event) -> None:  # noqa: N802

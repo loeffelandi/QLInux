@@ -638,6 +638,19 @@ class MediaPanel(QWidget):
         return PrinterConfig(model=self.model_id(), address=self.address())
 
     # ------------------------------------------------- Zustand (Neuaufbau) --
+    #: Band- und Designwerte eines Etiketts. Genau das traegt ein Dokument
+    #: (Vorlage, ``.qlx``) - der Druckeranschluss gehoert dem Rechner.
+    MEDIA_STATE_KEYS = (
+        "model",
+        "label",
+        "color",
+        "auto_length",
+        "length_mm",
+        "length_mode",
+        "margins",
+        "orientation",
+    )
+
     def state(self) -> dict[str, Any]:
         """Alles, was ein Neuaufbau der Oberflaeche braucht (Sprachwechsel).
 
@@ -658,6 +671,11 @@ class MediaPanel(QWidget):
             "orientation": self._orientation.value,
         }
 
+    def media_state(self) -> dict[str, Any]:
+        """Band- und Designwerte - ohne Druckeranschluss."""
+        state = self.state()
+        return {key: state[key] for key in self.MEDIA_STATE_KEYS}
+
     def apply_state(self, state: Mapping[str, Any]) -> None:
         """Zustand aus :meth:`state` uebernehmen (nach einem Neuaufbau)."""
         address = str(state.get("address") or "")
@@ -672,6 +690,14 @@ class MediaPanel(QWidget):
                 self._network_host = str(state.get("host") or "")
         finally:
             self._adjusting = False
+        self.apply_media_state(state)
+
+    def apply_media_state(self, state: Mapping[str, Any]) -> None:
+        """Band- und Designwerte uebernehmen.
+
+        Anschluss und Adresse bleiben stehen: ein geoeffnetes Etikett soll den
+        Drucker dieses Rechners nicht umstellen.
+        """
         model = str(state.get("model") or "")
         index = self._model_combo.findData(model)
         if index >= 0:

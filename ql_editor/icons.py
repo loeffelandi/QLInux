@@ -347,6 +347,63 @@ def _draw_about(p: QPainter, color: QColor) -> None:
     _line(p, 12.0, 11.2, 12.0, 16.6)
 
 
+def _draw_open(p: QPainter, color: QColor) -> None:
+    """Aufgeklappter Ordner - "Datei öffnen"."""
+    _stroke_only(p, color, 1.7)
+    _poly(p, ((4.5, 16.0), (4.5, 6.5), (9.8, 6.5), (11.8, 9.0), (17.0, 9.0), (17.0, 12.5)))
+    _poly(
+        p,
+        ((3.0, 20.0), (5.8, 12.5), (21.0, 12.5), (18.2, 20.0), (3.0, 20.0)),
+    )
+
+
+def _draw_save(p: QPainter, color: QColor) -> None:
+    """Diskette - "speichern"."""
+    _stroke_only(p, color, 1.7)
+    _poly(
+        p,
+        (
+            (5.0, 4.5),
+            (15.6, 4.5),
+            (19.5, 8.4),
+            (19.5, 19.5),
+            (5.0, 19.5),
+            (5.0, 4.5),
+        ),
+    )
+    p.drawRect(QRectF(8.6, 4.5, 7.0, 5.2))       # Schieber
+    p.drawRect(QRectF(8.6, 13.2, 7.0, 6.3))       # Etikett
+
+
+def _draw_save_as(p: QPainter, color: QColor) -> None:
+    """Diskette mit Stift - "speichern unter"."""
+    _stroke_only(p, color, 1.6)
+    _poly(
+        p,
+        (
+            (3.5, 4.0),
+            (12.4, 4.0),
+            (15.6, 7.2),
+            (15.6, 14.5),
+            (3.5, 14.5),
+            (3.5, 4.0),
+        ),
+    )
+    p.drawRect(QRectF(6.2, 4.0, 5.4, 3.9))        # Schieber
+    _poly(                                          # Stift
+        p,
+        (
+            (12.6, 20.5),
+            (13.0, 17.6),
+            (19.0, 11.6),
+            (20.9, 13.5),
+            (14.9, 19.5),
+            (12.6, 20.5),
+        ),
+    )
+    _line(p, 13.1, 17.4, 15.1, 19.4)
+
+
 def _draw_label(p: QPainter, color: QColor) -> None:
     _stroke_only(p, color, 1.7)
     p.drawRoundedRect(QRectF(3.5, 6.5, 17.0, 11.0), _RADIUS, _RADIUS)
@@ -468,6 +525,9 @@ _DRAW = {
     "preview": _draw_preview,
     "rotate": _draw_rotate,
     "language": _draw_language,
+    "open": _draw_open,
+    "save": _draw_save,
+    "save_as": _draw_save_as,
 }
 
 __all__ = ["icon", "cursor", "text_color", "available", "GRID"]

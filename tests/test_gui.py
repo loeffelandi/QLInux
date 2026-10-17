@@ -3609,3 +3609,77 @@ def test_about_lists_models_licence_dank_and_developer(qapp, tmp_path):
     qapp.processEvents()
     win.close()
     qapp.processEvents()
+
+
+# --------------------------------------------------------------------------- #
+# Etiketten als Datei (.qlx)
+# --------------------------------------------------------------------------- #
+def test_a_design_survives_saving_and_opening(qapp, tmp_path):
+    """Speichern/Öffnen bringt Band, Ausrichtung und Objekte zurueck.
+
+    Der Drucker dieses Rechners darf sich dabei *nicht* aendern: die Adresse
+    gehoert dem Rechner, nicht dem Etikett.
+    """
+    import json
+
+    from ql_editor.media import Orientation
+
+    win = _temp_window(qapp, tmp_path)
+    win._media_panel.set_network_host("192.168.178.62")
+    win._media_panel.set_orientation(Orientation.ALONG)
+    win._media_panel._length_spin.setValue(55.0)
+    win._canvas.add_item(TextItem("Hallo", font_pixel_size=30))
+    path = tmp_path / "design.qlx"
+
+    win._save_document_to(str(path))
+
+    assert path.exists()
+    data = json.loads(path.read_text(encoding="utf-8"))
+    assert "address" not in data["media"]
+    assert data["media"]["orientation"] == Orientation.ALONG.value
+    # Nach dem Speichern ist nichts mehr "geaendert", der Name steht im Titel.
+    assert win._document_dirty is False
+    assert path.name in win.windowTitle()
+
+    # Anderes Fenster (anderer Drucker), dann das Design oeffnen.
+    other = _temp_window(qapp, tmp_path)
+    other._media_panel.set_address("tcp://192.168.178.99:9100")
+    other._open_document_chosen(str(path))
+
+    assert other._media_panel.orientation() is Orientation.ALONG
+    assert other._media_panel.length_mm() == pytest.approx(55.0)
+    assert [item["text"] for item in other._canvas.items_serialized()] == ["Hallo"]
+    assert other._media_panel.address() == "tcp://192.168.178.99:9100"
+    assert other._document_dirty is False
+
+    win.close()
+    other.close()
+    qapp.processEvents()
+
+
+def test_editing_marks_the_document_and_opening_a_broken_file_does_not(
+    qapp, tmp_path
+):
+    """Ein Stern im Titel zeigt Aenderungen; eine kaputte Datei aendert nichts."""
+    from ql_editor.sheet import Sheet
+
+    win = _temp_window(qapp, tmp_path)
+    assert win._document_dirty is False
+
+    win._canvas.add_item(TextItem("Hallo", font_pixel_size=30))
+    qapp.processEvents()
+
+    assert win._document_dirty is True
+    assert win.windowTitle().startswith("*") or "* " in win.windowTitle()
+
+    broken = tmp_path / "kaputt.qlx"
+    broken.write_text("{ kein json", encoding="utf-8")
+    win._open_document_chosen(str(broken))
+    qapp.processEvents()
+
+    # Fehler sichtbar (Sheet), aber kein halb geoeffnetes Etikett.
+    assert win.findChild(Sheet) is not None
+    assert [item["text"] for item in win._canvas.items_serialized()] == ["Hallo"]
+    assert win._document_dirty is True
+    win.close()
+    qapp.processEvents()
