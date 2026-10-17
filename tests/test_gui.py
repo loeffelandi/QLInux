@@ -358,6 +358,53 @@ def test_canvas_tape_rect_includes_side_border(qapp):
     assert tape.width() == pytest.approx(554 + 2 * label.side_border_dots)
 
 
+def test_canvas_has_ruler_corner_with_unit(qapp):
+    """Die Ecke zwischen den Linealen traegt die Einheit (wie P-touch Editor)."""
+    from ql_editor.canvas import RULER_WIDTH, RulerCorner
+
+    canvas = LabelCanvas()
+    assert isinstance(canvas._corner, RulerCorner)
+    assert canvas._corner.width() == RULER_WIDTH
+    assert canvas._corner.height() == RULER_WIDTH
+
+
+def test_canvas_size_labels_show_tape_width_and_length(qapp):
+    """Bandbreite und Etikettenlaenge stehen am Etikett - wie im P-touch Editor."""
+    from PySide6.QtCore import QLocale
+
+    canvas = LabelCanvas()
+    canvas.set_label(get_label("50"), 472)
+    previous = QLocale()
+    try:
+        QLocale.setDefault(QLocale("de"))
+        # Bandbreite quer zum Band (50 mm Rolle), Laenge in Bandrichtung.
+        assert canvas.size_labels() == ("50 mm", "40,0 mm")
+        QLocale.setDefault(QLocale("en"))
+        assert canvas.size_labels() == ("50 mm", "40.0 mm")
+    finally:
+        QLocale.setDefault(previous)
+
+
+def test_canvas_size_labels_follow_the_orientation(qapp):
+    """Bei ALONG tauschen die Achsen - die Angabe wandert mit."""
+    canvas = LabelCanvas()
+    canvas.set_label(get_label("50"), 472, orientation=media.Orientation.ALONG)
+    horizontal, vertical = canvas.size_labels()
+    assert vertical == "50 mm"
+    assert horizontal.startswith("40")
+
+
+def test_ruler_totals_match_the_label_size(qapp):
+    """Was das Lineal beschriftet, ist die Groesse des Etiketts."""
+    canvas = LabelCanvas()
+    canvas.set_label(get_label("50"), 472)
+    assert canvas._h_ruler.total_mm == pytest.approx(49.95, abs=0.05)
+    assert canvas._v_ruler.total_mm == pytest.approx(39.96, abs=0.05)
+    canvas.set_label(get_label("50"), 472, orientation=media.Orientation.ALONG)
+    assert canvas._h_ruler.total_mm == pytest.approx(39.96, abs=0.05)
+    assert canvas._v_ruler.total_mm == pytest.approx(49.95, abs=0.05)
+
+
 def test_items_are_clamped_to_printable_area(qapp):
     canvas = LabelCanvas()
     canvas.set_label(get_label("50"), 472)

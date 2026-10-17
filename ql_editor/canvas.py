@@ -36,12 +36,13 @@ import math
 from contextlib import contextmanager
 from typing import Any, Iterator
 
-from PySide6.QtCore import QPoint, QPointF, QRectF, Qt, Signal
-from PySide6.QtGui import QBrush, QColor, QFont, QImage, QPainter, QPen
+from PySide6.QtCore import QLocale, QPoint, QPointF, QRectF, Qt, Signal
+from PySide6.QtGui import QBrush, QColor, QFont, QFontMetricsF, QImage, QPainter, QPen
 from PySide6.QtWidgets import QGraphicsScene, QGraphicsView, QWidget
 from PIL import Image
 
 from . import items as items_mod
+from .i18n import tr
 from .icons import cursor
 from .renderer import render_scene_to_image
 from .media import (
@@ -54,6 +55,16 @@ from .media import (
 from .widgets import SmoothScroller, wheel_deltas
 
 RULER_WIDTH = 24
+#: Schriftgroesse der Lineal-Beschriftung (Bildschirmpixel).
+RULER_FONT_PX = 9
+#: Schriftgroesse der Groessen-Angabe am Etikett (Bildschirmpixel).
+SIZE_LABEL_FONT_PX = 11
+#: Abstand der Groessen-Angabe zum Etikett (Bildschirmpixel).
+SIZE_LABEL_GAP_PX = 6
+#: Farbe der Groessen-Angabe (dunkler als die Arbeitsflaeche).
+SIZE_LABEL_COLOR = "#5a6472"
+#: Rand um das Band beim Einpassen: Platz fuer die Groessen-Angabe.
+FIT_MARGIN_MM = 2.5
 MIN_ZOOM = 0.05
 MAX_ZOOM = 8.0
 HANDLE_SIZE_PX = 9
@@ -126,6 +137,37 @@ def _local_handle_point(rect: QRectF, name: str) -> QPointF:
     raise KeyError(name)
 
 
+def size_label_text(value_mm: float, decimals: int) -> str:
+    """Groessen-Angabe wie im P-touch Editor, z. B. ``62 mm`` oder ``19,7 mm``.
+
+    Die Zahl folgt der Oberflaechensprache (Dezimaltrennzeichen), die Einheit
+    ist in beiden Sprachen gleich.
+    """
+    return tr("{value} mm").format(value=QLocale().toString(value_mm, "f", decimals))
+
+
+class RulerCorner(QWidget):
+    """Ecke zwischen den beiden Linealen - traegt die Einheit."""
+
+    def __init__(self, parent: QWidget | None = None):
+        super().__init__(parent)
+        self.setFixedSize(RULER_WIDTH, RULER_WIDTH)
+        self.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
+
+    def paintEvent(self, event) -> None:  # noqa: N802
+        painter = QPainter(self)
+        painter.fillRect(self.rect(), QColor("#fafafa"))
+        painter.setPen(QPen(QColor("#bbbbbb")))
+        painter.drawLine(self.rect().topRight(), self.rect().bottomRight())
+        painter.drawLine(self.rect().bottomLeft(), self.rect().bottomRight())
+        font = QFont()
+        font.setPixelSize(RULER_FONT_PX)
+        painter.setFont(font)
+        painter.setPen(QPen(QColor("#555555")))
+        painter.drawText(self.rect(), Qt.AlignmentFlag.AlignCenter, tr("mm"))
+        painter.end()
+
+
 class MmRuler(QWidget):
     """Lineal in Millimetern, synchron zum Viewport eines :class:`LabelCanvas`."""
 
@@ -141,6 +183,11 @@ class MmRuler(QWidget):
         self._total_mm = total_mm
         self.update()
 
+    @property
+    def total_mm(self) -> float:
+        """Beschriftete Gesamtlaenge des Lineals in mm."""
+        return self._total_mm
+
     def _scene_to_widget(self, scene_pt: QPointF) -> QPoint:
         """Szenenkoordinate -> Koordinate in diesem Lineal-Widget."""
         vp_pt = self._view.mapFromScene(scene_pt)
@@ -150,16 +197,17 @@ class MmRuler(QWidget):
     def paintEvent(self, event) -> None:  # noqa: N802
         if self._total_mm <= 0 or self.width() <= 0 or self.height() <= 0:
             return
+        horizontal = self._orientation == Qt.Orientation.Horizontal
         painter = QPainter(self)
         painter.fillRect(self.rect(), QColor("#fafafa"))
         painter.setPen(QPen(QColor("#bbbbbb")))
-        if self._orientation == Qt.Orientation.Horizontal:
+        if horizontal:
             painter.drawLine(self.rect().bottomLeft(), self.rect().bottomRight())
         else:
             painter.drawLine(self.rect().topRight(), self.rect().bottomRight())
 
         font = QFont()
-        font.setPixelSize(9)
+        font.setPixelSize(RULER_FONT_PX)
         painter.setFont(font)
 
         # Schrittweite der Beschriftung abhaengig vom Zoom waehlen.
@@ -168,22 +216,37 @@ class MmRuler(QWidget):
         guard = 0
         while mm <= self._total_mm + 1e-6 and guard < 5000:
             guard += 1
-            scene_pt = QPointF(mm_to_dots(mm), 0) if self._orientation == Qt.Orientation.Horizontal else QPointF(0, mm_to_dots(mm))
+            scene_pt = QPointF(mm_to_dots(mm), 0) if horizontal else QPointF(0, mm_to_dots(mm))
             widget_pt = self._scene_to_widget(scene_pt)
-            pos = widget_pt.x() if self._orientation == Qt.Orientation.Horizontal else widget_pt.y()
+            pos = widget_pt.x() if horizontal else widget_pt.y()
             major = abs(mm / step - round(mm / step)) < 1e-6
-            if self._orientation == Qt.Orientation.Horizontal:
-                painter.setPen(QPen(QColor("#999999" if major else "#cccccc")))
-                painter.drawLine(pos, self.height() - (RULER_WIDTH // 2 if major else RULER_WIDTH // 3), pos, self.height())
-                if major:
-                    painter.setPen(QPen(QColor("#555555")))
-                    painter.drawText(pos + 2, self.height() - RULER_WIDTH // 2 - 1, f"{mm / 10:.0f}" if step >= 10 else f"{mm:.0f}")
+            medium = abs(mm / 5.0 - round(mm / 5.0)) < 1e-6
+            if major:
+                tick = RULER_WIDTH // 2
+            elif medium:
+                tick = RULER_WIDTH // 2 - 2
             else:
-                painter.setPen(QPen(QColor("#999999" if major else "#cccccc")))
-                painter.drawLine(self.width() - (RULER_WIDTH // 2 if major else RULER_WIDTH // 3), pos, self.width(), pos)
-                if major:
-                    painter.setPen(QPen(QColor("#555555")))
-                    painter.drawText(2, pos - 2, f"{mm / 10:.0f}" if step >= 10 else f"{mm:.0f}")
+                tick = RULER_WIDTH // 3
+            painter.setPen(QPen(QColor("#999999" if major else "#cccccc")))
+            if horizontal:
+                painter.drawLine(pos, self.height() - tick, pos, self.height())
+            else:
+                painter.drawLine(self.width() - tick, pos, self.width(), pos)
+            if not major:
+                mm += 1.0
+                continue
+            # Beschriftung immer in Millimetern - die Einheit steht in der Ecke.
+            painter.setPen(QPen(QColor("#555555")))
+            label = f"{mm:.0f}"
+            if horizontal:
+                painter.drawText(pos + 2, self.height() - RULER_WIDTH // 2 - 1, label)
+            else:
+                # Wie im P-touch Editor laengs der Achse gedreht.
+                painter.save()
+                painter.translate(RULER_WIDTH // 2, pos - 2)
+                painter.rotate(-90)
+                painter.drawText(0, 0, label)
+                painter.restore()
             mm += 1.0
         painter.end()
 
@@ -263,9 +326,11 @@ class LabelCanvas(QGraphicsView):
 
         self._h_ruler = MmRuler(self, Qt.Orientation.Horizontal)
         self._v_ruler = MmRuler(self, Qt.Orientation.Vertical)
+        self._corner = RulerCorner(self)
         self.setViewportMargins(RULER_WIDTH, RULER_WIDTH, 0, 0)
         self._h_ruler.show()
         self._v_ruler.show()
+        self._corner.show()
 
     # -- Setup --------------------------------------------------------------
     def set_label(
@@ -340,13 +405,36 @@ class LabelCanvas(QGraphicsView):
         if not self._needs_fit:
             self.centerOn(center)
 
-    def _update_ruler_totals(self) -> None:
-        """Lineale an Ausrichtung anpassen: quer zur Bandkante zeigt die Bandbreite."""
+    def _tape_width_mm(self) -> float:
+        """Physische Bandbreite in mm (bedruckbare Breite + nicht bedruckbare Raender)."""
         label = self._label
         if label is None:
+            return 0.0
+        return dots_to_mm(label.width_dots + 2 * label.side_border_dots)
+
+    def _length_mm(self) -> float:
+        """Fertige Etikettenlaenge in mm."""
+        return dots_to_mm(self._length_dots)
+
+    def size_labels(self) -> tuple[str, str]:
+        """Beschriftung der Lineale in mm: ``(waagerecht, senkrecht)``.
+
+        Bei ``ACROSS`` liegt die Bandbreite waagerecht, bei ``ALONG`` die Laenge.
+        """
+        if self._label is None:
+            return ("", "")
+        tape = size_label_text(self._tape_width_mm(), 0)
+        length = size_label_text(self._length_mm(), 1)
+        if self._orientation is Orientation.ALONG:
+            return (length, tape)
+        return (tape, length)
+
+    def _update_ruler_totals(self) -> None:
+        """Lineale an Ausrichtung anpassen: quer zur Bandkante zeigt die Bandbreite."""
+        if self._label is None:
             return
-        tape_mm = dots_to_mm(label.width_dots + 2 * label.side_border_dots)
-        length_mm = dots_to_mm(self._length_dots)
+        tape_mm = self._tape_width_mm()
+        length_mm = self._length_mm()
         if self._orientation is Orientation.ALONG:
             self._h_ruler.set_total_mm(length_mm)
             self._v_ruler.set_total_mm(tape_mm)
@@ -479,11 +567,15 @@ class LabelCanvas(QGraphicsView):
 
     # -- Zoom / Scrollen ----------------------------------------------------
     def fit_tape(self) -> None:
-        """Zoom so, dass das gesamte Band in den Viewport passt."""
+        """Zoom so, dass das Band samt Platz fuer die Groessen-Angabe passt."""
         if self.viewport().width() <= 2 or self.viewport().height() <= 2:
             self._needs_fit = True
             return
-        self.fitInView(self.tape_rect().adjusted(-8, -8, 8, 8), Qt.AspectRatioMode.KeepAspectRatio)
+        margin = mm_to_dots(FIT_MARGIN_MM)
+        self.fitInView(
+            self.tape_rect().adjusted(-margin, -margin, margin, margin),
+            Qt.AspectRatioMode.KeepAspectRatio,
+        )
         self._clamp_zoom()
         self._needs_fit = False
         self._auto_fit = True
@@ -628,6 +720,51 @@ class LabelCanvas(QGraphicsView):
         painter.drawRect(printable)
         painter.setPen(Qt.PenStyle.NoPen)
 
+    def _draw_size_labels(self, painter: QPainter) -> None:
+        """Bandbreite und Etikettenlaenge am Etikett anschreiben.
+
+        Wie im P-touch Editor: die Angabe sitzt am Lineal und waechst nicht mit
+        dem Zoom (deshalb wird die Skalierung des Painters herausgerechnet).
+        """
+        if self._label is None:
+            return
+        horizontal_text, vertical_text = self.size_labels()
+        if not horizontal_text or not vertical_text:
+            return
+
+        scale = self._scale()
+        if scale <= 0:
+            return
+        tape = self.tape_rect()
+        font = QFont()
+        font.setPixelSize(SIZE_LABEL_FONT_PX)
+        metrics = QFontMetricsF(font)
+        # Sichtbare Positionen in Viewport-Pixeln entscheiden, ob Platz ist.
+        top_left = self.mapFromScene(tape.topLeft())
+        top_right = self.mapFromScene(tape.topRight())
+        bottom_left = self.mapFromScene(tape.bottomLeft())
+        room = metrics.height() + SIZE_LABEL_GAP_PX
+
+        painter.save()
+        painter.setFont(font)
+        painter.setPen(QColor(SIZE_LABEL_COLOR))
+        if top_left.y() >= room:
+            advance = metrics.horizontalAdvance(horizontal_text)
+            painter.save()
+            painter.translate(tape.center().x(), tape.top() - SIZE_LABEL_GAP_PX / scale)
+            painter.scale(1.0 / scale, 1.0 / scale)
+            painter.drawText(QPointF(-advance / 2.0, 0.0), horizontal_text)
+            painter.restore()
+        tape_height_px = abs(bottom_left.y() - top_left.y())
+        if top_left.x() >= room and tape_height_px >= metrics.horizontalAdvance(vertical_text) + 2 * SIZE_LABEL_GAP_PX:
+            painter.save()
+            painter.translate(tape.left() - SIZE_LABEL_GAP_PX / scale, tape.center().y())
+            painter.scale(1.0 / scale, 1.0 / scale)
+            painter.rotate(-90)
+            painter.drawText(QPointF(-metrics.horizontalAdvance(vertical_text) / 2.0, 0.0), vertical_text)
+            painter.restore()
+        painter.restore()
+
     def drawForeground(self, painter: QPainter, rect: QRectF) -> None:  # noqa: N802
         super().drawForeground(painter, rect)
 
@@ -683,6 +820,8 @@ class LabelCanvas(QGraphicsView):
                     painter.drawLine(QPointF(tape.left(), coord), QPointF(tape.right(), coord))
         painter.setPen(Qt.PenStyle.NoPen)
         painter.setBrush(Qt.BrushStyle.NoBrush)
+
+        self._draw_size_labels(painter)
 
     # -- Griff-Geometrie ----------------------------------------------------
     def _editable_selection(self):
@@ -1216,6 +1355,7 @@ class LabelCanvas(QGraphicsView):
         vp = self.viewport().geometry()
         self._h_ruler.setGeometry(vp.left(), 0, vp.width(), RULER_WIDTH)
         self._v_ruler.setGeometry(0, vp.top(), RULER_WIDTH, vp.height())
+        self._corner.setGeometry(0, 0, RULER_WIDTH, RULER_WIDTH)
         self._update_rulers()
         if self._auto_fit:
             self.fit_tape()
@@ -1227,6 +1367,7 @@ class LabelCanvas(QGraphicsView):
     def _update_rulers(self) -> None:
         self._h_ruler.update()
         self._v_ruler.update()
+        self._corner.update()
 
 
-__all__ = ["LabelCanvas", "MmRuler", "RULER_WIDTH"]
+__all__ = ["LabelCanvas", "MmRuler", "RulerCorner", "RULER_WIDTH"]

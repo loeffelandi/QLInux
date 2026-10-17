@@ -187,6 +187,8 @@ EN: dict[str, str] = {
         "(saves tape with tall, multi-line content)."
     ),
     "Nicht bedruckbar": "Not printable",
+    "mm": "mm",
+    "{value} mm": "{value} mm",
     "{mm} mm je Seite (schraffiert)": "{mm} mm per side (hatched)",
     "Margins (mm)": "Margins (mm)",
     "links": "left",
