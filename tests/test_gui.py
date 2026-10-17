@@ -1973,6 +1973,78 @@ def test_image_item_serialization_roundtrip(qapp):
     assert restored.pixmap().width() == 40
 
 
+def test_webp_with_alpha_loads_and_stays_transparent_on_print(qapp, tmp_path):
+    """WebP mit Transparenz: laden, und transparente Stellen werden auf dem Band weiss."""
+    from PySide6.QtGui import QColor, QImage
+
+    from ql_editor.items import ImageItem
+
+    source = QImage(400, 200, QImage.Format.Format_ARGB32)
+    source.fill(QColor(0, 0, 0, 0))
+    for x in range(200, 400):
+        for y in range(200):
+            source.setPixelColor(x, y, QColor(0, 0, 0, 255))
+    path = tmp_path / "alpha.webp"
+    assert source.save(str(path), "WEBP", 90)
+
+    item = ImageItem.from_file(str(path))
+    assert item.pixmap().hasAlphaChannel()
+    restored = ImageItem.from_dict(item.to_dict())
+    assert restored.pixmap().hasAlphaChannel()
+    before = item.pixmap().toImage()
+    after = restored.pixmap().toImage()
+    for x, y in ((10, 10), (300, 100), (399, 199)):
+        assert after.pixelColor(x, y) == before.pixelColor(x, y)
+
+
+def test_old_png_items_still_load(qapp):
+    """Dateien aus aelteren Versionen (PNG in data_b64) bleiben lesbar."""
+    import base64
+    from io import BytesIO
+
+    from PIL import Image
+
+    from ql_editor.items import ImageItem
+
+    buf = BytesIO()
+    Image.new("RGBA", (30, 20), (255, 0, 0, 128)).save(buf, format="PNG")
+    data = {
+        "type": "image",
+        "x": 0.0,
+        "y": 0.0,
+        "rotation": 0.0,
+        "z": 0.0,
+        "data_b64": base64.b64encode(buf.getvalue()).decode("ascii"),
+        "scale_x": 1.0,
+        "scale_y": 1.0,
+    }
+    restored = ImageItem.from_dict(data)
+    assert restored.pixmap().width() == 30
+    assert restored.pixmap().hasAlphaChannel()
+
+
+def test_large_image_is_downscaled_but_keeps_its_size(qapp, tmp_path):
+    """Grosse Fotos werden beim Laden verkleinert; die Groesse im Etikett bleibt."""
+    from PySide6.QtGui import QColor, QImage
+
+    from ql_editor.items import IMAGE_MAX_SIDE_PX, ImageItem
+
+    path = tmp_path / "big.png"
+    source = QImage(6000, 4000, QImage.Format.Format_RGB32)
+    source.fill(QColor("white"))
+    assert source.save(str(path))
+
+    item = ImageItem.from_file(str(path))
+    assert max(item.pixmap().width(), item.pixmap().height()) == IMAGE_MAX_SIDE_PX
+    rect = item.transform().mapRect(item.boundingRect())
+    assert rect.width() == pytest.approx(6000, abs=5)
+    assert rect.height() == pytest.approx(4000, abs=5)
+
+    first = item.to_dict()["data_b64"]
+    assert item.to_dict()["data_b64"] == first
+    assert ImageItem.from_dict(item.to_dict()).pixmap().width() == IMAGE_MAX_SIDE_PX
+
+
 # --------------------------------------------------------------------------- #
 # Icons / icon-basiertes Menue
 # --------------------------------------------------------------------------- #

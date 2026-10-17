@@ -1919,7 +1919,7 @@ class MainWindow(QMainWindow):
             self,
             caption=tr("Bild wählen"),
             name_filter=tr(
-                "Bilder (*.png *.jpg *.jpeg *.bmp *.gif);;Alle Dateien (*)"
+                "Bilder (*.png *.webp *.jpg *.jpeg *.bmp *.gif);;Alle Dateien (*)"
             ),
             on_selected=_selected,
             start_dir=self._settings.image_dir,
