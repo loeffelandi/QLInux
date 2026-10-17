@@ -540,27 +540,19 @@ def _draw_align_bottom(p: QPainter, color: QColor) -> None:
 
 
 def _draw_curved_arrow(p: QPainter, color: QColor, *, redo: bool) -> None:
-    """Haken mit Pfeil nach links; ``redo`` spiegelt ihn nach rechts."""
-    _stroke_only(p, color, 1.7)
+    """Pfeil mit Bogen nach unten; ``redo`` spiegelt ihn nach rechts."""
+    _stroke_only(p, color)
     if redo:
         p.save()
         p.translate(GRID, 0)
         p.scale(-1, 1)
+    _poly(p, ((9.0, 4.5), (4.5, 9.0), (9.0, 13.5)))
     path = QPainterPath()
-    path.moveTo(18.2, 8.6)
-    path.cubicTo(18.2, 4.2, 6.4, 4.2, 6.4, 10.6)
-    path.lineTo(6.4, 14.2)
+    path.moveTo(4.5, 9.0)
+    path.lineTo(14.5, 9.0)
+    path.cubicTo(18.6, 9.0, 20.0, 11.6, 20.0, 15.0)
+    path.lineTo(20.0, 19.5)
     p.drawPath(path)
-    _fill_only(p, color)
-    p.drawPolygon(
-        QPolygonF(
-            [
-                QPointF(3.4, 14.2),
-                QPointF(8.6, 11.4),
-                QPointF(8.6, 17.0),
-            ]
-        )
-    )
     if redo:
         p.restore()
 
