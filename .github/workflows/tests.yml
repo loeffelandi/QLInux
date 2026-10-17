@@ -40,4 +40,13 @@ jobs:
           python scripts/patch_brother_ql.py
 
       - name: Test
-        run: python -X faulthandler -m pytest -q
+        run: |
+          if python -X faulthandler -m pytest -q; then
+            exit 0
+          fi
+          # Qt bricht auf manchen Kombinationen mit SIGABRT ab, ohne Trace.
+          # Den vermuteten Test unter gdb laufen lassen, damit der Frame im Log steht.
+          sudo apt-get install -y --no-install-recommends gdb
+          gdb -batch -ex "set pagination off" -ex run -ex bt --args \
+            python -m pytest -q tests/test_gui.py::test_ruler_label_step_follows_the_zoom
+          exit 1
