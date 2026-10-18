@@ -5230,6 +5230,22 @@ def test_resolution_combo_follows_a_model_change(qapp, tmp_path):
     assert "QL-500" in win._resolution_combo.toolTip()
 
 
+def test_toolbar_print_opens_the_sheet(qapp, tmp_path):
+    """Der Toolbar-Knopf und Strg+P öffnen den Dialog, sie drucken nicht sofort."""
+    from ql_editor.sheet import Sheet
+
+    win = _temp_window(qapp, tmp_path)
+    assert win._act_print.toolTip() == "Druckdialog (Ctrl+P)"
+    win._act_print.trigger()
+    qapp.processEvents()
+    sheet = win.findChild(Sheet)
+    assert sheet is not None and sheet.isVisible()
+    assert win._print_sheet is sheet
+    assert win._print_worker is None
+    win.close()
+    qapp.processEvents()
+
+
 def test_print_button_opens_sheet_with_preview_settings_and_history(qapp, tmp_path):
     """Rechts bleibt nur der Knopf. Er oeffnet Vorschau, Optionen und Verlauf."""
     from PySide6.QtWidgets import QGroupBox

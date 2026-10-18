@@ -58,7 +58,7 @@ def action_shortcuts() -> tuple[tuple[str | None, str, str], ...]:
         ("panel_left", tr("F9"), tr("Panel links")),
         ("panel_right", tr("Umschalt+F9"), tr("Panel rechts")),
         ("menu", tr("Strg+K"), tr("Befehl suchen")),
-        ("print", tr("Strg+P"), tr("Drucken")),
+        ("print", tr("Strg+P"), tr("Druckdialog")),
         ("preview", tr("Strg+Umschalt+P"), tr("Druckvorschau")),
     )
 

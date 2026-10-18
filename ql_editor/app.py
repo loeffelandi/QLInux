@@ -1393,9 +1393,9 @@ class MainWindow(QMainWindow):
         self._act_zoom_100.triggered.connect(lambda: self._canvas.zoom_100())
 
         self._act_print = QAction(icon("print"), tr("Drucken"), self)
-        self._act_print.setToolTip(tr("Drucken (Ctrl+P)"))
+        self._act_print.setToolTip(tr("Druckdialog (Ctrl+P)"))
         self._act_print.setShortcut("Ctrl+P")
-        self._act_print.triggered.connect(self._on_print)
+        self._act_print.triggered.connect(self._show_print_sheet)
 
         self._act_print_history = QAction(icon("history"), tr("Druckverlauf anzeigen"), self)
         self._act_print_history.setToolTip(tr("Druckverlauf dieser Sitzung anzeigen"))
