@@ -111,6 +111,7 @@ class InspectorPanel(QWidget):
             "image": self._build_image,
             "line": self._build_line,
             "rect": self._build_rect,
+            "shape": self._build_shape,
         }.get(kind)
         if builder is not None:
             builder(item, form)
@@ -308,6 +309,35 @@ class InspectorPanel(QWidget):
         line.setFrameShape(QFrame.Shape.HLine)
         line.setFrameShadow(QFrame.Shadow.Sunken)
         return line
+
+    def _build_shape(self, item, form: QFormLayout) -> None:
+        shape = QComboBox()
+        for label, value in (
+            (tr("Ellipse"), "ellipse"),
+            (tr("Dreieck"), "triangle"),
+            (tr("Stern"), "star"),
+            (tr("Pfeil rechts"), "arrow_right"),
+            (tr("Pfeil links"), "arrow_left"),
+            (tr("Doppelpfeil"), "arrow_double"),
+        ):
+            shape.addItem(label, value)
+        shape.setCurrentIndex(max(0, shape.findData(item.shape_name)))
+        shape.currentIndexChanged.connect(
+            lambda: self._apply_now(lambda: item.set_shape(shape.currentData()))
+        )
+        form.addRow(tr("Form"), shape)
+
+        width = QDoubleSpinBox()
+        width.setRange(0.5, 200.0)
+        width.setSuffix(" px")
+        width.setValue(item.width_px)
+        self._wire_spin(width, lambda v: item.set_line_width(v))
+        form.addRow(tr("Linienbreite"), width)
+
+        filled = QCheckBox(tr("Gefüllt"))
+        filled.setChecked(item.filled)
+        filled.toggled.connect(lambda v: self._apply_now(lambda: item.set_filled(v)))
+        form.addRow("", filled)
 
     def _build_qr(self, item, form: QFormLayout) -> None:
         data = QLineEdit(item._data)
@@ -552,6 +582,7 @@ _KIND_TITLES = {
     "qr": "QR-Code",
     "line": "Linie",
     "rect": "Rahmen",
+    "shape": "Form",
 }
 
 

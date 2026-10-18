@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Dateitypen von QLInux (shared-mime-info). Installiert nach
+  usr/share/mime/packages/ im AppDir bzw. ~/.local/share/mime/packages/.
+  Die Icons liegen unter assets/mimetypes/ (packaging/make_icon.py).
+-->
+<mime-info xmlns="http://www.freedesktop.org/standards/shared-mime-info">
+  <mime-type type="application/x-qlinux-label">
+    <comment>QLInux label</comment>
+    <comment xml:lang="de">QLInux-Etikett</comment>
+    <icon name="application-x-qlinux-label"/>
+    <glob pattern="*.qlx"/>
+  </mime-type>
+  <mime-type type="application/x-brother-lbx">
+    <comment>Brother P-touch label</comment>
+    <comment xml:lang="de">Brother-P-touch-Etikett</comment>
+    <icon name="application-x-brother-lbx"/>
+    <sub-class-of type="application/zip"/>
+    <glob pattern="*.lbx"/>
+  </mime-type>
+</mime-info>

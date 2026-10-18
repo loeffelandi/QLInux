@@ -1,4 +1,4 @@
-"""App-Symbol erzeugen (``assets/ql-editor.png``).
+"""App-Symbol und Dateitypsymbole erzeugen (``assets/*.png``).
 
 Ein Aufruf, feste Ausgabe - so ist das Symbol reproduzierbar und nicht ein
 Binaerblob, den niemand mehr aendern kann:
@@ -7,6 +7,10 @@ Binaerblob, den niemand mehr aendern kann:
 
 Gezeichnet wird bewusst schlicht (ein Etikettenstreifen mit "QL"): es muss bei
 32 px in einer Fensterliste genauso lesbar sein wie bei 256 px im Dock.
+
+Dazu kommen die Symbole fuer die Dateitypen ``.qlx`` und ``.lbx``: ein Blatt
+mit Eselsohr, unten ein Streifen mit dem Kuerzel. Die Dateinamen stehen in
+``packaging/ql-editor-mime.xml``.
 """
 
 from __future__ import annotations
@@ -18,7 +22,14 @@ from pathlib import Path
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 from PySide6.QtCore import QPointF, QRectF, Qt  # noqa: E402
-from PySide6.QtGui import QColor, QFont, QImage, QPainter  # noqa: E402
+from PySide6.QtGui import (  # noqa: E402
+    QColor,
+    QFont,
+    QImage,
+    QPainter,
+    QPainterPath,
+    QPen,
+)
 from PySide6.QtWidgets import QApplication  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -33,6 +44,13 @@ BACKGROUND = "#1f2933"
 STRIP = "#f7fafc"
 EDGE = "#9aa5b1"
 ACCENT = "#c1292e"
+
+#: Dateitypsymbole: Dateiname -> (Kuerzel auf dem Streifen, Farbe des Streifens).
+MIME_ICONS = {
+    "application-x-qlinux-label.png": ("QLX", ACCENT),
+    "application-x-brother-lbx.png": ("LBX", "#1f5fa8"),
+}
+MIME_TARGET_DIR = ROOT / "assets" / "mimetypes"
 
 
 def build_icon() -> QImage:
@@ -83,6 +101,55 @@ def build_icon() -> QImage:
     return image
 
 
+def build_mime_icon(badge: str, color: str) -> QImage:
+    image = QImage(SIZE, SIZE, QImage.Format.Format_ARGB32)
+    image.fill(Qt.GlobalColor.transparent)
+    painter = QPainter(image)
+    painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+    painter.setRenderHint(QPainter.RenderHint.TextAntialiasing, True)
+
+    # Blatt mit abgeknicktem Eck oben rechts.
+    fold = 56
+    page = QPainterPath()
+    page.moveTo(32, 8)
+    page.lineTo(SIZE - 32 - fold, 8)
+    page.lineTo(SIZE - 32, 8 + fold)
+    page.lineTo(SIZE - 32, SIZE - 8)
+    page.lineTo(32, SIZE - 8)
+    page.closeSubpath()
+    painter.setPen(QPen(QColor(EDGE), 4))
+    painter.setBrush(QColor("#ffffff"))
+    painter.drawPath(page)
+
+    corner = QPainterPath()
+    corner.moveTo(SIZE - 32 - fold, 8)
+    corner.lineTo(SIZE - 32 - fold, 8 + fold)
+    corner.lineTo(SIZE - 32, 8 + fold)
+    corner.closeSubpath()
+    painter.setBrush(QColor("#d5dde5"))
+    painter.drawPath(corner)
+
+    # Zeilen als Andeutung des Inhalts.
+    painter.setPen(Qt.PenStyle.NoPen)
+    painter.setBrush(QColor(EDGE))
+    for y in (96, 120):
+        painter.drawRoundedRect(QRectF(56, y, 120, 12), 6, 6)
+
+    # Streifen mit Kuerzel unten - das unterscheidet die Dateitypen.
+    painter.setBrush(QColor(color))
+    painter.drawRoundedRect(QRectF(40, 160, SIZE - 80, 64), 12, 12)
+    font = QFont("DejaVu Sans")
+    font.setBold(True)
+    font.setPixelSize(44)
+    painter.setFont(font)
+    painter.setPen(QColor("#ffffff"))
+    painter.drawText(
+        QRectF(40, 160, SIZE - 80, 64), Qt.AlignmentFlag.AlignCenter, badge
+    )
+    painter.end()
+    return image
+
+
 def main() -> int:
     app = QApplication.instance() or QApplication([])
     TARGET.parent.mkdir(parents=True, exist_ok=True)
@@ -90,6 +157,13 @@ def main() -> int:
         print(f"konnte {TARGET} nicht schreiben", file=sys.stderr)
         return 1
     print(f"geschrieben: {TARGET} ({SIZE}x{SIZE})")
+    MIME_TARGET_DIR.mkdir(parents=True, exist_ok=True)
+    for name, (badge, color) in MIME_ICONS.items():
+        target = MIME_TARGET_DIR / name
+        if not build_mime_icon(badge, color).save(str(target)):
+            print(f"konnte {target} nicht schreiben", file=sys.stderr)
+            return 1
+        print(f"geschrieben: {target} ({SIZE}x{SIZE})")
     return 0
 
 

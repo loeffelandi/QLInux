@@ -21,12 +21,13 @@ gedruckt ueber :mod:`ql_editor.printer` (in einem Worker-Thread).
 from __future__ import annotations
 
 import math
+import os
 import sys
 import threading
 from copy import deepcopy
 from functools import partial
 from pathlib import Path
-from typing import Any, Mapping
+from typing import Any, Iterable, Mapping
 
 from PIL import Image
 from PySide6.QtCore import (
@@ -72,7 +73,7 @@ from PySide6.QtWidgets import (
 from . import access
 from . import about
 from . import document
-from . import lbx
+from . import instance, lbx
 from . import media
 from . import resources
 from . import templates
@@ -89,7 +90,7 @@ from .i18n import (
 )
 from .icons import icon
 from .inspector import InspectorPanel
-from .items import BarcodeItem, ImageItem, LineItem, QRItem, RectItem, TextItem
+from .items import BarcodeItem, ImageItem, LineItem, QRItem, RectItem, ShapeItem, TextItem
 from .media_panel import MediaPanel
 from .panels import OverlayPanel, PanelHost
 from .preview import (
@@ -954,9 +955,8 @@ class MainWindow(QMainWindow):
         bar.addAction(self._act_add_image)
         bar.addAction(self._act_add_barcode)
         bar.addAction(self._act_add_qr)
-        bar.addAction(self._act_add_line)
-        bar.addAction(self._act_add_rect)
         bar.addSeparator()
+        bar.addWidget(self._build_shape_button(bar))
         bar.addWidget(self._build_align_button(bar))
         bar.addAction(self._act_front)
         bar.addAction(self._act_back)
@@ -981,6 +981,31 @@ class MainWindow(QMainWindow):
         button.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
         menu = QMenu(button)
         menu.aboutToShow.connect(lambda: self._fill_templates_into(menu))
+        button.setMenu(menu)
+        return button
+
+    def _build_shape_button(self, parent: QWidget) -> QToolButton:
+        """Toolbar-Knopf "Formen": Klick oeffnet Linie, Rahmen, Pfeile und Formen."""
+        button = QToolButton(parent)
+        button.setObjectName("shape_button")
+        button.setIcon(icon("shape"))
+        button.setToolTip(tr("Formen einfügen"))
+        button.setAutoRaise(True)
+        button.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        button.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
+        menu = QMenu(button)
+        menu.addAction(icon("line"), tr("Linie"), self._add_line)
+        menu.addAction(icon("rect"), tr("Rahmen"), self._add_rect)
+        menu.addSeparator()
+        for shape, label in (
+            ("ellipse", tr("Ellipse")),
+            ("triangle", tr("Dreieck")),
+            ("star", tr("Stern")),
+            ("arrow_right", tr("Pfeil rechts")),
+            ("arrow_left", tr("Pfeil links")),
+            ("arrow_double", tr("Doppelpfeil")),
+        ):
+            menu.addAction(icon(f"shape_{shape}"), label, lambda _=False, s=shape: self._add_shape(s))
         button.setMenu(menu)
         return button
 
@@ -2091,6 +2116,15 @@ class MainWindow(QMainWindow):
         )
         self._add_item(item)
 
+    def _add_shape(self, shape: str) -> None:
+        width = self._canvas.printable_rect().width()
+        size = max(40, int(self._canvas.height_dots * 0.4))
+        if shape.startswith("arrow"):
+            rect = QRectF(0, 0, int(width * 0.5), int(size * 0.6))
+        else:
+            rect = QRectF(0, 0, size, size)
+        self._add_item(ShapeItem(rect, shape))
+
     def _bump_z(self, direction: int) -> None:
         if not self._canvas.selected_items():
             return
@@ -2860,7 +2894,17 @@ class MainWindow(QMainWindow):
             on_selected=self._open_document_chosen,
         )
 
-    def _open_document_chosen(self, path: str | None) -> None:
+    def open_path(self, path: str) -> None:
+        """Datei von außen öffnen (Kommandozeile, Dateimanager) - immer in einem neuen Reiter.
+
+        Ein frisches, leeres Etikett im Fenster fliegt danach wieder raus.
+        """
+        placeholder = self._active if self._can_reuse_current() else None
+        self._open_document_chosen(path, new_tab=True)
+        if placeholder is not None and placeholder is not self._active:
+            self._remove_tab(placeholder)
+
+    def _open_document_chosen(self, path: str | None, new_tab: bool = False) -> None:
         if not path:
             return
         imported = path.lower().endswith(lbx.LBX_SUFFIX)
@@ -2878,7 +2922,7 @@ class MainWindow(QMainWindow):
                     tr("Etikett bereits geöffnet: {name}").format(name=name), 8000
                 )
                 return
-        if not self._can_reuse_current():
+        if new_tab or not self._can_reuse_current():
             self._create_tab()
         self._apply_document(data)
         if imported:
@@ -3075,17 +3119,55 @@ def _system_language() -> str:
     return code if code in LANGUAGES else DEFAULT_LANGUAGE
 
 
+def _label_paths(paths: Iterable[str]) -> list[str]:
+    """Nur Etikettendateien (``.qlx``, ``.lbx``) - alles andere fällt weg."""
+    suffixes = (document.DOCUMENT_SUFFIX, lbx.LBX_SUFFIX)
+    return [
+        os.path.abspath(path)
+        for path in paths
+        if not path.startswith("-") and path.lower().endswith(suffixes)
+    ]
+
+
+def _document_args(argv: list[str]) -> list[str]:
+    """Etikettendateien aus der Kommandozeile (Doppelklick im Dateimanager).
+
+    Optionen (``-...``) und Qt-eigene Argumente ohne passende Endung fallen weg.
+    """
+    return _label_paths(argv[1:])
+
+
+def _open_from_outside(window: MainWindow, paths: list[str]) -> None:
+    """Dateien, die ein zweiter Start geschickt hat: als Reiter, Fenster nach vorn."""
+    for path in _label_paths(paths):
+        window.open_path(path)
+    window.raise_()
+    window.activateWindow()
+
+
 def main(argv: list[str] | None = None) -> int:
     argv = list(sys.argv if argv is None else argv)
     app = QApplication.instance() or QApplication(argv)
     app.setApplicationName("QLInux")
+    files = _document_args(argv)
+    # Läuft schon eine Instanz, öffnet sie die Dateien als Reiter - dieser Start endet.
+    if files and instance.forward(files):
+        return 0
     settings = AppSettings()
     set_language(settings.language or _system_language())
     # Zahlen (Dezimaltrennzeichen) folgen der Sprache - auch in Spinboxen.
     QLocale.setDefault(QLocale(language()))
     window = MainWindow(settings)
     _remember_window(window)
+    # Der Server bleibt in ``server`` am Leben, solange die Schleife läuft.
+    # Kein removeServer bei belegtem Namen: nur die Owner-Instanz hält den Socket.
+    server = instance.listen(partial(_open_from_outside, window))
+    # TOCTOU: zwei Starts mit Dateien — Verlierer reicht nach listen() nach.
+    if server is None and files and instance.forward(files, attempts=5, retry_ms=50):
+        return 0
     window.show()
+    for path in files:
+        window.open_path(path)
     return app.exec()
 
 
