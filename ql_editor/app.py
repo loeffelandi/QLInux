@@ -62,7 +62,6 @@ from PySide6.QtWidgets import (
     QPushButton,
     QRadioButton,
     QScrollArea,
-    QSizePolicy,
     QSpinBox,
     QSplitter,
     QStackedWidget,
@@ -1351,14 +1350,8 @@ class MainWindow(QMainWindow):
         bar.addAction(self._act_print_preview)
         bar.addAction(self._act_print)
         bar.addAction(self._act_print_history)
-        # Datenbank ist ein Ansichtsschalter, kein Werkzeug: rechts, wie im
-        # P-touch Editor. CSV und Raster bleiben in dieser Reihenfolge.
-        spacer = QWidget()
-        spacer.setObjectName("toolbar_tail_spacer")
-        spacer.setSizePolicy(
-            QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred
-        )
-        bar.addWidget(spacer)
+        # Eigene Gruppe am Ende: CSV bleibt sichtbar, das Raster erst mit Datei.
+        bar.addSeparator()
         bar.addAction(self._act_connect_csv)
         self._act_database_separator = bar.addSeparator()
         bar.addAction(self._act_database)

@@ -2562,12 +2562,9 @@ def test_toolbar_has_align_dropdown_before_front(qapp, tmp_path):
         win._act_add_barcode,
         win._act_add_qr,
     ]
-    from PySide6.QtWidgets import QSizePolicy
-
     history_at = actions.index(win._act_print_history)
-    spacer = bar.widgetForAction(actions[history_at + 1])
-    assert spacer is not None and spacer.objectName() == "toolbar_tail_spacer"
-    assert spacer.sizePolicy().horizontalPolicy() == QSizePolicy.Policy.Expanding
+    assert actions[history_at + 1].isSeparator()
+    assert actions[history_at + 1] is not win._act_database_separator
     assert actions[history_at + 2] is win._act_connect_csv
     assert actions[history_at + 3] is win._act_database_separator
     assert actions[history_at + 4] is win._act_database
