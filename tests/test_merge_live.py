@@ -7,6 +7,7 @@ from pathlib import Path
 
 import pytest
 from PySide6.QtCore import QSettings
+from PySide6.QtWidgets import QCheckBox, QLabel, QSpinBox
 
 from ql_editor import csv_source, document
 from ql_editor.app import MainWindow
@@ -20,6 +21,17 @@ def _clean_settings():
     QSettings("QLInux", "QLInux").clear()
     yield
     QSettings("QLInux", "QLInux").clear()
+
+
+def _inspector_child(win, type_, name: str):
+    """Aktuelles Feld, nicht ein verstecktes aus dem letzten Aufbau."""
+    matches = [
+        child
+        for child in win._inspector.findChildren(type_, name)
+        if child.isVisibleTo(win._inspector)
+    ]
+    assert matches, name
+    return matches[-1]
 
 
 def _write_fixture(tmp_path: Path) -> tuple[Path, Path]:
@@ -456,6 +468,208 @@ def test_shorter_csv_does_not_forget_the_record_range(qapp, tmp_path):
     assert again._scope_range.isChecked()
     assert again._range_from.value() == 2
     assert again._range_to.value() == 8
+
+
+def test_print_recomputes_auto_length_per_serial_step(
+    qapp, tmp_path, monkeypatch
+):
+    """Zwei Serien-Schritte bekommen je ihre eigene Bandlaenge."""
+    from ql_editor import app as app_module
+
+    qlx = tmp_path / "serial.qlx"
+    document.save(
+        qlx,
+        document.build(
+            {
+                "model": "QL-820NWB",
+                "label": "62",
+                "auto_length": True,
+                "orientation": "along",
+            },
+            [
+                {
+                    "type": "text",
+                    "text": "?",
+                    "x": 4,
+                    "y": 4,
+                    "binding": {"source": "serial"},
+                }
+            ],
+            serial={
+                "enabled": True,
+                "start": 1,
+                "count": 2,
+                "step": 10**18,
+                "prefix": "",
+                "suffix": "",
+                "pad_width": 0,
+            },
+        ),
+    )
+    win = MainWindow(discover=False)
+    win.open_path(str(qlx))
+    win._media_panel.set_network_host("192.168.178.62")
+    length_before = win._canvas._length_dots
+    captured: dict = {}
+    monkeypatch.setattr(app_module, "PrintWorker", _fake_print_worker(captured))
+    win._on_print()
+    heights = [image.height for image in captured["images"]]
+    assert len(heights) == 2
+    assert heights[1] > heights[0]
+    assert win._canvas._length_dots == length_before
+    assert [item.text_value for item in _bound_texts(win)] == ["1"]
+
+
+def test_serial_prints_inside_each_record_and_hides_without_csv(
+    qapp, tmp_path, monkeypatch
+):
+    """D4/D5: Serie nur mit CSV, pro Record, Kopien wiederholen identisch."""
+    from ql_editor import app as app_module
+
+    qlx, _csv = _write_fixture(tmp_path)
+    win = MainWindow(discover=False)
+    win.open_path(str(qlx))
+    win._media_panel.set_network_host("192.168.178.62")
+
+    fixture = next(
+        item
+        for item in _bound_texts(win)
+        if item.binding["field"] == "Fixture"
+    )
+    win._canvas.scene().clearSelection()
+    fixture.setSelected(True)
+    win._on_selection_changed()
+    locked = _inspector_child(win, QCheckBox, "inspector_serial_enabled")
+    assert locked.isEnabled() is False
+    assert _inspector_child(win, QLabel, "inspector_serial_locked") is not None
+    assert _inspector_child(win, QSpinBox, "inspector_serial_count").isEnabled() is False
+
+    barcode = next(
+        item for item in win._canvas.ordered_items() if isinstance(item, BarcodeItem)
+    )
+    win._canvas.scene().clearSelection()
+    barcode.setSelected(True)
+    win._on_selection_changed()
+    check = _inspector_child(win, QCheckBox, "inspector_serial_enabled")
+    count = _inspector_child(win, QSpinBox, "inspector_serial_count")
+    step = _inspector_child(win, QSpinBox, "inspector_serial_step")
+    assert check.isChecked()
+    assert count.isEnabled()
+    count.setValue(3)
+    step.setValue(2)
+    count.editingFinished.emit()
+    assert win._active.serial["enabled"] is True
+    assert win._active.serial["count"] == 3
+    assert win._active.serial["step"] == 2
+    assert barcode.value == "0100"
+
+    captured: dict = {}
+    seen: list[str] = []
+    monkeypatch.setattr(app_module, "PrintWorker", _fake_print_worker(captured))
+    original = win._for_print
+
+    def _grab():
+        seen.append(barcode.value)
+        return original()
+
+    monkeypatch.setattr(win, "_for_print", _grab)
+    win._on_print()
+    assert seen == ["0100", "0102", "0104"]
+    assert len(captured["images"]) == 3
+    assert captured["options"]["copies"] == 1
+    assert barcode.value == "0100"
+    assert "3 Etiketten" in win.statusBar().currentMessage()
+
+    win._copies_spin.setValue(2)
+    win._on_print()
+    assert len(captured["images"]) == 3
+    assert captured["options"]["copies"] == 2
+    assert "6 Etiketten" in win.statusBar().currentMessage()
+
+    win._copies_spin.setValue(1)
+    win._scope_all.setChecked(True)
+    seen.clear()
+    win._on_print()
+    assert seen == [
+        "0100",
+        "0102",
+        "0104",
+        "0100",
+        "0102",
+        "0104",
+        "0100",
+        "0102",
+        "0104",
+    ]
+    assert len(captured["images"]) == 9
+
+    win._undo_stack.undo()
+    barcode = next(
+        item for item in win._canvas.ordered_items() if isinstance(item, BarcodeItem)
+    )
+    assert win._active.serial["count"] == 1
+    assert win._active.serial["step"] == 1
+    assert barcode.value == "0100"
+
+    win.disconnect_csv()
+    barcode.setSelected(True)
+    win._on_selection_changed()
+    assert not any(
+        child.isVisibleTo(win._inspector)
+        for child in win._inspector.findChildren(QCheckBox, "inspector_serial_enabled")
+    )
+
+    spec = dict(win._active.serial)
+    spec["enabled"] = True
+    spec["count"] = 3
+    win._active.serial = spec
+    win._canvas.scene().clearSelection()
+    barcode.setSelected(True)
+    win._delete_selected()
+    assert win._active.serial["enabled"] is False
+    assert win._active.serial["count"] == 3
+
+
+def test_serial_count_times_records_stops_at_page_limit(qapp, tmp_path, monkeypatch):
+    from ql_editor import app as app_module
+    from ql_editor.sheet import Sheet
+
+    qlx, _csv = _write_fixture(tmp_path)
+    win = MainWindow(discover=False)
+    win.open_path(str(qlx))
+    win._media_panel.set_network_host("192.168.178.62")
+    spec = dict(win._active.serial)
+    spec["enabled"] = True
+    spec["count"] = 120
+    spec["step"] = 0
+    win._active.serial = spec
+    assert len(win._planned_labels()) == 99
+    assert win._active.serial["count"] == 99
+    assert win._active.serial["step"] == 1
+    spec = dict(win._active.serial)
+    spec["count"] = 40
+    win._active.serial = spec
+    win._scope_all.setChecked(True)
+    created: list = []
+
+    class FakeWorker:
+        def __init__(self, *args, **kwargs):
+            created.append(args)
+
+        def start(self) -> None:
+            return None
+
+    monkeypatch.setattr(app_module, "PrintWorker", FakeWorker)
+    win._on_print()
+    assert created == []
+    from PySide6.QtWidgets import QLabel
+
+    sheets = win.findChildren(Sheet)
+    assert len(sheets) == 1
+    sheet = sheets[0]
+    message = " ".join(label.text() for label in sheet.findChildren(QLabel))
+    assert "99" in message
+    sheet.close_sheet()
 
 
 def test_print_scope_is_persisted(qapp):

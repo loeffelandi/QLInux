@@ -38,8 +38,7 @@ The model list even appears in the app: *menu → About QLInux*.
   to change it. The inspector's *Database field* changes the bound column. The
   merged values stay on the label if the CSV is later disconnected or missing.
   With a CSV connected, print can use the selected row, every row, or a
-  from–to range. Copies repeat each of those labels. A counter on a single
-  object (numbering) is not in yet.
+  from–to range. Copies repeat each of those labels.
 - **Label media**: pick tape by model, fixed or automatic length, margins,
   orientation across/along the tape, red printing where supported.
 - **Print**: 300 × 300 or 300 × 600 dpi, high quality mode, grayscale
@@ -262,7 +261,7 @@ Your own templates then appear in the same menu.
 | Database | CSV source, field bindings, record preview, LBX database import | ✅ |
 | Database | Database panel, drag-and-drop binding, database field in the inspector | ✅ |
 | Database | Print the selected row, all rows, or a record range | ✅ |
-| Database | Numbering (a counter on one object) | 🚧 |
+| Database | Numbering on one object | ✅ |
 
 ## License
 
