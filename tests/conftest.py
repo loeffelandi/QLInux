@@ -47,12 +47,31 @@ def _quiet_network_discovery(monkeypatch):
     app = widgets.QApplication.instance() if widgets is not None else None
     if app is None:
         return
+    _release_qt_windows(app)
+
+
+def _release_qt_windows(app) -> None:
+    """Fenster wegwerfen, die ein Test offen gelassen hat.
+
+    Jedes Hauptfenster haelt Menues und Combo-Popups als weitere
+    Top-Level-Widgets. Bleiben die stehen, laeuft am Ende jedes Tests
+    ``topLevelWidgets`` plus ``getattr`` ueber die ganze Liste - das wurde
+    mit jedem weiteren Fenster teurer. Ein offenes Sheet laesst ausserdem
+    den Tastaturfilter auf der QApplication, der dann jedes Qt-Ereignis
+    durch Python schickt.
+    """
+    import shiboken6
+    from PySide6.QtCore import QEvent
+
+    from ql_editor.app import MainWindow
+    from ql_editor.sheet import _shortcut_filter
+
     for widget in app.topLevelWidgets():
-        cancel = getattr(widget, "_network_cancel", None)
-        worker = getattr(widget, "_network_worker", None)
-        if cancel is not None:
-            cancel.set()
-        if worker is None:
+        if not shiboken6.isValid(widget) or not isinstance(widget, MainWindow):
+            continue
+        widget._network_cancel.set()
+        worker = widget._network_worker
+        if worker is None or not shiboken6.isValid(worker):
             continue
         try:
             running = worker.isRunning()
@@ -62,7 +81,19 @@ def _quiet_network_discovery(monkeypatch):
             continue
         if running:
             worker.wait(2000)
+
+    for widget in list(app.topLevelWidgets()):
+        if not shiboken6.isValid(widget) or widget.parent() is not None:
+            continue
+        # close() wuerde Einstellungen schreiben. Zerstoeren reicht.
+        widget.deleteLater()
+    app.sendPostedEvents(None, QEvent.Type.DeferredDelete)
     app.processEvents()
+
+    guard = _shortcut_filter
+    if guard is not None and shiboken6.isValid(guard):
+        guard._sheets.clear()
+        guard._remove()
 
 
 @pytest.fixture(scope="session")
@@ -72,6 +103,23 @@ def qapp():
 
     app = QApplication.instance() or QApplication([])
     yield app
+
+
+@pytest.fixture(autouse=True)
+def _instant_smooth_scroll(monkeypatch):
+    """Rad-Scrollen im Test sofort ausfuehren.
+
+    Die Animation dauert 160 ms. Tests, die danach den Scrollwert pruefen,
+    haben bisher den Event-Loop mit ``sleep`` bedient.
+    """
+    from ql_editor.widgets import SmoothScroller
+
+    original = SmoothScroller.__init__
+
+    def _init(self, parent, bar, duration=0):
+        original(self, parent, bar, 0)
+
+    monkeypatch.setattr(SmoothScroller, "__init__", _init)
 
 
 @pytest.fixture(autouse=True)

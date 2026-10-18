@@ -8,6 +8,7 @@ bleiben. So kann keine Zeile "vergessen" werden.
 from __future__ import annotations
 
 import ast
+import functools
 import re
 from pathlib import Path
 
@@ -21,6 +22,7 @@ PACKAGE = Path(i18n.__file__).resolve().parent
 PLACEHOLDER = re.compile(r"\{([a-z_][a-z0-9_]*)[!:}]", re.IGNORECASE)
 
 
+@functools.lru_cache(maxsize=1)
 def source_keys() -> set[str]:
     """Alle Texte, die im Quelltext durch ``tr`` laufen."""
     keys: set[str] = set()
