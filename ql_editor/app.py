@@ -21,12 +21,13 @@ gedruckt ueber :mod:`ql_editor.printer` (in einem Worker-Thread).
 from __future__ import annotations
 
 import math
+import os
 import sys
 import threading
 from copy import deepcopy
 from functools import partial
 from pathlib import Path
-from typing import Any, Mapping
+from typing import Any, Iterable, Mapping
 
 from PIL import Image
 from PySide6.QtCore import (
@@ -72,7 +73,7 @@ from PySide6.QtWidgets import (
 from . import access
 from . import about
 from . import document
-from . import lbx
+from . import instance, lbx
 from . import media
 from . import resources
 from . import templates
@@ -2860,7 +2861,17 @@ class MainWindow(QMainWindow):
             on_selected=self._open_document_chosen,
         )
 
-    def _open_document_chosen(self, path: str | None) -> None:
+    def open_path(self, path: str) -> None:
+        """Datei von außen öffnen (Kommandozeile, Dateimanager) - immer in einem neuen Reiter.
+
+        Ein frisches, leeres Etikett im Fenster fliegt danach wieder raus.
+        """
+        placeholder = self._active if self._can_reuse_current() else None
+        self._open_document_chosen(path, new_tab=True)
+        if placeholder is not None and placeholder is not self._active:
+            self._remove_tab(placeholder)
+
+    def _open_document_chosen(self, path: str | None, new_tab: bool = False) -> None:
         if not path:
             return
         imported = path.lower().endswith(lbx.LBX_SUFFIX)
@@ -2878,7 +2889,7 @@ class MainWindow(QMainWindow):
                     tr("Etikett bereits geöffnet: {name}").format(name=name), 8000
                 )
                 return
-        if not self._can_reuse_current():
+        if new_tab or not self._can_reuse_current():
             self._create_tab()
         self._apply_document(data)
         if imported:
@@ -3075,10 +3086,40 @@ def _system_language() -> str:
     return code if code in LANGUAGES else DEFAULT_LANGUAGE
 
 
+def _label_paths(paths: Iterable[str]) -> list[str]:
+    """Nur Etikettendateien (``.qlx``, ``.lbx``) - alles andere fällt weg."""
+    suffixes = (document.DOCUMENT_SUFFIX, lbx.LBX_SUFFIX)
+    return [
+        os.path.abspath(path)
+        for path in paths
+        if not path.startswith("-") and path.lower().endswith(suffixes)
+    ]
+
+
+def _document_args(argv: list[str]) -> list[str]:
+    """Etikettendateien aus der Kommandozeile (Doppelklick im Dateimanager).
+
+    Optionen (``-...``) und Qt-eigene Argumente ohne passende Endung fallen weg.
+    """
+    return _label_paths(argv[1:])
+
+
+def _open_from_outside(window: MainWindow, paths: list[str]) -> None:
+    """Dateien, die ein zweiter Start geschickt hat: als Reiter, Fenster nach vorn."""
+    for path in _label_paths(paths):
+        window.open_path(path)
+    window.raise_()
+    window.activateWindow()
+
+
 def main(argv: list[str] | None = None) -> int:
     argv = list(sys.argv if argv is None else argv)
     app = QApplication.instance() or QApplication(argv)
     app.setApplicationName("QLInux")
+    files = _document_args(argv)
+    # Läuft schon eine Instanz, öffnet sie die Dateien als Reiter - dieser Start endet.
+    if files and instance.forward(files):
+        return 0
     settings = AppSettings()
     set_language(settings.language or _system_language())
     # Zahlen (Dezimaltrennzeichen) folgen der Sprache - auch in Spinboxen.
@@ -3086,6 +3127,10 @@ def main(argv: list[str] | None = None) -> int:
     window = MainWindow(settings)
     _remember_window(window)
     window.show()
+    # Der Server bleibt in ``server`` am Leben, solange die Schleife läuft.
+    server = instance.listen(partial(_open_from_outside, window))
+    for path in files:
+        window.open_path(path)
     return app.exec()
 
 
