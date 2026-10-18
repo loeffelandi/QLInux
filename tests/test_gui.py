@@ -2005,6 +2005,92 @@ def test_canvas_has_eight_handles_and_rotate(qapp):
     assert rotate is not None and rotate[0] == "rotate"
 
 
+def test_handles_appear_on_first_click_and_ticks_stay(qapp):
+    """Anfasser schon beim ersten Klick; nach dem Abwaehlen bleiben die Marken."""
+    from PySide6.QtCore import QEvent, QObject, QPoint, QPointF, QRect
+    from PySide6.QtGui import QImage, QPainter
+
+    from ql_editor.canvas import FRAME_TICK_PX
+    from ql_editor.items import RectItem
+
+    canvas = _prepared_canvas(qapp)
+    canvas.zoom_100()
+    qapp.processEvents()
+    item = RectItem()
+    canvas.add_item(item)
+    item.setPos(80, 90)
+    canvas._scene.clearSelection()
+    qapp.processEvents()
+
+    def render():
+        image = QImage(canvas.viewport().size(), QImage.Format.Format_RGB32)
+        painter = QPainter(image)
+        canvas.viewport().render(painter, QPoint())
+        painter.end()
+        return image
+
+    def bluish(image, scene_pt, radius):
+        view = canvas.mapFromScene(scene_pt)
+        x, y = int(view.x()), int(view.y())
+        for dy in range(-radius, radius + 1):
+            for dx in range(-radius, radius + 1):
+                color = image.pixelColor(x + dx, y + dy)
+                if color.blue() > 150 and color.blue() > color.red() + 40:
+                    return True
+        return False
+
+    top = canvas._handle_points(item)["n"]
+    up = item.mapToScene(QPointF(0.0, -1.0)) - item.mapToScene(QPointF(0.0, 0.0))
+    up_len = math.hypot(up.x(), up.y())
+    scale = canvas._scale()
+    outward = QPointF(up.x() / up_len, up.y() / up_len)
+    stub = top + outward * (FRAME_TICK_PX * 0.5 / scale)
+    along = canvas._handle_points(item)["nw"]
+    edge = item.mapToScene(QPointF(1.0, 0.0)) - item.mapToScene(QPointF(0.0, 0.0))
+    edge_len = math.hypot(edge.x(), edge.y())
+    edge_dir = QPointF(edge.x() / edge_len, edge.y() / edge_len)
+    corner_tick = along + edge_dir * (FRAME_TICK_PX * 0.5 / scale)
+    # Zwischen Eckstrich und Kantenmitte liegt keine durchgehende Linie.
+    gap = along + edge_dir * (FRAME_TICK_PX * 3.0 / scale) + outward * (2.0 / scale)
+    rotate = canvas._rotate_handle_point(item)
+
+    plain = render()
+    assert bluish(plain, stub, 2)
+    assert bluish(plain, corner_tick, 2)
+    assert not bluish(plain, gap, 1)
+    assert not bluish(plain, rotate, 4)
+
+    class _Paints(QObject):
+        def __init__(self):
+            super().__init__()
+            self.rects: list[QRect] = []
+
+        def eventFilter(self, obj, event):  # noqa: N802
+            if event.type() == QEvent.Type.Paint and obj is canvas.viewport():
+                self.rects.append(QRect(event.rect()))
+            return False
+
+    paints = _Paints()
+    canvas.viewport().installEventFilter(paints)
+    _press(canvas, item.sceneBoundingRect().center())
+    qapp.processEvents()
+    rotate_view = canvas.mapFromScene(rotate)
+    assert any(rect.contains(rotate_view) for rect in paints.rects)
+    assert item.isSelected()
+    selected = render()
+    assert bluish(selected, rotate, 6)
+    assert bluish(selected, stub, 2)
+
+    canvas._scene.clearSelection()
+    qapp.processEvents()
+    cleared = render()
+    assert not item.isSelected()
+    assert bluish(cleared, stub, 2)
+    assert bluish(cleared, corner_tick, 2)
+    assert not bluish(cleared, rotate, 4)
+    canvas.viewport().removeEventFilter(paints)
+
+
 def test_canvas_drag_moves_item(qapp):
     from PySide6.QtCore import QPointF
 
