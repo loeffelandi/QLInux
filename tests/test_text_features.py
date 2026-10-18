@@ -132,6 +132,82 @@ def test_fixed_box_height_sets_bounding_rect():
     assert item.boundingRect().height() == pytest.approx(150)
     item.set_auto_height(True)
     assert item.auto_height
+    # Auto-Hoehe folgt dem Text, nicht der zuvor fixierten Box.
+    assert item.boundingRect().height() < 150
+
+
+def _ink_vertical_span(item: TextItem) -> tuple[int, int]:
+    """Erste und letzte dunkle Zeile nach dem Rendern (Item bei 0,0)."""
+    scene = QGraphicsScene()
+    scene.addItem(item)
+    item.setPos(0, 0)
+    box = item.boundingRect()
+    width = max(8, int(box.width()) + 4)
+    height = max(8, int(box.height()) + 40)
+    image = render_scene_to_image(scene, width, height)
+    gray = image.convert("L")
+    first = last = None
+    for y in range(gray.height):
+        if any(gray.getpixel((x, y)) < 200 for x in range(min(gray.width, width))):
+            if first is None:
+                first = y
+            last = y
+    assert first is not None and last is not None
+    return first, last
+
+
+def test_auto_height_box_tracks_wrapped_text():
+    """Umbruch + Hoehe automatisch: Rahmen dicht am Text, nicht mit Leerraum darunter."""
+    item = TextItem("Höhe automatisch dia", font_pixel_size=48)
+    item.set_text_width(250)
+    item.set_wrap(True)
+    item.set_auto_height(True)
+    assert item.auto_height
+    assert item.wrap
+    doc_h = item.document().size().height()
+    box_h = item.boundingRect().height()
+    assert box_h <= doc_h + 0.5
+    _first, last = _ink_vertical_span(item)
+    # Letzte Zeile innerhalb der Box, nur kleiner Rand (Dokument-Margin), kein grosser Leerraum.
+    assert last < box_h
+    assert box_h - (last + 1) < 24
+
+
+def test_auto_height_with_line_and_letter_spacing():
+    item = TextItem("Höhe\nautomatisch\ndia", font_pixel_size=40)
+    item.set_text_width(180)
+    item.set_wrap(True)
+    item.set_line_spacing(1.5)
+    item.set_letter_spacing(2.0)
+    item.set_auto_height(True)
+    box_h = item.boundingRect().height()
+    _first, last = _ink_vertical_span(item)
+    assert last < box_h
+    assert box_h - (last + 1) < 28
+    # Feste Hoehe bleibt, wenn Auto aus ist (neues Item: der Render-Pfad
+    # oben hat das vorige Objekt der Szene uebergeben).
+    fixed = TextItem("Höhe\nautomatisch\ndia", font_pixel_size=40)
+    fixed.set_text_width(180)
+    fixed.set_wrap(True)
+    fixed.set_line_spacing(1.5)
+    fixed.set_auto_height(False)
+    fixed.set_box_height(box_h + 80)
+    assert not fixed.auto_height
+    assert fixed.boundingRect().height() == pytest.approx(box_h + 80)
+
+
+def test_auto_height_vertical_text():
+    item = TextItem("ABC", font_pixel_size=36)
+    item.set_vertical(True)
+    item.set_auto_height(True)
+    box_h = item.boundingRect().height()
+    doc_h = item.document().size().height()
+    # Nicht das aufgeblaehte Dokumentrechteck (leere Folgezeile), aber
+    # mindestens die gemalte letzte Zeile.
+    assert box_h <= doc_h + 1.0
+    _first, last = _ink_vertical_span(item)
+    assert last <= box_h + 2
+    assert box_h - last < 28
 
 
 def test_auto_width_toggle():
