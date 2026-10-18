@@ -115,6 +115,49 @@ def test_format_2_writes_serial_defaults(tmp_path):
     assert "data_source" not in data
 
 
+def test_build_merges_partial_serial():
+    """Partielles serial-Dict ergaenzt fehlende Keys aus DEFAULT_SERIAL."""
+    data = document.build(MEDIA, ITEMS, serial={"enabled": True, "count": 5})
+
+    assert data["serial"] == {
+        **document.DEFAULT_SERIAL,
+        "enabled": True,
+        "count": 5,
+    }
+    assert data["serial"]["start"] == 1
+    assert data["serial"]["step"] == 1
+
+
+def test_load_fills_missing_serial_for_format_2(tmp_path):
+    """Format-2-Dateien ohne/partielles serial bekommen Defaults beim Laden."""
+    path = tmp_path / "teil.qlx"
+    document.save(
+        path,
+        {
+            "format": 2,
+            "media": MEDIA,
+            "items": [],
+            "serial": {"enabled": True},
+        },
+    )
+
+    data = document.load(path)
+
+    assert data["serial"]["enabled"] is True
+    assert data["serial"]["start"] == document.DEFAULT_SERIAL["start"]
+    assert data["serial"]["count"] == document.DEFAULT_SERIAL["count"]
+    assert data["serial"]["prefix"] == ""
+
+
+def test_load_adds_serial_when_absent_for_format_2(tmp_path):
+    path = tmp_path / "ohne.qlx"
+    document.save(path, {"format": 2, "media": MEDIA, "items": []})
+
+    data = document.load(path)
+
+    assert data["serial"] == document.DEFAULT_SERIAL
+
+
 def test_format_2_data_source_and_binding_round_trip(tmp_path):
     """Pfad+Hash+Bindings ueberleben Speichern/Laden (CSV nicht eingebettet)."""
     items = [

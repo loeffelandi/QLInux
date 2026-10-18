@@ -240,6 +240,7 @@ EN: dict[str, str] = {
     "CSV ist nicht UTF-8: {error}": "CSV is not UTF-8: {error}",
     "CSV ist leer.": "CSV is empty.",
     "CSV hat keine Spaltennamen.": "CSV has no column names.",
+    "CSV hat leere Spaltennamen.": "CSV has empty column names.",
     "CSV hat doppelte Spaltennamen.": "CSV has duplicate column names.",
     "CSV-Pfad fehlt.": "CSV path is missing.",
     # -- Vorlagen (Beispieltexte der eingebauten Vorlagen) -------------------

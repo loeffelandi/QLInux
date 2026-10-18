@@ -38,6 +38,24 @@ def test_sniff_prefers_semicolon_when_more_common():
     assert csv_source.sniff_delimiter("a,b,c\n1,2,3\n") == ","
 
 
+def test_sniff_quoted_comma_with_semicolon_delimiter():
+    """Kommas in Anfuehrungszeichen zaehlen nicht als Trenner."""
+    sample = '"a,b";c\n1;2\n'
+    assert csv_source.sniff_delimiter(sample) == ";"
+    fields, records, delim = csv_source.parse_csv_text(sample)
+    assert delim == ";"
+    assert fields == ("a,b", "c")
+    assert records[0] == {"a,b": "1", "c": "2"}
+
+
+def test_empty_column_names_raise(tmp_path):
+    path = tmp_path / "empty_col.csv"
+    path.write_text("A,,B\n1,2,3\n", encoding="utf-8")
+
+    with pytest.raises(csv_source.CsvSourceError, match="leere Spaltennamen"):
+        csv_source.load(path)
+
+
 def test_empty_csv_raises(tmp_path):
     path = tmp_path / "empty.csv"
     path.write_text("", encoding="utf-8")

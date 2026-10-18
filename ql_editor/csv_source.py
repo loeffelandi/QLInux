@@ -1,11 +1,9 @@
 """CSV-Datenquelle fuer Datenbank-Merge (headless).
 
 Laedt Tabellen fuer den spaeteren Merge: Spalten = Felder, Zeilen = Records.
-Encoding und Trennzeichen folgen den Defaults D1/D2:
 
-* Encoding ``utf-8-sig`` (BOM) oder ``utf-8``
-* Delimiter-Sniff zwischen ``;`` und ``,``
-* Inhalt als SHA-256 (CSV wird nicht in ``.qlx`` eingebettet)
+* D1: Inhalt als SHA-256 (CSV wird nicht in ``.qlx`` eingebettet)
+* D2: Encoding ``utf-8-sig`` (BOM) oder ``utf-8``; Delimiter-Sniff ``;``/``,``
 """
 
 from __future__ import annotations
@@ -64,19 +62,46 @@ def detect_encoding(raw: bytes) -> str:
 def sniff_delimiter(sample: str) -> str:
     """Trennzeichen aus einer Textprobe: ``;`` oder ``,`` (D2).
 
-    Zaehlt Vorkommen in der ersten nicht-leeren Zeile. Bei Gleichstand
+    Zuerst ``csv.Sniffer`` (respektiert Anfuehrungszeichen), sonst eine
+    Mehrzeilen-Heuristik ueber geparste Spaltenzahlen. Bei Gleichstand
     gewinnt ``,`` (RFC-ueblich). Andere Zeichen werden nicht erkannt.
     """
-    for line in sample.splitlines():
-        if line.strip():
-            sample_line = line
-            break
-    else:
+    probe = sample[:8192]
+    try:
+        dialect = csv.Sniffer().sniff(probe, delimiters="".join(_DELIMITERS))
+        if dialect.delimiter in _DELIMITERS:
+            return dialect.delimiter
+    except csv.Error:
+        pass
+
+    lines = [line for line in probe.splitlines() if line.strip()][:20]
+    if not lines:
         return ","
-    counts = {d: sample_line.count(d) for d in _DELIMITERS}
-    if counts[";"] > counts[","]:
-        return ";"
-    return ","
+
+    best = ","
+    best_score = -1.0
+    for delim in _DELIMITERS:
+        widths: list[int] = []
+        for line in lines:
+            try:
+                row = next(csv.reader([line], delimiter=delim))
+            except csv.Error:
+                widths = []
+                break
+            widths.append(len(row))
+        if not widths:
+            continue
+        if min(widths) < 2:
+            score = 0.0
+        elif len(set(widths)) == 1:
+            # Konsistente Mehrspalten-Parses bevorzugen.
+            score = float(widths[0] * len(widths) + 100)
+        else:
+            score = sum(widths) / len(widths)
+        if score > best_score or (score == best_score and delim == ","):
+            best_score = score
+            best = delim
+    return best
 
 
 def decode_csv_bytes(raw: bytes) -> tuple[str, str]:
@@ -111,6 +136,8 @@ def parse_csv_text(
     fields = tuple(cell.strip() for cell in header)
     if not fields or all(not name for name in fields):
         raise CsvSourceError(tr("CSV hat keine Spaltennamen."))
+    if any(not name for name in fields):
+        raise CsvSourceError(tr("CSV hat leere Spaltennamen."))
     if len(set(fields)) != len(fields):
         raise CsvSourceError(tr("CSV hat doppelte Spaltennamen."))
 

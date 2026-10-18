@@ -48,6 +48,16 @@ class DocumentError(Exception):
     """Datei fehlt, ist kein QLInux-Dokument oder nicht lesbar."""
 
 
+def merge_serial(serial: Mapping[str, Any] | None = None) -> dict[str, Any]:
+    """``serial`` mit :data:`DEFAULT_SERIAL` mergen (partielles Dict erlaubt)."""
+    merged = dict(DEFAULT_SERIAL)
+    if serial is None:
+        return merged
+    for key, value in serial.items():
+        merged[key] = value
+    return merged
+
+
 def build(
     media: Mapping[str, Any],
     items: Sequence[Mapping[str, Any]],
@@ -58,7 +68,7 @@ def build(
     """Dokumentdaten aus Band-/Designwerten und Canvas-Objekten bauen.
 
     Schreibt stets :data:`DOCUMENT_FORMAT` (aktuell 2). ``serial`` wird mit
-    Defaults gefuellt; ``data_source`` nur gesetzt, wenn eine CSV verbunden ist.
+    Defaults gemerged; ``data_source`` nur gesetzt, wenn eine CSV verbunden ist.
     """
     data: dict[str, Any] = {
         "format": DOCUMENT_FORMAT,
@@ -66,7 +76,7 @@ def build(
         "version": __version__,
         "media": dict(media),
         "items": [dict(item) for item in items],
-        "serial": dict(DEFAULT_SERIAL if serial is None else serial),
+        "serial": merge_serial(serial),
     }
     if data_source is not None:
         data["data_source"] = dict(data_source)
@@ -128,4 +138,9 @@ def load(path: str | Path) -> dict[str, Any]:
         )
     if not isinstance(data.get("media"), dict):
         data["media"] = {}
+    if format_number == 2:
+        raw_serial = data.get("serial")
+        data["serial"] = merge_serial(
+            raw_serial if isinstance(raw_serial, Mapping) else None
+        )
     return data
