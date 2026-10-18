@@ -49,6 +49,9 @@ from PySide6.QtGui import (
     QIcon,
     QImage,
     QKeySequence,
+    QPainter,
+    QPalette,
+    QPen,
     QPixmap,
     QUndoGroup,
     QUndoStack,
@@ -161,7 +164,7 @@ from .sheet import (
 )
 from .symbols import SymbolPicker
 from .theme import apply_theme, scheme_for
-from .widgets import FeedIndicator, SmoothScrollArea, install_wheel_guard_recursive
+from .widgets import SmoothScrollArea, install_wheel_guard_recursive, title_box
 
 BARCODE_SYMBOLOGIES = ["code128", "code39", "ean13", "ean8", "upca", "itf", "codabar"]
 
@@ -320,6 +323,58 @@ def _put_items_on_clipboard(items) -> None:
 INSPECTOR_MIN_PX = 240
 
 
+class _PrintIconButton(QToolButton):
+    """Drucker-Icon oben rechts. Während des Auftrags dreht sich ein Bogen."""
+
+    def __init__(self, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self.setObjectName("print_icon_button")
+        self.setAutoRaise(True)
+        self.setIcon(icon("print"))
+        self.setIconSize(QSize(22, 22))
+        self.setFixedSize(32, 32)
+        self.setToolTip(tr("Drucken"))
+        self.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        self._angle = 0
+        self._busy = False
+        self._timer = QTimer(self)
+        self._timer.setInterval(40)
+        self._timer.timeout.connect(self._tick)
+
+    def is_busy(self) -> bool:
+        return self._busy
+
+    def set_busy(self, busy: bool) -> None:
+        busy = bool(busy)
+        self._busy = busy
+        self.setEnabled(not busy)
+        if busy:
+            if not self._timer.isActive():
+                self._timer.start()
+            self._tick()
+            return
+        self._timer.stop()
+        self._angle = 0
+        self.setIcon(icon("print"))
+
+    def _tick(self) -> None:
+        self._angle = (self._angle + 30) % 360
+        size = 22
+        pixmap = QPixmap(size, size)
+        pixmap.fill(Qt.GlobalColor.transparent)
+        painter = QPainter(pixmap)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        painter.translate(size / 2, size / 2)
+        painter.rotate(self._angle)
+        pen = QPen(self.palette().color(QPalette.ColorRole.WindowText))
+        pen.setWidth(2)
+        pen.setCapStyle(Qt.PenCapStyle.RoundCap)
+        painter.setPen(pen)
+        painter.drawArc(QRectF(-6, -6, 12, 12), 40 * 16, 280 * 16)
+        painter.end()
+        self.setIcon(QIcon(pixmap))
+
+
 class _PrintPreview(QLabel):
     """1-bit-Bild im Druck-Sheet, skaliert in den vorhandenen Platz.
 
@@ -333,18 +388,19 @@ class _PrintPreview(QLabel):
         self._rescaling = False
         self.setObjectName("print_preview_image")
         self.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.setMinimumHeight(140)
-        self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
+        self.setMinimumHeight(72)
+        self.setMaximumHeight(96)
+        self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         self.setStyleSheet(
             "background: palette(base); border: 1px solid palette(mid);"
             " border-radius: 6px;"
         )
 
     def sizeHint(self) -> QSize:  # noqa: N802
-        return QSize(360, 180)
+        return QSize(360, 88)
 
     def minimumSizeHint(self) -> QSize:  # noqa: N802
-        return QSize(120, 140)
+        return QSize(120, 72)
 
     def set_image(self, image: QImage | None) -> None:
         self._image = None if image is None or image.isNull() else image
@@ -681,14 +737,11 @@ class MainWindow(QMainWindow):
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(6)
 
-        preview_box = QGroupBox(tr("Druckvorschau"))
-        preview_box.setSizePolicy(
-            QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding
-        )
+        preview_box = title_box(tr("Druckvorschau"))
         preview_layout = QVBoxLayout(preview_box)
         self._print_preview = _PrintPreview()
         preview_layout.addWidget(self._print_preview)
-        layout.addWidget(preview_box, 2)
+        layout.addWidget(preview_box)
 
         # Aufloesung: nur was das gewaehlte Modell kann (die Liste kommt aus den
         # Datenblaettern, siehe printer.resolution_options). Der High-Resolution-
@@ -825,7 +878,7 @@ class MainWindow(QMainWindow):
         range_row.addWidget(self._range_to_label)
         range_row.addWidget(self._range_to, 1)
 
-        self._db_print_box = QGroupBox(tr("Datenbank"))
+        self._db_print_box = title_box(tr("Datenbank"))
         self._db_print_box.setToolTip(
             tr(
                 "Welche Datensätze gedruckt werden: die gewählte Zeile, "
@@ -838,47 +891,40 @@ class MainWindow(QMainWindow):
         db_layout.addWidget(self._scope_range)
         db_layout.addWidget(self._range_row)
 
-        self._print_button = QPushButton(icon("print"), tr("Drucken"))
+        self._print_button = _PrintIconButton(widget)
         self._print_button.clicked.connect(self._on_print)
 
-        # Feste Hoehe fuer zwei Zeilen: der Status springt nicht mehr beim Druck.
-        self._last_job_label = QLabel(tr("Noch kein Auftrag"))
-        self._last_job_label.setStyleSheet("color:#777;")
-        status_height = 2 * self._last_job_label.fontMetrics().lineSpacing()
-        self._feed_indicator = FeedIndicator()
-        self._status_stack = QStackedWidget()
-        self._status_stack.addWidget(self._last_job_label)
-        self._status_stack.addWidget(self._feed_indicator)
-        self._status_stack.setFixedHeight(status_height)
-
-        quality = QGroupBox(tr("Qualität"))
+        quality = title_box(tr("Qualität"))
         quality_form = self._panel_form(quality)
         quality_form.addRow(resolution_label, self._resolution_combo)
         quality_form.addRow(self._hq_check)
         quality_form.addRow(self._dither_check)
         quality_form.addRow(self._threshold_label, threshold_holder)
 
-        output = QGroupBox(tr("Ausgabe"))
+        output = title_box(tr("Ausgabe"))
         output_form = self._panel_form(output)
         output_form.addRow(self._copies_label, self._copies_spin)
         output_form.addRow(self._cut_label, self._cut_combo)
 
-        history = QGroupBox(tr("Druckverlauf"))
+        history = title_box(tr("Druckverlauf"))
         history_layout = QVBoxLayout(history)
         self._history_table = make_history_table()
         self._history_table.setObjectName("print_history_table")
         history_layout.addWidget(self._history_table)
 
+        options = QWidget()
+        options_row = QHBoxLayout(options)
+        options_row.setContentsMargins(0, 0, 0, 0)
+        options_row.setSpacing(6)
+        options_row.addWidget(quality, 1)
+        options_row.addWidget(output, 1)
+
         form = QWidget()
         form_layout = QVBoxLayout(form)
         form_layout.setContentsMargins(0, 0, 0, 0)
         form_layout.setSpacing(6)
-        form_layout.addWidget(quality)
-        form_layout.addWidget(output)
+        form_layout.addWidget(options)
         form_layout.addWidget(self._db_print_box)
-        form_layout.addWidget(self._status_stack)
-        form_layout.addWidget(self._print_button)
-        form_layout.addStretch(1)
         form_layout.addWidget(history)
 
         layout.addWidget(self._scroll_wrap(form), 3)
@@ -2034,7 +2080,7 @@ class MainWindow(QMainWindow):
         self._replace_tabs(list(specs), int(state.get("active") or 0))
         self._address_dirty = bool(state.get("address_dirty", False))
         self._print_jobs = list(state.get("print_jobs") or [])
-        self._refresh_last_job_label()
+        self._refresh_history_table()
         if self._canvas.print_preview and not self._act_print_preview.isChecked():
             self._act_print_preview.setChecked(True)
         else:
@@ -3451,9 +3497,7 @@ class MainWindow(QMainWindow):
             config.model,
             config.address,
         )
-        self._print_button.setEnabled(False)
-        self._status_stack.setCurrentWidget(self._feed_indicator)
-        self._feed_indicator.start()
+        self._print_button.set_busy(True)
         if len(images) > 1:
             message = tr("Sende {count} Etiketten an {address}…")
             count = pages
@@ -3514,18 +3558,20 @@ class MainWindow(QMainWindow):
 
     def _on_print_finished(self) -> None:
         self._print_worker = None
-        self._print_button.setEnabled(True)
-        self._feed_indicator.stop()
-        self._status_stack.setCurrentWidget(self._last_job_label)
+        self._print_button.set_busy(False)
 
     def _on_print_succeeded(self, status: dict) -> None:
-        self._record_print_job(status.get("outcome") or "sent")
+        outcome = status.get("outcome") or "sent"
+        self._record_print_job(outcome)
         self.statusBar().showMessage(
             tr("Druckauftrag gesendet (outcome={outcome}).").format(
-                outcome=status.get("outcome")
+                outcome=outcome
             ),
             8000,
         )
+        # USB meldet "printed", das Netzwerk "sent", sobald der Auftrag weg ist.
+        if outcome not in ("error", "failed"):
+            self._close_print_sheet()
 
     def _on_print_failed(self, message: str) -> None:
         self._record_print_job("failed")
@@ -3542,19 +3588,6 @@ class MainWindow(QMainWindow):
         self._pending_job = None
         job = PrintJob(started, label, copies, model, address, outcome)
         self._print_jobs.append(job)
-        self._refresh_last_job_label()
-
-    def _refresh_last_job_label(self) -> None:
-        """Statuszeile zum letzten Auftrag der Sitzung neu setzen."""
-        if not self._print_jobs:
-            self._last_job_label.setText(tr("Noch kein Auftrag"))
-            self._last_job_label.setStyleSheet("color:#777;")
-            self._refresh_history_table()
-            return
-        job = self._print_jobs[-1]
-        self._last_job_label.setText(f"{job.started:%H:%M} · {job.model}\n{job.status_text()}")
-        color = "#b00020" if job.is_error else "#777"
-        self._last_job_label.setStyleSheet(f"color:{color};")
         self._refresh_history_table()
 
     def _refresh_history_table(self) -> None:
@@ -3580,6 +3613,8 @@ class MainWindow(QMainWindow):
             content=self._print_panel,
             sizing="fill",
             max_size=QSize(760, 900),
+            close_on_outside=True,
+            corner=self._print_button,
         )
         # hide() am Fenster bleibt sonst stehen: ein Layout zeigt das Widget
         # nicht von selbst wieder.
@@ -3588,13 +3623,22 @@ class MainWindow(QMainWindow):
         self._refresh_history_table()
         self._refresh_now()
 
+    def _close_print_sheet(self) -> None:
+        sheet = self._print_sheet
+        if sheet is not None and sheet.isVisible():
+            sheet.close_sheet()
+
     def _on_print_sheet_closed(self) -> None:
         """Sheet gibt den Inhalt zurueck, sonst loescht deleteLater die Felder."""
         panel = getattr(self, "_print_panel", None)
+        button = getattr(self, "_print_button", None)
         self._print_sheet = None
         if panel is None:
             return
         try:
+            if button is not None:
+                button.setParent(panel)
+                button.set_busy(False)
             panel.setParent(self)
             panel.hide()
         except RuntimeError:

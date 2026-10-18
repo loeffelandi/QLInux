@@ -30,6 +30,7 @@ from PySide6.QtWidgets import (
     QDialog,
     QFileDialog,
     QFrame,
+    QHBoxLayout,
     QInputDialog,
     QLabel,
     QMessageBox,
@@ -152,6 +153,7 @@ class Sheet(QWidget):
         margins: int = 40,
         max_size: QSize | None = None,
         close_on_outside: bool = False,
+        corner: QWidget | None = None,
     ) -> None:
         super().__init__(parent)
         self.setObjectName("qlSheet")
@@ -162,7 +164,7 @@ class Sheet(QWidget):
         self._closing = False
         self._filtering_parent = False
 
-        self._panel = self._build_panel(content, title)
+        self._panel = self._build_panel(content, title, corner)
         self._panel.setParent(self)
 
         self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
@@ -177,20 +179,36 @@ class Sheet(QWidget):
 
     # --------------------------------------------------------------- Aufbau --
     @staticmethod
-    def _build_panel(content: QWidget, title: str) -> QFrame:
+    def _build_panel(
+        content: QWidget, title: str, corner: QWidget | None = None
+    ) -> QFrame:
         card = QFrame()
         card.setObjectName("qlSheetCard")
         layout = QVBoxLayout(card)
         layout.setContentsMargins(18, 16, 18, 18)
         layout.setSpacing(12)
-        if title:
-            label = QLabel(title)
-            label.setObjectName("qlSheetTitle")
-            font = QFont(label.font())
-            font.setBold(True)
-            font.setPointSizeF(font.pointSizeF() + 2.0)
-            label.setFont(font)
-            layout.addWidget(label)
+        if title or corner is not None:
+            header = QWidget()
+            row = QHBoxLayout(header)
+            row.setContentsMargins(0, 0, 0, 0)
+            row.setSpacing(8)
+            if title:
+                label = QLabel(title)
+                label.setObjectName("qlSheetTitle")
+                font = QFont(label.font())
+                font.setBold(True)
+                font.setPointSizeF(font.pointSizeF() + 2.0)
+                label.setFont(font)
+                row.addWidget(label, 1)
+            else:
+                row.addStretch(1)
+            if corner is not None:
+                row.addWidget(
+                    corner,
+                    0,
+                    Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter,
+                )
+            layout.addWidget(header)
         layout.addWidget(content, 1)
         return card
 
@@ -320,6 +338,7 @@ def show_widget(
     max_size: QSize | None = None,
     margins: int = 40,
     close_on_outside: bool = False,
+    corner: QWidget | None = None,
 ) -> Sheet:
     """Eigenen Inhalt als Sheet zeigen (z. B. "Über QLInux").
 
@@ -335,6 +354,7 @@ def show_widget(
         max_size=max_size,
         margins=margins,
         close_on_outside=close_on_outside,
+        corner=corner,
     )
 
 

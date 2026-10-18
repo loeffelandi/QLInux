@@ -657,7 +657,6 @@ EN: dict[str, str] = {
     "Drucken (Ctrl+P)": "Print (Ctrl+P)",
     "Druckverlauf anzeigen": "Show print history",
     "Druckverlauf dieser Sitzung anzeigen": "Show print history of this session",
-    "Noch kein Auftrag": "No job yet",
     "Druckverlauf": "Print history",
     "Zeit": "Time",
     "Status": "Status",

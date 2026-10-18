@@ -10,6 +10,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime
 
+from PySide6.QtGui import QColor
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QDialog,
@@ -59,7 +60,7 @@ def configure_history_table(table: QTableWidget) -> None:
     table.verticalHeader().setVisible(False)
     table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.ResizeToContents)
     table.horizontalHeader().setStretchLastSection(True)
-    table.setMinimumHeight(140)
+    table.setMinimumHeight(96)
 
 
 def fill_history_table(table: QTableWidget, jobs: list[PrintJob]) -> None:
@@ -78,7 +79,10 @@ def fill_history_table(table: QTableWidget, jobs: list[PrintJob]) -> None:
             job.status_text(),
         )
         for column, text in enumerate(cells):
-            table.setItem(row, column, QTableWidgetItem(text))
+            item = QTableWidgetItem(text)
+            if column == 4 and job.is_error:
+                item.setForeground(QColor("#b00020"))
+            table.setItem(row, column, item)
 
 
 def make_history_table(parent=None) -> QTableWidget:

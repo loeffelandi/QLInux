@@ -3360,6 +3360,16 @@ def test_print_preview_image_stays_canvas_aligned(qapp):
     assert image.height() == int(rect.height())
 
 
+def test_panel_group_titles_are_bold(qapp):
+    from PySide6.QtWidgets import QGroupBox
+
+    from ql_editor.media_panel import MediaPanel
+
+    panel = MediaPanel()
+    box = next(item for item in panel.findChildren(QGroupBox) if item.title() == "Drucker")
+    assert "font-weight: bold" in box.styleSheet()
+
+
 def test_length_panel_has_no_meaning_and_no_result(qapp):
     """Gesamtlänge bleibt. Bedeutung und die Ergebniszeile gibt es nicht mehr."""
     from PySide6.QtWidgets import QComboBox, QLabel
@@ -5243,14 +5253,44 @@ def test_print_button_opens_sheet_with_preview_settings_and_history(qapp, tmp_pa
     assert sheet.isAncestorOf(win._history_table)
     titles = {box.title() for box in sheet.findChildren(QGroupBox)}
     assert {"Druckvorschau", "Qualität", "Ausgabe", "Datenbank", "Druckverlauf"} <= titles
+    assert win._print_button.text() == ""
+    assert win._print_button.toolTip() == "Drucken"
     assert win._print_preview.pixmap() is not None
     assert not win._print_preview.pixmap().isNull()
-    preview_bottom = win._print_preview.mapToGlobal(
-        win._print_preview.rect().bottomLeft()
+    button_bottom = win._print_button.mapToGlobal(
+        win._print_button.rect().bottomLeft()
     ).y()
-    print_top = win._print_button.mapToGlobal(win._print_button.rect().topLeft()).y()
+    preview_top = win._print_preview.mapToGlobal(win._print_preview.rect().topLeft()).y()
+    quality = next(box for box in sheet.findChildren(QGroupBox) if box.title() == "Qualität")
+    output = next(box for box in sheet.findChildren(QGroupBox) if box.title() == "Ausgabe")
+    assert abs(
+        quality.mapToGlobal(quality.rect().topLeft()).y()
+        - output.mapToGlobal(output.rect().topLeft()).y()
+    ) <= 2
+    assert quality.mapToGlobal(quality.rect().topLeft()).x() < output.mapToGlobal(
+        output.rect().topLeft()
+    ).x()
     history_top = win._history_table.mapToGlobal(win._history_table.rect().topLeft()).y()
-    assert preview_bottom <= print_top <= history_top
+    assert button_bottom <= preview_top <= history_top
+    assert sheet._close_on_outside is True
+    from PySide6.QtCore import QEvent, QPointF
+    from PySide6.QtGui import QMouseEvent
+
+    outside = QPointF(4, 4)
+    sheet.mousePressEvent(
+        QMouseEvent(
+            QEvent.Type.MouseButtonPress,
+            outside,
+            outside,
+            Qt.MouseButton.LeftButton,
+            Qt.MouseButton.LeftButton,
+            Qt.KeyboardModifier.NoModifier,
+        )
+    )
+    assert win._print_sheet is None
+    assert not sheet.isVisible()
+    qapp.processEvents()
+    assert win._resolution_combo.isEnabled()
     win.close()
     qapp.processEvents()
 
@@ -6797,8 +6837,9 @@ def _print_with_outcome(qapp, tmp_path, monkeypatch, outcome: str | None, error:
 
 def test_network_send_is_reported_as_sent_not_as_error(qapp, tmp_path, monkeypatch):
     win = _print_with_outcome(qapp, tmp_path, monkeypatch, "sent")
-    assert "An Drucker gesendet" in win._last_job_label.text()
-    assert "#b00020" not in win._last_job_label.styleSheet()
+    status = win._history_table.item(0, 4)
+    assert status.text() == "An Drucker gesendet"
+    assert status.foreground().color().name() != "#b00020"
     assert [job.outcome for job in win._print_jobs] == ["sent"]
     win.close()
     qapp.processEvents()
@@ -6806,14 +6847,15 @@ def test_network_send_is_reported_as_sent_not_as_error(qapp, tmp_path, monkeypat
 
 def test_printer_error_is_marked_red_in_status_and_history(qapp, tmp_path, monkeypatch):
     win = _print_with_outcome(qapp, tmp_path, monkeypatch, None, error="Drucker nicht erreichbar")
-    assert "#b00020" in win._last_job_label.styleSheet()
+    status = win._history_table.item(0, 4)
+    assert status.foreground().color().name() == "#b00020"
     assert win._print_jobs[-1].is_error
     assert win._print_jobs[-1].status_text() == "Nicht gesendet"
     win.close()
     qapp.processEvents()
 
 
-def test_status_area_keeps_its_height_while_printing(qapp, tmp_path, monkeypatch):
+def test_print_icon_spins_until_the_job_is_done_then_closes(qapp, tmp_path, monkeypatch):
     from PySide6.QtCore import QObject, Signal
 
     from ql_editor import app as app_module
@@ -6834,18 +6876,16 @@ def test_status_area_keeps_its_height_while_printing(qapp, tmp_path, monkeypatch
     win._media_panel.set_network_host("192.168.178.62")
     win._show_print_sheet()
     qapp.processEvents()
-    height_idle = win._status_stack.height()
-    assert height_idle > 0
+    assert win._print_sheet.isVisible()
     win._on_print()
     qapp.processEvents()
-    assert win._status_stack.currentWidget() is win._feed_indicator
-    assert win._status_stack.height() == height_idle
+    assert win._print_button.is_busy()
     assert not win._print_button.isEnabled()
     win._on_print_succeeded({"outcome": "printed"})
     win._on_print_finished()
     qapp.processEvents()
-    assert win._status_stack.currentWidget() is win._last_job_label
-    assert win._status_stack.height() == height_idle
+    assert win._print_sheet is None
+    assert not win._print_button.is_busy()
     assert win._print_button.isEnabled()
     win.close()
     qapp.processEvents()
@@ -6878,8 +6918,8 @@ def test_language_switch_keeps_session_print_history(qapp, tmp_path, monkeypatch
     new = app_module._current_window
     assert new is not win
     assert new._print_jobs == [previous]
-    assert "Sent to printer" in new._last_job_label.text()
-    assert previous.model in new._last_job_label.text()
+    assert new._history_table.item(0, 4).text() == "Sent to printer"
+    assert previous.model in new._history_table.item(0, 3).text()
 
     new.close()
     qapp.processEvents()

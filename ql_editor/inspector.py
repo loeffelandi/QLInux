@@ -59,7 +59,7 @@ from .items import (
 from .sheet import show_widget
 from .symbols import SymbolPicker, symbol_label
 from .media import dots_to_mm, mm_to_dots
-from .widgets import install_wheel_guard_recursive
+from .widgets import install_wheel_guard_recursive, title_box
 
 BARCODE_SYMBOLOGIES = ["code128", "code39", "ean13", "ean8", "upca", "itf", "codabar"]
 
@@ -179,7 +179,7 @@ class InspectorPanel(QWidget):
         # Der Titel steht am Kasten, wie "Drucker" oder "Band" links.
         self._title.hide()
 
-        box = QGroupBox(self._title.text())
+        box = title_box(self._title.text())
         form = self._group_form(box)
 
         builder = {
@@ -197,7 +197,7 @@ class InspectorPanel(QWidget):
         if builder is not None:
             builder(item, form)
 
-        place = QGroupBox(tr("Lage"))
+        place = title_box(tr("Lage"))
         self._build_common(item, self._group_form(place))
         self._root.addWidget(box)
         self._root.addWidget(place)

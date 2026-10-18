@@ -23,7 +23,6 @@ from PySide6.QtWidgets import (
     QComboBox,
     QDoubleSpinBox,
     QFormLayout,
-    QGroupBox,
     QHBoxLayout,
     QLabel,
     QPushButton,
@@ -36,6 +35,7 @@ from PySide6.QtWidgets import (
 from . import media
 from .discovery import NetworkPrinter, discover_network_printers
 from .i18n import tr
+from .widgets import title_box
 from .icons import icon
 from .media import (
     DEFAULT_MODEL,
@@ -160,7 +160,7 @@ class MediaPanel(QWidget):
         # Kein Adressfeld zum Auswendiglernen: erst den Anschluss waehlen
         # ("Netzwerk" braucht nur die IP, "USB" findet das Geraet selbst),
         # darunter erscheint nur das, was dazu noetig ist.
-        printer_box = QGroupBox(tr("Drucker"))
+        printer_box = title_box(tr("Drucker"))
         printer_form = QFormLayout(printer_box)
         printer_form.setRowWrapPolicy(QFormLayout.RowWrapPolicy.WrapLongRows)
         printer_form.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.AllNonFixedFieldsGrow)
@@ -303,7 +303,7 @@ class MediaPanel(QWidget):
         self._sync_connection_rows()
 
         # -- Band -----------------------------------------------------------
-        media_box = QGroupBox(tr("Band"))
+        media_box = title_box(tr("Band"))
         media_form = QFormLayout(media_box)
         media_form.setRowWrapPolicy(QFormLayout.RowWrapPolicy.WrapLongRows)
         media_form.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.AllNonFixedFieldsGrow)
@@ -317,7 +317,7 @@ class MediaPanel(QWidget):
         outer.addWidget(media_box)
 
         # -- Laenge ---------------------------------------------------------
-        length_box = QGroupBox(tr("Länge"))
+        length_box = title_box(tr("Länge"))
         length_form = QFormLayout(length_box)
         length_form.setRowWrapPolicy(QFormLayout.RowWrapPolicy.WrapLongRows)
         length_form.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.AllNonFixedFieldsGrow)
@@ -335,7 +335,7 @@ class MediaPanel(QWidget):
         outer.addWidget(length_box)
 
         # -- Margins --------------------------------------------------------
-        margin_box = QGroupBox(tr("Ränder (mm)"))
+        margin_box = title_box(tr("Ränder (mm)"))
         margin_form = QFormLayout(margin_box)
         margin_form.setRowWrapPolicy(QFormLayout.RowWrapPolicy.WrapLongRows)
         margin_form.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.AllNonFixedFieldsGrow)

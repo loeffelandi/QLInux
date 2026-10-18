@@ -20,7 +20,21 @@ from PySide6.QtCore import (
     QTimer,
 )
 from PySide6.QtGui import QColor, QPainter, QPen
-from PySide6.QtWidgets import QAbstractScrollArea, QScrollArea, QWidget
+from PySide6.QtWidgets import QAbstractScrollArea, QGroupBox, QScrollArea, QWidget
+
+def title_box(title: str, parent: QWidget | None = None) -> QGroupBox:
+    """Gruppenkasten, dessen Ueberschrift fett ist und der Inhalt nicht.
+
+    ``QGroupBox::title`` setzt Fusion nicht um. Fett am Kasten selbst schon,
+    die Kinder bleiben ueber die zweite Regel in normaler Schrift.
+    """
+    box = QGroupBox(title, parent)
+    box.setStyleSheet(
+        "QGroupBox { font-weight: bold; }"
+        "QGroupBox * { font-weight: normal; }"
+    )
+    return box
+
 
 #: Pixel, die eine Mausrad-Raste (120 Einheiten) scrollt.
 WHEEL_PIXELS_PER_NOTCH = 64
