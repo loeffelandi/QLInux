@@ -231,7 +231,8 @@ The same suite runs on every push and pull request
 
 The tests run headless: `tests/conftest.py` forces the Qt *offscreen* platform
 and redirects `XDG_CONFIG_HOME` to a temporary directory, so a test run never
-opens a window and never touches your settings.
+opens a window and never touches your settings. How to add a test without
+making that suite slow again is in [docs/tests.md](docs/tests.md).
 
 Architecture and every measured printer detail (raster commands, cut commands,
 600 dpi mode, USB permissions) are documented in
