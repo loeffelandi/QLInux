@@ -1319,20 +1319,68 @@ def test_double_click_selects_existing_text(qapp):
     assert item.textCursor().selectedText() == "Neu"
 
 
-def test_empty_text_field_is_discarded_when_editing_ends(qapp):
-    """Leer gebliebene Felder verschwinden (kein unsichtbares Objekt)."""
+def test_empty_text_field_stays_when_editing_ends(qapp):
+    """Wegklicken loescht ein leeres Textfeld nicht; es bleibt selektiert."""
     from PySide6.QtCore import QPointF
+    from PySide6.QtWidgets import QSpinBox
 
     from ql_editor.app import MainWindow
 
     win = MainWindow()
     win.show()
     qapp.processEvents()
-    win._new_text(QPointF(50, 50))
+    item = win._new_text(QPointF(50, 50))
     qapp.processEvents()
+    assert item.isSelected()
+    assert item.is_editing is True
     win._canvas.cancel_editing()
     qapp.processEvents()
-    assert [i for i in win._canvas.scene().items() if isinstance(i, TextItem)] == []
+    assert item.scene() is not None
+    assert item.toPlainText() == ""
+    assert item.isSelected()
+    assert item.is_editing is False
+    size = next(
+        spin
+        for spin in win._inspector.findChildren(QSpinBox)
+        if spin.minimum() == 4 and spin.maximum() == 2000
+    )
+    size.setFocus()
+    qapp.processEvents()
+    size.setValue(80)
+    qapp.processEvents()
+    assert item.scene() is not None
+    assert item.font_pixel_size == 80
+    assert item.isSelected()
+    win.close()
+
+
+def test_empty_text_stays_selected_after_click_on_empty_canvas(qapp):
+    """Der Mausklick loescht die Auswahl erst danach; das leere Feld kommt zurueck."""
+    from PySide6.QtCore import QEvent, QPointF, Qt
+    from PySide6.QtGui import QKeyEvent
+
+    from ql_editor.app import MainWindow
+
+    win = MainWindow()
+    win.resize(1100, 760)
+    win.show()
+    qapp.processEvents()
+    item = win._new_text(QPointF(80, 40))
+    qapp.processEvents()
+    _press(win._canvas, QPointF(400, 300))
+    qapp.processEvents()
+    assert item.scene() is not None
+    assert item.toPlainText() == ""
+    assert item.is_editing is False
+    assert item.isSelected()
+
+    win._canvas.keyPressEvent(
+        QKeyEvent(QEvent.Type.KeyPress, Qt.Key.Key_Escape, Qt.KeyboardModifier.NoModifier)
+    )
+    qapp.processEvents()
+    assert item.scene() is not None
+    assert item.isSelected() is False
+    win.close()
 
 
 def test_text_field_with_content_survives_editing(qapp):
@@ -5269,7 +5317,7 @@ def test_language_switch_keeps_every_tab(qapp, tmp_path):
     qapp.processEvents()
 
 
-def test_switching_tabs_commits_an_open_inspector_edit_and_drops_empty_text(
+def test_switching_tabs_commits_an_open_inspector_edit_and_keeps_empty_text(
     qapp, tmp_path
 ):
     from PySide6.QtCore import QPointF
@@ -5306,13 +5354,13 @@ def test_switching_tabs_commits_an_open_inspector_edit_and_drops_empty_text(
     first = win._tab_at(0)
     assert [
         first.undo.command(i).text() for i in range(first.undo.count())
-    ] == ["Einfügen", "Eigenschaften"]
+    ] == ["Einfügen", "Eigenschaften", "Text"]
     texts = [
         entry
         for entry in first.canvas.scene().items()
         if isinstance(entry, TextItem)
     ]
-    assert [entry.toPlainText() for entry in texts] == ["Hallo"]
+    assert sorted(entry.toPlainText() for entry in texts) == ["", "Hallo"]
     win._accept_close = True
     win.close()
     qapp.processEvents()
@@ -5773,21 +5821,26 @@ def test_text_items_restored_by_undo_are_wired(qapp, tmp_path):
     assert win._undo_stack.index() == index + 1
     assert win._undo_stack.undoText() == "Text"
 
-    # Leer gemacht: wird wie ein frisches Feld aufgeraeumt.
+    # Leer gemacht: das Objekt bleibt, Undo stellt den Text wieder her.
     restored.start_editing()
     cursor = restored.textCursor()
     cursor.select(cursor.SelectionType.Document)
     cursor.removeSelectedText()
     win._canvas.cancel_editing()
     qapp.processEvents()
+    assert restored in win._canvas.scene().items()
+    assert restored.toPlainText() == ""
+    assert win._undo_stack.undoText() == "Text"
+    win._act_undo.trigger()
     qapp.processEvents()
-    assert restored not in win._canvas.scene().items()
+    again = next(i for i in win._canvas.scene().items() if isinstance(i, TextItem))
+    assert again.toPlainText() == "X"
     win.close()
     qapp.processEvents()
 
 
 def test_cancelled_new_text_does_not_swallow_the_next_drag(qapp, tmp_path):
-    """Leeres neues Textfeld verschwindet ohne „Löschen"; der folgende Zug bleibt ein eigener Schritt."""
+    """Leeres neues Textfeld bleibt; der folgende Zug ist ein eigener Schritt."""
     from PySide6.QtCore import QPointF, QRectF
 
     from ql_editor.items import RectItem, TextItem
@@ -5801,10 +5854,11 @@ def test_cancelled_new_text_does_not_swallow_the_next_drag(qapp, tmp_path):
 
     win._new_text(QPointF(20, 20))
     win._canvas.cancel_editing()
-    # Noch vor dem verzoegerten Entfernen: die naechste Geste muss ihren
-    # eigenen Schnappschuss bekommen.
+    qapp.processEvents()
     assert win._history_before is None
-    assert win._undo_stack.count() == count
+    assert win._undo_stack.count() == count + 1
+    assert win._undo_stack.undoText() == "Text"
+    assert any(isinstance(i, TextItem) for i in win._canvas.scene().items())
     win._canvas.gesture_begun.emit()
     rect._clamp_suspended = True
     rect.setPos(x0 + 30, rect.pos().y())
@@ -5812,19 +5866,19 @@ def test_cancelled_new_text_does_not_swallow_the_next_drag(qapp, tmp_path):
     win._canvas.items_changed.emit()
     qapp.processEvents()
 
-    assert not any(isinstance(i, TextItem) for i in win._canvas.scene().items())
+    assert any(isinstance(i, TextItem) for i in win._canvas.scene().items())
     assert win._undo_stack.undoText() == "Bearbeiten"
     win._act_undo.trigger()
     qapp.processEvents()
     again = next(i for i in win._canvas.scene().items() if isinstance(i, RectItem))
     assert again.pos().x() == pytest.approx(x0)
-    assert not any(isinstance(i, TextItem) for i in win._canvas.scene().items())
+    assert any(isinstance(i, TextItem) for i in win._canvas.scene().items())
     win.close()
     qapp.processEvents()
 
 
-def test_clearing_an_existing_text_field_is_one_delete_step(qapp, tmp_path):
-    """Bestehenden Text leeren: ein „Löschen"-Schritt, Undo stellt den Text her."""
+def test_clearing_an_existing_text_field_keeps_the_object(qapp, tmp_path):
+    """Bestehenden Text leeren: das Objekt bleibt, Undo stellt den Text her."""
     from PySide6.QtCore import QPointF
 
     from ql_editor.items import TextItem
@@ -5842,8 +5896,10 @@ def test_clearing_an_existing_text_field_is_one_delete_step(qapp, tmp_path):
     win._canvas.cancel_editing()
     qapp.processEvents()
 
-    assert win._undo_stack.undoText() == "Löschen"
-    assert not any(isinstance(i, TextItem) for i in win._canvas.scene().items())
+    assert win._undo_stack.undoText() == "Text"
+    assert text in win._canvas.scene().items()
+    assert text.toPlainText() == ""
+    assert text.isSelected()
     win._act_undo.trigger()
     qapp.processEvents()
     restored = next(i for i in win._canvas.scene().items() if isinstance(i, TextItem))

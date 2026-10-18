@@ -386,14 +386,6 @@ class MainWindow(QMainWindow):
         self._database_panel.connect_requested.connect(self._choose_csv)
         self._database_panel.replace_requested.connect(self._choose_csv)
         self._database_panel.disconnect_requested.connect(self.disconnect_csv)
-        self._database_panel.serial_edit_begun.connect(self._capture_history)
-        self._database_panel.serial_edit_finished.connect(
-            lambda: self._commit_history(tr("Serie"))
-        )
-        self._database_panel.serial_spec_changed.connect(self._on_serial_spec_changed)
-        self._database_panel.serial_toggle_requested.connect(
-            self._on_serial_toggle_requested
-        )
         shell = QWidget()
         shell_layout = QVBoxLayout(shell)
         shell_layout.setContentsMargins(0, 0, 0, 0)
@@ -461,6 +453,10 @@ class MainWindow(QMainWindow):
         self._inspector.edit_committed.connect(self._on_inspector_edit_committed)
         self._inspector.database_binding_changed.connect(
             self._on_database_binding_changed
+        )
+        self._inspector.serial_spec_changed.connect(self._on_serial_spec_changed)
+        self._inspector.serial_toggle_requested.connect(
+            self._on_serial_toggle_requested
         )
         self._inspector.rejected.connect(
             lambda message: self.statusBar().showMessage(message, 8000)
@@ -681,8 +677,8 @@ class MainWindow(QMainWindow):
         )
         self._cut_label.setToolTip(self._cut_combo.toolTip())
 
-        # Datenbank-Druckbereich (D16). Serie liegt im Datenbank-Panel (M6)
-        # und ist nur sichtbar, solange eine CSV geladen ist.
+        # Datenbank-Druckbereich (D16). Serie liegt im Inspector und ist
+        # nur sichtbar, solange eine CSV geladen ist.
         # Eigener Block: ohne CSV ausgeblendet, damit der Druckreiter auf
         # kleinen Bildschirmen ohne Scrollen auskommt.
         self._db_print_label = QLabel(tr("Datenbank"))
@@ -853,6 +849,8 @@ class MainWindow(QMainWindow):
 
     def _planned_labels(self) -> list[merge_engine.PlannedLabel]:
         """Druckliste: Records (oder ein virtueller) × Serie (D5)."""
+        self._normalize_serial_limits()
+        self._reconcile_serial_enabled()
         tab = self._active
         serial = tab.serial if tab is not None else None
         return merge_engine.plan_serial_labels(self._print_variants(), serial)
@@ -1207,6 +1205,19 @@ class MainWindow(QMainWindow):
         self._left_panel.docked_changed.connect(self._act_panel_left.setChecked)
         self._right_panel.docked_changed.connect(self._act_panel_right.setChecked)
 
+        self._act_connect_csv = QAction(icon("database"), tr("CSV verbinden…"), self)
+        self._act_connect_csv.setToolTip(tr("CSV-Datei mit dem Etikett verbinden"))
+        self._act_connect_csv.triggered.connect(self._choose_csv)
+
+        # Erst sichtbar, wenn eine CSV haengt. Klick klappt das untere Grid auf.
+        self._act_database = QAction(icon("database"), tr("Datenbank"), self)
+        self._act_database.setObjectName("database_toolbar")
+        self._act_database.setCheckable(True)
+        self._act_database.setChecked(False)
+        self._act_database.setVisible(False)
+        self._act_database.setToolTip(tr("Datenbank ein- oder ausblenden"))
+        self._act_database.toggled.connect(self._on_database_toolbar_toggled)
+
         self._act_quit = QAction(icon("quit"), tr("Beenden"), self)
         self._act_quit.setToolTip(tr("Beenden (Strg+Q)"))
         self._act_quit.setShortcut(QKeySequence.StandardKey.Quit)
@@ -1309,6 +1320,9 @@ class MainWindow(QMainWindow):
         bar.addAction(self._act_print_preview)
         bar.addAction(self._act_print)
         bar.addAction(self._act_print_history)
+        bar.addAction(self._act_connect_csv)
+        self._act_database_separator = bar.addSeparator()
+        bar.addAction(self._act_database)
 
     def _build_template_button(self, parent: QWidget) -> QToolButton:
         """Toolbar-Knopf "Vorlage laden": Klick oeffnet die Vorlagenliste."""
@@ -1417,6 +1431,9 @@ class MainWindow(QMainWindow):
         menu.addSection(tr("Etikett"))
         for act in self._media_panel.orientation_actions():
             menu.addAction(act)
+        menu.addSection(tr("Datenbank"))
+        menu.addAction(self._act_connect_csv)
+        menu.addAction(self._act_database)
         menu.addSection(tr("Ansicht"))
         for act in (
             self._act_print_preview,
@@ -2182,8 +2199,8 @@ class MainWindow(QMainWindow):
         """Objekt einfuegen - als ein Undo-Schritt.
 
         ``commit=False`` laesst den Schnappschuss offen: ein neues Textfeld
-        wird erst mit dem Ende der Bearbeitung ein Schritt („Text"), und ein
-        leer gebliebenes verschwindet ohne Spur auf dem Stapel.
+        wird erst mit dem Ende der Bearbeitung ein Schritt („Text"), auch
+        wenn es leer geblieben ist.
         """
         self._seal_open_inspector_edit()
         self._capture_history()
@@ -2298,9 +2315,9 @@ class MainWindow(QMainWindow):
         """Neues Textfeld anlegen und direkt bearbeiten.
 
         Bewusst **ohne Platzhaltertext**: der Doppelklick setzt nur den Cursor,
-        getippt wird sofort der eigene Text. Bleibt das Feld leer, wird es beim
-        Beenden der Bearbeitung wieder verworfen (siehe
-        :meth:`_on_text_editing_finished`) - wie im P-touch Editor.
+        getippt wird sofort der eigene Text. Ein leer gebliebenes Feld bleibt
+        selektiert, damit Schriftgroesse oder Datenbankfeld danach gesetzt
+        werden koennen.
         """
         item = TextItem(text, font_pixel_size=self._default_font_size())
         # Einfuegen und Tippen sind *ein* Schritt; der Commit kommt mit dem
@@ -2316,72 +2333,42 @@ class MainWindow(QMainWindow):
         self._new_text(scene_pos)
 
     def _on_text_editing_finished(self) -> None:
-        """Leer gebliebene Textfelder verwerfen.
+        """Bearbeitung beenden, ohne ein leeres Textfeld zu loeschen.
 
-        Ein Doppelklick legt ein leeres Feld an; tippt man nichts und klickt
-        daneben, soll kein unsichtbares Objekt im Etikett zurueckbleiben.
-        Das Entfernen wird verzoegert, weil das Signal aus dem Fokus-Event des
-        Items kommt - dort darf es sich nicht selbst aus der Szene nehmen.
+        Wegklicken schliesst nur die Eingabe. Das Objekt bleibt, und solange
+        nichts anderes gewaehlt ist, bleibt es selektiert - Schriftgroesse
+        und Datenbankfeld lassen sich danach setzen. Die Auswahl kommt erst
+        nach dem Mausklick, weil die Szene sie im selben Druck noch loescht.
+        Esc setzt ``_skip_reselect`` und laesst die Auswahl aus. Der
+        Undo-Schritt entsteht sofort, damit die naechste Geste nicht in
+        denselben Befehl rutscht.
         """
         item = self.sender()
         if not isinstance(item, TextItem):
             return
-        if str(item.toPlainText()).strip():
-            self._commit_history(tr("Text"))
-            return
-        # Schnappschuss sofort freigeben: der Klick, der die Bearbeitung
-        # beendet, startet oft im selben Atemzug die naechste Geste. Das
-        # leere Feld zaehlt ab hier nicht mehr mit (``_pending_discard``),
-        # der Undo-Schritt entsteht aber schon jetzt - nicht erst im Timer,
-        # der sonst die Geste dazwischen in denselben Befehl ziehen wuerde.
-        before = self._history_before
-        self._history_before = None
-        item._pending_discard = True
-        pushed = push_if_changed(
-            self._undo_stack,
-            before,
-            self._design_snapshot(),
-            self._restore_design,
-            tr("Löschen"),
+        skip = bool(getattr(item, "_skip_reselect", False))
+        item._skip_reselect = False
+        keep = (
+            not skip
+            and item.scene() is not None
+            and not str(item.toPlainText()).strip()
+            and not any(it is not item for it in self._canvas.selected_items())
         )
-        if pushed:
-            self._update_window_title()
-        tab = self._active
-        QTimer.singleShot(
-            0, lambda: self._discard_text_if_empty(item, pushed, tab=tab)
-        )
+        if keep:
+            item.setSelected(True)
+        self._commit_history(tr("Text"))
+        if keep:
+            QTimer.singleShot(0, lambda item=item: self._reselect_empty_text(item))
 
-    def _discard_text_if_empty(
-        self,
-        item: TextItem,
-        pushed: bool = False,
-        *,
-        tab: LabelTab | None = None,
-    ) -> None:
-        if item.scene() is None:
+    def _reselect_empty_text(self, item: TextItem) -> None:
+        """Leeres Feld nach dem Mausklick wieder waehlen, falls noch nichts anderes gilt."""
+        if item.scene() is None or item.scene() is not self._canvas.scene():
             return
-        owner = tab if tab is not None else self._active
-        if owner is None:
+        if str(item.toPlainText()).strip():
             return
-        # Laeuft die Bearbeitung inzwischen wieder (z. B. nach einem Refresh,
-        # der die Textmarke ausblendet), bleibt das Feld stehen - verworfen
-        # wird nur, was wirklich nicht mehr in Bearbeitung ist.
-        if item.is_editing or str(item.toPlainText()).strip():
-            item._pending_discard = False
-            if (
-                pushed
-                and owner.undo.undoText() == tr("Löschen")
-                and owner.undo.index() == owner.undo.count()
-            ):
-                owner.undo.undo()
+        if any(it is not item for it in self._canvas.selected_items()):
             return
-        self._history_suppress = True
-        try:
-            owner.canvas.remove_item(item)
-        finally:
-            self._history_suppress = False
-        if owner is self._active:
-            self._on_items_changed()
+        item.setSelected(True)
 
     def _on_text_edited(self) -> None:
         self._capture_history()
@@ -2396,9 +2383,13 @@ class MainWindow(QMainWindow):
         tab = self._active
         if tab is not None and tab.csv_table is not None:
             fields = list(tab.csv_table.fields)
+        self._normalize_serial_limits()
         self._inspector.set_database_fields(fields)
+        self._inspector.set_serial_context(
+            tab.serial if tab is not None else None,
+            csv_connected=tab is not None and tab.csv_table is not None,
+        )
         self._inspector.set_item(item, allow_red=allow_red)
-        self._sync_serial_panel()
         self._sync_arrange_actions()
 
     def _on_inspector_edit_committed(self) -> None:
@@ -2411,7 +2402,6 @@ class MainWindow(QMainWindow):
         """Neues Feld sofort in den Snapshot schreiben (D11), ohne den Aufbau."""
         self._reconcile_serial_enabled()
         self._apply_merge_to_canvas(refresh_inspector=False)
-        self._sync_serial_panel()
         self._sync_cut_options()
 
     def _serial_target_item(self):
@@ -2442,29 +2432,43 @@ class MainWindow(QMainWindow):
         spec["enabled"] = False
         tab.serial = document.merge_serial(spec)
 
-    def _sync_serial_panel(self) -> None:
-        """Serienblock an Dokument und Auswahl. Ohne CSV bleibt er versteckt."""
+    def _normalize_serial_limits(self) -> None:
+        """Anzahl auf 1…99 und Schritt weg von 0, passend zum Inspector."""
         tab = self._active
         if tab is None:
-            self._database_panel.set_serial_state(None)
             return
-        item = self._serial_target_item()
-        source = None
-        kind = None
-        if item is not None:
-            kind = item.kind
-            binding = item.binding or {}
-            source = binding.get("source")
-        self._database_panel.set_serial_state(
-            tab.serial, target_kind=kind, target_source=source
-        )
+        spec = dict(tab.serial)
+        changed = False
+        count = spec.get("count", 1)
+        if isinstance(count, bool) or not isinstance(count, int) or count < 1:
+            spec["count"] = 1
+            changed = True
+        elif count > 99:
+            spec["count"] = 99
+            changed = True
+        step = spec.get("step", 1)
+        if isinstance(step, bool) or not isinstance(step, int) or step == 0:
+            spec["step"] = 1
+            changed = True
+        if not changed:
+            return
+        tab.serial = document.merge_serial(spec)
+        if not self._history_suppress and not self._adjusting:
+            self._document_dirty = True
 
     def _on_serial_spec_changed(self, spec) -> None:
-        """Start/Anzahl/Schritt/Prefix aus dem Panel, ohne ``enabled`` zu drehen."""
+        """Start/Anzahl/Schritt/Prefix aus dem Inspector, ohne ``enabled`` zu drehen."""
         if self._adjusting or self._history_suppress:
             return
         tab = self._require_tab()
         merged = document.merge_serial(spec if isinstance(spec, Mapping) else None)
+        step = merged.get("step", 1)
+        if isinstance(step, bool) or not isinstance(step, int) or step == 0:
+            return
+        count = merged.get("count", 1)
+        if isinstance(count, bool) or not isinstance(count, int):
+            count = 1
+        merged["count"] = max(1, min(99, int(count)))
         # Gebundene Objekte drucken die Serie; ein reiner Parameter-Edit
         # schaltet sie ein, ohne das Binding anzufassen.
         merged["enabled"] = bool(tab.serial.get("enabled")) or self._any_serial_binding()
@@ -2483,7 +2487,6 @@ class MainWindow(QMainWindow):
         source = (item.binding or {}).get("source") if item is not None else None
         if checked:
             if item is None or source == "database":
-                self._sync_serial_panel()
                 return
             item.set_binding({"source": "serial"})
             spec = dict(tab.serial)
@@ -2497,7 +2500,6 @@ class MainWindow(QMainWindow):
                 spec["enabled"] = False
                 tab.serial = document.merge_serial(spec)
         self._apply_merge_to_canvas(refresh_inspector=False)
-        self._sync_serial_panel()
         self._sync_cut_options()
 
     def _on_inspector_changed(self) -> None:
@@ -2515,6 +2517,7 @@ class MainWindow(QMainWindow):
             self._canvas.delete_selected()
         finally:
             self._history_suppress = False
+        self._reconcile_serial_enabled()
         self._commit_history(tr("Löschen"))
         self._on_items_changed()
 
@@ -2549,6 +2552,7 @@ class MainWindow(QMainWindow):
     def _on_items_changed(self) -> None:
         """Nach Abschluss einer Geste: Bandgroesse + Inspector aktualisieren."""
         if not self._history_suppress:
+            self._reconcile_serial_enabled()
             text = tr("Bearbeiten")
             before = self._history_before
             if before is not None and len(self._canvas.items_serialized()) < len(
@@ -2873,6 +2877,7 @@ class MainWindow(QMainWindow):
     def _on_print(self) -> None:
         if self._print_worker is not None and self._print_worker.isRunning():
             return
+        self._inspector.flush_edit()
         config = self._media_panel.printer_config()
         if not config.address:
             show_message(
@@ -2912,7 +2917,7 @@ class MainWindow(QMainWindow):
         self._pending_job = (
             datetime.now(),
             label.name,
-            pages,
+            copies,
             config.model,
             config.address,
         )
@@ -3886,11 +3891,45 @@ class MainWindow(QMainWindow):
         finally:
             self._active = previous
 
+    def _database_is_linked(self) -> bool:
+        """True, wenn der aktive Reiter eine CSV geladen oder einen Pfad hat."""
+        tab = self._active
+        if tab is None:
+            return False
+        if tab.csv_table is not None:
+            return True
+        source = tab.data_source
+        if not isinstance(source, Mapping):
+            return False
+        return bool(str(source.get("path") or "").strip())
+
+    def _on_database_toolbar_toggled(self, checked: bool) -> None:
+        """Toolbar-Icon zeigt das Grid nur bei bestehender Verbindung."""
+        if checked and self._database_is_linked():
+            self._database_panel.set_expanded(True)
+            self._database_panel.show()
+            return
+        self._database_panel.hide()
+
+    def _apply_database_visibility(self) -> None:
+        """Ohne CSV weder Icon noch Panel; mit CSV nur das Icon, bis es geklickt wird."""
+        linked = self._database_is_linked()
+        self._act_database.setVisible(linked)
+        self._act_database_separator.setVisible(linked)
+        if not linked:
+            self._act_database.blockSignals(True)
+            self._act_database.setChecked(False)
+            self._act_database.blockSignals(False)
+            self._database_panel.hide()
+            return
+        self._database_panel.setVisible(self._act_database.isChecked())
+
     def _sync_database_panel(self) -> None:
         """Unteres Grid an den aktiven Reiter anbinden."""
         tab = self._active
         if tab is None:
             self._database_panel.clear()
+            self._apply_database_visibility()
             self._sync_print_scope_ui()
             return
         notice = tab.database_notice
@@ -3902,8 +3941,9 @@ class MainWindow(QMainWindow):
                 self._database_panel.show_unloaded(Path(path).name, notice)
             else:
                 self._database_panel.clear(notice=notice)
+            self._apply_database_visibility()
             self._sync_print_scope_ui()
-            self._sync_serial_panel()
+            self._on_selection_changed()
             return
         name = None
         if tab.data_source and tab.data_source.get("path"):
@@ -3914,8 +3954,9 @@ class MainWindow(QMainWindow):
             display_name=name,
             notice=notice,
         )
+        self._apply_database_visibility()
         self._sync_print_scope_ui()
-        self._sync_serial_panel()
+        self._on_selection_changed()
 
     def _on_database_record_selected(self, index: int) -> None:
         """Tabellenzeile → ``current_record`` + Live-Merge (D15, ohne Undo)."""
@@ -4098,6 +4139,8 @@ class MainWindow(QMainWindow):
             self._canvas.load_items(list(data.get("items") or []))
             self._sync_margin_base()
             self._load_document_database(data, document_path=document_path)
+            self._reconcile_serial_enabled()
+            self._normalize_serial_limits()
         finally:
             self._adjusting = False
             self._history_suppress = False

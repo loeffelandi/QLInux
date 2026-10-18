@@ -294,7 +294,11 @@ def test_serial_length_ignores_count_until_enabled():
 
 
 def test_job_page_count_is_variants_times_copies():
+    from ql_editor.printer import COPIES_MAX
+
+    assert not hasattr(merge, "PRINT_PAGE_LIMIT")
     assert merge.job_page_count(3, 2) == 6
+    assert merge.job_page_count(1, COPIES_MAX) == COPIES_MAX
     with pytest.raises(merge.MergeError):
         merge.job_page_count(3, 40)
     with pytest.raises(merge.MergeError):

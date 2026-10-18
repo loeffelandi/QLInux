@@ -23,6 +23,7 @@ from typing import Any, Mapping, Sequence
 
 from .document import DEFAULT_SERIAL, merge_serial
 from .i18n import tr
+from .printer import COPIES_MAX
 
 #: Binding-Quellen, die ein Anzeigewert-Merge betreffen.
 _MERGE_KINDS = frozenset({"text", "qr", "barcode"})
@@ -32,9 +33,6 @@ PRINT_SELECTED = "selected"
 PRINT_ALL = "all"
 PRINT_RANGE = "range"
 PRINT_SCOPES = frozenset({PRINT_SELECTED, PRINT_ALL, PRINT_RANGE})
-
-#: Seitenobergrenze eines Auftrags (D7, gleich ``COPIES_MAX``).
-PRINT_PAGE_LIMIT = 99
 
 
 class MergeError(Exception):
@@ -294,9 +292,9 @@ def plan_serial_labels(
 
 
 def job_page_count(
-    variant_count: int, copies: int, *, limit: int = PRINT_PAGE_LIMIT
+    variant_count: int, copies: int, *, limit: int = COPIES_MAX
 ) -> int:
-    """Seiten = Varianten × Kopien; ueber ``limit`` abbrechen (D7)."""
+    """Seiten = Varianten × Kopien; ueber :data:`COPIES_MAX` abbrechen (D7)."""
     if (
         isinstance(variant_count, bool)
         or not isinstance(variant_count, int)
@@ -400,7 +398,6 @@ def resolve_csv_path(
 __all__ = [
     "MergeError",
     "PRINT_ALL",
-    "PRINT_PAGE_LIMIT",
     "PRINT_RANGE",
     "PRINT_SCOPES",
     "PRINT_SELECTED",

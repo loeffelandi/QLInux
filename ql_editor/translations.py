@@ -801,12 +801,14 @@ EN: dict[str, str] = {
         "Add text, a barcode or a QR code to the label, then drag a column header (○) "
         "onto it. Select a row for live preview."
     ),
-    "Verbinden": "Connect",
     "Andere…": "Other…",
     "Trennen": "Disconnect",
     "Datensatz {current} / {total}": "Record {current} / {total}",
     "Auf Text, Barcode oder QR ziehen": "Drag onto text, barcode or QR",
     "CSV verbinden": "Connect CSV",
+    "CSV verbinden…": "Connect CSV…",
+    "CSV-Datei mit dem Etikett verbinden": "Connect a CSV file to the label",
+    "Datenbank ein- oder ausblenden": "Show or hide the database",
     "CSV-Dateien (*.csv);;Alle Dateien (*)": "CSV files (*.csv);;All files (*)",
     "(keine)": "(none)",
     "Verbindung lösen": "Remove link",

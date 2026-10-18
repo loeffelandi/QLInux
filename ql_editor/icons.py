@@ -76,6 +76,7 @@ ICON_COLORS: dict[str, str] = {
     "shape_arrow_left": "#597697",
     "shape_arrow_double": "#597697",
     "table": "#3f6f54",
+    "database": "#3d6d8c",
     "datetime": "#3d6d8c",
     "clipart": "#7a4e2d",
     # Datei und Vorlagen
@@ -326,6 +327,16 @@ def _draw_table(p: QPainter, color: QColor) -> None:
     _line(p, 3.5, 9.5, 20.5, 9.5)
     _line(p, 3.5, 14.5, 20.5, 14.5)
     _line(p, 12.0, 4.5, 12.0, 19.5)
+
+
+def _draw_database(p: QPainter, color: QColor) -> None:
+    """Zylinder: Datenbank, nicht die Objekt-Tabelle."""
+    _stroke_only(p, color, 1.6)
+    p.drawEllipse(QRectF(4.0, 3.2, 16.0, 5.2))
+    _line(p, 4.0, 5.8, 4.0, 17.2)
+    _line(p, 20.0, 5.8, 20.0, 17.2)
+    p.drawArc(QRectF(4.0, 14.4, 16.0, 5.2), 180 * 16, 180 * 16)
+    p.drawArc(QRectF(4.0, 8.6, 16.0, 5.2), 200 * 16, 140 * 16)
 
 
 def _table_frame(p: QPainter, color: QColor) -> None:
@@ -918,6 +929,7 @@ _DRAW = {
     "rect": _draw_rect,
     "shape": _draw_shape,
     "table": _draw_table,
+    "database": _draw_database,
     "row_above": _draw_row_above,
     "col_left": _draw_col_left,
     "row_delete": _draw_row_delete,

@@ -83,8 +83,10 @@ CUT_NONE = "none"
 #: Waehlbare Zuschnittarten (Reihenfolge = Reihenfolge in der Oberflaeche).
 CUT_MODES = (CUT_EACH, CUT_AT_END, CUT_NONE)
 
-#: Hoechste Kopienzahl pro Auftrag. Ein Auftrag ist ein zusammenhaengender
-#: Datenstrom - mehr als das hier sind keine Kopien am Stueck.
+#: Obergrenze eines Auftrags. Hoechstens so viele Kopien, und hoechstens
+#: so viele Seiten (Varianten × Kopien). Ein Auftrag ist ein
+#: zusammenhaengender Datenstrom - mehr als das hier sind keine Seiten
+#: am Stueck.
 COPIES_MAX = 99
 
 #: Befehl "Various mode" (``ESC i M {n}``), Bit 7 (1-basiert, hier ``0x40``):
@@ -859,9 +861,10 @@ def print_images(
     jedes Bild identisch).
     """
     data = build_raster_sequence(images, label, config, **options)
+    copies = options.get("copies", 1)
     logger.info(
         "Sende %d Etiketten: Band %s, Modell %s, %d Bytes an %s",
-        len(images),
+        len(images) * copies,
         label.identifier,
         config.model,
         len(data),

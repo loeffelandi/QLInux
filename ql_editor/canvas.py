@@ -1779,6 +1779,10 @@ class LabelCanvas(QGraphicsView):
         if key == Qt.Key.Key_Escape:
             # Esc beendet die Inline-Bearbeitung und die Auswahl. Qt laesst ein
             # Textfeld in Bearbeitung von sich aus offen - deshalb hier zuerst.
+            # Ein leeres Feld wuerde sich sonst nach dem Klick wieder selektieren.
+            editor = self._focused_editor()
+            if getattr(editor, "kind", None) == "text":
+                editor._skip_reselect = True
             self.cancel_editing()
             self._scene.clearSelection()
             event.accept()

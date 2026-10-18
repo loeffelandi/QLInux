@@ -273,8 +273,7 @@ class TextItem(_BindingMixin, _ClampMixin, QGraphicsTextItem):
     #: Bearbeitung begonnen (Doppelklick, neues Feld). Die App nimmt hier den
     #: Undo-Schnappschuss - *vor* dem ersten Zeichen, nicht erst danach.
     editing_started = Signal()
-    #: Bearbeitung beendet (Fokus weg oder Esc). Die App raeumt damit leere
-    #: Textfelder auf, die nur durch einen Doppelklick entstanden sind.
+    #: Bearbeitung beendet (Fokus weg oder Esc). Ein leeres Feld bleibt liegen.
     editing_finished = Signal()
 
     def __init__(self, text: str = "", font_family: str = "Sans", font_pixel_size: int = 48):

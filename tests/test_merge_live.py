@@ -7,6 +7,7 @@ from pathlib import Path
 
 import pytest
 from PySide6.QtCore import QSettings
+from PySide6.QtWidgets import QCheckBox, QLabel, QSpinBox
 
 from ql_editor import csv_source, document
 from ql_editor.app import MainWindow
@@ -20,6 +21,16 @@ def _clean_settings():
     QSettings("QLInux", "QLInux").clear()
     yield
     QSettings("QLInux", "QLInux").clear()
+
+
+def _inspector_child(win, type_, name: str):
+    matches = [
+        child
+        for child in win._inspector.findChildren(type_, name)
+        if child.isVisible()
+    ]
+    assert matches, name
+    return matches[-1]
 
 
 def _write_fixture(tmp_path: Path) -> tuple[Path, Path]:
@@ -337,6 +348,8 @@ def test_print_ranges_render_selected_all_and_record_range(
     assert len(captured["images"]) == 2
     assert captured["options"]["copies"] == 2
     assert "4 Etiketten" in win.statusBar().currentMessage()
+    # Verlaufsspalte „Kopien" ist die Kopienzahl, nicht Datensätze × Kopien.
+    assert win._pending_job[2] == 2
     texts = {item.binding["field"]: item.text_value for item in _bound_texts(win)}
     assert texts["Fixture"] == "Spot B"
     win.close()
@@ -390,11 +403,16 @@ def test_serial_prints_inside_each_record_and_hides_without_csv(
     win = MainWindow()
     win.show()
     qapp.processEvents()
-    assert win._database_panel._serial.isHidden()
+    text = TextItem("A")
+    win._canvas.add_item(text)
+    text.setSelected(True)
+    win._on_selection_changed()
+    qapp.processEvents()
+    assert win._inspector.findChild(QCheckBox, "inspector_serial_enabled") is None
+    win._canvas.remove_item(text)
     win.open_path(str(qlx))
     qapp.processEvents()
     win._media_panel.set_network_host("192.168.178.62")
-    assert not win._database_panel._serial.isHidden()
 
     fixture = next(
         item
@@ -405,9 +423,10 @@ def test_serial_prints_inside_each_record_and_hides_without_csv(
     fixture.setSelected(True)
     win._on_selection_changed()
     qapp.processEvents()
-    assert win._database_panel._serial_check.isEnabled() is False
-    assert win._database_panel._serial_note.isVisible()
-    assert win._database_panel._serial_count.isEnabled() is False
+    locked = _inspector_child(win, QCheckBox, "inspector_serial_enabled")
+    assert locked.isEnabled() is False
+    assert _inspector_child(win, QLabel, "inspector_serial_locked").isVisible()
+    assert _inspector_child(win, QSpinBox, "inspector_serial_count").isEnabled() is False
 
     barcode = next(
         item for item in win._canvas.ordered_items() if isinstance(item, BarcodeItem)
@@ -416,11 +435,14 @@ def test_serial_prints_inside_each_record_and_hides_without_csv(
     barcode.setSelected(True)
     win._on_selection_changed()
     qapp.processEvents()
-    assert win._database_panel._serial_check.isChecked()
-    assert win._database_panel._serial_count.isEnabled()
-    win._database_panel._serial_count.setValue(3)
-    win._database_panel._serial_step.setValue(2)
-    win._database_panel._serial_count.editingFinished.emit()
+    check = _inspector_child(win, QCheckBox, "inspector_serial_enabled")
+    count = _inspector_child(win, QSpinBox, "inspector_serial_count")
+    step = _inspector_child(win, QSpinBox, "inspector_serial_step")
+    assert check.isChecked()
+    assert count.isEnabled()
+    count.setValue(3)
+    step.setValue(2)
+    count.editingFinished.emit()
     qapp.processEvents()
     assert win._active.serial["enabled"] is True
     assert win._active.serial["count"] == 3
@@ -479,7 +501,69 @@ def test_serial_prints_inside_each_record_and_hides_without_csv(
 
     win.disconnect_csv()
     qapp.processEvents()
-    assert win._database_panel._serial.isHidden()
+    barcode.setSelected(True)
+    win._on_selection_changed()
+    qapp.processEvents()
+    assert not any(
+        child.isVisible()
+        for child in win._inspector.findChildren(QCheckBox, "inspector_serial_enabled")
+    )
+    win.close()
+    qapp.processEvents()
+
+
+def test_deleting_last_serial_object_turns_numbering_off(qapp, tmp_path):
+    qlx, _csv = _write_fixture(tmp_path)
+    win = MainWindow()
+    win.show()
+    win.open_path(str(qlx))
+    qapp.processEvents()
+    barcode = next(
+        item for item in win._canvas.ordered_items() if isinstance(item, BarcodeItem)
+    )
+    spec = dict(win._active.serial)
+    spec["enabled"] = True
+    spec["count"] = 3
+    win._active.serial = spec
+    win._canvas.scene().clearSelection()
+    barcode.setSelected(True)
+    win._delete_selected()
+    qapp.processEvents()
+    assert win._active.serial["enabled"] is False
+    assert win._active.serial["count"] == 3
+    win.close()
+    qapp.processEvents()
+
+
+def test_serial_limits_clamp_count_and_reject_zero_step(qapp, tmp_path):
+    qlx, _csv = _write_fixture(tmp_path)
+    win = MainWindow()
+    win.show()
+    win.open_path(str(qlx))
+    qapp.processEvents()
+    spec = dict(win._active.serial)
+    spec["enabled"] = True
+    spec["count"] = 120
+    spec["step"] = 0
+    win._active.serial = spec
+    labels = win._planned_labels()
+    assert win._active.serial["count"] == 99
+    assert win._active.serial["step"] == 1
+    assert len(labels) == 99
+
+    barcode = next(
+        item for item in win._canvas.ordered_items() if isinstance(item, BarcodeItem)
+    )
+    win._canvas.scene().clearSelection()
+    barcode.setSelected(True)
+    win._on_selection_changed()
+    qapp.processEvents()
+    step = _inspector_child(win, QSpinBox, "inspector_serial_step")
+    step.setValue(4)
+    step.setValue(0)
+    qapp.processEvents()
+    assert step.value() == 4
+    assert win._active.serial["step"] == 4
     win.close()
     qapp.processEvents()
 
