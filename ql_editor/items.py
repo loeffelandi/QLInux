@@ -339,10 +339,12 @@ class TextItem(_BindingMixin, _ClampMixin, QGraphicsTextItem):
         painter.restore()
 
     def boundingRect(self) -> QRectF:  # noqa: N802
-        return super().boundingRect().united(self._box_rect())
+        # Auswahlrahmen und Griffe folgen der Box, nicht dem groesseren
+        # Dokumentrechteck (Umbruch/Zeilenabstand lassen dort oft Leerzeilen).
+        return self._box_rect()
 
     def shape(self) -> QPainterPath:  # noqa: N802
-        """Hit-Test-Form: die feste Box, nicht nur der Textumriss."""
+        """Hit-Test-Form: die Box, nicht nur der Textumriss."""
         path = QPainterPath()
         path.addRect(self._box_rect())
         return path
@@ -351,10 +353,46 @@ class TextItem(_BindingMixin, _ClampMixin, QGraphicsTextItem):
         return self._box_rect().contains(point)
 
     def _box_rect(self) -> QRectF:
-        size = self.document().size()
-        width = self._box_width if self._box_width > 0 else size.width()
-        height = self._box_height if self._box_height > 0 else size.height()
+        width = self._box_width if self._box_width > 0 else self.document().size().width()
+        if self._box_height > 0:
+            height = self._box_height
+        else:
+            height = self._content_height()
         return QRectF(0, 0, width, height)
+
+    def _content_height(self) -> float:
+        """Hoehe des gemalten Textes (ohne leere Folgezeilen am Dokumentende).
+
+        ``QTextDocument.size()`` zaehlt leere Bloecke und den Abstand *unter*
+        der letzten Zeile mit. Bei Umbruch und proportionalem Zeilenabstand
+        wird die Box dadurch deutlich hoeher als der Text; der blaue
+        Auswahlrahmen haengt dann mit grossem Leerraum unter der letzten Zeile.
+        """
+        doc = self.document()
+        margin = doc.documentMargin()
+        bottom = margin
+        saw_text = False
+        block = doc.begin()
+        while block.isValid():
+            if block.text():
+                saw_text = True
+                rect = doc.documentLayout().blockBoundingRect(block)
+                block_bottom = rect.bottom()
+                layout = block.layout()
+                if layout is not None and layout.lineCount() > 0:
+                    last = layout.lineAt(layout.lineCount() - 1)
+                    # Unterlaenge mitnehmen; +1 fuer Antialiasing der Glyphe.
+                    block_bottom = max(
+                        block_bottom,
+                        rect.top() + last.y() + last.ascent() + last.descent() + 1.0,
+                    )
+                bottom = max(bottom, block_bottom)
+            block = block.next()
+        if not saw_text:
+            bottom = doc.size().height()
+        else:
+            bottom += margin
+        return max(1.0, bottom)
 
     def _valign_offset(self, box: QRectF) -> float:
         free = box.height() - self.document().size().height()
@@ -419,6 +457,7 @@ class TextItem(_BindingMixin, _ClampMixin, QGraphicsTextItem):
 
     # -- Properties ---------------------------------------------------------
     def set_font_pixel_size(self, size: int) -> None:
+        self.prepareGeometryChange()
         self._font_pixel_size = max(4, int(size))
         self._apply_font()
 
@@ -467,6 +506,7 @@ class TextItem(_BindingMixin, _ClampMixin, QGraphicsTextItem):
         return self._italic
 
     def set_letter_spacing(self, px: float) -> None:
+        self.prepareGeometryChange()
         self._letter_spacing = float(px)
         self._apply_font()
 
