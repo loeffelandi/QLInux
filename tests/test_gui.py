@@ -693,6 +693,184 @@ def test_canvas_tape_rect_includes_side_border(qapp):
     assert tape.width() == pytest.approx(554 + 2 * label.side_border_dots)
 
 
+def test_cut_offset_follows_the_last_printed_line(qapp):
+    """Schnittversatz hinter der letzten Zeile: unten quer, links laengs."""
+    canvas = LabelCanvas()
+    label = get_label("50")
+    canvas.set_label(label, 472)
+    tape = canvas.tape_rect()
+    printable = canvas.printable_rect()
+    assert printable.top() - tape.top() == pytest.approx(label.feed_margin)
+    assert tape.bottom() - printable.bottom() == pytest.approx(
+        label.feed_margin + media.CUT_OFFSET_DOTS
+    )
+
+    canvas.set_label(label, 472, orientation=media.Orientation.ALONG)
+    tape = canvas.tape_rect()
+    printable = canvas.printable_rect()
+    assert printable.left() - tape.left() == pytest.approx(
+        label.feed_margin + media.CUT_OFFSET_DOTS
+    )
+    assert tape.right() - printable.right() == pytest.approx(label.feed_margin)
+
+
+def test_die_cut_length_matches_the_result_readout(qapp):
+    """Die-cut: Laenge ist die Druckflaeche, wie die Ergebniszeile. Seitenkanten bleiben."""
+    canvas = LabelCanvas()
+    label = get_label("62x100")
+    assert not label.is_endless
+    assert label.dots_total[1] > label.dots_printable[1]
+    canvas.set_label(label, label.height_dots)
+    tape = canvas.tape_rect()
+    printable = canvas.printable_rect()
+    assert tape.top() == pytest.approx(printable.top())
+    assert tape.bottom() == pytest.approx(printable.bottom())
+    assert tape.left() == pytest.approx(printable.left() - label.side_border_dots)
+    assert tape.right() == pytest.approx(printable.right() + label.side_border_dots)
+    assert canvas._length_mm() == pytest.approx(media.dots_to_mm(label.height_dots))
+
+    canvas.set_label(label, label.height_dots, orientation=media.Orientation.ALONG)
+    tape = canvas.tape_rect()
+    printable = canvas.printable_rect()
+    assert tape.left() == pytest.approx(printable.left())
+    assert tape.right() == pytest.approx(printable.right())
+    assert tape.top() == pytest.approx(printable.top() - label.side_border_dots)
+    assert tape.bottom() == pytest.approx(printable.bottom() + label.side_border_dots)
+
+
+def test_tape_band_starts_after_the_full_label(qapp):
+    """Grau erst hinter dem fertigen Etikett; das Etikett hat die volle Hoehe."""
+    from PySide6.QtCore import QRectF
+
+    canvas = LabelCanvas()
+    label = get_label("50")
+    canvas.set_label(label, 472)
+    tape = canvas.tape_rect()
+    printable = canvas.printable_rect()
+    exposed = QRectF(-400, -200, 2000, 1600)
+    band = canvas.tape_band_rect(exposed)
+    extra = 2 * label.feed_margin + media.CUT_OFFSET_DOTS
+    # ACROSS: volle Breite, Laenge inkl. Vorschub, Grau darunter.
+    assert tape.left() == pytest.approx(printable.left() - label.side_border_dots)
+    assert tape.width() == pytest.approx(printable.width() + 2 * label.side_border_dots)
+    assert tape.height() == pytest.approx(printable.height() + extra)
+    assert band.top() == pytest.approx(tape.bottom())
+    assert band.left() == pytest.approx(tape.left())
+    assert band.width() == pytest.approx(tape.width())
+    assert band.bottom() == pytest.approx(exposed.bottom())
+
+    canvas.set_label(label, 472, orientation=media.Orientation.ALONG)
+    tape = canvas.tape_rect()
+    printable = canvas.printable_rect()
+    band = canvas.tape_band_rect(exposed)
+    assert tape.height() == pytest.approx(label.width_dots + 2 * label.side_border_dots)
+    assert tape.width() == pytest.approx(printable.width() + extra)
+    assert band.left() == pytest.approx(tape.right())
+    assert band.top() == pytest.approx(tape.top())
+    assert band.height() == pytest.approx(tape.height())
+    assert band.right() == pytest.approx(exposed.right())
+
+
+def test_fitted_label_sits_at_the_top_left(qapp):
+    """Wie im P-touch Editor: Etikett und Bandstreifen oben links, nicht mittig."""
+    from ql_editor.canvas import FIT_MARGIN_MM
+    from ql_editor.media import mm_to_dots
+
+    canvas = LabelCanvas()
+    canvas.resize(900, 600)
+    canvas.show()
+    qapp.processEvents()
+    label = get_label("50")
+    margin = mm_to_dots(FIT_MARGIN_MM)
+
+    def origin_is_pinned():
+        tape = canvas.tape_rect()
+        corner = canvas.mapToScene(0, 0)
+        assert corner.x() == pytest.approx(tape.left() - margin, abs=2)
+        assert corner.y() == pytest.approx(tape.top() - margin, abs=2)
+        # Die Mitte des Fensters liegt rechts unter der Etikettenmitte.
+        view_center = canvas.mapToScene(canvas.viewport().rect().center())
+        assert view_center.x() > tape.center().x()
+        assert view_center.y() > tape.center().y()
+
+    canvas.set_label(label, 472)
+    canvas.fit_tape()
+    qapp.processEvents()
+    origin_is_pinned()
+
+    canvas.set_label(label, 472, orientation=media.Orientation.ALONG)
+    canvas.fit_tape()
+    qapp.processEvents()
+    origin_is_pinned()
+
+
+def test_unprintable_edge_is_hatched_band_beyond_label_is_plain(qapp):
+    """Kanten schraffiert; der graue Streifen hinter dem Etikett bleibt ohne Muster."""
+    from PySide6.QtCore import QPoint, QPointF
+    from PySide6.QtGui import QColor, QImage, QPainter
+
+    from ql_editor.canvas import TAPE_BAND_COLOR
+
+    canvas = LabelCanvas()
+    canvas.resize(900, 600)
+    canvas.show()
+    qapp.processEvents()
+    label = get_label("50")
+    assert label.side_border_dots > 0
+    canvas.set_label(label, 472, orientation=media.Orientation.ALONG)
+    canvas.fit_tape()
+    qapp.processEvents()
+
+    image = QImage(canvas.viewport().size(), QImage.Format.Format_RGB32)
+    painter = QPainter(image)
+    canvas.viewport().render(painter, QPoint())
+    painter.end()
+
+    tape = canvas.tape_rect()
+    printable = canvas.printable_rect()
+
+    def colors_at(scene_pt, radius):
+        view = canvas.mapFromScene(scene_pt)
+        found = set()
+        for dy in range(-radius, radius + 1):
+            for dx in range(-radius, radius + 1):
+                color = image.pixelColor(int(view.x()) + dx, int(view.y()) + dy)
+                found.add((color.red(), color.green(), color.blue()))
+        return found
+
+    hatch = colors_at(QPointF(printable.center().x(), (tape.top() + printable.top()) / 2.0), 4)
+    assert len(hatch) > 1
+    # Schnittversatz hinter der letzten Zeile: bei ALONG links, noch Teil des Etiketts.
+    cut = colors_at(
+        QPointF((tape.left() + printable.left()) / 2.0, printable.center().y()),
+        3,
+    )
+    assert len(cut) > 1
+    # Vorschub vor der ersten Zeile: rechts, schmaler, ebenfalls schraffiert.
+    lead = colors_at(
+        QPointF((printable.right() + tape.right()) / 2.0, printable.center().y()),
+        3,
+    )
+    assert len(lead) > 1
+    plain = QColor(TAPE_BAND_COLOR)
+    beyond = colors_at(QPointF(tape.right() + 30, tape.center().y()), 1)
+    assert beyond == {(plain.red(), plain.green(), plain.blue())}
+    # Vor dem Etikett kein Bandgrau - die Graustufe beginnt erst dahinter.
+    before = colors_at(QPointF(tape.left() - 20, tape.center().y()), 1)
+    assert (plain.red(), plain.green(), plain.blue()) not in before
+
+    # Eigene Labelraender liegen in der bedruckbaren Flaeche und bleiben weiss.
+    canvas.set_margins(4.0, 4.0, 4.0, 4.0)
+    qapp.processEvents()
+    painter = QPainter(image)
+    canvas.viewport().render(painter, QPoint())
+    painter.end()
+    inner = canvas.margin_rect()
+    printable = canvas.printable_rect()
+    margin_sample = QPointF(printable.center().x(), (printable.top() + inner.top()) / 2.0)
+    assert colors_at(margin_sample, 2) == {(255, 255, 255)}
+
+
 def test_canvas_has_ruler_corner_with_unit(qapp):
     """Die Ecke zwischen den Linealen traegt die Einheit (wie P-touch Editor)."""
     from ql_editor.canvas import RULER_WIDTH, RulerCorner
@@ -712,10 +890,10 @@ def test_canvas_size_labels_show_tape_width_and_length(qapp):
     previous = QLocale()
     try:
         QLocale.setDefault(QLocale("de"))
-        # Bandbreite quer zum Band (50 mm Rolle), Laenge in Bandrichtung.
-        assert canvas.size_labels() == ("50 mm", "40,0 mm")
+        # Bandbreite der Rolle, fertige Laenge inkl. Vorschub (Ergebnis-Anzeige).
+        assert canvas.size_labels() == ("50 mm", "47,0 mm")
         QLocale.setDefault(QLocale("en"))
-        assert canvas.size_labels() == ("50 mm", "40.0 mm")
+        assert canvas.size_labels() == ("50 mm", "47.0 mm")
     finally:
         QLocale.setDefault(previous)
 
@@ -726,17 +904,18 @@ def test_canvas_size_labels_follow_the_orientation(qapp):
     canvas.set_label(get_label("50"), 472, orientation=media.Orientation.ALONG)
     horizontal, vertical = canvas.size_labels()
     assert vertical == "50 mm"
-    assert horizontal.startswith("40")
+    assert horizontal.startswith("47")
 
 
 def test_ruler_totals_match_the_label_size(qapp):
     """Was das Lineal beschriftet, ist die Groesse des Etiketts."""
     canvas = LabelCanvas()
     canvas.set_label(get_label("50"), 472)
+    finished = media.dots_to_mm(472 + 2 * get_label("50").feed_margin + media.CUT_OFFSET_DOTS)
     assert canvas._h_ruler.total_mm == pytest.approx(49.95, abs=0.05)
-    assert canvas._v_ruler.total_mm == pytest.approx(39.96, abs=0.05)
+    assert canvas._v_ruler.total_mm == pytest.approx(finished, abs=0.05)
     canvas.set_label(get_label("50"), 472, orientation=media.Orientation.ALONG)
-    assert canvas._h_ruler.total_mm == pytest.approx(39.96, abs=0.05)
+    assert canvas._h_ruler.total_mm == pytest.approx(finished, abs=0.05)
     assert canvas._v_ruler.total_mm == pytest.approx(49.95, abs=0.05)
 
 
@@ -2435,10 +2614,11 @@ def test_orientation_moves_side_border_to_tape_edges(qapp):
     win._media_panel.set_orientation(media.Orientation.ALONG)
     tape = win._canvas.tape_rect()
     printable = win._canvas.printable_rect()
+    # Letzte Druckzeile ist links (ROTATE_90), dort sitzt der Schnittversatz.
     assert tape.top() == pytest.approx(-label.side_border_dots)
     assert tape.bottom() == pytest.approx(printable.bottom() + label.side_border_dots)
-    assert tape.left() == pytest.approx(printable.left())
-    assert tape.width() == pytest.approx(printable.width())
+    assert printable.left() - tape.left() == pytest.approx(label.feed_margin + media.CUT_OFFSET_DOTS)
+    assert tape.right() - printable.right() == pytest.approx(label.feed_margin)
 
 
 def test_print_preview_image_stays_canvas_aligned(qapp):
