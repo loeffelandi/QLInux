@@ -3000,6 +3000,7 @@ def test_no_menu_bar_but_hamburger_menu(qapp):
         "Speichern unter…",
         "|",
         "Sprache",
+        "Hilfe",
         "Über QLInux",
         "Beenden",
     ]
@@ -3026,6 +3027,7 @@ def test_no_menu_bar_but_hamburger_menu(qapp):
         "Ansicht",
         "Drucken",
         "Sprache",
+        "Hilfe",
         "Über QLInux",
         "Beenden",
     ]
@@ -3046,6 +3048,9 @@ def test_no_menu_bar_but_hamburger_menu(qapp):
         win._act_add_datetime,
         win._act_undo,
         win._act_redo,
+        win._act_bold,
+        win._act_italic,
+        win._act_underline,
         win._act_align_left,
         win._act_delete,
         win._act_forward,
@@ -3198,7 +3203,7 @@ def test_menu_actions_have_icons(qapp):
     menu = win._menu_button.menu()
     assert menu is not None
     items = [a for a in menu.actions() if not a.isSeparator()]
-    assert len(items) == 4
+    assert len(items) == 5
     assert all(not a.icon().isNull() for a in items)
 
 
@@ -3377,8 +3382,22 @@ def test_panel_actions_are_in_the_menu_not_the_toolbar(qapp):
         assert act.isCheckable() and act.isChecked()
         assert not act.icon().isNull()
         assert act.toolTip()
-    assert win._act_panel_left.shortcut().toString() == "Ctrl+B"
-    assert win._act_panel_right.shortcut().toString() == "Ctrl+Shift+B"
+    assert win._act_panel_left.shortcut().toString() == "F9"
+    assert win._act_panel_right.shortcut().toString() == "Shift+F9"
+    assert "F9" in win._act_panel_left.toolTip()
+    assert "Umschalt+F9" in win._act_panel_right.toolTip()
+    assert "F9" in win._left_panel._button.toolTip()
+    assert "Umschalt+F9" in win._right_panel._button.toolTip()
+    from ql_editor import i18n
+
+    i18n.set_language("en")
+    try:
+        win._right_panel._update_button()
+        assert "Shift+F9" in win._right_panel._button.toolTip()
+        assert "Umschalt" not in win._right_panel._button.toolTip()
+    finally:
+        i18n.set_language(i18n.DEFAULT_LANGUAGE)
+        win._right_panel._update_button()
 
     bar = win.findChild(QToolBar)
     bar_actions = [a for a in bar.actions() if not a.isSeparator()]
@@ -3391,6 +3410,101 @@ def test_panel_actions_are_in_the_menu_not_the_toolbar(qapp):
     ansicht = next(entry for entry in win._palette_entries() if entry.title == "Ansicht")
     assert win._act_panel_left in [child.action for child in ansicht.children]
     assert win._act_panel_right in [child.action for child in ansicht.children]
+
+
+def test_rich_text_shortcuts_and_moved_panel_keys(qapp):
+    from PySide6.QtGui import QKeySequence
+    from PySide6.QtWidgets import QCheckBox
+
+    from ql_editor.app import MainWindow
+    from ql_editor.command_palette import CommandPalette
+    from ql_editor.items import DateTimeItem, TableItem, TextItem
+
+    win = MainWindow(discover=False)
+    assert win._left_panel.wanted_docked and win._right_panel.wanted_docked
+    win._act_panel_left.trigger()
+    win._act_panel_right.trigger()
+    assert win._left_panel.wanted_docked is False
+    assert win._right_panel.wanted_docked is False
+
+    menu = win._menu_button.menu()
+    bearbeiten = next(entry for entry in win._palette_entries() if entry.title == "Bearbeiten")
+    palette_actions = [child.action for child in bearbeiten.children]
+    for action, shortcut in (
+        (win._act_bold, "Ctrl+B"),
+        (win._act_italic, "Ctrl+I"),
+        (win._act_underline, "Ctrl+U"),
+    ):
+        assert action not in menu.actions()
+        assert action in win.actions()
+        assert action in palette_actions
+        assert action.shortcut().toString() == shortcut
+        assert shortcut.replace("Ctrl", "Strg") in action.toolTip()
+        assert not action.isEnabled()
+
+    text = TextItem("Hallo", font_pixel_size=40)
+    win._add_item(text)
+    win._canvas.cancel_editing()
+    assert text.isSelected()
+    assert win._act_bold.isEnabled()
+
+    win._act_bold.trigger()
+    win._act_italic.trigger()
+    win._act_underline.trigger()
+    assert text.bold and text.italic and text.underline
+    assert win._act_bold.isChecked()
+    assert win._undo_stack.undoText() == "Unterstrichen"
+    win._act_undo.trigger()
+    text = [item for item in win._canvas.ordered_items() if isinstance(item, TextItem)][-1]
+    assert text.bold and text.italic
+    assert text.underline is False
+
+    text.start_editing()
+    text.setPlainText("Hallo!")
+    win._act_underline.trigger()
+    assert text.is_editing and text.underline
+    assert win._undo_stack.undoText() == "Unterstrichen"
+    win._act_undo.trigger()
+    text = [item for item in win._canvas.ordered_items() if isinstance(item, TextItem)][-1]
+    assert text.toPlainText() == "Hallo!"
+    assert text.underline is False
+    win._act_undo.trigger()
+    text = [item for item in win._canvas.ordered_items() if isinstance(item, TextItem)][-1]
+    assert text.toPlainText() == "Hallo"
+
+    palette = CommandPalette(win._palette_entries(), win)
+
+    def _labels(query: str) -> list[str]:
+        palette._edit.setText(query)
+        return [palette._list.item(i).text() for i in range(palette._list.count())]
+
+    bold_native = win._act_bold.shortcut().toString(QKeySequence.SequenceFormat.NativeText)
+    panel_native = win._act_panel_left.shortcut().toString(QKeySequence.SequenceFormat.NativeText)
+    right_native = win._act_panel_right.shortcut().toString(QKeySequence.SequenceFormat.NativeText)
+    assert any(label.startswith("Fett") and bold_native in label for label in _labels("Fett"))
+    assert any(label.startswith("Panel links") and panel_native in label for label in _labels("Panel links"))
+    assert any(
+        label.startswith("Panel rechts") and right_native in label for label in _labels("Panel rechts")
+    )
+
+    stamp = DateTimeItem(font_pixel_size=32)
+    win._add_item(stamp)
+    win._canvas.cancel_editing()
+    win._act_underline.trigger()
+    assert stamp.underline and stamp.font().underline()
+    boxes = [
+        box
+        for box in win._inspector.findChildren(QCheckBox)
+        if box.text() == "Unterstrichen" and box.toolTip() == "Unterstrichen (Strg+U)"
+    ]
+    assert any(box.isChecked() for box in boxes)
+
+    table = TableItem(1, 2, 220, 80)
+    win._add_item(table)
+    win._canvas.cancel_editing()
+    win._act_italic.trigger()
+    same, value = table.selected_uniform("italic")
+    assert same and value is True
 
 
 def test_panel_arrow_sits_in_the_panel(qapp):

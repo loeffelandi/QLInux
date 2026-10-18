@@ -534,6 +534,12 @@ def _draw_quit(p: QPainter, color: QColor) -> None:
     _line(p, 12.0, 12.5, 12.0, 4.5)
 
 
+def _draw_help(p: QPainter, color: QColor) -> None:
+    _stroke_only(p, color)
+    p.drawEllipse(QPointF(12.0, 12.0), 8.2, 8.2)
+    _glyph(p, color, "?", QRectF(0.0, 0.6, 24.0, 22.0), 13, bold=True)
+
+
 def _draw_about(p: QPainter, color: QColor) -> None:
     _stroke_only(p, color)
     p.drawEllipse(QPointF(12.0, 12.0), 8.0, 8.0)
@@ -1004,6 +1010,7 @@ _DRAW = {
     "print": _draw_print,
     "quit": _draw_quit,
     "about": _draw_about,
+    "help": _draw_help,
     "label": _draw_label,
     "detect": _draw_detect,
     "network": _draw_network,

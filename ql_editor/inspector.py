@@ -438,9 +438,9 @@ class InspectorPanel(QWidget):
         form.addRow(self._rule())
         form.addRow(
             self._bar(
-                self._toggle("bold", tr("Fett"), item.bold, item.set_bold),
-                self._toggle("italic", tr("Kursiv"), item.italic, item.set_italic),
-                self._toggle("underline", tr("Unterstrichen"), item.underline, item.set_underline),
+                self._toggle("bold", tr("Fett (Strg+B)"), item.bold, item.set_bold),
+                self._toggle("italic", tr("Kursiv (Strg+I)"), item.italic, item.set_italic),
+                self._toggle("underline", tr("Unterstrichen (Strg+U)"), item.underline, item.set_underline),
                 self._toggle("strike", tr("Durchgestrichen"), item.strike, item.set_strike),
                 self._divider(),
                 self._toggle("invert", tr("Invertiert"), item.inverted, item.set_inverted),
@@ -834,14 +834,22 @@ class InspectorPanel(QWidget):
         form.addRow(tr("Größe (px)"), size)
 
         bold = QCheckBox(tr("Fett"))
+        bold.setToolTip(tr("Fett (Strg+B)"))
         bold.setChecked(item.bold)
         bold.toggled.connect(lambda v: self._apply_now(lambda: item.set_bold(v)))
         form.addRow("", bold)
 
         italic = QCheckBox(tr("Kursiv"))
+        italic.setToolTip(tr("Kursiv (Strg+I)"))
         italic.setChecked(item.italic)
         italic.toggled.connect(lambda v: self._apply_now(lambda: item.set_italic(v)))
         form.addRow("", italic)
+
+        underline = QCheckBox(tr("Unterstrichen"))
+        underline.setToolTip(tr("Unterstrichen (Strg+U)"))
+        underline.setChecked(item.underline)
+        underline.toggled.connect(lambda v: self._apply_now(lambda: item.set_underline(v)))
+        form.addRow("", underline)
 
         color = QComboBox()
         color.addItem(tr("schwarz"), "black")
@@ -1043,9 +1051,9 @@ class InspectorPanel(QWidget):
 
         form.addRow(self._rule())
         style = [
-            self._cell_toggle(item, "bold", "bold", tr("Fett")),
-            self._cell_toggle(item, "italic", "italic", tr("Kursiv")),
-            self._cell_toggle(item, "underline", "underline", tr("Unterstrichen")),
+            self._cell_toggle(item, "bold", "bold", tr("Fett (Strg+B)")),
+            self._cell_toggle(item, "italic", "italic", tr("Kursiv (Strg+I)")),
+            self._cell_toggle(item, "underline", "underline", tr("Unterstrichen (Strg+U)")),
         ]
         if self._allow_red:
             style.extend((self._divider(), self._cell_color_button(item)))

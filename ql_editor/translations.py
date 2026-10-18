@@ -19,14 +19,17 @@ EN: dict[str, str] = {
     "Eigenschaften & Druck": "Properties & print",
     "Panel links": "Left panel",
     "Panel rechts": "Right panel",
-    "Panel links ein-/ausklappen (Strg+B)\nEingeklappt bleibt ein Streifen mit Pfeil; er klappt beim Überfahren über dem Canvas auf": (
-        "Show/hide left panel (Ctrl+B)\n"
+    "Panel links ein-/ausklappen (F9)\nEingeklappt bleibt ein Streifen mit Pfeil; er klappt beim Überfahren über dem Canvas auf": (
+        "Show/hide left panel (F9)\n"
         "When hidden a strip with an arrow remains; it opens when the pointer "
         "moves over the canvas"
     ),
-    "Panel rechts ein-/ausklappen (Strg+Shift+B)\nEigenschaften und Druckoptionen": (
-        "Show/hide right panel (Ctrl+Shift+B)\nProperties and print options"
+    "Panel rechts ein-/ausklappen (Umschalt+F9)\nEigenschaften und Druckoptionen": (
+        "Show/hide right panel (Shift+F9)\nProperties and print options"
     ),
+    "Fett (Strg+B)": "Bold (Ctrl+B)",
+    "Kursiv (Strg+I)": "Italic (Ctrl+I)",
+    "Unterstrichen (Strg+U)": "Underline (Ctrl+U)",
     "Menü": "Menu",
     "Befehle…": "Commands…",
     "Befehle": "Commands",
@@ -57,6 +60,72 @@ EN: dict[str, str] = {
     "Beenden": "Quit",
     "Beenden (Strg+Q)": "Quit (Ctrl+Q)",
     "Über QLInux": "About QLInux",
+    "Hilfe": "Help",
+    "Links wählst du Drucker und Band. Das Etikett liegt in der Mitte, die Eigenschaften des Markierten rechts, zusammen mit dem Druck. Esc schließt diese Hilfe.": (
+        "On the left you pick the printer and the tape. The label sits in the "
+        "middle, and the properties of whatever is selected sit on the right, "
+        "together with printing. Esc closes this help."
+    ),
+    "Auf dem Etikett": "On the label",
+    "Doppelklick auf die freie Fläche setzt ein Textfeld. Ein Objekt ziehst du mit der Maus. Die Pfeiltasten schieben es um einen Punkt, mit gehaltener Umschalttaste um zehn. Esc beendet das Schreiben im Feld und hebt die Auswahl auf.": (
+        "Double-click the empty area to place a text box. Drag an object to "
+        "move it. The arrow keys nudge it by one dot, and holding Shift moves "
+        "it by ten. Esc stops typing in a field and clears the selection."
+    ),
+    "Die Druckvorschau zeigt die Punkte, so wie der Drucker sie setzt. Esc bringt die normale Ansicht zurück.": (
+        "Print preview shows the dots the way the printer lays them down. "
+        "Esc brings the normal view back."
+    ),
+    "Mit der Maus": "With the pointer",
+    "Strg und das Mausrad zoomen, Umschalt und das Mausrad schieben seitlich. Strg+Klick nimmt ein Objekt zur Auswahl dazu oder wieder weg. In einer Tabelle markiert Umschalt+Klick mehrere Zellen, Tab und Umschalt+Tab gehen zur nächsten. Beim Drehen rastet der Winkel auf 90 Grad, mit gehaltener Umschalttaste in Schritten von 15 Grad.": (
+        "Ctrl and the wheel zoom, Shift and the wheel scroll sideways. "
+        "Ctrl+click adds an object to the selection or drops it again. In a "
+        "table, Shift+click marks several cells, and Tab and Shift+Tab move "
+        "to the next one. While rotating, the angle snaps to 90 degrees, and "
+        "holding Shift steps by 15 degrees."
+    ),
+    "Tasten": "Keys",
+    "Neues Etikett": "New label",
+    "Nächster Reiter": "Next tab",
+    "Vorheriger Reiter": "Previous tab",
+    "Auswahl löschen": "Delete the selection",
+    "Zoom 1:1": "Zoom 1:1",
+    "Strg+N": "Ctrl+N",
+    "Strg+O": "Ctrl+O",
+    "Strg+S": "Ctrl+S",
+    "Strg+Umschalt+S": "Ctrl+Shift+S",
+    "Strg+F4": "Ctrl+F4",
+    "Strg+Tab": "Ctrl+Tab",
+    "Strg+Umschalt+Tab": "Ctrl+Shift+Tab",
+    "Strg+Z": "Ctrl+Z",
+    "Strg+Y": "Ctrl+Y",
+    "Entf": "Del",
+    "Strg+0": "Ctrl+0",
+    "Strg++": "Ctrl++",
+    "Strg+-": "Ctrl+-",
+    "Strg+1": "Ctrl+1",
+    "Strg+B": "Ctrl+B",
+    "Strg+I": "Ctrl+I",
+    "Strg+U": "Ctrl+U",
+    "F9": "F9",
+    "Umschalt+F9": "Shift+F9",
+    "Strg+K": "Ctrl+K",
+    "Strg+P": "Ctrl+P",
+    "Strg+Umschalt+P": "Ctrl+Shift+P",
+    "Esc": "Esc",
+    "Tippen beenden und die Auswahl aufheben": "Stop typing and clear the selection",
+    "Pfeiltasten": "Arrow keys",
+    "Um einen Punkt verschieben": "Move by one dot",
+    "Umschalt+Pfeiltasten": "Shift+arrow keys",
+    "Um zehn Punkte verschieben": "Move by ten dots",
+    "Rücktaste": "Backspace",
+    "Tab": "Tab",
+    "Nächste Zelle": "Next cell",
+    "Umschalt+Tab": "Shift+Tab",
+    "Vorherige Zelle": "Previous cell",
+    "Eingabe": "Enter",
+    "Zelle bearbeiten": "Edit the cell",
+    "F2": "F2",
     "Etiketten gestalten und direkt drucken – für Brother-QL-Drucker und andere, die die Bibliothek brother_ql unterstützt.": (
         "Design labels and print them directly – on Brother QL printers and "
         "any other model the brother_ql library supports."
