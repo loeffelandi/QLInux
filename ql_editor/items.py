@@ -18,6 +18,7 @@ wird in ein ``QPixmap`` umgewandelt.
 from __future__ import annotations
 
 import base64
+import math
 from typing import Any
 
 from PIL import Image
@@ -28,15 +29,20 @@ from PySide6.QtGui import (
     QFont,
     QImage,
     QPainter,
+    QPainterPath,
     QPen,
     QPixmap,
+    QPolygonF,
+    QTextBlockFormat,
     QTextCursor,
+    QTextListFormat,
     QTextOption,
     QTransform,
 )
 from PySide6.QtWidgets import (
     QGraphicsItem,
     QGraphicsLineItem,
+    QGraphicsPathItem,
     QGraphicsPixmapItem,
     QGraphicsRectItem,
     QGraphicsTextItem,
@@ -215,16 +221,28 @@ class TextItem(_ClampMixin, QGraphicsTextItem):
             | QGraphicsItem.GraphicsItemFlag.ItemIsSelectable
             | QGraphicsItem.GraphicsItemFlag.ItemSendsGeometryChanges
         )
-        self.setDefaultTextColor(QColor("black"))
         self._font_family = font_family
         self._font_pixel_size = font_pixel_size
         self._bold = False
         self._italic = False
+        self._underline = False
+        self._strike = False
+        self._letter_spacing = 0.0
+        self._line_spacing = 1.0
         self._color = "black"
+        self._inverted = False
         self._align = "left"
+        self._valign = "top"
+        self._vertical = False
+        self._list = "none"
+        self._wrap = False
+        #: Feste Box-Breite/-Hoehe in Dots; 0 = automatisch (passt sich dem Text an).
+        self._box_width = 0.0
+        self._box_height = 0.0
         self._caret_hidden = False
         self.setTextWidth(-1)
         self._apply_font()
+        self._apply_colors()
 
     def paint(self, painter: QPainter, option, widget=None) -> None:  # noqa: N802
         """Text malen - beim Rendern ohne Textmarke und ohne Auswahl.
@@ -238,13 +256,48 @@ class TextItem(_ClampMixin, QGraphicsTextItem):
         gewaehlt: ``NoTextInteraction`` nimmt dem Feld den Fokus, beendet damit
         die Bearbeitung und liess ein frisch angelegtes (noch leeres) Textfeld
         sofort wieder verschwinden.
+
+        Invertiert: die Box wird in der Objektfarbe gefuellt, der Text ist weiss
+        (siehe :meth:`_apply_colors`). Vertikal ausgerichtet wird innerhalb der
+        festen Box-Hoehe.
         """
-        if not self._caret_hidden:
-            super().paint(painter, option, widget)
-            return
+        box = self._box_rect()
+        offset = self._valign_offset(box)
+        opt = QStyleOptionGraphicsItem(option)
+        opt.exposedRect = box.translated(0, -offset)
         painter.save()
-        self.document().drawContents(painter, option.exposedRect)
+        if self._inverted:
+            painter.fillRect(box, QColor(self._color))
+        painter.translate(0, offset)
+        if self._caret_hidden:
+            self.document().drawContents(painter, opt.exposedRect)
+        else:
+            super().paint(painter, opt, widget)
         painter.restore()
+
+    def boundingRect(self) -> QRectF:  # noqa: N802
+        return super().boundingRect().united(self._box_rect())
+
+    def shape(self) -> QPainterPath:  # noqa: N802
+        """Hit-Test-Form: die feste Box, nicht nur der Textumriss."""
+        path = QPainterPath()
+        path.addRect(self._box_rect())
+        return path
+
+    def contains(self, point: QPointF) -> bool:  # noqa: N802
+        return self._box_rect().contains(point)
+
+    def _box_rect(self) -> QRectF:
+        size = self.document().size()
+        width = self._box_width if self._box_width > 0 else size.width()
+        height = self._box_height if self._box_height > 0 else size.height()
+        return QRectF(0, 0, width, height)
+
+    def _valign_offset(self, box: QRectF) -> float:
+        free = box.height() - self.document().size().height()
+        if free <= 0 or self._valign == "top":
+            return 0.0
+        return free / 2 if self._valign == "middle" else free
 
     def set_caret_hidden(self, hidden: bool) -> None:
         """Textmarke (und Auswahl) fuers Rendern ausblenden - ohne Fokus anzutasten."""
@@ -263,7 +316,43 @@ class TextItem(_ClampMixin, QGraphicsTextItem):
         font.setPixelSize(self._font_pixel_size)
         font.setBold(self._bold)
         font.setItalic(self._italic)
+        font.setUnderline(self._underline)
+        font.setStrikeOut(self._strike)
+        font.setLetterSpacing(QFont.SpacingType.AbsoluteSpacing, self._letter_spacing)
         self.setFont(font)
+
+    def _apply_colors(self) -> None:
+        self.setDefaultTextColor(QColor("white") if self._inverted else QColor(self._color))
+
+    def _reflow(self, text: str | None = None) -> None:
+        """Dokument neu aufbauen: Umbruch (vertikal), Zeilenabstand und Liste.
+
+        ``setPlainText`` verwirft alle Absatzformate, deshalb werden sie hier
+        jedes Mal neu gesetzt. Der gespeicherte Text bleibt ohne Aufzaehlungs-
+        zeichen - die Liste ist ein Absatzformat, kein Text.
+        """
+        if text is None:
+            text = self.text_value
+        if self._vertical:
+            text = "\n".join(text.replace("\n", ""))
+        self.prepareGeometryChange()
+        self.setPlainText(text)
+        cursor = QTextCursor(self.document())
+        cursor.select(QTextCursor.SelectionType.Document)
+        block = QTextBlockFormat()
+        block.setLineHeight(
+            self._line_spacing * 100, QTextBlockFormat.LineHeightTypes.ProportionalHeight.value
+        )
+        cursor.mergeBlockFormat(block)
+        if self._list != "none":
+            fmt = QTextListFormat()
+            fmt.setStyle(
+                QTextListFormat.Style.ListDisc
+                if self._list == "bullet"
+                else QTextListFormat.Style.ListDecimal
+            )
+            cursor.createList(fmt)
+        self.update()
 
     # -- Properties ---------------------------------------------------------
     def set_font_pixel_size(self, size: int) -> None:
@@ -277,6 +366,22 @@ class TextItem(_ClampMixin, QGraphicsTextItem):
     def set_italic(self, value: bool) -> None:
         self._italic = bool(value)
         self._apply_font()
+
+    def set_underline(self, value: bool) -> None:
+        self._underline = bool(value)
+        self._apply_font()
+
+    @property
+    def underline(self) -> bool:
+        return self._underline
+
+    def set_strike(self, value: bool) -> None:
+        self._strike = bool(value)
+        self._apply_font()
+
+    @property
+    def strike(self) -> bool:
+        return self._strike
 
     def set_font_family(self, family: str) -> None:
         self._font_family = family
@@ -298,13 +403,38 @@ class TextItem(_ClampMixin, QGraphicsTextItem):
     def italic(self) -> bool:
         return self._italic
 
+    def set_letter_spacing(self, px: float) -> None:
+        self._letter_spacing = float(px)
+        self._apply_font()
+
+    @property
+    def letter_spacing(self) -> float:
+        return self._letter_spacing
+
+    def set_line_spacing(self, factor: float) -> None:
+        self._line_spacing = max(0.5, float(factor))
+        self._reflow()
+
+    @property
+    def line_spacing(self) -> float:
+        return self._line_spacing
+
     @property
     def color(self) -> str:
         return self._color
 
     def set_text_color(self, color: str) -> None:
         self._color = color
-        self.setDefaultTextColor(QColor(color))
+        self._apply_colors()
+
+    def set_inverted(self, value: bool) -> None:
+        self._inverted = bool(value)
+        self._apply_colors()
+        self.update()
+
+    @property
+    def inverted(self) -> bool:
+        return self._inverted
 
     @property
     def align(self) -> str:
@@ -327,8 +457,84 @@ class TextItem(_ClampMixin, QGraphicsTextItem):
         option.setAlignment(flags | Qt.AlignmentFlag.AlignTop)
         self.document().setDefaultTextOption(option)
 
+    @property
+    def valign(self) -> str:
+        return self._valign
+
+    def set_valign(self, valign: str) -> None:
+        """Vertikale Ausrichtung in der festen Box: ``top``, ``middle``, ``bottom``."""
+        self._valign = valign if valign in ("top", "middle", "bottom") else "top"
+        self.update()
+
+    @property
+    def vertical(self) -> bool:
+        return self._vertical
+
+    def set_vertical(self, value: bool) -> None:
+        """Vertikale Schrift: jedes Zeichen steht in einer eigenen Zeile.
+
+        Den logischen Text **vor** dem Flag-Wechsel lesen: ``text_value``
+        haengt von ``_vertical`` ab (entfernt Newlines im Vertikalmodus).
+        Sonst zerlegt ein Toggle ein→aus den gespeicherten Text.
+        """
+        value = bool(value)
+        if value == self._vertical:
+            return
+        text = self.text_value
+        self._vertical = value
+        self._reflow(text)
+
+    @property
+    def list_style(self) -> str:
+        return self._list
+
+    def set_list(self, style: str) -> None:
+        """Aufzaehlung: ``none``, ``bullet`` (Punkte) oder ``number`` (Nummern)."""
+        self._list = style if style in ("none", "bullet", "number") else "none"
+        self._reflow()
+
+    @property
+    def wrap(self) -> bool:
+        return self._wrap
+
+    def set_wrap(self, value: bool) -> None:
+        self._wrap = bool(value)
+        self._apply_wrap()
+
+    @property
+    def auto_width(self) -> bool:
+        return self._box_width <= 0
+
+    def set_auto_width(self, auto: bool) -> None:
+        """Box-Breite automatisch (wie der Text) oder mit der aktuellen Breite fixiert."""
+        new_width = 0.0 if auto else self._box_rect().width()
+        self.prepareGeometryChange()
+        self._box_width = new_width
+        self.setTextWidth(self._box_width if self._wrap and self._box_width > 0 else -1)
+        self.update()
+
+    @property
+    def auto_height(self) -> bool:
+        return self._box_height <= 0
+
+    def set_auto_height(self, auto: bool) -> None:
+        self.set_box_height(0.0 if auto else self._box_rect().height())
+
+    def set_box_height(self, height: float) -> None:
+        self.prepareGeometryChange()
+        self._box_height = max(0.0, float(height))
+        self.update()
+
     def set_text_width(self, width: float) -> None:
-        self.setTextWidth(width if width > 0 else -1)
+        self.prepareGeometryChange()
+        self._box_width = float(width) if width > 0 else 0.0
+        self.setTextWidth(self._box_width if self._wrap and self._box_width > 0 else -1)
+        self.update()
+
+    def _apply_wrap(self) -> None:
+        self.prepareGeometryChange()
+        self.setTextWidth(self._box_width if self._wrap and self._box_width > 0 else -1)
+        self.update()
 
     # -- Inline-Bearbeitung -------------------------------------------------
     def start_editing(self) -> None:
@@ -359,6 +565,10 @@ class TextItem(_ClampMixin, QGraphicsTextItem):
             cursor = self.textCursor()
             cursor.clearSelection()
             self.setTextCursor(cursor)
+            if self._vertical:
+                # Beim Tippen im Vertikal-Modus landen Zeichen in einer Zeile -
+                # hier wieder Zeichen fuer Zeichen umbrechen.
+                self._reflow()
             self.editing_finished.emit()
 
     @property
@@ -373,34 +583,48 @@ class TextItem(_ClampMixin, QGraphicsTextItem):
     resizable = True
 
     def apply_resize(self, width: float, height: float) -> None:
-        rect = self.boundingRect()
+        rect = self._box_rect()
         # Nur waagerechtes Ziehen setzt die Umbruchbreite. Sonst wuerde ein
         # Hoehen-Drag (Schrift skalieren) den Text zusaetzlich umbrechen und
         # die Hoehe unkontrolliert wachsen.
-        if self.textWidth() > 0 or abs(width - rect.width()) > 0.5:
+        if self._box_width > 0 or abs(width - rect.width()) > 0.5:
             self.set_text_width(width)
-        if rect.height() > 0 and height > 0:
+            self.set_wrap(True)
+        if self._box_height > 0:
+            self.set_box_height(height)
+        elif rect.height() > 0 and height > 0:
             factor = height / rect.height()
             self.set_font_pixel_size(max(4, round(self._font_pixel_size * factor)))
 
     @property
     def text_value(self) -> str:
-        return self.toPlainText()
+        text = self.toPlainText()
+        return text.replace("\n", "") if self._vertical else text
 
     def set_text_value(self, value: str) -> None:
-        self.setPlainText(value)
+        self._reflow(value)
 
     def to_dict(self) -> dict[str, Any]:
         d = self._base_dict()
         d.update(
-            text=self.toPlainText(),
+            text=self.text_value,
             font_family=self._font_family,
             font_pixel_size=self._font_pixel_size,
             bold=self._bold,
             italic=self._italic,
+            underline=self._underline,
+            strike=self._strike,
+            letter_spacing=self._letter_spacing,
+            line_spacing=self._line_spacing,
             color=self._color,
+            inverted=self._inverted,
             align=self._align,
-            text_width=self.textWidth(),
+            valign=self._valign,
+            vertical=self._vertical,
+            list=self._list,
+            text_width=self._box_width,
+            wrap=self._wrap,
+            box_height=self._box_height,
         )
         return d
 
@@ -409,9 +633,21 @@ class TextItem(_ClampMixin, QGraphicsTextItem):
         item = cls(d.get("text", "Text"), d.get("font_family", "Sans"), int(d.get("font_pixel_size", 48)))
         item.set_bold(bool(d.get("bold", False)))
         item.set_italic(bool(d.get("italic", False)))
+        item.set_underline(bool(d.get("underline", False)))
+        item.set_strike(bool(d.get("strike", False)))
+        item.set_letter_spacing(float(d.get("letter_spacing", 0.0)))
+        item.set_line_spacing(float(d.get("line_spacing", 1.0)))
         item.set_text_color(d.get("color", "black"))
+        item.set_inverted(bool(d.get("inverted", False)))
         item.set_align(d.get("align", "left"))
-        item.set_text_width(float(d.get("text_width", -1)))
+        item.set_valign(d.get("valign", "top"))
+        width = float(d.get("text_width", -1))
+        item.set_text_width(width)
+        # Alte Dateien kennen keinen Umbruch-Schalter: eine Breite hiess dort Umbruch.
+        item.set_wrap(bool(d.get("wrap", width > 0)))
+        item.set_box_height(float(d.get("box_height", 0.0)))
+        item.set_list(d.get("list", "none"))
+        item.set_vertical(bool(d.get("vertical", False)))
         item._apply_base(d)
         return item
 
@@ -763,6 +999,140 @@ class RectItem(_ClampMixin, QGraphicsRectItem):
         return item
 
 
+# --------------------------------------------------------------------------- #
+# Formen (Pfeile, Ellipse, Dreieck, Stern)
+# --------------------------------------------------------------------------- #
+SHAPES: tuple[str, ...] = ("ellipse", "triangle", "star", "arrow_right", "arrow_left", "arrow_double")
+
+
+def _shape_path(shape: str, r: QRectF) -> QPainterPath:
+    """Umriss einer Form im Rechteck ``r``. Pfeile haben einen Schaft von halber Hoehe."""
+    path = QPainterPath()
+    x, y, w, h = r.x(), r.y(), r.width(), r.height()
+    cx, cy = x + w / 2, y + h / 2
+    if shape == "ellipse":
+        path.addEllipse(r)
+        return path
+    if shape == "triangle":
+        points = [QPointF(cx, y), QPointF(x + w, y + h), QPointF(x, y + h)]
+    elif shape == "star":
+        # Einheitstern um den Ursprung, dann so skalieren/verschieben, dass
+        # path.boundingRect() exakt ``r`` fuellt (sonst driftens die Handles).
+        unit: list[QPointF] = []
+        for i in range(10):
+            ratio = 1.0 if i % 2 == 0 else 0.45
+            angle = -math.pi / 2 + i * math.pi / 5
+            unit.append(QPointF(ratio * math.cos(angle), ratio * math.sin(angle)))
+        xs = [p.x() for p in unit]
+        ys = [p.y() for p in unit]
+        min_x, max_x = min(xs), max(xs)
+        min_y, max_y = min(ys), max(ys)
+        bw, bh = max_x - min_x, max_y - min_y
+        points = [
+            QPointF(x + (p.x() - min_x) / bw * w, y + (p.y() - min_y) / bh * h)
+            for p in unit
+        ]
+    else:
+        shaft = h / 4
+        head = min(w / 2, h / 2)
+        if shape == "arrow_right":
+            points = [
+                QPointF(x, cy - shaft), QPointF(x + w - head, cy - shaft), QPointF(x + w - head, y),
+                QPointF(x + w, cy), QPointF(x + w - head, y + h), QPointF(x + w - head, cy + shaft),
+                QPointF(x, cy + shaft),
+            ]
+        elif shape == "arrow_left":
+            points = [
+                QPointF(x + w, cy - shaft), QPointF(x + head, cy - shaft), QPointF(x + head, y),
+                QPointF(x, cy), QPointF(x + head, y + h), QPointF(x + head, cy + shaft),
+                QPointF(x + w, cy + shaft),
+            ]
+        else:
+            points = [
+                QPointF(x, cy), QPointF(x + head, y), QPointF(x + head, cy - shaft),
+                QPointF(x + w - head, cy - shaft), QPointF(x + w - head, y), QPointF(x + w, cy),
+                QPointF(x + w - head, y + h), QPointF(x + w - head, cy + shaft),
+                QPointF(x + head, cy + shaft), QPointF(x + head, y + h),
+            ]
+    path.addPolygon(QPolygonF(points))
+    path.closeSubpath()
+    return path
+
+
+class ShapeItem(_ClampMixin, QGraphicsPathItem):
+    kind = "shape"
+
+    def __init__(self, rect: QRectF | None = None, shape: str = "ellipse", width_px: float = 2, filled: bool = False):
+        super().__init__()
+        self.setFlags(
+            QGraphicsItem.GraphicsItemFlag.ItemIsMovable
+            | QGraphicsItem.GraphicsItemFlag.ItemIsSelectable
+            | QGraphicsItem.GraphicsItemFlag.ItemSendsGeometryChanges
+        )
+        self._rect = rect if rect is not None else QRectF(0, 0, 200, 100)
+        self._shape = shape if shape in SHAPES else "ellipse"
+        self._width_px = width_px
+        self._filled = bool(filled)
+        self._apply_path()
+
+    def _apply_path(self) -> None:
+        pen = QPen(QColor("black"))
+        pen.setWidthF(self._width_px)
+        pen.setJoinStyle(Qt.PenJoinStyle.MiterJoin)
+        self.setPen(pen)
+        self.setBrush(QBrush(QColor("black")) if self._filled else QBrush(Qt.BrushStyle.NoBrush))
+        self.setPath(_shape_path(self._shape, self._rect))
+
+    @property
+    def shape_name(self) -> str:
+        return self._shape
+
+    def set_shape(self, shape: str) -> None:
+        self._shape = shape if shape in SHAPES else "ellipse"
+        self._apply_path()
+
+    def set_line_width(self, width_px: float) -> None:
+        self._width_px = max(0.5, float(width_px))
+        self._apply_path()
+
+    def set_filled(self, filled: bool) -> None:
+        self._filled = bool(filled)
+        self._apply_path()
+
+    @property
+    def filled(self) -> bool:
+        return self._filled
+
+    @property
+    def width_px(self) -> float:
+        return self._width_px
+
+    # -- Groesse ------------------------------------------------------------
+    resizable = True
+
+    def apply_resize(self, width: float, height: float) -> None:
+        self._rect = QRectF(0.0, 0.0, max(1.0, width), max(1.0, height))
+        self._apply_path()
+
+    def to_dict(self) -> dict[str, Any]:
+        d = self._base_dict()
+        d.update(
+            w=self._rect.width(),
+            h=self._rect.height(),
+            shape=self._shape,
+            width_px=self._width_px,
+            filled=self._filled,
+        )
+        return d
+
+    @classmethod
+    def from_dict(cls, d: dict[str, Any]) -> "ShapeItem":
+        rect = QRectF(0.0, 0.0, d.get("w", 200), d.get("h", 100))
+        item = cls(rect, d.get("shape", "ellipse"), d.get("width_px", 2), bool(d.get("filled", False)))
+        item._apply_base(d)
+        return item
+
+
 ITEM_TYPES: dict[str, type] = {
     TextItem.kind: TextItem,
     ImageItem.kind: ImageItem,
@@ -770,6 +1140,7 @@ ITEM_TYPES: dict[str, type] = {
     BarcodeItem.kind: BarcodeItem,
     LineItem.kind: LineItem,
     RectItem.kind: RectItem,
+    ShapeItem.kind: ShapeItem,
 }
 
 
@@ -792,6 +1163,8 @@ __all__ = [
     "BarcodeItem",
     "LineItem",
     "RectItem",
+    "ShapeItem",
+    "SHAPES",
     "ITEM_TYPES",
     "item_from_dict",
 ]

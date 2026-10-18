@@ -90,7 +90,7 @@ from .i18n import (
 )
 from .icons import icon
 from .inspector import InspectorPanel
-from .items import BarcodeItem, ImageItem, LineItem, QRItem, RectItem, TextItem
+from .items import BarcodeItem, ImageItem, LineItem, QRItem, RectItem, ShapeItem, TextItem
 from .media_panel import MediaPanel
 from .panels import OverlayPanel, PanelHost
 from .preview import (
@@ -960,9 +960,8 @@ class MainWindow(QMainWindow):
         bar.addAction(self._act_add_image)
         bar.addAction(self._act_add_barcode)
         bar.addAction(self._act_add_qr)
-        bar.addAction(self._act_add_line)
-        bar.addAction(self._act_add_rect)
         bar.addSeparator()
+        bar.addWidget(self._build_shape_button(bar))
         bar.addWidget(self._build_align_button(bar))
         bar.addAction(self._act_front)
         bar.addAction(self._act_back)
@@ -987,6 +986,31 @@ class MainWindow(QMainWindow):
         button.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
         menu = QMenu(button)
         menu.aboutToShow.connect(lambda: self._fill_templates_into(menu))
+        button.setMenu(menu)
+        return button
+
+    def _build_shape_button(self, parent: QWidget) -> QToolButton:
+        """Toolbar-Knopf "Formen": Klick oeffnet Linie, Rahmen, Pfeile und Formen."""
+        button = QToolButton(parent)
+        button.setObjectName("shape_button")
+        button.setIcon(icon("shape"))
+        button.setToolTip(tr("Formen einfügen"))
+        button.setAutoRaise(True)
+        button.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        button.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
+        menu = QMenu(button)
+        menu.addAction(icon("line"), tr("Linie"), self._add_line)
+        menu.addAction(icon("rect"), tr("Rahmen"), self._add_rect)
+        menu.addSeparator()
+        for shape, label in (
+            ("ellipse", tr("Ellipse")),
+            ("triangle", tr("Dreieck")),
+            ("star", tr("Stern")),
+            ("arrow_right", tr("Pfeil rechts")),
+            ("arrow_left", tr("Pfeil links")),
+            ("arrow_double", tr("Doppelpfeil")),
+        ):
+            menu.addAction(icon(f"shape_{shape}"), label, lambda _=False, s=shape: self._add_shape(s))
         button.setMenu(menu)
         return button
 
@@ -2099,6 +2123,15 @@ class MainWindow(QMainWindow):
             QRectF(0, 0, int(self._canvas.printable_rect().width() * 0.6), int(max(40, height * 0.4)))
         )
         self._add_item(item)
+
+    def _add_shape(self, shape: str) -> None:
+        width = self._canvas.printable_rect().width()
+        size = max(40, int(self._canvas.height_dots * 0.4))
+        if shape.startswith("arrow"):
+            rect = QRectF(0, 0, int(width * 0.5), int(size * 0.6))
+        else:
+            rect = QRectF(0, 0, size, size)
+        self._add_item(ShapeItem(rect, shape))
 
     def _bump_z(self, direction: int) -> None:
         if not self._canvas.selected_items():

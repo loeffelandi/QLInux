@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import pytest
 from PySide6.QtTest import QTest
-from PySide6.QtWidgets import QApplication, QCheckBox
+from PySide6.QtWidgets import QApplication, QCheckBox, QToolButton
 
 from ql_editor.items import ImageItem, TextItem
 from ql_editor.printer import CUT_AT_END, CUT_EACH, CUT_MODES, resolution_options
@@ -41,6 +41,12 @@ def window(qapp):
 def _checkbox(parent, text: str) -> QCheckBox:
     matches = [c for c in parent.findChildren(QCheckBox) if c.text() == text]
     assert matches, f"Checkbox {text!r} nicht gefunden"
+    return matches[0]
+
+
+def _tool_button(parent, tooltip: str) -> QToolButton:
+    matches = [b for b in parent.findChildren(QToolButton) if b.toolTip() == tooltip]
+    assert matches, f"Symbol-Knopf {tooltip!r} nicht gefunden"
     return matches[0]
 
 
@@ -138,8 +144,8 @@ def test_inspector_fett_und_kursiv_fuer_text(window):
     inspector.set_item(text)
     QApplication.processEvents()
 
-    _checkbox(inspector, "Fett").setChecked(True)
-    _checkbox(inspector, "Kursiv").setChecked(True)
+    _tool_button(inspector, "Fett").click()
+    _tool_button(inspector, "Kursiv").click()
     QApplication.processEvents()
 
     assert text.bold is True
