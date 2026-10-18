@@ -1307,7 +1307,7 @@ class MainWindow(QMainWindow):
         bar.addAction(self._act_print_preview)
         bar.addAction(self._act_print)
         bar.addAction(self._act_print_history)
-        bar.addSeparator()
+        self._act_database_separator = bar.addSeparator()
         bar.addAction(self._act_database)
 
     def _build_template_button(self, parent: QWidget) -> QToolButton:
@@ -2313,17 +2313,38 @@ class MainWindow(QMainWindow):
 
         Wegklicken schliesst nur die Eingabe. Das Objekt bleibt, und solange
         nichts anderes gewaehlt ist, bleibt es selektiert - Schriftgroesse
-        und Datenbankfeld lassen sich danach setzen. Der Undo-Schritt entsteht
-        sofort, damit die naechste Geste nicht in denselben Befehl rutscht.
+        und Datenbankfeld lassen sich danach setzen. Die Auswahl kommt erst
+        nach dem Mausklick, weil die Szene sie im selben Druck noch loescht.
+        Esc setzt ``_skip_reselect`` und laesst die Auswahl aus. Der
+        Undo-Schritt entsteht sofort, damit die naechste Geste nicht in
+        denselben Befehl rutscht.
         """
         item = self.sender()
         if not isinstance(item, TextItem):
             return
-        if item.scene() is not None and not str(item.toPlainText()).strip():
-            others = [it for it in self._canvas.selected_items() if it is not item]
-            if not others:
-                item.setSelected(True)
+        skip = bool(getattr(item, "_skip_reselect", False))
+        item._skip_reselect = False
+        keep = (
+            not skip
+            and item.scene() is not None
+            and not str(item.toPlainText()).strip()
+            and not any(it is not item for it in self._canvas.selected_items())
+        )
+        if keep:
+            item.setSelected(True)
         self._commit_history(tr("Text"))
+        if keep:
+            QTimer.singleShot(0, lambda item=item: self._reselect_empty_text(item))
+
+    def _reselect_empty_text(self, item: TextItem) -> None:
+        """Leeres Feld nach dem Mausklick wieder waehlen, falls noch nichts anderes gilt."""
+        if item.scene() is None or item.scene() is not self._canvas.scene():
+            return
+        if str(item.toPlainText()).strip():
+            return
+        if any(it is not item for it in self._canvas.selected_items()):
+            return
+        item.setSelected(True)
 
     def _on_text_edited(self) -> None:
         self._capture_history()
@@ -3760,6 +3781,7 @@ class MainWindow(QMainWindow):
         """Ohne CSV weder Icon noch Panel; mit CSV nur das Icon, bis es geklickt wird."""
         linked = self._database_is_linked()
         self._act_database.setVisible(linked)
+        self._act_database_separator.setVisible(linked)
         if not linked:
             self._act_database.blockSignals(True)
             self._act_database.setChecked(False)

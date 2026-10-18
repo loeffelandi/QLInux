@@ -71,6 +71,9 @@ def test_database_ui_hidden_without_csv(qapp):
     assert win._act_connect_csv.isVisible()
     bar = win.findChild(QToolBar, "main_toolbar")
     assert win._act_database in bar.actions()
+    assert not win._act_database_separator.isVisible()
+    separator = bar.widgetForAction(win._act_database_separator)
+    assert separator is None or not separator.isVisible()
     win.close()
 
 
@@ -78,6 +81,7 @@ def test_connect_shows_grid_counter_and_headers(qapp, tmp_path):
     win = _window_with_csv(qapp, tmp_path)
     panel = win._database_panel
     assert win._act_database.isVisible()
+    assert win._act_database_separator.isVisible()
     assert not panel.isVisible()
     _open_database(win)
     qapp.processEvents()
@@ -114,6 +118,7 @@ def test_disconnect_keeps_snapshots_and_serial(qapp, tmp_path):
     assert item.binding == {"source": "database", "field": "Fixture"}
     assert win._active.serial == serial_before
     assert not win._act_database.isVisible()
+    assert not win._act_database_separator.isVisible()
     assert not win._database_panel.isVisible()
     assert win._act_connect_csv.isEnabled()
     assert win._document_dirty is True

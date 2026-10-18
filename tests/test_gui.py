@@ -1354,6 +1354,35 @@ def test_empty_text_field_stays_when_editing_ends(qapp):
     win.close()
 
 
+def test_empty_text_stays_selected_after_click_on_empty_canvas(qapp):
+    """Der Mausklick loescht die Auswahl erst danach; das leere Feld kommt zurueck."""
+    from PySide6.QtCore import QEvent, QPointF, Qt
+    from PySide6.QtGui import QKeyEvent
+
+    from ql_editor.app import MainWindow
+
+    win = MainWindow()
+    win.resize(1100, 760)
+    win.show()
+    qapp.processEvents()
+    item = win._new_text(QPointF(80, 40))
+    qapp.processEvents()
+    _press(win._canvas, QPointF(400, 300))
+    qapp.processEvents()
+    assert item.scene() is not None
+    assert item.toPlainText() == ""
+    assert item.is_editing is False
+    assert item.isSelected()
+
+    win._canvas.keyPressEvent(
+        QKeyEvent(QEvent.Type.KeyPress, Qt.Key.Key_Escape, Qt.KeyboardModifier.NoModifier)
+    )
+    qapp.processEvents()
+    assert item.scene() is not None
+    assert item.isSelected() is False
+    win.close()
+
+
 def test_text_field_with_content_survives_editing(qapp):
     from PySide6.QtCore import QPointF
 
