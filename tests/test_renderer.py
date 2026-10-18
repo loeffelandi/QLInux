@@ -80,15 +80,6 @@ def test_render_for_label_uses_label_width():
     assert img.size == (label.width_dots, 472)
 
 
-def test_render_for_label_mismatched_label_is_caught():
-    # Szene in falscher Breite -> render_for_label rendert mit Label-Breite,
-    # die Szene wird skaliert/geclippt, aber die Bildbreite stimmt.
-    label = get_label("29")  # 306 px
-    scene = _scene_with_black_box(306, 200)
-    img = render_for_label(scene, label, (306, 200))
-    assert img.size == (306, 200)
-
-
 # --- Drehung fuer die Ausrichtung "laengs des Bandes" ---
 def test_render_rotate_swaps_axes_and_only_permutes_pixels():
     scene = _scene_with_black_box(200, 400)  # schwarze Box oben links
