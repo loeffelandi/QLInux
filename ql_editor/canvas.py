@@ -10,13 +10,12 @@ mm-Linealen und sichtbarer, nicht bedruckbarer Randzone.
   (z. B. ein grosses Foto) mit der Maus erreichbar, ohne herauszoomen zu
   muessen. Der Renderer ist davon unberuehrt.
 * **mm-Lineale** an Ober-/Unterkante.
-* **Randbegrenzung**: die volle Medienhoehe (Bandbreite inkl. Kanten) ist
-  sichtbar. Ein durchgehender grauer Streifen in Bandrichtung zeigt, wohin
-  das Band laeuft (volle Arbeitsflaeche, ohne Pfeil). Das Etikett sitzt
-  oben links, wie im P-touch Editor. Schraffur markiert nur, was der
-  Druckkopf nicht erreicht. Eigene Labelraender beginnen erst in der
-  bedruckbaren Flaeche und bleiben ein gepunkteter Rahmen. Items bleiben
-  auf der bedruckbaren Flaeche geklemmt.
+* **Randbegrenzung**: das Etikett auf dem Canvas ist das fertige Mass
+  (volle Bandhoehe und Laenge inkl. Vorschub, wie die Ergebnis-Anzeige).
+  Schraffur markiert, was der Drucker nicht bedruckt: Seitenkanten und
+  den Vorschub in Bandrichtung. Die graue Bandflaeche beginnt erst
+  dahinter. Eigene Labelraender liegen in der bedruckbaren Flaeche und
+  bleiben ein gepunkteter Rahmen. Items bleiben dort geklemmt.
 
 Direkte Bearbeitung mit der Maus (modernes Editor-Gefuehl):
 
@@ -51,6 +50,7 @@ from .i18n import tr
 from .icons import ROTATE_CURSOR_SIZE, cursor
 from .renderer import render_scene_to_image
 from .media import (
+    CUT_OFFSET_DOTS,
     DOTS_PER_MM,
     LabelSpec,
     Orientation,
@@ -569,9 +569,28 @@ class LabelCanvas(QGraphicsView):
             return 0.0
         return dots_to_mm(label.width_dots + 2 * label.side_border_dots)
 
+    def _unprintable_length(self) -> tuple[float, float]:
+        """Nicht bedruckbare Dots vor und nach dem Inhalt, in Bandrichtung.
+
+        Endlos: ``feed_margin`` davor, ``feed_margin`` plus Schnittversatz
+        danach - zusammen die Laenge, die die Ergebnis-Anzeige als fertiges
+        Etikett ausweist. Die-cut: die Differenz aus Gesamt- und
+        Druckflaeche, haelftig auf beide Enden.
+        """
+        label = self._label
+        if label is None:
+            return (0.0, 0.0)
+        if label.is_endless:
+            lead = float(label.feed_margin)
+            return (lead, lead + float(CUT_OFFSET_DOTS))
+        extra = max(0, int(label.dots_total[1]) - int(label.dots_printable[1]))
+        lead = extra // 2
+        return (float(lead), float(extra - lead))
+
     def _length_mm(self) -> float:
-        """Fertige Etikettenlaenge in mm."""
-        return dots_to_mm(self._length_dots)
+        """Fertige Etikettenlaenge in mm, inklusive nicht bedruckbarem Vorschub."""
+        lead, trail = self._unprintable_length()
+        return dots_to_mm(self._length_dots + lead + trail)
 
     def size_labels(self) -> tuple[str, str]:
         """Beschriftung der Lineale in mm: ``(waagerecht, senkrecht)``.
@@ -593,12 +612,13 @@ class LabelCanvas(QGraphicsView):
         tape_mm = self._tape_width_mm()
         length_mm = self._length_mm()
         edge = -float(self._label.side_border_dots)
+        lead, _trail = self._unprintable_length()
         if self._orientation is Orientation.ALONG:
-            self._h_ruler.set_total_mm(length_mm, 0.0)
+            self._h_ruler.set_total_mm(length_mm, -lead)
             self._v_ruler.set_total_mm(tape_mm, edge)
         else:
             self._h_ruler.set_total_mm(tape_mm, edge)
-            self._v_ruler.set_total_mm(length_mm, 0.0)
+            self._v_ruler.set_total_mm(length_mm, -lead)
 
     @property
     def label(self) -> LabelSpec | None:
@@ -628,30 +648,34 @@ class LabelCanvas(QGraphicsView):
         return (rect.width(), rect.height())
 
     def tape_rect(self) -> QRectF:
-        """Volle Bandflaeche inkl. nicht bedruckbarer Raender (Szenenkoordinaten).
+        """Physisches Etikett: volle Bandhoehe und fertige Laenge.
 
-        Die nicht bedruckbaren Bandkanten liegen immer quer zur Bandrichtung -
-        bei ``ALONG`` also ober- und unterhalb der Designflaeche.
+        Quer zur Bandrichtung inklusive der Kanten, die der Druckkopf nicht
+        erreicht. In Bandrichtung inklusive Vorschub vor dem Inhalt und
+        Vorschub plus Schnittversatz danach.
         """
         printable = self.printable_rect()
         if self._label is None:
             return printable
-        b = self._label.side_border_dots
+        side = float(self._label.side_border_dots)
+        lead, trail = self._unprintable_length()
         if self._orientation is Orientation.ALONG:
-            return printable.adjusted(0, -b, 0, b)
-        return printable.adjusted(-b, 0, b, 0)
+            return printable.adjusted(-lead, -side, trail, side)
+        return printable.adjusted(-side, -lead, side, trail)
 
     def tape_band_rect(self, exposed: QRectF) -> QRectF:
-        """Grauer Bandstreifen ueber die ganze Arbeitsflaeche (Szenenkoordinaten).
+        """Grauer Bandstreifen: volle Medienhoehe, erst hinter dem Etikett.
 
-        Hoehe bzw. Breite ist die volle Medienflaeche. In Bandrichtung laeuft
-        der Streifen durch ``exposed`` - also immer ueber den sichtbaren
-        Ausschnitt, ohne Pfeil und ohne begrenzten Auslauf.
+        Wie im P-touch Editor liegt das Etikett vorn, die graue Fortsetzung
+        des Bandes beginnt an seiner Hinterkante und laeuft bis zum Rand
+        der Arbeitsflaeche.
         """
         tape = self.tape_rect()
         if self._orientation is Orientation.ALONG:
-            return QRectF(exposed.left(), tape.top(), exposed.width(), tape.height())
-        return QRectF(tape.left(), exposed.top(), tape.width(), exposed.height())
+            left = tape.right()
+            return QRectF(left, tape.top(), max(0.0, exposed.right() - left), tape.height())
+        top = tape.bottom()
+        return QRectF(tape.left(), top, tape.width(), max(0.0, exposed.bottom() - top))
 
     def is_interacting(self) -> bool:
         return self._op is not None or self._pan_active
@@ -939,12 +963,13 @@ class LabelCanvas(QGraphicsView):
         printable = self.printable_rect()
         band = self.tape_band_rect(rect)
         painter.fillRect(band, QColor(TAPE_BAND_COLOR))
-        painter.fillRect(printable, QColor("#ffffff"))
+        painter.fillRect(tape, QColor("#ffffff"))
         self._hatch_nonprintable(painter, tape, printable)
         pen = QPen(QColor("#9aa3ad"))
         pen.setWidthF(0)
         painter.setPen(pen)
         painter.setBrush(Qt.BrushStyle.NoBrush)
+        painter.drawRect(tape)
         if self._orientation is Orientation.ALONG:
             painter.drawLine(band.topLeft(), band.topRight())
             painter.drawLine(band.bottomLeft(), band.bottomRight())
@@ -963,22 +988,33 @@ class LabelCanvas(QGraphicsView):
     def _hatch_nonprintable(
         self, painter: QPainter, tape: QRectF, printable: QRectF
     ) -> None:
-        """Schraffur nur fuer Kanten, die der Druckkopf nicht erreicht.
+        """Schraffur fuer alles, was der Drucker am fertigen Etikett nicht bedruckt.
 
-        Die eigenen Labelraender (Margin-Setting) liegen innerhalb der
-        bedruckbaren Flaeche und werden hier nicht schraffiert.
+        Das sind die Seitenkanten (Druckkopf) und der Vorschub in
+        Bandrichtung. Eigene Labelraender im bedruckbaren Bereich gehoeren
+        nicht dazu.
         """
         painter.save()
         painter.setPen(Qt.PenStyle.NoPen)
         painter.setBrush(QBrush(QColor("#8b949e"), Qt.BrushStyle.BDiagPattern))
         side = float(self._label.side_border_dots) if self._label is not None else 0.0
-        if side > 0:
-            if self._orientation is Orientation.ALONG:
+        lead, trail = self._unprintable_length()
+        if self._orientation is Orientation.ALONG:
+            if side > 0:
                 painter.drawRect(QRectF(tape.left(), tape.top(), tape.width(), side))
                 painter.drawRect(QRectF(tape.left(), printable.bottom(), tape.width(), side))
-            else:
+            if lead > 0:
+                painter.drawRect(QRectF(tape.left(), tape.top(), lead, tape.height()))
+            if trail > 0:
+                painter.drawRect(QRectF(printable.right(), tape.top(), trail, tape.height()))
+        else:
+            if side > 0:
                 painter.drawRect(QRectF(tape.left(), tape.top(), side, tape.height()))
                 painter.drawRect(QRectF(printable.right(), tape.top(), side, tape.height()))
+            if lead > 0:
+                painter.drawRect(QRectF(tape.left(), tape.top(), tape.width(), lead))
+            if trail > 0:
+                painter.drawRect(QRectF(tape.left(), printable.bottom(), tape.width(), trail))
         painter.restore()
 
     def _draw_size_labels(self, painter: QPainter) -> None:

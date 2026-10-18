@@ -693,30 +693,37 @@ def test_canvas_tape_rect_includes_side_border(qapp):
     assert tape.width() == pytest.approx(554 + 2 * label.side_border_dots)
 
 
-def test_tape_band_spans_the_workspace(qapp):
-    """Grauer Streifen: volle Medienhoehe, ueber die ganze sichtbare Arbeitsflaeche."""
+def test_tape_band_starts_after_the_full_label(qapp):
+    """Grau erst hinter dem fertigen Etikett; das Etikett hat die volle Hoehe."""
     from PySide6.QtCore import QRectF
 
     canvas = LabelCanvas()
     label = get_label("50")
     canvas.set_label(label, 472)
     tape = canvas.tape_rect()
+    printable = canvas.printable_rect()
     exposed = QRectF(-400, -200, 2000, 1600)
     band = canvas.tape_band_rect(exposed)
-    # ACROSS: Band laeuft senkrecht, Streifen ueber die ganze Hoehe.
+    extra = 2 * label.feed_margin + media.CUT_OFFSET_DOTS
+    # ACROSS: volle Breite, Laenge inkl. Vorschub, Grau darunter.
+    assert tape.left() == pytest.approx(printable.left() - label.side_border_dots)
+    assert tape.width() == pytest.approx(printable.width() + 2 * label.side_border_dots)
+    assert tape.height() == pytest.approx(printable.height() + extra)
+    assert band.top() == pytest.approx(tape.bottom())
     assert band.left() == pytest.approx(tape.left())
     assert band.width() == pytest.approx(tape.width())
-    assert band.top() == pytest.approx(exposed.top())
     assert band.bottom() == pytest.approx(exposed.bottom())
 
     canvas.set_label(label, 472, orientation=media.Orientation.ALONG)
     tape = canvas.tape_rect()
+    printable = canvas.printable_rect()
     band = canvas.tape_band_rect(exposed)
+    assert tape.height() == pytest.approx(label.width_dots + 2 * label.side_border_dots)
+    assert tape.width() == pytest.approx(printable.width() + extra)
+    assert band.left() == pytest.approx(tape.right())
     assert band.top() == pytest.approx(tape.top())
     assert band.height() == pytest.approx(tape.height())
-    assert band.left() == pytest.approx(exposed.left())
     assert band.right() == pytest.approx(exposed.right())
-    assert tape.height() == pytest.approx(label.width_dots + 2 * label.side_border_dots)
 
 
 def test_fitted_label_sits_at_the_top_left(qapp):
@@ -788,9 +795,18 @@ def test_unprintable_edge_is_hatched_band_beyond_label_is_plain(qapp):
 
     hatch = colors_at(QPointF(printable.center().x(), (tape.top() + printable.top()) / 2.0), 4)
     assert len(hatch) > 1
+    # Vorschub hinter dem Inhalt: gleiche Schraffur, noch Teil des Etiketts.
+    trail = colors_at(
+        QPointF((printable.right() + tape.right()) / 2.0, printable.center().y()),
+        3,
+    )
+    assert len(trail) > 1
     plain = QColor(TAPE_BAND_COLOR)
     beyond = colors_at(QPointF(tape.right() + 30, tape.center().y()), 1)
     assert beyond == {(plain.red(), plain.green(), plain.blue())}
+    # Vor dem Etikett kein Bandgrau - die Graustufe beginnt erst dahinter.
+    before = colors_at(QPointF(tape.left() - 20, tape.center().y()), 1)
+    assert (plain.red(), plain.green(), plain.blue()) not in before
 
     # Eigene Labelraender liegen in der bedruckbaren Flaeche und bleiben weiss.
     canvas.set_margins(4.0, 4.0, 4.0, 4.0)
@@ -823,10 +839,10 @@ def test_canvas_size_labels_show_tape_width_and_length(qapp):
     previous = QLocale()
     try:
         QLocale.setDefault(QLocale("de"))
-        # Bandbreite quer zum Band (50 mm Rolle), Laenge in Bandrichtung.
-        assert canvas.size_labels() == ("50 mm", "40,0 mm")
+        # Bandbreite der Rolle, fertige Laenge inkl. Vorschub (Ergebnis-Anzeige).
+        assert canvas.size_labels() == ("50 mm", "47,0 mm")
         QLocale.setDefault(QLocale("en"))
-        assert canvas.size_labels() == ("50 mm", "40.0 mm")
+        assert canvas.size_labels() == ("50 mm", "47.0 mm")
     finally:
         QLocale.setDefault(previous)
 
@@ -837,17 +853,18 @@ def test_canvas_size_labels_follow_the_orientation(qapp):
     canvas.set_label(get_label("50"), 472, orientation=media.Orientation.ALONG)
     horizontal, vertical = canvas.size_labels()
     assert vertical == "50 mm"
-    assert horizontal.startswith("40")
+    assert horizontal.startswith("47")
 
 
 def test_ruler_totals_match_the_label_size(qapp):
     """Was das Lineal beschriftet, ist die Groesse des Etiketts."""
     canvas = LabelCanvas()
     canvas.set_label(get_label("50"), 472)
+    finished = media.dots_to_mm(472 + 2 * get_label("50").feed_margin + media.CUT_OFFSET_DOTS)
     assert canvas._h_ruler.total_mm == pytest.approx(49.95, abs=0.05)
-    assert canvas._v_ruler.total_mm == pytest.approx(39.96, abs=0.05)
+    assert canvas._v_ruler.total_mm == pytest.approx(finished, abs=0.05)
     canvas.set_label(get_label("50"), 472, orientation=media.Orientation.ALONG)
-    assert canvas._h_ruler.total_mm == pytest.approx(39.96, abs=0.05)
+    assert canvas._h_ruler.total_mm == pytest.approx(finished, abs=0.05)
     assert canvas._v_ruler.total_mm == pytest.approx(49.95, abs=0.05)
 
 
@@ -2546,10 +2563,12 @@ def test_orientation_moves_side_border_to_tape_edges(qapp):
     win._media_panel.set_orientation(media.Orientation.ALONG)
     tape = win._canvas.tape_rect()
     printable = win._canvas.printable_rect()
+    extra_lead = label.feed_margin
+    extra_trail = label.feed_margin + media.CUT_OFFSET_DOTS
     assert tape.top() == pytest.approx(-label.side_border_dots)
     assert tape.bottom() == pytest.approx(printable.bottom() + label.side_border_dots)
-    assert tape.left() == pytest.approx(printable.left())
-    assert tape.width() == pytest.approx(printable.width())
+    assert tape.left() == pytest.approx(printable.left() - extra_lead)
+    assert tape.right() == pytest.approx(printable.right() + extra_trail)
 
 
 def test_print_preview_image_stays_canvas_aligned(qapp):
