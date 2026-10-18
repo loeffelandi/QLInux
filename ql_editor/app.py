@@ -72,6 +72,7 @@ from PySide6.QtWidgets import (
 
 from . import access
 from . import about
+from . import help as app_help
 from . import csv_source
 from . import document
 from . import instance, lbx
@@ -1258,6 +1259,10 @@ class MainWindow(QMainWindow):
         self._act_quit.setShortcut(QKeySequence.StandardKey.Quit)
         self._act_quit.triggered.connect(self.close)
 
+        self._act_help = QAction(icon("help"), tr("Hilfe"), self)
+        self._act_help.setToolTip(tr("Hilfe"))
+        self._act_help.triggered.connect(self._show_help)
+
         self._act_about = QAction(icon("about"), tr("Über QLInux"), self)
         self._act_about.setToolTip(tr("Über QLInux"))
         self._act_about.triggered.connect(self._show_about)
@@ -1435,6 +1440,7 @@ class MainWindow(QMainWindow):
         menu.addAction(self._act_file_save_as)
         menu.addSeparator()
         self._build_language_menu(menu)
+        menu.addAction(self._act_help)
         menu.addAction(self._act_about)
         menu.addAction(self._act_quit)
         return menu
@@ -3472,6 +3478,10 @@ class MainWindow(QMainWindow):
             self.statusBar().showMessage(
                 tr("Band erkannt: {name}").format(name=label.display_name), 8000
             )
+
+    def _show_help(self) -> None:
+        """Hilfe: kurzer Text und die Tasten, die der Code bindet."""
+        app_help.show_help(self)
 
     def _show_about(self) -> None:
         """„Über QLInux": Modellliste, Lizenz, Danksagung (siehe about.py)."""

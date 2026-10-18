@@ -10,6 +10,7 @@ Das Paket ist in klar getrennte Schichten gegliedert:
 * :mod:`ql_editor.printer`   - brother_ql-Wrapper (verbinden, konvertieren, senden)
 * :mod:`ql_editor.app`       - QApplication / MainWindow (GUI)
 * :mod:`ql_editor.about`     - "Über QLInux" (Modelle, Lizenzen, Dank)
+* :mod:`ql_editor.help`      - Hilfe (kurzer Text, Tastenübersicht)
 """
 
 from __future__ import annotations
