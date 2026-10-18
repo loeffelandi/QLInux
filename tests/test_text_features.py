@@ -7,7 +7,7 @@ Ausrichtung und Umbruch - jeweils mit Serialisierung und Renderpfad.
 from __future__ import annotations
 
 import pytest
-from PySide6.QtCore import QRectF
+from PySide6.QtCore import QPointF, QRectF
 from PySide6.QtWidgets import QGraphicsScene
 
 from ql_editor.items import TextItem, item_from_dict
@@ -75,6 +75,44 @@ def test_vertical_text_stacks_characters_and_keeps_logical_text():
     restored = item_from_dict(item.to_dict())
     assert restored.toPlainText() == "A\nB\nC"
     assert restored.vertical
+
+
+def test_vertical_toggle_off_preserves_logical_text():
+    """B1: Vertikal ein→aus darf den Klartext nicht mit Newlines zerlegen."""
+    item = TextItem("Hello World")
+    item.set_vertical(True)
+    assert item.toPlainText() == "\n".join("Hello World")
+    assert item.text_value == "Hello World"
+    item.set_vertical(False)
+    assert item.text_value == "Hello World"
+    assert item.toPlainText() == "Hello World"
+    assert item.to_dict()["text"] == "Hello World"
+
+
+def test_prepare_geometry_change_keeps_scene_index():
+    """M1: Nach Box-Hoehenaenderung muss der Szenen-Index Hit-Tests treffen."""
+    scene = QGraphicsScene()
+    item = TextItem("Hi", font_pixel_size=20)
+    scene.addItem(item)
+    item.setPos(0, 0)
+    # Vor-Indexierung: Hit oben, damit der BSP-Index die alte Geometrie kennt.
+    top = item.mapToScene(QPointF(5, 5))
+    assert scene.itemAt(top, item.transform()) is item
+    item.set_box_height(300)
+    bottom = item.mapToScene(QPointF(5, 280))
+    hits = sum(1 for _ in range(20) if scene.itemAt(bottom, item.transform()) is item)
+    assert hits == 20, f"BSP-Index veraltet: nur {hits}/20 Hits unten"
+
+
+def test_shape_and_contains_cover_fixed_box():
+    """M2: Leerer Box-Bereich muss shape/contains abdecken."""
+    item = TextItem("Hi", font_pixel_size=20)
+    item.set_box_height(300)
+    item.set_text_width(200)
+    assert item.boundingRect().height() == pytest.approx(300)
+    low = QPointF(10, 250)
+    assert item.contains(low)
+    assert item.shape().contains(low)
 
 
 def test_list_is_paragraph_format_not_text():

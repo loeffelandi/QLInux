@@ -28,6 +28,7 @@ from PySide6.QtGui import (
     QFont,
     QImage,
     QPainter,
+    QPainterPath,
     QPen,
     QPixmap,
     QTextBlockFormat,
@@ -274,6 +275,15 @@ class TextItem(_ClampMixin, QGraphicsTextItem):
     def boundingRect(self) -> QRectF:  # noqa: N802
         return super().boundingRect().united(self._box_rect())
 
+    def shape(self) -> QPainterPath:  # noqa: N802
+        """Hit-Test-Form: die feste Box, nicht nur der Textumriss."""
+        path = QPainterPath()
+        path.addRect(self._box_rect())
+        return path
+
+    def contains(self, point: QPointF) -> bool:  # noqa: N802
+        return self._box_rect().contains(point)
+
     def _box_rect(self) -> QRectF:
         size = self.document().size()
         width = self._box_width if self._box_width > 0 else size.width()
@@ -322,6 +332,7 @@ class TextItem(_ClampMixin, QGraphicsTextItem):
             text = self.text_value
         if self._vertical:
             text = "\n".join(text.replace("\n", ""))
+        self.prepareGeometryChange()
         self.setPlainText(text)
         cursor = QTextCursor(self.document())
         cursor.select(QTextCursor.SelectionType.Document)
@@ -457,9 +468,18 @@ class TextItem(_ClampMixin, QGraphicsTextItem):
         return self._vertical
 
     def set_vertical(self, value: bool) -> None:
-        """Vertikale Schrift: jedes Zeichen steht in einer eigenen Zeile."""
-        self._vertical = bool(value)
-        self._reflow()
+        """Vertikale Schrift: jedes Zeichen steht in einer eigenen Zeile.
+
+        Den logischen Text **vor** dem Flag-Wechsel lesen: ``text_value``
+        haengt von ``_vertical`` ab (entfernt Newlines im Vertikalmodus).
+        Sonst zerlegt ein Toggle ein→aus den gespeicherten Text.
+        """
+        value = bool(value)
+        if value == self._vertical:
+            return
+        text = self.text_value
+        self._vertical = value
+        self._reflow(text)
 
     @property
     def list_style(self) -> str:
@@ -484,8 +504,11 @@ class TextItem(_ClampMixin, QGraphicsTextItem):
 
     def set_auto_width(self, auto: bool) -> None:
         """Box-Breite automatisch (wie der Text) oder mit der aktuellen Breite fixiert."""
-        self._box_width = 0.0 if auto else self._box_rect().width()
-        self._apply_wrap()
+        new_width = 0.0 if auto else self._box_rect().width()
+        self.prepareGeometryChange()
+        self._box_width = new_width
+        self.setTextWidth(self._box_width if self._wrap and self._box_width > 0 else -1)
+        self.update()
 
     @property
     def auto_height(self) -> bool:
@@ -495,14 +518,18 @@ class TextItem(_ClampMixin, QGraphicsTextItem):
         self.set_box_height(0.0 if auto else self._box_rect().height())
 
     def set_box_height(self, height: float) -> None:
+        self.prepareGeometryChange()
         self._box_height = max(0.0, float(height))
         self.update()
 
     def set_text_width(self, width: float) -> None:
+        self.prepareGeometryChange()
         self._box_width = float(width) if width > 0 else 0.0
-        self._apply_wrap()
+        self.setTextWidth(self._box_width if self._wrap and self._box_width > 0 else -1)
+        self.update()
 
     def _apply_wrap(self) -> None:
+        self.prepareGeometryChange()
         self.setTextWidth(self._box_width if self._wrap and self._box_width > 0 else -1)
         self.update()
 
