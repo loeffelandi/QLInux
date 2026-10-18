@@ -41,7 +41,8 @@ Direkte Bearbeitung mit der Maus (modernes Editor-Gefuehl):
   bleibt voll sichtbar, damit man es wiederfindet. Die Anfasser liegen
   darueber, sobald das Objekt gewaehlt ist - schon beim ersten Klick.
 * **Mehrfachauswahl**: Gummiband auf freier Flaeche; **Ctrl+Klick** schaltet
-  einzelne Objekte zur Auswahl hinzu/ab.
+  einzelne Objekte zur Auswahl hinzu/ab. **Ctrl+Ziehen** an einem bereits
+  gewaehlten Objekt laesst das Original liegen und bewegt eine Kopie.
 * **Drag & Drop**: Bilddateien aus dem Dateimanager auf den Canvas ziehen.
   Spaltenkoepfe aus dem Datenbank-Panel binden Text, Barcode oder QR.
 * **Tabelle**: Klick waehlt die Zelle, Doppelklick bearbeitet den Text,
@@ -154,6 +155,8 @@ GUIDE_HIT_PX = 5
 GUIDE_COLOR = "#00a7c7"
 #: Tabellen-Zellklick: erst ab dieser View-Distanz (Manhattan) verschieben.
 _TABLE_MOVE_THRESHOLD_PX = 4
+#: Versatz von Strg+D und Einfuegen, in Szenendots. Ctrl+Ziehen startet deckungsgleich.
+DUPLICATE_OFFSET_DOTS = 10.0
 #: Drehrasten (alle 90 Grad), wirken ohne Modifier. Sticky: man fängt die Rast
 #: nur knapp ein, hält sie dann bis zum Weg-Drehen über ROTATE_DETENT_RELEASE_DEG.
 ROTATE_DETENT_DEG = 90.0
@@ -502,6 +505,8 @@ class LabelCanvas(QGraphicsView):
     items_changed = Signal()
     #: Vor einer Mausgeste (Ziehen, Groesse, Drehen) - fuer den Undo-Schnappschuss.
     gesture_begun = Signal()
+    #: Kopien, die eine Geste erzeugt hat (Ctrl+Ziehen). Die App verdrahtet sie.
+    copies_spawned = Signal(object)
     image_dropped = Signal(str, QPointF)
     text_dropped = Signal(str, QPointF)
     #: Spaltenname aus dem Datenbank-Panel, Fallposition in Szenenkoordinaten.
@@ -577,6 +582,9 @@ class LabelCanvas(QGraphicsView):
         self._guide_drag: dict[str, Any] | None = None
         # Tabellen-Zellklick: Verschieben erst ab Drag-Schwelle (Auswahl ohne Move).
         self._pending_move_start: QPointF | None = None
+        #: Ctrl auf einem schon gewaehlten Objekt: Klick schaltet um, Ziehen kopiert.
+        self._pending_ctrl_item = None
+        self._gesture_duplicated = False
 
         self._pan_active = False
         self._pan_start = QPoint()
@@ -1927,7 +1935,12 @@ class LabelCanvas(QGraphicsView):
                     item.select_cell_at(local, extend=shift)
                     table_cell_click = True
                 if ctrl:
-                    item.setSelected(not item.isSelected())
+                    if item.isSelected():
+                        # Umschalten erst beim Loslassen. Ein Ziehen kopiert.
+                        self._pending_ctrl_item = item
+                        self._pending_move_start = QPointF(scene_pos)
+                    else:
+                        item.setSelected(True)
                 else:
                     if not item.isSelected():
                         self._scene.clearSelection()
@@ -1979,6 +1992,34 @@ class LabelCanvas(QGraphicsView):
         self._move_items = [(it, QPointF(it.pos())) for it in self.selected_items()]
         self._op_start_bbox = self._selection_bbox()
 
+    def _spawn_drag_copies(self) -> None:
+        """Auswahl kopieren. Die Originale bleiben, bewegt werden die Kopien.
+
+        Der Undo-Schnappschuss muss schon stehen (``gesture_begun``), deshalb
+        hier kein ``items_changed``.
+        """
+        originals = [item for item in self.selected_items() if hasattr(item, "to_dict")]
+        if not originals:
+            return
+        self.gesture_begun.emit()
+        copies = [items_mod.item_from_dict(item.to_dict()) for item in originals]
+        self._scene.clearSelection()
+        for copy in copies:
+            self._scene.addItem(copy)
+            copy.setSelected(True)
+        self._gesture_duplicated = True
+        self.copies_spawned.emit(copies)
+
+    def take_gesture_duplicate(self) -> bool:
+        """Ob die letzte Geste Kopien erzeugt hat. Einmal lesen, dann vergessen."""
+        duplicated = self._gesture_duplicated
+        self._gesture_duplicated = False
+        return duplicated
+
+    def inline_editing(self) -> bool:
+        """Gerade tippt jemand in ein Objekt, nicht in die Objektauswahl."""
+        return self._focused_editor() is not None
+
     def _selection_bbox(self) -> QRectF:
         rect = QRectF()
         for item in self.selected_items():
@@ -2013,6 +2054,10 @@ class LabelCanvas(QGraphicsView):
             p1 = self.mapFromScene(scene_pos)
             if (p1 - p0).manhattanLength() >= _TABLE_MOVE_THRESHOLD_PX:
                 self._pending_move_start = None
+                ctrl_item = self._pending_ctrl_item
+                self._pending_ctrl_item = None
+                if ctrl_item is not None:
+                    self._spawn_drag_copies()
                 self._begin_move(start)
                 self._do_move(scene_pos)
                 event.accept()
@@ -2256,8 +2301,14 @@ class LabelCanvas(QGraphicsView):
             self._finish_guide_move(self._event_pos(event))
             event.accept()
             return
-        if event.button() == Qt.MouseButton.LeftButton and self._pending_move_start is not None:
+        if event.button() == Qt.MouseButton.LeftButton and (
+            self._pending_ctrl_item is not None or self._pending_move_start is not None
+        ):
+            ctrl_item = self._pending_ctrl_item
+            self._pending_ctrl_item = None
             self._pending_move_start = None
+            if ctrl_item is not None and ctrl_item.scene() is self._scene:
+                ctrl_item.setSelected(not ctrl_item.isSelected())
             event.accept()
             return
         if self._op is not None and event.button() == Qt.MouseButton.LeftButton:
@@ -2307,6 +2358,7 @@ class LabelCanvas(QGraphicsView):
             # haben. Die Bearbeitung ersetzt sie; sonst wuerde das Loslassen
             # einen leeren Schritt „Bearbeiten" aus dem Schnappschuss machen.
             self._pending_move_start = None
+            self._pending_ctrl_item = None
             self._op = None
             self._op_item = None
             self._move_items = []
@@ -2498,6 +2550,15 @@ class LabelCanvas(QGraphicsView):
         item.setSelected(True)
         self._update_pasteboard()
         # Die Objektliste hat sich geaendert - nicht erst nach einer Geste.
+        self.items_changed.emit()
+
+    def add_copies(self, items) -> None:
+        """Mehrere Kopien auf einmal, alle ausgewaehlt."""
+        self._scene.clearSelection()
+        for item in items:
+            self._scene.addItem(item)
+            item.setSelected(True)
+        self._update_pasteboard()
         self.items_changed.emit()
 
     def selected_items(self) -> list:

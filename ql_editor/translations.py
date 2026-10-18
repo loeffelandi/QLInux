@@ -77,12 +77,13 @@ EN: dict[str, str] = {
         "Esc brings the normal view back."
     ),
     "Mit der Maus": "With the pointer",
-    "Strg und das Mausrad zoomen, Umschalt und das Mausrad schieben seitlich. Strg+Klick nimmt ein Objekt zur Auswahl dazu oder wieder weg. In einer Tabelle markiert Umschalt+Klick mehrere Zellen, Tab und Umschalt+Tab gehen zur nächsten. Beim Drehen rastet der Winkel auf 90 Grad, mit gehaltener Umschalttaste in Schritten von 15 Grad.": (
+    "Strg und das Mausrad zoomen, Umschalt und das Mausrad schieben seitlich. Strg+Klick nimmt ein Objekt zur Auswahl dazu oder wieder weg. Strg gedrückt halten und ein markiertes Objekt ziehen lässt das Original liegen und bewegt die Kopie. In einer Tabelle markiert Umschalt+Klick mehrere Zellen, Tab und Umschalt+Tab gehen zur nächsten. Beim Drehen rastet der Winkel auf 90 Grad, mit gehaltener Umschalttaste in Schritten von 15 Grad.": (
         "Ctrl and the wheel zoom, Shift and the wheel scroll sideways. "
-        "Ctrl+click adds an object to the selection or drops it again. In a "
-        "table, Shift+click marks several cells, and Tab and Shift+Tab move "
-        "to the next one. While rotating, the angle snaps to 90 degrees, and "
-        "holding Shift steps by 15 degrees."
+        "Ctrl+click adds an object to the selection or drops it again. "
+        "Holding Ctrl and dragging a selected object leaves the original in "
+        "place and moves a copy. In a table, Shift+click marks several cells, "
+        "and Tab and Shift+Tab move to the next one. While rotating, the angle "
+        "snaps to 90 degrees, and holding Shift steps by 15 degrees."
     ),
     "Tasten": "Keys",
     "Neues Etikett": "New label",
@@ -104,6 +105,10 @@ EN: dict[str, str] = {
     "Strg++": "Ctrl++",
     "Strg+-": "Ctrl+-",
     "Strg+1": "Ctrl+1",
+    "Strg+C": "Ctrl+C",
+    "Strg+X": "Ctrl+X",
+    "Strg+V": "Ctrl+V",
+    "Strg+D": "Ctrl+D",
     "Strg+B": "Ctrl+B",
     "Strg+I": "Ctrl+I",
     "Strg+U": "Ctrl+U",
@@ -240,6 +245,16 @@ EN: dict[str, str] = {
     "An Hilfslinien ausrichten": "Align to guides",
     "Layout": "Layout",
     "Löschen": "Delete",
+    "Kopieren": "Copy",
+    "Ausschneiden": "Cut",
+    "Einfügen\u2060": "Paste",
+    "Duplizieren": "Duplicate",
+    "Kopieren (Strg+C)": "Copy (Ctrl+C)",
+    "Ausschneiden (Strg+X)": "Cut (Ctrl+X)",
+    "Einfügen\u2060 (Strg+V)": "Paste (Ctrl+V)",
+    "Duplizieren (Strg+D)": "Duplicate (Ctrl+D)",
+    "Strg+Ziehen": "Ctrl+drag",
+    "Ausgewähltes Objekt duplizieren": "Duplicate the selected object",
     "Löschen (Entf)": "Delete (Del)",
     # -- Zoom und Vorschau --------------------------------------------------
     "Zoom 100 %": "Zoom 100 %",
