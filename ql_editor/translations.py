@@ -27,8 +27,6 @@ EN: dict[str, str] = {
     "Panel rechts ein-/ausklappen (Umschalt+F9)\nEigenschaften und Druckoptionen": (
         "Show/hide right panel (Shift+F9)\nProperties and print options"
     ),
-    "F9": "F9",
-    "Umschalt+F9": "Shift+F9",
     "Fett (Strg+B)": "Bold (Ctrl+B)",
     "Kursiv (Strg+I)": "Italic (Ctrl+I)",
     "Unterstrichen (Strg+U)": "Underline (Ctrl+U)",

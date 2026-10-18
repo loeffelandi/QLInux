@@ -56,11 +56,10 @@ def test_help_text_is_short_and_follows_the_language(qapp):
 
 
 def test_help_lists_the_decided_shortcuts(qapp):
-    """Übersicht und gebundene Tasten, plus die schon festgelegten Texttasten.
+    """Übersicht und gebundene Tasten sind dieselben.
 
     Strg+B, Strg+I und Strg+U sind fett, kursiv und unterstrichen. Die
-    Panels sind F9 und Umschalt+F9, auch wenn der übrige Code das noch
-    mit den alten Tasten sagt.
+    Panels sind F9 und Umschalt+F9. Strg+Umschalt+B ist keine Taste mehr.
     """
     from ql_editor.app import MainWindow
 
@@ -77,10 +76,8 @@ def test_help_lists_the_decided_shortcuts(qapp):
     assert pairs["F9"] == "Panel links"
     assert pairs["Umschalt+F9"] == "Panel rechts"
     assert "Strg+Umschalt+B" not in pairs
-
-    decided = {"Strg+B", "Strg+I", "Strg+U", "F9", "Umschalt+F9"}
-    listed = set(pairs)
-    assert listed - decided == bound - {"Strg+B", "Strg+Umschalt+B"}
+    assert "Strg+Umschalt+B" not in bound
+    assert set(pairs) == bound
 
 
 def test_help_opens_from_the_menu_beside_about(qapp):
