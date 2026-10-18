@@ -81,6 +81,7 @@ from . import merge as merge_engine
 from . import resources
 from . import templates
 from .canvas import LabelCanvas
+from .command_palette import CommandPalette
 from .csv_source import CsvTable
 from .database_panel import DatabasePanel
 from .discovery import discover_network_printers
@@ -1245,6 +1246,11 @@ class MainWindow(QMainWindow):
         self._act_database.setToolTip(tr("Datenbank ein- oder ausblenden"))
         self._act_database.toggled.connect(self._on_database_toolbar_toggled)
 
+        self._act_commands = QAction(icon("menu"), tr("Befehle…"), self)
+        self._act_commands.setToolTip(tr("Befehle (Strg+K)"))
+        self._act_commands.setShortcut("Ctrl+K")
+        self._act_commands.triggered.connect(self._open_command_palette)
+
         self._act_quit = QAction(icon("quit"), tr("Beenden"), self)
         self._act_quit.setToolTip(tr("Beenden (Strg+Q)"))
         self._act_quit.setShortcut(QKeySequence.StandardKey.Quit)
@@ -1325,18 +1331,15 @@ class MainWindow(QMainWindow):
 
         bar.addAction(self._act_add_text)
         bar.addAction(self._act_add_image)
+        bar.addWidget(self._build_shape_button(bar))
         bar.addAction(self._act_add_clipart)
-        bar.addAction(self._act_add_barcode)
-        bar.addAction(self._act_add_qr)
+        bar.addWidget(self._build_code_button(bar))
         bar.addAction(self._act_add_table)
         bar.addAction(self._act_add_datetime)
         bar.addSeparator()
-        bar.addWidget(self._build_shape_button(bar))
         bar.addWidget(self._build_align_button(bar))
         bar.addAction(self._act_forward)
         bar.addAction(self._act_backward)
-        bar.addAction(self._act_front)
-        bar.addAction(self._act_back)
         bar.addAction(self._act_delete)
         bar.addSeparator()
         bar.addAction(self._act_zoom_out)
@@ -1347,6 +1350,8 @@ class MainWindow(QMainWindow):
         bar.addAction(self._act_print_preview)
         bar.addAction(self._act_print)
         bar.addAction(self._act_print_history)
+        # Eigene Gruppe am Ende: CSV bleibt sichtbar, das Raster erst mit Datei.
+        bar.addSeparator()
         bar.addAction(self._act_connect_csv)
         self._act_database_separator = bar.addSeparator()
         bar.addAction(self._act_database)
@@ -1376,6 +1381,21 @@ class MainWindow(QMainWindow):
         button.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
         menu = QMenu(button)
         self._add_shape_actions(menu)
+        button.setMenu(menu)
+        return button
+
+    def _build_code_button(self, parent: QWidget) -> QToolButton:
+        """Ein Knopf fuer Barcode und QR-Code."""
+        button = QToolButton(parent)
+        button.setObjectName("code_button")
+        button.setIcon(icon("barcode"))
+        button.setToolTip(tr("Barcode oder QR-Code einfügen"))
+        button.setAutoRaise(True)
+        button.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        button.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
+        menu = QMenu(button)
+        menu.addAction(self._act_add_barcode)
+        menu.addAction(self._act_add_qr)
         button.setMenu(menu)
         return button
 
@@ -1409,6 +1429,8 @@ class MainWindow(QMainWindow):
         zustand automatisch synchron.
         """
         menu = QMenu(self)
+        menu.addAction(self._act_commands)
+        menu.addSeparator()
         menu.addSection(tr("Datei"))
         for act in (
             self._act_file_new,
@@ -1424,34 +1446,21 @@ class MainWindow(QMainWindow):
             self._act_add_text,
             self._act_add_image,
             self._act_add_clipart,
-            self._act_add_barcode,
-            self._act_add_qr,
-            self._act_add_line,
-            self._act_add_rect,
-            *self._act_add_shapes,
-            self._act_add_table,
-            self._act_add_datetime,
         ):
             menu.addAction(act)
+        self._add_codes_menu(menu)
+        self._add_shapes_menu(menu)
+        menu.addAction(self._act_add_table)
+        menu.addAction(self._act_add_datetime)
         menu.addSection(tr("Bearbeiten"))
-        for act in (
-            self._act_undo,
-            self._act_redo,
-            self._act_align_left,
-            self._act_align_hcenter,
-            self._act_align_right,
-            self._act_align_top,
-            self._act_align_vcenter,
-            self._act_align_bottom,
-            self._act_delete,
-        ):
-            menu.addAction(act)
+        menu.addAction(self._act_undo)
+        menu.addAction(self._act_redo)
+        self._add_align_menu(menu)
+        menu.addAction(self._act_delete)
         menu.addSection(tr("Layout"))
         for act in (
             self._act_forward,
-            self._act_front,
             self._act_backward,
-            self._act_back,
             self._act_snap_guides,
         ):
             menu.addAction(act)
@@ -1480,6 +1489,88 @@ class MainWindow(QMainWindow):
         menu.addAction(self._act_about)
         menu.addAction(self._act_quit)
         return menu
+
+    def _add_codes_menu(self, menu: QMenu) -> QMenu:
+        """Barcode und QR-Code als ein Eintrag."""
+        submenu = menu.addMenu(icon("barcode"), tr("Barcode und QR-Code"))
+        submenu.addAction(self._act_add_barcode)
+        submenu.addAction(self._act_add_qr)
+        return submenu
+
+    def _add_shapes_menu(self, menu: QMenu) -> QMenu:
+        """Linie, Rahmen und die uebrigen Formen in einem Eintrag."""
+        submenu = menu.addMenu(icon("shape"), tr("Formen"))
+        self._add_shape_actions(submenu)
+        return submenu
+
+    def _add_align_menu(self, menu: QMenu) -> QMenu:
+        submenu = menu.addMenu(icon("align_left"), tr("Ausrichten"))
+        for act in (
+            self._act_align_left,
+            self._act_align_hcenter,
+            self._act_align_right,
+            self._act_align_top,
+            self._act_align_vcenter,
+            self._act_align_bottom,
+        ):
+            submenu.addAction(act)
+        return submenu
+
+    def _add_layout_menu(self, menu: QMenu) -> QMenu:
+        """Ebenen inkl. Vordergrund und Hintergrund (nur Kontextmenue)."""
+        submenu = menu.addMenu(icon("forward"), tr("Layout"))
+        for act in (
+            self._act_forward,
+            self._act_front,
+            self._act_backward,
+            self._act_back,
+            self._act_snap_guides,
+        ):
+            submenu.addAction(act)
+        return submenu
+
+    def _open_command_palette(self) -> None:
+        """Strg+K: suchbare Liste der Befehle, die das Menue auch kennt."""
+        show_widget(
+            self,
+            title=tr("Befehle"),
+            content=CommandPalette(self._palette_actions()),
+            sizing="hint",
+            max_size=QSize(440, 480),
+            close_on_outside=True,
+        )
+
+    def _palette_actions(self) -> list[QAction]:
+        """Blaetter des Hamburger-Menues, plus Vordergrund/Hintergrund."""
+        found: list[QAction] = []
+        seen: set[int] = set()
+
+        def add(action: QAction) -> None:
+            if action.isSeparator() or not action.text() or action.menu() is not None:
+                return
+            key = id(action)
+            if key in seen:
+                return
+            seen.add(key)
+            found.append(action)
+
+        def walk(menu: QMenu) -> None:
+            for action in menu.actions():
+                child = action.menu()
+                if child is not None:
+                    walk(child)
+                else:
+                    add(action)
+
+        walk(self._menu_button.menu())
+        ordered: list[QAction] = []
+        for action in found:
+            ordered.append(action)
+            if action is self._act_forward:
+                ordered.append(self._act_front)
+            elif action is self._act_backward:
+                ordered.append(self._act_back)
+        return ordered
 
     def _build_template_menu(self, menu: QMenu) -> None:
         """„Vorlagen": eingebaute und eigene Etiketten als Untermenue."""
@@ -2601,30 +2692,16 @@ class MainWindow(QMainWindow):
             tr("Text einfügen"),
             lambda: self._on_text_requested(scene_pos),
         )
-        menu.addAction(icon("image"), tr("Bild…"), self._add_image)
+        menu.addAction(self._act_add_image)
         menu.addAction(self._act_add_clipart)
-        menu.addAction(icon("barcode"), tr("Barcode…"), self._add_barcode)
-        menu.addAction(icon("qr"), tr("QR-Code…"), self._add_qr)
-        self._add_shape_actions(menu)
+        self._add_codes_menu(menu)
+        self._add_shapes_menu(menu)
         menu.addAction(self._act_add_table)
         menu.addAction(self._act_add_datetime)
         if self._canvas.selected_items():
             menu.addSeparator()
-            for act in (
-                self._act_align_left,
-                self._act_align_hcenter,
-                self._act_align_right,
-                self._act_align_top,
-                self._act_align_vcenter,
-                self._act_align_bottom,
-            ):
-                menu.addAction(act)
-            menu.addSeparator()
-            menu.addAction(self._act_forward)
-            menu.addAction(self._act_front)
-            menu.addAction(self._act_backward)
-            menu.addAction(self._act_back)
-            menu.addAction(self._act_snap_guides)
+            self._add_align_menu(menu)
+            self._add_layout_menu(menu)
             menu.addAction(self._act_delete)
         return menu
 

@@ -28,6 +28,12 @@ EN: dict[str, str] = {
         "Show/hide right panel (Ctrl+Shift+B)\nProperties and print options"
     ),
     "Menü": "Menu",
+    "Befehle…": "Commands…",
+    "Befehle": "Commands",
+    "Befehle (Strg+K)": "Commands (Ctrl+K)",
+    "Befehl suchen": "Find a command",
+    "Barcode und QR-Code": "Barcode and QR code",
+    "Barcode oder QR-Code einfügen": "Insert a barcode or QR code",
     "Sprache": "Language",
     "Einfügen": "Insert",
     "Bearbeiten": "Edit",

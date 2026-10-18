@@ -80,6 +80,7 @@ def test_database_ui_hidden_without_csv(qapp):
     text.setSelected(True)
     win._on_selection_changed()
     assert win._inspector.findChild(QCheckBox, "inspector_serial_enabled") is None
+    assert win._inspector.findChild(QComboBox, "inspector_database_field") is None
 
 
 def test_connect_shows_grid_counter_and_headers(qapp, tmp_path):
@@ -265,6 +266,7 @@ def test_inspector_database_field_replaces_serial(qapp):
     inspector = InspectorPanel()
     inspector.show()
     inspector.set_database_fields(["Fixture", "Channel"])
+    inspector.set_serial_context(None, csv_connected=True)
     item = TextItem("0100")
     item.set_binding({"source": "serial"})
     inspector.set_item(item)
