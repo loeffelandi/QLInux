@@ -2971,23 +2971,35 @@ class MainWindow(QMainWindow):
         getattr(item, f"set_{name}")(value)
 
     def _toggle_text_style(self, name: str) -> None:
-        """Stil an der Auswahl umschalten - dieselben Setter wie der Inspector."""
+        """Stil an der Auswahl umschalten - dieselben Setter wie der Inspector.
+
+        Waehrend der Eingabe ist schon ein Schnappschuss offen. Der wird zuerst
+        als „Text" geschlossen, der Stil folgt als eigener Schritt, und weiteres
+        Tippen bekommt wieder einen neuen Schnappschuss.
+        """
         targets = self._text_style_targets()
         if not targets:
             return
         turn_on = not all(self._text_style_value(item, name) for item in targets)
-        opened = self._history_before is None
-        if opened:
+        labels = {"bold": tr("Fett"), "italic": tr("Kursiv"), "underline": tr("Unterstrichen")}
+        typing = (
+            self._canvas._focused_editor() is not None and not self._inspector.edit_open
+        )
+        if typing:
+            self._commit_history(tr("Text"))
+        own_step = self._history_before is None
+        if own_step:
             self._capture_history()
         for item in targets:
             self._apply_text_style(item, name, turn_on)
-        labels = {"bold": tr("Fett"), "italic": tr("Kursiv"), "underline": tr("Unterstrichen")}
-        if opened:
+        if own_step:
             self._commit_history(labels[name])
         self._canvas.viewport().update()
         self._recompute_canvas()
         self._schedule_refresh()
         self._on_selection_changed()
+        if typing and self._canvas._focused_editor() is not None:
+            self._capture_history()
 
     def _sync_text_style_actions(self) -> None:
         targets = self._text_style_targets()

@@ -370,7 +370,7 @@ class OverlayPanel(QWidget):
         else:
             name = "chevron_right" if open_ else "chevron_left"
         self._button.setIcon(icon(name))
-        shortcut = "F9" if self._side == Qt.Edge.LeftEdge else "Umschalt+F9"
+        shortcut = tr("F9") if self._side == Qt.Edge.LeftEdge else tr("Umschalt+F9")
         if open_:
             self._button.setToolTip(
                 tr("{panel} einklappen ({shortcut})").format(

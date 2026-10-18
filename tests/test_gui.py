@@ -3153,6 +3153,16 @@ def test_panel_actions_are_in_the_menu_not_the_toolbar(qapp):
     assert "Umschalt+F9" in win._act_panel_right.toolTip()
     assert "F9" in win._left_panel._button.toolTip()
     assert "Umschalt+F9" in win._right_panel._button.toolTip()
+    from ql_editor import i18n
+
+    i18n.set_language("en")
+    try:
+        win._right_panel._update_button()
+        assert "Shift+F9" in win._right_panel._button.toolTip()
+        assert "Umschalt" not in win._right_panel._button.toolTip()
+    finally:
+        i18n.set_language(i18n.DEFAULT_LANGUAGE)
+        win._right_panel._update_button()
 
     bar = win.findChild(QToolBar)
     bar_actions = [a for a in bar.actions() if not a.isSeparator()]
@@ -3215,9 +3225,17 @@ def test_rich_text_shortcuts_and_moved_panel_keys(qapp):
     assert text.underline is False
 
     text.start_editing()
+    text.setPlainText("Hallo!")
     win._act_underline.trigger()
     assert text.is_editing and text.underline
-    text.finish_editing()
+    assert win._undo_stack.undoText() == "Unterstrichen"
+    win._act_undo.trigger()
+    text = [item for item in win._canvas.ordered_items() if isinstance(item, TextItem)][-1]
+    assert text.toPlainText() == "Hallo!"
+    assert text.underline is False
+    win._act_undo.trigger()
+    text = [item for item in win._canvas.ordered_items() if isinstance(item, TextItem)][-1]
+    assert text.toPlainText() == "Hallo"
 
     palette = CommandPalette(win._palette_entries(), win)
 
