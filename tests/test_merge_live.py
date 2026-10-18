@@ -380,6 +380,148 @@ def test_print_range_over_page_limit_does_not_start(qapp, tmp_path, monkeypatch)
     qapp.processEvents()
 
 
+def test_serial_prints_inside_each_record_and_hides_without_csv(
+    qapp, tmp_path, monkeypatch
+):
+    """D4/D5: Serie nur mit CSV, pro Record, Kopien wiederholen identisch."""
+    from ql_editor import app as app_module
+
+    qlx, _csv = _write_fixture(tmp_path)
+    win = MainWindow()
+    win.show()
+    qapp.processEvents()
+    assert win._database_panel._serial.isHidden()
+    win.open_path(str(qlx))
+    qapp.processEvents()
+    win._media_panel.set_network_host("192.168.178.62")
+    assert not win._database_panel._serial.isHidden()
+
+    fixture = next(
+        item
+        for item in _bound_texts(win)
+        if item.binding["field"] == "Fixture"
+    )
+    win._canvas.scene().clearSelection()
+    fixture.setSelected(True)
+    win._on_selection_changed()
+    qapp.processEvents()
+    assert win._database_panel._serial_check.isEnabled() is False
+    assert win._database_panel._serial_note.isVisible()
+    assert win._database_panel._serial_count.isEnabled() is False
+
+    barcode = next(
+        item for item in win._canvas.ordered_items() if isinstance(item, BarcodeItem)
+    )
+    win._canvas.scene().clearSelection()
+    barcode.setSelected(True)
+    win._on_selection_changed()
+    qapp.processEvents()
+    assert win._database_panel._serial_check.isChecked()
+    assert win._database_panel._serial_count.isEnabled()
+    win._database_panel._serial_count.setValue(3)
+    win._database_panel._serial_step.setValue(2)
+    win._database_panel._serial_count.editingFinished.emit()
+    qapp.processEvents()
+    assert win._active.serial["enabled"] is True
+    assert win._active.serial["count"] == 3
+    assert win._active.serial["step"] == 2
+    assert barcode.value == "0100"
+
+    captured: dict = {}
+    seen: list[str] = []
+    monkeypatch.setattr(app_module, "PrintWorker", _fake_print_worker(captured))
+    original = win._for_print
+
+    def _grab():
+        seen.append(barcode.value)
+        return original()
+
+    monkeypatch.setattr(win, "_for_print", _grab)
+    win._on_print()
+    qapp.processEvents()
+    assert seen == ["0100", "0102", "0104"]
+    assert len(captured["images"]) == 3
+    assert captured["options"]["copies"] == 1
+    assert barcode.value == "0100"
+    assert "3 Etiketten" in win.statusBar().currentMessage()
+
+    win._copies_spin.setValue(2)
+    win._on_print()
+    qapp.processEvents()
+    assert len(captured["images"]) == 3
+    assert captured["options"]["copies"] == 2
+    assert "6 Etiketten" in win.statusBar().currentMessage()
+
+    win._copies_spin.setValue(1)
+    win._scope_all.setChecked(True)
+    qapp.processEvents()
+    seen.clear()
+    win._on_print()
+    qapp.processEvents()
+    assert seen == [
+        "0100",
+        "0102",
+        "0104",
+        "0100",
+        "0102",
+        "0104",
+        "0100",
+        "0102",
+        "0104",
+    ]
+    assert len(captured["images"]) == 9
+
+    win._undo_stack.undo()
+    qapp.processEvents()
+    assert win._active.serial["count"] == 1
+    assert win._active.serial["step"] == 1
+    assert barcode.value == "0100"
+
+    win.disconnect_csv()
+    qapp.processEvents()
+    assert win._database_panel._serial.isHidden()
+    win.close()
+    qapp.processEvents()
+
+
+def test_serial_count_times_records_stops_at_page_limit(qapp, tmp_path, monkeypatch):
+    from ql_editor import app as app_module
+    from ql_editor.sheet import Sheet
+
+    qlx, _csv = _write_fixture(tmp_path)
+    win = MainWindow()
+    win.show()
+    win.open_path(str(qlx))
+    qapp.processEvents()
+    win._media_panel.set_network_host("192.168.178.62")
+    spec = dict(win._active.serial)
+    spec["enabled"] = True
+    spec["count"] = 40
+    win._active.serial = spec
+    win._scope_all.setChecked(True)
+    created: list = []
+
+    class FakeWorker:
+        def __init__(self, *args, **kwargs):
+            created.append(args)
+
+        def start(self) -> None:
+            return None
+
+    monkeypatch.setattr(app_module, "PrintWorker", FakeWorker)
+    win._on_print()
+    qapp.processEvents()
+    assert created == []
+    from PySide6.QtWidgets import QLabel
+
+    sheet = next(item for item in win.findChildren(Sheet) if item.isVisible())
+    message = " ".join(label.text() for label in sheet.findChildren(QLabel))
+    assert "99" in message
+    sheet.close_sheet()
+    win.close()
+    qapp.processEvents()
+
+
 def test_print_scope_is_persisted(qapp):
     win = MainWindow()
     win._scope_range.setChecked(True)

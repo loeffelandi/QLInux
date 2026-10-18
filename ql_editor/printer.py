@@ -707,7 +707,7 @@ def build_raster_sequence(
     if len(pages) > COPIES_MAX:
         raise PrinterError(
             tr(
-                "Höchstens {max} Seiten pro Auftrag (Datensätze × Kopien)."
+                "Höchstens {max} Seiten pro Auftrag (Datensätze × Serie × Kopien)."
             ).format(max=COPIES_MAX)
         )
 

@@ -5,6 +5,8 @@ Text/Barcode/QR. Keine Qt-Abhaengigkeit - fuer Canvas und spaeteren Druck
 gemeinsam nutzbar.
 
 * D4: Binding ``database`` / ``serial`` / keines (exklusiv am Objekt)
+* D5: Pro gewaehltem Record die Serie einmal, dann ``+step``.
+  ``copies`` wiederholt jedes Bild identisch und zaehlt nicht mit.
 * D10: Vorschau = aktueller Record + Serienwert Index 0
 * D11: Anzeigewert = Snapshot; Record-Wechsel ueberschreibt ihn.
   Fehlt die CSV (``record is None``), bleiben Database-Snapshots erhalten;
@@ -230,7 +232,8 @@ def plan_print_variants(
     Record Range ist 1-basiert und einschliesslich; vertauschte Grenzen
     werden getauscht.
 
-    Serien-Count vervielfacht die Liste hier nicht (M6 / D5).
+    Serien-Count vervielfacht die Liste hier nicht; das macht
+    :func:`plan_serial_labels` (D5).
     """
     if not records:
         return [PrintVariant(None, None)]
@@ -246,6 +249,48 @@ def plan_print_variants(
     else:
         indexes = _selected_indexes(count, selected)
     return [PrintVariant(records[index], index) for index in indexes]
+
+
+@dataclass(frozen=True)
+class PlannedLabel:
+    """Ein zu renderndes Etikett: Record-Variante plus Serien-Index (D5)."""
+
+    variant: PrintVariant
+    serial_index: int
+
+
+def serial_length(serial: Mapping[str, Any] | None = None) -> int:
+    """Wie viele Serienwerte pro Record gedruckt werden (D5).
+
+    Ausgeschaltet (``enabled`` fehlt oder falsch) bleibt es bei einem
+    Durchgang, Index 0 — auch wenn ``count`` groesser ist. ``copies``
+    gehoert nicht hierher.
+    """
+    spec = merge_serial(serial)
+    if not spec.get("enabled"):
+        return 1
+    count = spec.get("count", 1)
+    if isinstance(count, bool) or not isinstance(count, int) or count < 1:
+        raise MergeError(tr("Serien-Anzahl muss mindestens 1 sein."))
+    return count
+
+
+def plan_serial_labels(
+    variants: Sequence[PrintVariant],
+    serial: Mapping[str, Any] | None = None,
+) -> list[PlannedLabel]:
+    """Serie innen, Records aussen (D5).
+
+    Fuer jeden Eintrag aus :func:`plan_print_variants` die Indizes
+    ``0 .. count-1``. Ohne Datenbank ist das der eine virtuelle Record.
+    Kopien wiederholt der Drucker danach identisch.
+    """
+    span = serial_length(serial)
+    return [
+        PlannedLabel(variant, index)
+        for variant in variants
+        for index in range(span)
+    ]
 
 
 def job_page_count(
@@ -264,7 +309,7 @@ def job_page_count(
     if pages > limit:
         raise MergeError(
             tr(
-                "Höchstens {max} Seiten pro Auftrag (Datensätze × Kopien)."
+                "Höchstens {max} Seiten pro Auftrag (Datensätze × Serie × Kopien)."
             ).format(max=limit)
         )
     return pages
@@ -366,8 +411,11 @@ __all__ = [
     "format_serial",
     "job_page_count",
     "normalize_binding",
+    "PlannedLabel",
     "plan_print_variants",
+    "plan_serial_labels",
     "resolve_binding",
+    "serial_length",
     "resolve_csv_path",
     "resolve_item_display",
 ]

@@ -746,8 +746,8 @@ EN: dict[str, str] = {
     "Konvertierung fehlgeschlagen: {error}": "Conversion failed: {error}",
     "Kopienzahl muss mindestens 1 sein.": "There has to be at least one copy.",
     "Höchstens {max} Kopien pro Auftrag.": "At most {max} copies per job.",
-    "Höchstens {max} Seiten pro Auftrag (Datensätze × Kopien).": (
-        "At most {max} pages per job (records × copies)."
+    "Höchstens {max} Seiten pro Auftrag (Datensätze × Serie × Kopien).": (
+        "At most {max} pages per job (records × serial × copies)."
     ),
     "Keine Etiketten zum Drucken.": "No labels to print.",
     "Keine Datensätze im Druckbereich.": "No records in the print range.",
@@ -818,6 +818,20 @@ EN: dict[str, str] = {
         "editing by hand does not remove the link."
     ),
     "Serien-Index darf nicht negativ sein.": "Serial index must not be negative.",
+    "Serien-Anzahl muss mindestens 1 sein.": "Serial count must be at least 1.",
+    "Serie": "Numbering",
+    "Start": "Start",
+    "Anzahl": "Count",
+    "Schritt": "Step",
+    "Präfix": "Prefix",
+    "Suffix": "Suffix",
+    "Stellen": "Digits",
+    "Führende Nullen; 0 lässt die Zahl, wie sie ist.": (
+        "Leading zeros; 0 leaves the number as it is."
+    ),
+    "Datenbankfeld und Serie schließen sich an diesem Objekt aus.": (
+        "A database field and numbering cannot both be used on this object."
+    ),
     "Objekt {kind!r} unterstuetzt keinen Merge.": (
         "Object {kind!r} does not support merge."
     ),

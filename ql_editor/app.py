@@ -386,6 +386,14 @@ class MainWindow(QMainWindow):
         self._database_panel.connect_requested.connect(self._choose_csv)
         self._database_panel.replace_requested.connect(self._choose_csv)
         self._database_panel.disconnect_requested.connect(self.disconnect_csv)
+        self._database_panel.serial_edit_begun.connect(self._capture_history)
+        self._database_panel.serial_edit_finished.connect(
+            lambda: self._commit_history(tr("Serie"))
+        )
+        self._database_panel.serial_spec_changed.connect(self._on_serial_spec_changed)
+        self._database_panel.serial_toggle_requested.connect(
+            self._on_serial_toggle_requested
+        )
         shell = QWidget()
         shell_layout = QVBoxLayout(shell)
         shell_layout.setContentsMargins(0, 0, 0, 0)
@@ -673,7 +681,8 @@ class MainWindow(QMainWindow):
         )
         self._cut_label.setToolTip(self._cut_combo.toolTip())
 
-        # Datenbank-Druckbereich (D16). Serie bleibt im Inspector (M6).
+        # Datenbank-Druckbereich (D16). Serie liegt im Datenbank-Panel (M6)
+        # und ist nur sichtbar, solange eine CSV geladen ist.
         # Eigener Block: ohne CSV ausgeblendet, damit der Druckreiter auf
         # kleinen Bildschirmen ohne Scrollen auskommt.
         self._db_print_label = QLabel(tr("Datenbank"))
@@ -842,14 +851,20 @@ class MainWindow(QMainWindow):
             range_to=self._range_to.value(),
         )
 
+    def _planned_labels(self) -> list[merge_engine.PlannedLabel]:
+        """Druckliste: Records (oder ein virtueller) × Serie (D5)."""
+        tab = self._active
+        serial = tab.serial if tab is not None else None
+        return merge_engine.plan_serial_labels(self._print_variants(), serial)
+
     def _planned_page_count(self) -> int:
         """Seiten, die der naechste Auftrag haette (Varianten × Kopien)."""
         copies = self._copies_spin.value()
         try:
-            variants = self._print_variants()
+            labels = self._planned_labels()
         except merge_engine.MergeError:
             return copies
-        return len(variants) * copies
+        return len(labels) * copies
 
     def _sync_print_scope_ui(self) -> None:
         """Radios und Von/Bis an die CSV haengen; ohne Zeilen ausgrauen."""
@@ -1854,10 +1869,12 @@ class MainWindow(QMainWindow):
         ]
 
     def _design_snapshot(self) -> dict[str, Any]:
+        tab = self._active
         return design_snapshot(
             self._media_panel.media_state(),
             self._canvas.items_serialized(),
             self._selection_keys(),
+            serial=tab.serial if tab is not None else None,
         )
 
     def _capture_history(self) -> None:
@@ -1890,10 +1907,12 @@ class MainWindow(QMainWindow):
         self._inspector.cancel_edit_tracking()
         if before is None:
             return
+        tab = self._active
         after = design_snapshot(
             before.get("media") or {},
             self._canvas.items_serialized(),
             self._selection_keys(),
+            serial=tab.serial if tab is not None else before.get("serial"),
         )
         if push_if_changed(
             self._undo_stack, before, after, self._restore_design, tr("Eigenschaften")
@@ -1905,6 +1924,11 @@ class MainWindow(QMainWindow):
         self._adjusting = True
         self._history_suppress = True
         try:
+            if "serial" in snapshot and self._active is not None:
+                raw_serial = snapshot.get("serial")
+                self._active.serial = document.merge_serial(
+                    raw_serial if isinstance(raw_serial, Mapping) else None
+                )
             self._media_panel.apply_media_state(snapshot.get("media") or {})
             loaded = self._canvas.load_items(list(snapshot.get("items") or []))
             self._sync_margin_base()
@@ -1933,6 +1957,7 @@ class MainWindow(QMainWindow):
         # ``_media_prev`` steht schon auf dem neuen Stand - kein neuer Befehl.
         self._sync_media_prev()
         self._on_media_changed()
+        self._sync_cut_options()
         self._update_window_title()
 
     def _align_selected(self, mode: str) -> None:
@@ -2373,6 +2398,7 @@ class MainWindow(QMainWindow):
             fields = list(tab.csv_table.fields)
         self._inspector.set_database_fields(fields)
         self._inspector.set_item(item, allow_red=allow_red)
+        self._sync_serial_panel()
         self._sync_arrange_actions()
 
     def _on_inspector_edit_committed(self) -> None:
@@ -2383,7 +2409,96 @@ class MainWindow(QMainWindow):
 
     def _on_database_binding_changed(self) -> None:
         """Neues Feld sofort in den Snapshot schreiben (D11), ohne den Aufbau."""
+        self._reconcile_serial_enabled()
         self._apply_merge_to_canvas(refresh_inspector=False)
+        self._sync_serial_panel()
+        self._sync_cut_options()
+
+    def _serial_target_item(self):
+        """Einzeln ausgewaehltes Text-, Barcode- oder QR-Objekt, sonst ``None``."""
+        selected = self._canvas.selected_items()
+        if len(selected) != 1:
+            return None
+        item = selected[0]
+        if getattr(item, "kind", None) not in ("text", "qr", "barcode"):
+            return None
+        if not hasattr(item, "set_binding"):
+            return None
+        return item
+
+    def _any_serial_binding(self) -> bool:
+        for item in self._canvas.ordered_items():
+            binding = getattr(item, "binding", None)
+            if isinstance(binding, Mapping) and binding.get("source") == "serial":
+                return True
+        return False
+
+    def _reconcile_serial_enabled(self) -> None:
+        """Ohne Serien-Objekt ist die Serie aus (D4/D5)."""
+        tab = self._active
+        if tab is None or self._any_serial_binding() or not tab.serial.get("enabled"):
+            return
+        spec = dict(tab.serial)
+        spec["enabled"] = False
+        tab.serial = document.merge_serial(spec)
+
+    def _sync_serial_panel(self) -> None:
+        """Serienblock an Dokument und Auswahl. Ohne CSV bleibt er versteckt."""
+        tab = self._active
+        if tab is None:
+            self._database_panel.set_serial_state(None)
+            return
+        item = self._serial_target_item()
+        source = None
+        kind = None
+        if item is not None:
+            kind = item.kind
+            binding = item.binding or {}
+            source = binding.get("source")
+        self._database_panel.set_serial_state(
+            tab.serial, target_kind=kind, target_source=source
+        )
+
+    def _on_serial_spec_changed(self, spec) -> None:
+        """Start/Anzahl/Schritt/Prefix aus dem Panel, ohne ``enabled`` zu drehen."""
+        if self._adjusting or self._history_suppress:
+            return
+        tab = self._require_tab()
+        merged = document.merge_serial(spec if isinstance(spec, Mapping) else None)
+        # Gebundene Objekte drucken die Serie; ein reiner Parameter-Edit
+        # schaltet sie ein, ohne das Binding anzufassen.
+        merged["enabled"] = bool(tab.serial.get("enabled")) or self._any_serial_binding()
+        if merged == tab.serial:
+            return
+        tab.serial = merged
+        self._apply_merge_to_canvas(refresh_inspector=False)
+        self._sync_cut_options()
+
+    def _on_serial_toggle_requested(self, checked: bool) -> None:
+        """Serie an das ausgewaehlte Objekt binden oder loesen (D4)."""
+        if self._adjusting or self._history_suppress:
+            return
+        tab = self._require_tab()
+        item = self._serial_target_item()
+        source = (item.binding or {}).get("source") if item is not None else None
+        if checked:
+            if item is None or source == "database":
+                self._sync_serial_panel()
+                return
+            item.set_binding({"source": "serial"})
+            spec = dict(tab.serial)
+            spec["enabled"] = True
+            tab.serial = document.merge_serial(spec)
+        else:
+            if item is not None and source == "serial":
+                item.clear_binding()
+            if not self._any_serial_binding():
+                spec = dict(tab.serial)
+                spec["enabled"] = False
+                tab.serial = document.merge_serial(spec)
+        self._apply_merge_to_canvas(refresh_inspector=False)
+        self._sync_serial_panel()
+        self._sync_cut_options()
 
     def _on_inspector_changed(self) -> None:
         self._canvas.viewport().update()
@@ -2824,29 +2939,31 @@ class MainWindow(QMainWindow):
         self._print_worker.start()
 
     def _render_print_images(self) -> list[Image.Image]:
-        """Varianten vor dem Worker rendern (D8/D10/D16).
+        """Varianten vor dem Worker rendern (D5/D8/D10/D16).
 
-        Mehrere Records schreiben Snapshots nur fuer das Rendern. Danach
-        steht wieder der aktuelle Record auf dem Canvas (Vorschau = Auswahl).
-        Serien-Count bleibt bei Index 0; die Vervielfachung ist M6.
+        Pro gewaehltem Record laeuft die Serie einmal, dann ``+step``.
+        ``copies`` wiederholt jedes Bild erst im Drucker, identisch.
+        Danach steht wieder der aktuelle Record und Serien-Index 0
+        auf dem Canvas.
         """
-        variants = self._print_variants()
-        merge_engine.job_page_count(len(variants), self._copies_spin.value())
+        labels = self._planned_labels()
+        merge_engine.job_page_count(len(labels), self._copies_spin.value())
         current = self._active.current_record if self._active is not None else 0
-        if len(variants) == 1 and (
-            variants[0].record is None or variants[0].index == current
+        if len(labels) == 1 and labels[0].serial_index == 0 and (
+            labels[0].variant.record is None
+            or labels[0].variant.index == current
         ):
             return [self._for_print()]
         tab = self._require_tab()
         images: list[Image.Image] = []
         self._history_suppress = True
         try:
-            for variant in variants:
+            for label in labels:
                 merge_engine.apply_record(
                     self._canvas.ordered_items(),
-                    record=variant.record,
+                    record=label.variant.record,
                     serial=tab.serial,
-                    serial_index=0,
+                    serial_index=label.serial_index,
                     strict=True,
                 )
                 images.append(self._for_print())
@@ -3786,6 +3903,7 @@ class MainWindow(QMainWindow):
             else:
                 self._database_panel.clear(notice=notice)
             self._sync_print_scope_ui()
+            self._sync_serial_panel()
             return
         name = None
         if tab.data_source and tab.data_source.get("path"):
@@ -3797,6 +3915,7 @@ class MainWindow(QMainWindow):
             notice=notice,
         )
         self._sync_print_scope_ui()
+        self._sync_serial_panel()
 
     def _on_database_record_selected(self, index: int) -> None:
         """Tabellenzeile → ``current_record`` + Live-Merge (D15, ohne Undo)."""

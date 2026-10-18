@@ -294,6 +294,16 @@ def test_collapse_keeps_row_selection(qapp, tmp_path):
     win.close()
 
 
+def test_serial_block_hidden_without_csv(qapp):
+    """Serienfelder gehoeren zur Datenbank und bleiben ohne CSV zu."""
+    win = MainWindow()
+    win.show()
+    qapp.processEvents()
+    assert win._database_panel._serial.isHidden()
+    win.close()
+    qapp.processEvents()
+
+
 def test_connect_save_stores_relative_path(qapp, tmp_path):
     win = _window_with_csv(qapp, tmp_path)
     out = tmp_path / "label.qlx"

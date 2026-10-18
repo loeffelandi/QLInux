@@ -12,10 +12,13 @@ from PySide6.QtCore import QMimeData, QPoint, Qt, Signal
 from PySide6.QtGui import QDrag
 from PySide6.QtWidgets import (
     QApplication,
+    QCheckBox,
     QHBoxLayout,
     QHeaderView,
     QLabel,
+    QLineEdit,
     QPushButton,
+    QSpinBox,
     QTableWidget,
     QTableWidgetItem,
     QToolButton,
@@ -103,12 +106,31 @@ class DatabasePanel(QWidget):
     replace_requested = Signal()
     #: Verbindung loesen; Snapshots bleiben.
     disconnect_requested = Signal()
+    #: Serienparameter (Start, Anzahl, …) geaendert. ``enabled`` bleibt,
+    #: wie es die App zuletzt gesetzt hat.
+    serial_spec_changed = Signal(object)
+    #: Checkbox an der aktuellen Auswahl: Serie anbinden oder loesen.
+    serial_toggle_requested = Signal(bool)
+    #: Undo-Klammer um eine Serien-Aenderung.
+    serial_edit_begun = Signal()
+    serial_edit_finished = Signal()
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self._table_data: CsvTable | None = None
         self._updating = False
         self._linked = False
+        self._spec: dict = {
+            "enabled": False,
+            "start": 1,
+            "count": 1,
+            "step": 1,
+            "prefix": "",
+            "suffix": "",
+            "pad_width": 0,
+        }
+        self._target_kind: str | None = None
+        self._target_source: str | None = None
 
         self._toggle = QToolButton()
         self._toggle.setObjectName("database_panel_toggle")
@@ -191,6 +213,7 @@ class DatabasePanel(QWidget):
         body.setSpacing(4)
         body.addWidget(self._banner)
         body.addWidget(self._hint)
+        body.addWidget(self._build_serial())
         body.addWidget(self._grid, 1)
 
         layout = QVBoxLayout(self)
@@ -200,7 +223,156 @@ class DatabasePanel(QWidget):
         layout.addWidget(self._body, 1)
 
         self._apply_expanded(False)
+        self._serial.hide()
         self.clear()
+
+    def _build_serial(self) -> QWidget:
+        """Serie im Datenbank-Panel. Sichtbar nur bei geladener CSV."""
+        box = QWidget()
+        box.setObjectName("database_serial")
+        layout = QVBoxLayout(box)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(4)
+
+        row = QHBoxLayout()
+        row.setContentsMargins(0, 0, 0, 0)
+        row.setSpacing(6)
+        self._serial_check = QCheckBox(tr("Serie"))
+        self._serial_check.setObjectName("database_serial_enabled")
+        self._serial_check.toggled.connect(self._on_serial_toggled)
+        row.addWidget(self._serial_check)
+
+        self._serial_start = self._serial_spin("database_serial_start", -1000000, 1000000)
+        self._serial_count = self._serial_spin("database_serial_count", 1, 99)
+        self._serial_step = self._serial_spin("database_serial_step", -1000000, 1000000)
+        self._serial_pad = self._serial_spin("database_serial_pad", 0, 12)
+        self._serial_pad.setToolTip(
+            tr("Führende Nullen; 0 lässt die Zahl, wie sie ist.")
+        )
+        self._serial_prefix = self._serial_line("database_serial_prefix")
+        self._serial_suffix = self._serial_line("database_serial_suffix")
+        for label, widget in (
+            (tr("Start"), self._serial_start),
+            (tr("Anzahl"), self._serial_count),
+            (tr("Schritt"), self._serial_step),
+            (tr("Präfix"), self._serial_prefix),
+            (tr("Suffix"), self._serial_suffix),
+            (tr("Stellen"), self._serial_pad),
+        ):
+            row.addWidget(QLabel(label))
+            row.addWidget(widget)
+        row.addStretch(1)
+        layout.addLayout(row)
+
+        self._serial_note = QLabel(
+            tr("Datenbankfeld und Serie schließen sich an diesem Objekt aus.")
+        )
+        self._serial_note.setObjectName("database_serial_exclusive")
+        self._serial_note.setWordWrap(True)
+        self._serial_note.hide()
+        layout.addWidget(self._serial_note)
+        self._serial = box
+        return box
+
+    def _serial_spin(self, name: str, low: int, high: int) -> QSpinBox:
+        spin = QSpinBox()
+        spin.setObjectName(name)
+        spin.setRange(low, high)
+        spin.valueChanged.connect(self._on_serial_value)
+        spin.editingFinished.connect(self._on_serial_edit_finished)
+        return spin
+
+    def _serial_line(self, name: str) -> QLineEdit:
+        edit = QLineEdit()
+        edit.setObjectName(name)
+        edit.setMaxLength(32)
+        edit.textEdited.connect(lambda _text: self._on_serial_value())
+        edit.editingFinished.connect(self._on_serial_edit_finished)
+        return edit
+
+    def set_serial_state(
+        self,
+        serial: dict | None,
+        *,
+        target_kind: str | None = None,
+        target_source: str | None = None,
+    ) -> None:
+        """Serienfelder an das Dokument und die Auswahl binden.
+
+        Ohne geladene CSV bleibt der Block versteckt. Ein Datenbank-Binding
+        an der Auswahl sperrt die Felder (D4).
+        """
+        if serial:
+            self._spec = dict(serial)
+        self._target_kind = target_kind
+        self._target_source = target_source
+        visible = self._table_data is not None
+        self._serial.setVisible(visible)
+        if not visible:
+            self._serial_note.hide()
+            return
+        locked = target_source == "database"
+        serial_on = target_source == "serial"
+        can_bind = target_kind in ("text", "qr", "barcode") and not locked
+        self._updating = True
+        try:
+            self._serial_check.setChecked(serial_on)
+            self._serial_start.setValue(self._clamp_int(self._spec.get("start"), 1, self._serial_start))
+            self._serial_count.setValue(self._clamp_int(self._spec.get("count"), 1, self._serial_count))
+            self._serial_step.setValue(self._clamp_int(self._spec.get("step"), 1, self._serial_step))
+            self._serial_pad.setValue(
+                self._clamp_int(self._spec.get("pad_width"), 0, self._serial_pad)
+            )
+            self._serial_prefix.setText(str(self._spec.get("prefix") or ""))
+            self._serial_suffix.setText(str(self._spec.get("suffix") or ""))
+        finally:
+            self._updating = False
+        self._serial_check.setEnabled(can_bind)
+        fields_on = serial_on and not locked
+        for widget in (
+            self._serial_start,
+            self._serial_count,
+            self._serial_step,
+            self._serial_pad,
+            self._serial_prefix,
+            self._serial_suffix,
+        ):
+            widget.setEnabled(fields_on)
+        self._serial_note.setVisible(locked)
+
+    @staticmethod
+    def _clamp_int(value, default: int, spin: QSpinBox) -> int:
+        if isinstance(value, bool) or not isinstance(value, int):
+            number = default
+        else:
+            number = value
+        return max(spin.minimum(), min(spin.maximum(), number))
+
+    def _on_serial_toggled(self, checked: bool) -> None:
+        if self._updating:
+            return
+        self.serial_edit_begun.emit()
+        self.serial_toggle_requested.emit(bool(checked))
+        self.serial_edit_finished.emit()
+
+    def _on_serial_value(self, *_args) -> None:
+        if self._updating or not hasattr(self, "_serial_suffix"):
+            return
+        self.serial_edit_begun.emit()
+        spec = dict(self._spec)
+        spec["start"] = self._serial_start.value()
+        spec["count"] = self._serial_count.value()
+        spec["step"] = self._serial_step.value()
+        spec["pad_width"] = self._serial_pad.value()
+        spec["prefix"] = self._serial_prefix.text()
+        spec["suffix"] = self._serial_suffix.text()
+        self._spec = spec
+        self.serial_spec_changed.emit(dict(spec))
+
+    def _on_serial_edit_finished(self) -> None:
+        if self._updating:
+            return
+        self.serial_edit_finished.emit()
 
     @property
     def csv_table(self) -> CsvTable | None:
@@ -225,6 +397,7 @@ class DatabasePanel(QWidget):
         self._counter.setText("")
         self._set_notice(notice)
         self._set_actions(connected=False, linked=False)
+        self._serial.hide()
         self.setVisible(True)
         if notice:
             self.set_expanded(True)
@@ -244,6 +417,7 @@ class DatabasePanel(QWidget):
         self._counter.setText("")
         self._set_notice(notice)
         self._set_actions(connected=False, linked=True)
+        self._serial.hide()
         self.setVisible(True)
         self.set_expanded(True)
 
@@ -300,6 +474,11 @@ class DatabasePanel(QWidget):
             self._updating = False
         self.setVisible(True)
         self.set_expanded(True)
+        self.set_serial_state(
+            self._spec,
+            target_kind=self._target_kind,
+            target_source=self._target_source,
+        )
 
     def set_current_record(self, index: int) -> None:
         """Selektion setzen, ohne ``record_selected`` auszuloesen."""
