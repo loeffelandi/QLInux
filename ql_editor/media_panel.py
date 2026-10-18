@@ -284,9 +284,9 @@ class MediaPanel(QWidget):
         self._connection_stack.addWidget(self._build_usb_page())
         printer_form.addRow(self._connection_stack)
         outer.addWidget(printer_box)
-        # Startzustand: Netzwerk mit der gespeicherten/Standardadresse. Die
-        # USB-Liste wird erst bei Bedarf gefuellt (Anschlusswechsel/Suche) -
-        # so fragt der Programmstart nicht ungefragt libusb ab.
+        # Startzustand: Netzwerk, Adressfeld leer. Eine gespeicherte Adresse
+        # setzt das Hauptfenster danach; die Suche laeuft erst dort, und nur
+        # fuer den wiederhergestellten Anschluss.
         self._conn_buttons[CONNECTION_NETWORK].setChecked(True)
         self._rebuild_network_list()
         self._sync_connection_rows()
@@ -733,6 +733,22 @@ class MediaPanel(QWidget):
         self._band_combo.setCurrentIndex(index)
         return True
 
+    def set_connection(self, mode: str) -> None:
+        """Anschluss setzen, ohne dabei schon zu suchen.
+
+        Die Suche stoesst das Hauptfenster an (beim Start genau einmal, sonst
+        beim Umschalten). Solange ``_adjusting`` gesetzt ist, loest der Knopf
+        keine Suche aus.
+        """
+        if mode not in (CONNECTION_NETWORK, CONNECTION_USB):
+            mode = CONNECTION_NETWORK
+        self._adjusting = True
+        try:
+            self._conn_buttons[mode].setChecked(True)
+        finally:
+            self._adjusting = False
+        self._sync_connection_rows()
+
     def set_address(self, address: str) -> None:
         """Adresse uebernehmen - Anschluss, Feld und (falls ableitbar) Modell.
 
@@ -764,7 +780,9 @@ class MediaPanel(QWidget):
         self._sync_network_hint()
         self.changed.emit()
 
-    def refresh_usb_devices(self, devices: list[str] | None = None) -> list[str]:
+    def refresh_usb_devices(
+        self, devices: list[str] | None = None, *, select_fallback: bool = False
+    ) -> list[str]:
         """USB-Liste neu einlesen und die Auswahl fuellen.
 
         Ohne ``devices`` wird selbst gesucht (:func:`printer.usb_printers`):
@@ -774,6 +792,10 @@ class MediaPanel(QWidget):
         was los ist. Die aktuelle Auswahl bleibt erhalten; ein gerade nicht
         angeschlossenes Geraet bleibt als Eintrag stehen (so geht die
         gespeicherte Adresse nicht verloren).
+
+        Mit ``select_fallback`` (Programmstart) gilt: letzter Drucker, wenn er
+        in den Treffern steht, sonst der erste Treffer. Ohne jeden Treffer
+        bleibt die gespeicherte Adresse sichtbar.
         """
         if devices is None:
             try:
@@ -784,7 +806,12 @@ class MediaPanel(QWidget):
         devices = [address for address in devices if address]
         current = preferred_usb_address(self._usb_combo.currentData() or "", devices)
         apply_single = False
-        if current and current not in devices and len(devices) == 1:
+        if select_fallback and devices and current not in devices:
+            # Der gespeicherte Drucker haengt nicht (mehr) am Kabel: der erste
+            # Treffer ist die Auswahl, statt die alte Adresse festzuhalten.
+            current = devices[0]
+            apply_single = True
+        elif current and current not in devices and len(devices) == 1:
             # Der gespeicherte Weg gibt es nicht mehr: der Kernel vergibt
             # /dev/usb/lpN nach dem Umstecken neu (lp1 -> lp0). Haengt genau
             # ein Drucker am Kabel, ist die Wahl klar - sonst bleibt die
@@ -843,7 +870,10 @@ class MediaPanel(QWidget):
         return self.access_allowed
 
     def refresh_network_devices(
-        self, printers: list[NetworkPrinter] | None = None
+        self,
+        printers: list[NetworkPrinter] | None = None,
+        *,
+        select_fallback: bool = False,
     ) -> list[NetworkPrinter]:
         """Gefundene Netzwerk-Drucker uebernehmen und die Liste fuellen.
 
@@ -855,6 +885,11 @@ class MediaPanel(QWidget):
         Adresse gesetzt und wird genau ein Drucker gefunden, wird er
         gleich uebernommen (wie am USB). Das **Modell** zieht in jedem Fall
         nach: die Discovery meldet, welches Geraet dort wirklich steht.
+
+        Mit ``select_fallback`` (Programmstart) gilt zusaetzlich: steht die
+        aktuelle Adresse nicht in den Treffern, wird der erste Treffer
+        gewaehlt. Ohne jeden Treffer bleibt eine gespeicherte Adresse stehen;
+        ganz ohne Adresse bleibt das Feld leer.
         """
         if printers is None:
             try:
@@ -864,6 +899,14 @@ class MediaPanel(QWidget):
                 printers = []
         self._network_found = list(printers)
         self._network_searched = True
+        if (
+            select_fallback
+            and self._network_found
+            and not any(printer.address == self.address() for printer in self._network_found)
+        ):
+            self.set_network_host(self._network_found[0].host)
+            self._sync_network_hint()
+            return list(self._network_found)
         self._rebuild_network_list()
         if not self._network_host and len(self._network_found) == 1:
             # Genau ein Treffer: die Wahl ist klar. Ueber die Adresse gehen -

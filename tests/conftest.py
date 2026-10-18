@@ -28,6 +28,35 @@ os.environ["XDG_CONFIG_HOME"] = tempfile.mkdtemp(prefix="qlinux-test-config-")
 os.environ["QT_QPA_PLATFORM"] = os.environ.get("QLINUX_TEST_PLATFORM", "offscreen")
 
 
+@pytest.fixture(autouse=True)
+def _quiet_network_discovery(monkeypatch):
+    """Der Start sucht Drucker. Tests sollen dafuer nicht ins Netz funken.
+
+    Ein Test, der Treffer braucht, setzt ``discover_network_printers`` danach
+    selbst. Laeuft am Ende noch eine Suche, wird sie abgebrochen, damit kein
+    Thread ein schon verworfenes Fenster anspricht.
+    """
+    monkeypatch.setattr(
+        "ql_editor.app.discover_network_printers", lambda *args, **kwargs: []
+    )
+    monkeypatch.setattr(
+        "ql_editor.media_panel.discover_network_printers", lambda *args, **kwargs: []
+    )
+    yield
+    widgets = sys.modules.get("PySide6.QtWidgets")
+    app = widgets.QApplication.instance() if widgets is not None else None
+    if app is None:
+        return
+    for widget in app.topLevelWidgets():
+        cancel = getattr(widget, "_network_cancel", None)
+        worker = getattr(widget, "_network_worker", None)
+        if cancel is not None:
+            cancel.set()
+        if worker is not None and worker.isRunning():
+            worker.wait(2000)
+    app.processEvents()
+
+
 @pytest.fixture(scope="session")
 def qapp():
     """Eine QApplication-Instanz fuer alle Qt-Tests (offscreen)."""
