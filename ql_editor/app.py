@@ -1716,6 +1716,7 @@ class MainWindow(QMainWindow):
             {
                 "media": deepcopy(tab.media),
                 "items": tab.canvas.items_serialized(),
+                "guides": tab.canvas.guides(),
                 "path": tab.path,
                 "document_dirty": tab.is_dirty(),
                 "preview": tab.canvas.print_preview,
@@ -1897,8 +1898,9 @@ class MainWindow(QMainWindow):
             return
         items = self._canvas.items_serialized()
         selection = self._selection_keys()
-        before = design_snapshot(prev_media, items, selection)
-        after = design_snapshot(now_media, items, selection)
+        guides = self._canvas.guides()
+        before = design_snapshot(prev_media, items, selection, guides=guides)
+        after = design_snapshot(now_media, items, selection, guides=guides)
         push_if_changed(
             self._undo_stack, before, after, self._restore_design, tr("Band")
         )
@@ -1949,7 +1951,10 @@ class MainWindow(QMainWindow):
             margins[key] = self._margin_prev.get(key, value)
             media["margins"] = margins
             self._history_before = design_snapshot(
-                media, self._canvas.items_serialized(), self._selection_keys()
+                media,
+                self._canvas.items_serialized(),
+                self._selection_keys(),
+                guides=self._canvas.guides(),
             )
         self._margin_prev[key] = float(value)
         if key in ("left", "top"):
@@ -1995,6 +2000,7 @@ class MainWindow(QMainWindow):
             self._canvas.items_serialized(),
             self._selection_keys(),
             serial=tab.serial if tab is not None else None,
+            guides=self._canvas.guides(),
         )
 
     def _capture_history(self) -> None:
@@ -2033,6 +2039,7 @@ class MainWindow(QMainWindow):
             self._canvas.items_serialized(),
             self._selection_keys(),
             serial=tab.serial if tab is not None else before.get("serial"),
+            guides=self._canvas.guides(),
         )
         if push_if_changed(
             self._undo_stack, before, after, self._restore_design, tr("Eigenschaften")
@@ -2051,6 +2058,7 @@ class MainWindow(QMainWindow):
                 )
             self._media_panel.apply_media_state(snapshot.get("media") or {})
             loaded = self._canvas.load_items(list(snapshot.get("items") or []))
+            self._canvas.set_guides(list(snapshot.get("guides") or []))
             self._sync_margin_base()
             keys = list(snapshot.get("selection") or [])
             self._canvas.scene().clearSelection()
@@ -2940,7 +2948,7 @@ class MainWindow(QMainWindow):
         self._apply_stack(others + picked if front else picked + others)
 
     def _snap_selection_to_guides(self) -> None:
-        """Dieselbe Snap-Distanz wie beim Ziehen, einmal auf die Auswahl."""
+        """Einmal einrasten: Hilfslinien, Bandkanten und andere Objekte."""
         items = [
             item
             for item in self._canvas.selected_items()
@@ -3662,6 +3670,7 @@ class MainWindow(QMainWindow):
             tab.media = dict(spec.get("media") or {})
             tab.path = str(spec.get("path") or "")
             tab.canvas.load_items(list(spec.get("items") or []))
+            tab.canvas.set_guides(list(spec.get("guides") or []))
             self._wire_canvas_text(tab.canvas)
             if spec.get("preview"):
                 tab.canvas.set_print_preview(True)
@@ -3792,6 +3801,7 @@ class MainWindow(QMainWindow):
                 tab.canvas.set_print_preview(False)
                 tab.canvas.set_print_image(None)
             tab.canvas.load_items([])
+            tab.canvas.set_guides([])
             tab.path = ""
             tab.document_dirty = False
             tab.history_before = None
@@ -3842,6 +3852,7 @@ class MainWindow(QMainWindow):
             self._canvas.items_serialized(),
             data_source=data_source,
             serial=tab.serial,
+            guides=self._canvas.guides(),
         )
 
     def _data_source_for_save(
@@ -4229,6 +4240,7 @@ class MainWindow(QMainWindow):
         try:
             self._media_panel.apply_media_state(data.get("media") or {})
             self._canvas.load_items(list(data.get("items") or []))
+            self._canvas.set_guides(list(data.get("guides") or []))
             self._sync_margin_base()
             self._load_document_database(data, document_path=document_path)
             self._reconcile_serial_enabled()

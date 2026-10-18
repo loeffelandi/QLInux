@@ -134,6 +134,14 @@ Settings (last printer, tape, print options, language) are stored in
 | Rotating without Shift | Stick to the nearest 90° until the pointer moves clearly away |
 | Shift while rotating | Rotate in 15° steps |
 
+### Ruler guides
+
+Drag down from the top ruler for a horizontal guide, or right from the left
+ruler for a vertical one. Drag a guide back onto that ruler to remove it.
+Guides stay on the label and are stored in the `.qlx` file. Moving or resizing
+an object snaps to these guides as well as to the label and to other objects.
+**Align to guides** uses the same targets.
+
 ## Margins
 
 Margins start at 0 mm. The printer's feed and the non-printable strip at each
@@ -155,7 +163,7 @@ store a label as a `.qlx` file — plain JSON, so it stays readable, diffable
 and diff-friendly in a repository.
 
 A document carries the label medium (model, tape, orientation, length,
-margins, colour) and the canvas objects. It deliberately does **not** carry
+margins, colour), the canvas objects and any ruler guides. It deliberately does **not** carry
 your printer address, print options or window size: those belong to the
 machine, so opening a label from somebody else never changes your printer.
 The window title shows the file name, with a `*` while there are unsaved

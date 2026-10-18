@@ -115,6 +115,19 @@ def test_format_2_writes_serial_defaults(tmp_path):
     assert "data_source" not in data
 
 
+def test_guides_round_trip_and_empty_is_omitted(tmp_path):
+    """Hilfslinien gehoeren zum Etikett; ohne Linien bleibt die Datei wie bisher."""
+    guides = [{"axis": "h", "pos": 12.5}, {"axis": "v", "pos": 40.0}]
+    path = tmp_path / "linien.qlx"
+    document.save(path, document.build(MEDIA, ITEMS, guides=guides))
+
+    assert document.load(path)["guides"] == guides
+    assert "guides" not in document.build(MEDIA, ITEMS)
+    assert "guides" not in document.build(
+        MEDIA, ITEMS, guides=[{"axis": "x", "pos": 1}, {"axis": "h"}]
+    )
+
+
 def test_build_merges_partial_serial():
     """Partielles serial-Dict ergaenzt fehlende Keys aus DEFAULT_SERIAL."""
     data = document.build(MEDIA, ITEMS, serial={"enabled": True, "count": 5})
