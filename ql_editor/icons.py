@@ -5,10 +5,11 @@ gezeichnet. Vorteile:
 
 * **keine externen Dateien** - es kann nichts "fehlen" und das ``.deb``
   braucht keine Icon-Assets,
-* **scharf** - fuer jede benoetigte Groesse wird ein eigenes Pixmap gerendert
-  (16/20/22/24/32/48 px),
-* **theme-abhaengig** - die Farbe kommt aus der Palette (hell/dunkel),
-* Qt erzeugt den deaktivierten Zustand automatisch durch Abblenden.
+* **scharf** - die Groesse wird beim Zeichnen gewaehlt,
+* **theme-abhaengig** - gelistete Toene bleiben auf hellem Grund und werden
+  auf dunklem angehoben. Uebrige Symbole nehmen die Textfarbe. Beides gilt
+  beim Zeichnen, auch nach einem Wechsel,
+* deaktiviert wird das Symbol mit geringerer Deckkraft gezeichnet.
 
 Gestaltung: einheitliche Strichstaerke (``_STROKE``), runde Enden/Ecken und
 ein gemeinsamer optischer Bereich (ca. 4..20) - das wirkt ruhiger und
@@ -30,6 +31,7 @@ from PySide6.QtGui import (
     QCursor,
     QFont,
     QIcon,
+    QIconEngine,
     QPainter,
     QPainterPath,
     QPalette,
@@ -40,7 +42,6 @@ from PySide6.QtGui import (
 from PySide6.QtWidgets import QApplication
 
 GRID = 24.0
-_SIZES = (16, 20, 22, 24, 32, 48)
 #: Einheitliche Strichstaerke (im 24er-Raster).
 _STROKE = 1.8
 #: Einheitlicher Eckenradius fuer abgerundete Rechtecke.
@@ -93,23 +94,78 @@ ICON_COLORS: dict[str, str] = {
 }
 
 
+def _dark_ui() -> bool:
+    """True, wenn der Fenstergrund dunkel ist."""
+    app = QApplication.instance()
+    if app is None:
+        return False
+    return app.palette().color(QPalette.ColorRole.Window).lightness() < 128
+
+
+def _lift_for_dark(color: QColor) -> QColor:
+    """Dieselbe Farbe, hell genug fuer den dunklen Grund.
+
+    Die festen Toene sind fuer helles Grau gemischt. Auf Dunkel wuerde das
+    Gruen des Druckers und die gedeckten Datei-Icons verschwinden.
+    """
+    hue, sat, light, alpha = color.getHsl()
+    if hue < 0:
+        hue = 0
+    lifted = QColor()
+    lifted.setHsl(hue, sat, max(light, 168), alpha)
+    return lifted
+
+
+def icon_color(name: str, color: QColor | None = None) -> QColor:
+    """Farbe, in der ``name`` gerade gezeichnet wird."""
+    if color is not None:
+        return QColor(color)
+    if name in ICON_COLORS:
+        chosen = QColor(ICON_COLORS[name])
+        if _dark_ui():
+            return _lift_for_dark(chosen)
+        return chosen
+    return text_color()
+
+
+class _ThemeIconEngine(QIconEngine):
+    """Zeichnet bei jedem Abruf neu, damit ein Themenwechsel mitgeht."""
+
+    def __init__(self, name: str, color: QColor | None = None) -> None:
+        super().__init__()
+        self._name = name
+        self._color = None if color is None else QColor(color)
+
+    def clone(self) -> QIconEngine:  # noqa: N802
+        return _ThemeIconEngine(self._name, self._color)
+
+    def pixmap(self, size, mode, state):  # noqa: N802
+        del state
+        side = max(1, int(size.width()), int(size.height()))
+        color = icon_color(self._name, self._color)
+        if mode == QIcon.Mode.Disabled:
+            color = QColor(color)
+            color.setAlpha(110)
+        return _render(self._name, side, color)
+
+    def paint(self, painter, rect, mode, state) -> None:  # noqa: N802
+        painter.drawPixmap(rect, self.pixmap(rect.size(), mode, state))
+
+
 def icon(name: str, color: QColor | None = None) -> QIcon:
     """Liefere ein (gecachtes) Icon fuer ``name`` in der gewuenschten Farbe.
 
-    Ohne ``color`` gilt :data:`ICON_COLORS`, sonst die Textfarbe der Anwendung.
+    Ohne ``color`` gilt :data:`ICON_COLORS` auf hellem Grund und eine
+    aufgehellte Variante auf dunklem. Nicht gelistete Symbole nehmen die
+    Textfarbe. Beides wird beim Zeichnen gelesen, nicht beim Erzeugen.
     """
     if name not in _DRAW:
         raise KeyError(f"Unbekanntes Icon: {name}")
-    if color is None and name in ICON_COLORS:
-        color = QColor(ICON_COLORS[name])
-    color = color or text_color()
-    key = (name, color.name())
+    key = (name, "" if color is None else QColor(color).name())
     cached = _CACHE.get(key)
     if cached is not None:
         return cached
-    result = QIcon()
-    for size in _SIZES:
-        result.addPixmap(_render(name, size, color))
+    result = QIcon(_ThemeIconEngine(name, color))
     _CACHE[key] = result
     return result
 

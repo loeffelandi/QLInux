@@ -3369,7 +3369,7 @@ def test_panel_group_titles_are_bold(qapp):
 
     panel = MediaPanel()
     box = next(item for item in panel.findChildren(QGroupBox) if item.title() == "Drucker")
-    assert "font-weight: bold" in box.styleSheet()
+    assert box.font().bold()
 
 
 def test_length_panel_has_no_meaning_and_no_result(qapp):
@@ -5230,6 +5230,40 @@ def test_resolution_combo_follows_a_model_change(qapp, tmp_path):
     assert "QL-500" in win._resolution_combo.toolTip()
 
 
+def test_print_history_scrolls_inside_its_own_box(qapp, tmp_path):
+    """Mehr Aufträge scrollen in der Tabelle. Sheet und Kasten bleiben gleich hoch."""
+    from datetime import datetime
+
+    from PySide6.QtCore import Qt
+
+    from ql_editor.jobs import PrintJob
+
+    win = _temp_window(qapp, tmp_path)
+    win._show_print_sheet()
+    qapp.processEvents()
+    sheet_height = win._print_sheet.height()
+    box_height = win._history_table.height()
+    bar = win._history_table.verticalScrollBar()
+    assert bar.maximum() == 0
+    assert not bar.isVisible()
+    win._print_jobs = [
+        PrintJob(datetime.now(), f"Etikett {index}", 1, "QL-820NWB", "usb", "sent")
+        for index in range(12)
+    ]
+    win._refresh_history_table()
+    qapp.processEvents()
+    assert win._history_table.height() == box_height
+    assert win._print_sheet.height() == sheet_height
+    assert win._history_table.verticalScrollBar().maximum() > 0
+    assert win._history_table.verticalScrollBar().isVisible()
+    assert (
+        win._history_table.verticalScrollBarPolicy()
+        == Qt.ScrollBarPolicy.ScrollBarAsNeeded
+    )
+    win.close()
+    qapp.processEvents()
+
+
 def test_toolbar_print_opens_the_sheet(qapp, tmp_path):
     """Der Toolbar-Knopf und Strg+P öffnen den Dialog, sie drucken nicht sofort."""
     from ql_editor.sheet import Sheet
@@ -5549,7 +5583,7 @@ def test_appearance_menu_switches_between_light_and_dark(qapp, tmp_path):
         choices["Dunkel"].trigger()
         qapp.processEvents()
         assert win._settings.appearance == "dark"
-        assert qapp.palette().color(QPalette.ColorRole.Window).name() == "#242424"
+        assert qapp.palette().color(QPalette.ColorRole.Window).name() == "#1e2430"
         assert qapp.palette().color(QPalette.ColorRole.Highlight).name() == ACCENT
         choices["Hell"].trigger()
         qapp.processEvents()

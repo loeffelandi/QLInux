@@ -19,21 +19,39 @@ from PySide6.QtCore import (
     Qt,
     QTimer,
 )
-from PySide6.QtGui import QColor, QPainter, QPen
+from PySide6.QtGui import QColor, QFont, QPainter, QPen
 from PySide6.QtWidgets import QAbstractScrollArea, QGroupBox, QScrollArea, QWidget
 
-def title_box(title: str, parent: QWidget | None = None) -> QGroupBox:
-    """Gruppenkasten, dessen Ueberschrift fett ist und der Inhalt nicht.
 
-    ``QGroupBox::title`` setzt Fusion nicht um. Fett am Kasten selbst schon,
-    die Kinder bleiben ueber die zweite Regel in normaler Schrift.
+class _TitleBox(QGroupBox):
+    """Gruppenkasten mit fetter Ueberschrift und normalem Inhalt.
+
+    ``QGroupBox::title`` setzt Fusion nicht um. Fett an der Schrift des
+    Kastens schon. Ein Stylesheet dafuer wuerde die Felder aus der
+    Anwendungspalette loesen: auf einem dunklen Desktop blieben die
+    Auswahllisten dunkel, auch im hellen Modus.
     """
-    box = QGroupBox(title, parent)
-    box.setStyleSheet(
-        "QGroupBox { font-weight: bold; }"
-        "QGroupBox * { font-weight: normal; }"
-    )
-    return box
+
+    def __init__(self, title: str, parent: QWidget | None = None) -> None:
+        super().__init__(title, parent)
+        title_font = QFont(self.font())
+        title_font.setBold(True)
+        self.setFont(title_font)
+        self._body_font = QFont(title_font)
+        self._body_font.setBold(False)
+
+    def childEvent(self, event) -> None:  # noqa: N802
+        super().childEvent(event)
+        if event.type() != QEvent.Type.ChildAdded:
+            return
+        child = event.child()
+        if isinstance(child, QWidget):
+            child.setFont(self._body_font)
+
+
+def title_box(title: str, parent: QWidget | None = None) -> QGroupBox:
+    """Gruppenkasten, dessen Ueberschrift fett ist und der Inhalt nicht."""
+    return _TitleBox(title, parent)
 
 
 #: Pixel, die eine Mausrad-Raste (120 Einheiten) scrollt.

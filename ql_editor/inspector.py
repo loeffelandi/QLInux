@@ -14,7 +14,7 @@ sofort bei Schaltern).
 
 from __future__ import annotations
 
-from PySide6.QtCore import QDate, QRectF, QSize, QTime, Qt, QTimer, Signal
+from PySide6.QtCore import QDate, QEvent, QRectF, QSize, QTime, Qt, QTimer, Signal
 from PySide6.QtGui import QActionGroup, QColor, QFont, QIcon, QPainter, QPixmap
 from PySide6.QtWidgets import (
     QButtonGroup,
@@ -49,7 +49,7 @@ from .datetime_text import (
     unit_label,
 )
 from .i18n import tr
-from .icons import icon
+from .icons import icon, text_color
 from .items import (
     FILL_CHOICES,
     LINE_STYLE_CHOICES,
@@ -65,7 +65,7 @@ BARCODE_SYMBOLOGIES = ["code128", "code39", "ean13", "ean8", "upca", "itf", "cod
 
 
 def _text_color_icon(value: str | None) -> QIcon:
-    """„A“ mit Balken in der Schriftfarbe (nicht der nackte Buchstabe)."""
+    """„A“ in der Oberflächenfarbe, Balken in der Schriftfarbe."""
     pixmap = QPixmap(24, 24)
     pixmap.fill(Qt.GlobalColor.transparent)
     painter = QPainter(pixmap)
@@ -74,7 +74,7 @@ def _text_color_icon(value: str | None) -> QIcon:
     font.setBold(True)
     font.setPixelSize(15)
     painter.setFont(font)
-    painter.setPen(QColor("#222222"))
+    painter.setPen(text_color())
     painter.drawText(QRectF(0, 0, 24, 18), Qt.AlignmentFlag.AlignCenter, "A")
     if value == "red":
         bar = QColor("red")
@@ -83,6 +83,10 @@ def _text_color_icon(value: str | None) -> QIcon:
     else:
         bar = QColor("#888888")
     painter.fillRect(QRectF(5, 19, 14, 3), bar)
+    # Schwarze Tinte verschwindet sonst auf dem dunklen Knopf.
+    if bar.lightness() < 60 and text_color().lightness() > 128:
+        painter.setPen(text_color())
+        painter.drawRect(QRectF(4.5, 18.5, 15, 4))
     painter.end()
     return QIcon(pixmap)
 
@@ -552,6 +556,8 @@ class InspectorPanel(QWidget):
     def _color_menu_button(self, tip: str, current, apply_fn) -> QToolButton:
         """Farbknopf mit „A“ und Farbstrich. ``current`` ist None bei Mischauswahl."""
         button = QToolButton()
+        button.setObjectName("inspector_text_color")
+        button.setProperty("ink_color", "" if current is None else current)
         button.setIcon(_text_color_icon(current))
         button.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonIconOnly)
         button.setToolTip(tip)
@@ -572,8 +578,17 @@ class InspectorPanel(QWidget):
         return button
 
     def _choose_text_color(self, button: QToolButton, apply_fn, value: str) -> None:
+        button.setProperty("ink_color", value)
         button.setIcon(_text_color_icon(value))
         self._apply_now(lambda: apply_fn(value))
+
+    def changeEvent(self, event) -> None:  # noqa: N802
+        super().changeEvent(event)
+        if event.type() != QEvent.Type.PaletteChange:
+            return
+        for button in self.findChildren(QToolButton, "inspector_text_color"):
+            raw = button.property("ink_color")
+            button.setIcon(_text_color_icon(raw or None))
 
     def _color_button(self, item) -> QToolButton:
         """Farbknopf: Symbol mit der aktuellen Schriftfarbe, Menue Schwarz/Rot."""

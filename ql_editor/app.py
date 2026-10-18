@@ -788,7 +788,6 @@ class MainWindow(QMainWindow):
         self._threshold_spin.setToolTip(self._threshold_tooltip())
         self._threshold_label.setToolTip(self._threshold_spin.toolTip())
         self._ink_label = QLabel(tr("Tinte: –"))
-        self._ink_label.setStyleSheet("color:#777;")
         self._ink_label.setToolTip(
             tr("Anteil der bedruckten Fläche - sofort sichtbar, was Tintenmenge "
             "und Dithering bewirken.")
@@ -912,8 +911,15 @@ class MainWindow(QMainWindow):
         history_layout = QVBoxLayout(history)
         self._history_table = make_history_table()
         self._history_table.setObjectName("print_history_table")
-        # Ein paar Zeilen reichen. Der Rest des Sheets gehoert der Vorschau.
+        # Eigener Scrollbereich: die Hoehe bleibt, der Balken nur bei Bedarf.
+        # Sonst waechst das Sheet mit jedem weiteren Auftrag.
         self._history_table.setFixedHeight(120)
+        self._history_table.setVerticalScrollBarPolicy(
+            Qt.ScrollBarPolicy.ScrollBarAsNeeded
+        )
+        self._history_table.setHorizontalScrollBarPolicy(
+            Qt.ScrollBarPolicy.ScrollBarAsNeeded
+        )
         history_layout.addWidget(self._history_table)
 
         options = QWidget()
@@ -1979,6 +1985,8 @@ class MainWindow(QMainWindow):
         app = QApplication.instance()
         if app is not None:
             apply_theme(app, scheme_for(value))
+        # Fehlerrot im Verlauf haengt am Grund. Die Zellen neu schreiben.
+        self._refresh_history_table()
 
     # ------------------------------------------------------------ Sprache --
     def switch_language(self, code: str) -> None:

@@ -10,7 +10,6 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime
 
-from PySide6.QtGui import QColor
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QDialog,
@@ -23,6 +22,7 @@ from PySide6.QtWidgets import (
 )
 
 from .i18n import tr
+from .theme import error_text_color
 
 
 @dataclass(frozen=True)
@@ -81,7 +81,7 @@ def fill_history_table(table: QTableWidget, jobs: list[PrintJob]) -> None:
         for column, text in enumerate(cells):
             item = QTableWidgetItem(text)
             if column == 4 and job.is_error:
-                item.setForeground(QColor("#b00020"))
+                item.setForeground(error_text_color())
             table.setItem(row, column, item)
 
 

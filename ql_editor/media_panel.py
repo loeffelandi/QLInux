@@ -15,7 +15,7 @@ from __future__ import annotations
 import logging
 from typing import Any, Mapping
 
-from PySide6.QtCore import QSize, Qt, Signal
+from PySide6.QtCore import QEvent, QSize, Qt, Signal
 from PySide6.QtGui import QAction, QActionGroup, QFontMetrics
 from PySide6.QtWidgets import (
     QButtonGroup,
@@ -35,6 +35,7 @@ from PySide6.QtWidgets import (
 from . import media
 from .discovery import NetworkPrinter, discover_network_printers
 from .i18n import tr
+from .theme import error_text_color
 from .widgets import title_box
 from .icons import icon
 from .media import (
@@ -151,6 +152,21 @@ class MediaPanel(QWidget):
         self._populate_bands()
         self._sync_enabled()
 
+    def changeEvent(self, event) -> None:  # noqa: N802
+        super().changeEvent(event)
+        if event.type() == QEvent.Type.PaletteChange:
+            self._apply_access_color()
+
+    def _apply_access_color(self) -> None:
+        """Fehlendes USB-Recht rot, aber lesbar auf dem aktuellen Grund."""
+        label = getattr(self, "_access_label", None)
+        if label is None:
+            return
+        color = error_text_color().name()
+        sheet = f"color:{color};"
+        if label.styleSheet() != sheet:
+            label.setStyleSheet(sheet)
+
     # ------------------------------------------------------------------ UI --
     def _build_ui(self) -> None:
         outer = QVBoxLayout(self)
@@ -262,7 +278,7 @@ class MediaPanel(QWidget):
         # Knopf, der die udev-Regel einrichtet (Passwort-Dialog des Systems).
         self._access_label = QLabel()
         self._access_label.setWordWrap(True)
-        self._access_label.setStyleSheet("color:#b3261e;")
+        self._apply_access_color()
         self._access_button = QPushButton(icon("detect"), tr("Zugriff einrichten"))
         self._access_button.setToolTip(
             tr("Richtet eine udev-Regel ein, die den USB-Drucker für dich "
