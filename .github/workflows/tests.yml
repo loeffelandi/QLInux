@@ -70,7 +70,8 @@ jobs:
 
       # Der bisherige pip-Wheel-Cache trifft, das Entpacken von PySide6
       # dauert trotzdem ~9s und liegt vor pytest. Die installierte venv
-      # ersetzt diesen Schritt. Die Wheels werden nur geladen, wenn die
+      # ersetzt diesen Schritt (Archiv ~270 MB, gleiche Groessenordnung
+      # wie der Wheel-Cache). Die Wheels werden nur geladen, wenn die
       # venv neu gebaut wird. Testergebnisse liegen nicht im Cache.
       - name: Cache virtualenv
         id: venv
