@@ -634,19 +634,16 @@ def test_detect_button_only_works_where_readback_is_possible(qapp):
     assert not panel._detect_button.isVisibleTo(panel)
 
 
-def test_media_panel_finished_vs_content(qapp):
+def test_media_panel_length_is_always_the_total(qapp):
+    """40 mm sind die Gesamtlänge: der Inhalt wird um den Druckerrand kürzer."""
     from ql_editor.media_panel import MediaPanel
     from ql_editor.media import LengthMode
 
     panel = MediaPanel()
     panel._auto_check.setChecked(False)
     panel._length_spin.setValue(40)
-
-    panel._mode_combo.setCurrentIndex(panel._mode_combo.findData(LengthMode.FINISHED.value))
+    assert panel.length_mode() is LengthMode.FINISHED
     assert panel.canvas_size() == (554, 389)
-
-    panel._mode_combo.setCurrentIndex(panel._mode_combo.findData(LengthMode.CONTENT.value))
-    assert panel.canvas_size() == (554, 472)
 
 
 def test_media_panel_model_switch_repopulates_bands(qapp):
@@ -1140,9 +1137,6 @@ def test_mainwindow_render_matches_canvas(qapp):
     win = MainWindow()
     win._media_panel._auto_check.setChecked(False)
     win._media_panel._length_spin.setValue(40)
-    win._media_panel._mode_combo.setCurrentIndex(
-        win._media_panel._mode_combo.findData("finished")
-    )
     win._on_media_changed()
     win._add_text()
     win._recompute_canvas()
@@ -3366,20 +3360,24 @@ def test_print_preview_image_stays_canvas_aligned(qapp):
     assert image.height() == int(rect.height())
 
 
-def test_panel_result_shows_real_content_length(qapp):
+def test_length_panel_has_no_meaning_and_no_result(qapp):
+    """Gesamtlänge bleibt. Bedeutung und die Ergebniszeile gibt es nicht mehr."""
+    from PySide6.QtWidgets import QComboBox, QLabel
+
     from ql_editor.app import MainWindow
-    from ql_editor.items import TextItem
 
     win = MainWindow()
-    win._add_item(TextItem("Hallo Welt", font_pixel_size=90))
-    win._canvas.cancel_editing()
-    assert "Inhalt" in win._media_panel._size_label.text()
-    across = win._media_panel._size_label.text()
-
-    win._media_panel.set_orientation(media.Orientation.ALONG)
-    along = win._media_panel._size_label.text()
-    assert across != along
-    assert win._media_panel._act_orient_along.isChecked()
+    labels = [label.text() for label in win._media_panel.findChildren(QLabel)]
+    assert "Länge" in labels
+    assert "Bedeutung" not in labels
+    assert "Ergebnis" not in labels
+    choices = [
+        combo.itemText(index)
+        for combo in win._media_panel.findChildren(QComboBox)
+        for index in range(combo.count())
+    ]
+    assert "nur Inhalt" not in choices
+    assert "Gesamtlänge (inkl. Rand)" not in choices
 
 
 # --------------------------------------------------------------------------- #
@@ -5383,19 +5381,17 @@ def test_media_panel_state_round_trip(qapp):
     panel = MediaPanel()
     panel._auto_check.setChecked(False)
     panel._length_spin.setValue(66.5)
-    panel._mode_combo.setCurrentIndex(
-        panel._mode_combo.findData(LengthMode.CONTENT.value)
-    )
     panel._margin_spins["top"].setValue(3.5)
     panel._margin_spins["left"].setValue(2.5)
     panel.set_orientation(Orientation.ALONG)
     state = panel.state()
+    state["length_mode"] = LengthMode.CONTENT.value
 
     other = MediaPanel()
     other.apply_state(state)
     assert other.auto_length() is False
     assert other.length_mm() == pytest.approx(66.5)
-    assert other.length_mode() is LengthMode.CONTENT
+    assert other.length_mode() is LengthMode.FINISHED
     assert other.margins().top == pytest.approx(3.5)
     assert other.margins().left == pytest.approx(2.5)
     assert other.orientation() is Orientation.ALONG
@@ -5429,7 +5425,7 @@ def test_language_switch_keeps_content_and_media(qapp, tmp_path):
     assert new._settings.language == "en"
     # Englische Oberflaeche ...
     assert new._act_about.text() == "About QLInux"
-    assert new._media_panel._auto_check.text() == "Automatic length (content)"
+    assert new._media_panel._auto_check.text() == "Automatic length"
     assert new._left_panel._title == "Label & printer"
     # ... bei unveraendertem Inhalt und unveraenderter Bandauswahl.
     assert len(new._canvas.items_serialized()) == 1

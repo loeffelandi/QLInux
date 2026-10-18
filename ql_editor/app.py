@@ -2171,7 +2171,6 @@ class MainWindow(QMainWindow):
                 else 0
             )
             length = self._media_panel.label_length_dots(content)
-            self._media_panel.set_content_dots(content)
             self._canvas.set_label(
                 self._media_panel.label, length, orientation=orientation
             )

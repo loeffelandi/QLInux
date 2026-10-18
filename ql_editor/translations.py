@@ -570,11 +570,7 @@ EN: dict[str, str] = {
     # -- Band, Laenge, Margins ----------------------------------------------
     "Länge": "Length",
     "Länge": "Length",
-    "Automatische Länge (Inhalt)": "Automatic length (content)",
-    "nur Inhalt": "content only",
-    "Gesamtlänge (inkl. Rand)": "Total length (incl. margins)",
-    "Bedeutung": "Meaning",
-    "Ergebnis": "Result",
+    "Automatische Länge": "Automatic length",
     "Farbe": "Color",
     "schwarz": "black",
     "rot": "red",
@@ -604,9 +600,6 @@ EN: dict[str, str] = {
     "unten": "bottom",
     "{width} mm {kind}": "{width} mm {kind}",
     "{width} x {height} mm {kind}": "{width} x {height} mm {kind}",
-    "{width} x {height} mm Inhalt\n→ Etikett ~{total} mm": (
-        "{width} x {height} mm content\n→ label ~{total} mm"
-    ),
     "Endlos": "Continuous",
     "Die-cut": "Die-cut",
     "Rund (Die-cut)": "Round (die-cut)",
