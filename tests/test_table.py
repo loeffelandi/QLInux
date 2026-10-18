@@ -296,6 +296,9 @@ def test_main_window_inserts_a_compact_one_by_two_table(qapp):
     tabs = win._inspector.findChild(QTabBar, "table_inspector_tabs")
     assert tabs is not None
     assert [tabs.tabText(i) for i in range(tabs.count())] == ["Text", "Zelle", "Tabelle"]
+    # Zellentext wird auf der Flaeche bearbeitet, nicht im Inspector.
+    assert not win._inspector.findChildren(QPlainTextEdit)
+    assert "Schrift" in _page_labels(win._inspector, 0)
     assert not any(
         button.text()
         for button in win._inspector.findChildren(QToolButton)
@@ -503,8 +506,8 @@ def _select_table(win, table) -> None:
         qapp.processEvents()
 
 
-def test_main_window_undoes_table_merge_row_and_inspector_text(qapp):
-    """Struktur und Inspector-Text schliessen Undo (M1 / m4)."""
+def test_main_window_undoes_table_merge_and_row(qapp):
+    """Struktur-Aktionen im Inspector schliessen Undo."""
     from ql_editor.app import MainWindow
 
     win = MainWindow()
@@ -538,30 +541,5 @@ def test_main_window_undoes_table_merge_row_and_inspector_text(qapp):
     qapp.processEvents()
     table = _live_table(win)
     assert table.rows == rows_before
-
-    _select_table(win, table)
-    original = table._cells[0][0].text
-    # deleteLater-Reste zuerst: das aktuelle Textfeld ist das letzte mit Parent.
-    edits = [
-        field
-        for field in win._inspector.findChildren(QPlainTextEdit)
-        if field.parent() is not None
-    ]
-    assert edits
-    edit = edits[-1]
-    edit.setFocus()
-    qapp.processEvents()
-    edit.setPlainText("Kabel")
-    qapp.processEvents()
-    assert win._inspector.edit_open is True
-    assert table._cells[0][0].text == "Kabel"
-    # FocusOut schliesst den Undo-Schritt (eventFilter / M1).
-    QApplication.sendEvent(edit, QEvent(QEvent.Type.FocusOut))
-    qapp.processEvents()
-    assert win._inspector.edit_open is False
-    win._act_undo.trigger()
-    qapp.processEvents()
-    table = _live_table(win)
-    assert table._cells[0][0].text == original
     win.close()
     qapp.processEvents()
