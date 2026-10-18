@@ -1401,8 +1401,9 @@ def test_inspector_rotation_field_is_left_aligned(qapp):
         inspector, xy_row.rect().topLeft()
     ).x()
     assert rot_label.x() <= 2
-    assert rot_spin.x() == rot_label.geometry().right() + 6
-    assert rot_spin.geometry().right() < rot_row.width() // 2
+    assert rot_spin.x() == rot_label.x() + rot_label.width() + 6
+    assert rot_spin.width() <= rot_spin.sizeHint().width() + 4
+    assert rot_row.width() - (rot_spin.x() + rot_spin.width()) > 40
 
 
 def test_mainwindow_double_click_creates_text(qapp):
