@@ -2549,7 +2549,28 @@ def test_toolbar_has_align_dropdown_before_front(qapp, tmp_path):
     ]
     actions = bar.actions()
     button_at = next(i for i, a in enumerate(actions) if bar.widgetForAction(a) is button)
-    assert button_at < actions.index(win._act_front) < actions.index(win._act_back)
+    assert button_at < actions.index(win._act_forward) < actions.index(win._act_backward)
+    assert win._act_front not in actions
+    assert win._act_back not in actions
+    shape = win.findChild(QToolButton, "shape_button")
+    code = win.findChild(QToolButton, "code_button")
+    shape_at = next(i for i, a in enumerate(actions) if bar.widgetForAction(a) is shape)
+    code_at = next(i for i, a in enumerate(actions) if bar.widgetForAction(a) is code)
+    clip_at = actions.index(win._act_add_clipart)
+    assert shape_at + 1 == clip_at < code_at
+    assert [a for a in code.menu().actions() if not a.isSeparator()] == [
+        win._act_add_barcode,
+        win._act_add_qr,
+    ]
+    from PySide6.QtWidgets import QSizePolicy
+
+    history_at = actions.index(win._act_print_history)
+    spacer = bar.widgetForAction(actions[history_at + 1])
+    assert spacer is not None and spacer.objectName() == "toolbar_tail_spacer"
+    assert spacer.sizePolicy().horizontalPolicy() == QSizePolicy.Policy.Expanding
+    assert actions[history_at + 2] is win._act_connect_csv
+    assert actions[history_at + 3] is win._act_database_separator
+    assert actions[history_at + 4] is win._act_database
     win.close()
     qapp.processEvents()
 
@@ -2569,20 +2590,34 @@ def test_shapes_menu_and_inspector_smoke(qapp, tmp_path):
     assert "Rahmen" in menu_labels
     assert "Stern" in menu_labels
     assert "Ellipse" in menu_labels
-    context_labels = [
-        action.text()
-        for action in win._build_context_menu(QPointF(10, 10)).actions()
-        if action.text()
-    ]
+    def _texts(menu):
+        found = []
+        for action in menu.actions():
+            if action.menu() is not None:
+                found.extend(_texts(action.menu()))
+            elif action.text():
+                found.append(action.text())
+        return found
+
+    context = win._build_context_menu(QPointF(10, 10))
+    context_labels = _texts(context)
     for label in menu_labels:
         assert label in context_labels
-    insert_labels = [
-        action.text()
-        for action in win._menu_button.menu().actions()
-        if action.text()
-    ]
+    top_level = [action.text() for action in win._menu_button.menu().actions()]
     for label in ("Ellipse", "Dreieck", "Stern", "Pfeil rechts", "Pfeil links", "Doppelpfeil"):
-        assert label in insert_labels
+        assert label not in top_level
+    shapes = next(
+        action.menu()
+        for action in win._menu_button.menu().actions()
+        if action.menu() is not None and action.text() == "Formen"
+    )
+    assert shapes.actions()[0] is win._act_add_line
+    codes = next(
+        action.menu()
+        for action in context.actions()
+        if action.menu() is not None and action.text() == "Barcode und QR-Code"
+    )
+    assert [action.text() for action in codes.actions()] == ["Barcode…", "QR-Code…"]
 
     win._add_shape("star")
     shapes = [item for item in win._canvas.scene().items() if isinstance(item, ShapeItem)]
@@ -2650,6 +2685,80 @@ def test_no_menu_bar_but_hamburger_menu(qapp):
         if not a.isSeparator() and not isinstance(a, QWidgetAction)
     }
     assert bar_actions <= set(items)
+    assert win._act_commands in items
+    assert win._act_commands.shortcut().toString() == "Ctrl+K"
+    assert win._act_front not in items
+    assert win._act_back not in items
+
+    def _shortcuts(menu):
+        found = []
+        for action in menu.actions():
+            sequence = action.shortcut().toString()
+            if sequence:
+                found.append(sequence)
+            if action.menu() is not None:
+                found.extend(_shortcuts(action.menu()))
+        return found
+
+    assert _shortcuts(menu).count("Ctrl+K") == 1
+
+    from PySide6.QtCore import QPointF, QRectF, Qt
+    from PySide6.QtTest import QTest
+    from PySide6.QtWidgets import QLineEdit, QListWidget
+
+    from ql_editor.items import RectItem
+    from ql_editor.sheet import Sheet
+
+    first = RectItem(QRectF(0, 0, 30, 20))
+    second = RectItem(QRectF(8, 8, 30, 20))
+    win._canvas.add_item(first)
+    win._canvas.add_item(second)
+    win._canvas.scene().clearSelection()
+    first.setSelected(True)
+    qapp.processEvents()
+    assert win._act_front.isEnabled()
+    context = win._build_context_menu(QPointF(1, 1))
+    layout = next(
+        action.menu()
+        for action in context.actions()
+        if action.menu() is not None and action.text() == "Layout"
+    )
+    assert [win._act_forward, win._act_front, win._act_backward, win._act_back] == [
+        action for action in layout.actions() if action in (
+            win._act_forward, win._act_front, win._act_backward, win._act_back
+        )
+    ]
+
+    def _open_palette():
+        win._act_commands.trigger()
+        qapp.processEvents()
+        sheet = win.findChildren(Sheet)[-1]
+        return (
+            sheet,
+            sheet.findChild(QLineEdit, "command_palette_search"),
+            sheet.findChild(QListWidget, "command_palette_list"),
+        )
+
+    win._canvas.scene().clearSelection()
+    qapp.processEvents()
+    assert not win._act_front.isEnabled()
+    sheet, edit, listing = _open_palette()
+    edit.setText("Vordergrund")
+    assert listing.count() == 1
+    assert not listing.item(0).flags() & Qt.ItemFlag.ItemIsEnabled
+    sheet.close_sheet()
+    qapp.processEvents()
+
+    first.setSelected(True)
+    qapp.processEvents()
+    assert win._act_front.isEnabled()
+    sheet, edit, listing = _open_palette()
+    edit.setText("Vordergrund")
+    assert listing.item(0).flags() & Qt.ItemFlag.ItemIsEnabled
+    QTest.keyClick(edit, Qt.Key.Key_Return)
+    qapp.processEvents()
+    assert _visual_bottom_to_top(win._canvas)[-1] is first
+    assert all(getattr(s, "_closing", True) for s in win.findChildren(Sheet))
 
 
 def test_menu_actions_have_icons(qapp):

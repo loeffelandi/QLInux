@@ -205,7 +205,12 @@ class InspectorPanel(QWidget):
 
     # -- Typ-spezifisch -----------------------------------------------------
     def _build_database_binding(self, item, form: QFormLayout) -> None:
-        """Database Field (D14). Serie am selben Objekt wird ersetzt (D4)."""
+        """Database Field (D14). Serie am selben Objekt wird ersetzt (D4).
+
+        Ohne verbundene CSV gibt es nichts zu waehlen - die Zeile bleibt weg.
+        """
+        if not self._csv_connected:
+            return
         if getattr(item, "kind", None) not in ("text", "qr", "barcode"):
             return
         if not hasattr(item, "set_binding"):
