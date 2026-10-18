@@ -567,18 +567,39 @@ EN: dict[str, str] = {
     "Graustufen (Dithering)": "Grayscale (dithering)",
     "Hohe Druckqualität (HQ)": "High print quality (HQ)",
     "Kopien": "Copies",
-    "Wie oft dieses Etikett gedruckt wird - als ein Auftrag.": (
-        "How many times this label is printed - as one job."
+    "Wie oft jedes Etikett gedruckt wird - identische Kopien in einem Auftrag.": (
+        "How many times each label is printed - identical copies in one job."
     ),
     "Zuschnitt": "Cutting",
     "Jede Kopie": "Each copy",
     "Am Ende": "At end",
     "Aus": "Off",
-    "Nach jeder Kopie: einzelne Etiketten.\nNur am Ende: die Kopien hängen zusammen und werden zuletzt getrennt - nur bei mehreren Kopien.\nNicht schneiden: der Streifen bleibt am Band.": (
+    "Nach jeder Kopie: einzelne Etiketten.\nNur am Ende: die Etiketten hängen zusammen und werden zuletzt getrennt - nur bei mehreren Etiketten.\nNicht schneiden: der Streifen bleibt am Band.": (
         "After each copy: separate labels.\n"
-        "Only at the end: the copies stay together and are separated last - "
-        "only with more than one copy.\n"
+        "Only at the end: the labels stay together and are separated last - "
+        "only with more than one label.\n"
         "Do not cut: the strip stays attached to the tape."
+    ),
+    "Welche Datensätze gedruckt werden: die gewählte Zeile, alle oder ein Bereich. Ohne CSV bleibt es ein Etikett.": (
+        "Which records to print: the selected row, all of them, or a range. "
+        "Without a CSV it stays one label."
+    ),
+    "Ausgewählte Datensätze": "Selected Record(s)",
+    "Die in der Tabelle gewählte Zeile.": "The row selected in the table.",
+    "Alle Datensätze": "All Records",
+    "Jede Zeile der verbundenen CSV.": "Every row of the connected CSV.",
+    "Datensatzbereich": "Record Range",
+    "Von–bis, 1 ist die erste Zeile, beide Grenzen zählen.": (
+        "From–to; 1 is the first row, and both ends count."
+    ),
+    "Von": "From",
+    "Erster Datensatz, 1 ist die erste Zeile.": (
+        "First record; 1 is the first row."
+    ),
+    "Bis": "To",
+    "Letzter Datensatz, einschließlich.": "Last record, inclusive.",
+    "Sende {count} Etiketten an {address}…": (
+        "Sending {count} labels to {address}…"
     ),
     "Tinte: –": "Ink: –",
     "Tinte: {value} %": "Ink: {value} %",
@@ -710,6 +731,16 @@ EN: dict[str, str] = {
     "Konvertierung fehlgeschlagen: {error}": "Conversion failed: {error}",
     "Kopienzahl muss mindestens 1 sein.": "There has to be at least one copy.",
     "Höchstens {max} Kopien pro Auftrag.": "At most {max} copies per job.",
+    "Höchstens {max} Seiten pro Auftrag (Datensätze × Kopien).": (
+        "At most {max} pages per job (records × copies)."
+    ),
+    "Keine Etiketten zum Drucken.": "No labels to print.",
+    "Keine Datensätze im Druckbereich.": "No records in the print range.",
+    "Unbekannter Druckbereich: {scope!r}.": "Unknown print range: {scope!r}.",
+    "Datensatzbereich braucht ganze Zahlen.": "Record range needs whole numbers.",
+    "Barcode '{value}' lässt sich nicht drucken.": (
+        "Barcode '{value}' cannot be printed."
+    ),
     "Unbekannter Zuschnitt: {mode!r}": "Unknown cutting: {mode!r}",
     "Modell {model!r} hat keine Schneideeinrichtung - Zuschnitt auf „{none}“ stellen.": (
         "Model {model!r} has no cutter - set cutting to “{none}”."
