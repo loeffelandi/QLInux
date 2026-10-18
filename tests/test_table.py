@@ -225,24 +225,35 @@ def test_render_draws_the_grid_without_the_selection_chrome(qapp):
     assert blue == 0
 
 
-def test_main_window_inserts_a_table_like_ptouch(qapp):
+def test_main_window_inserts_a_compact_one_by_two_table(qapp):
+    from PySide6.QtWidgets import QTabBar, QToolButton
+
     from ql_editor.app import MainWindow
 
     win = MainWindow()
     win.resize(1100, 760)
     win.show()
     qapp.processEvents()
-    before = win._canvas.length_dots
     win._act_add_table.trigger()
     qapp.processEvents()
     tables = [it for it in win._canvas.scene().items() if getattr(it, "kind", None) == "table"]
     assert len(tables) == 1
     table = tables[0]
-    assert table.rows == 3 and table.cols == 2
-    # Laengs der Bandrichtung (ACROSS: Hoehe) groesser als das bisherige Minimum.
-    assert win._canvas.length_dots > before
+    assert table.rows == 1 and table.cols == 2
+    assert table.table_width < 560
+    assert table.table_height < 140
     assert win._inspector._title.text() == "Tabelle"
-    assert table.table_height > table.table_width
+    tabs = win._inspector.findChild(QTabBar, "table_inspector_tabs")
+    assert tabs is not None
+    assert [tabs.tabText(i) for i in range(tabs.count())] == ["Text", "Zelle", "Tabelle"]
+    assert not any(
+        button.text()
+        for button in win._inspector.findChildren(QToolButton)
+        if button.icon() is not None and not button.icon().isNull() and button.text() not in ("", "A")
+    )
+    tabs.setCurrentIndex(2)
+    qapp.processEvents()
+    assert win._inspector._table_page == 2
     win.close()
     qapp.processEvents()
 
@@ -376,7 +387,7 @@ def test_main_window_undoes_table_merge_row_and_inspector_text(qapp):
     win._act_add_table.trigger()
     qapp.processEvents()
     table = _live_table(win)
-    assert table.rows == 3 and table.cols == 2
+    assert table.rows == 1 and table.cols == 2
 
     table.select_cell_at(QPointF(10, 10))
     table.select_cell_at(QPointF(table.table_width - 10, 10), extend=True)

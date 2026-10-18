@@ -2308,34 +2308,22 @@ class MainWindow(QMainWindow):
         picker.chosen.connect(_picked)
 
     def _add_table(self) -> None:
-        """2×3-Tabelle, fast so hoch wie das Band und etwa dreimal so lang.
-
-        Das ist die Tabelle, die P-touch Editor mit einem Klick anlegt: sie
-        fuellt die bedruckbare Breite und zieht bei automatischer Laenge das
-        Etikett mit. ``fit=False``, weil die Laenge gerade erst entstehen soll
-        und nicht auf das bisherige Minimum gekuerzt werden darf.
-        """
+        """Kleine 1×2-Tabelle. Weitere Zeilen und Spalten kommen im Inspector."""
         rect = self._canvas.margin_rect()
         if rect.width() < 40 or rect.height() < 40:
             rect = self._canvas.printable_rect()
         inset = 2.0
-        rows, cols = 3, 2
-        along = self._canvas.orientation is media.Orientation.ALONG
-        if along:
-            cross = max(40.0, rect.height() - 2 * inset)
-            length = cross * 3.0
-            if not self._media_panel.auto_length():
-                length = min(length, max(40.0, rect.width() - 2 * inset))
-            width, height = length, cross
-        else:
-            cross = max(40.0, rect.width() - 2 * inset)
-            length = cross * 3.0
-            if not self._media_panel.auto_length():
-                length = min(length, max(40.0, rect.height() - 2 * inset))
-            width, height = cross, length
-        cell = min(width / cols, height / rows)
+        rows, cols = 1, 2
+        cell_w = media.mm_to_dots(22)
+        cell_h = media.mm_to_dots(8)
+        width = min(cell_w * cols, max(40.0, rect.width() - 2 * inset))
+        height = min(cell_h * rows, max(40.0, rect.height() - 2 * inset))
         item = TableItem(
-            rows, cols, width, height, font_pixel_size=max(16, int(cell * 0.45))
+            rows,
+            cols,
+            width,
+            height,
+            font_pixel_size=max(16, int(height * 0.55)),
         )
         self._add_item(
             item,

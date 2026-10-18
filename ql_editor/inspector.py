@@ -25,7 +25,6 @@ from PySide6.QtWidgets import (
     QFontComboBox,
     QFormLayout,
     QFrame,
-    QGridLayout,
     QHBoxLayout,
     QLabel,
     QLineEdit,
@@ -33,6 +32,8 @@ from PySide6.QtWidgets import (
     QPlainTextEdit,
     QPushButton,
     QSpinBox,
+    QStackedWidget,
+    QTabBar,
     QTimeEdit,
     QToolButton,
     QVBoxLayout,
@@ -50,14 +51,10 @@ from .datetime_text import (
 from .i18n import tr
 from .icons import icon
 from .items import (
-    ALIGN_CHOICES,
     FILL_CHOICES,
     LINE_STYLE_CHOICES,
-    VALIGN_CHOICES,
-    align_label,
     fill_label,
     line_style_label,
-    valign_label,
 )
 from .sheet import show_widget
 from .symbols import SymbolPicker, symbol_label
@@ -82,6 +79,8 @@ class InspectorPanel(QWidget):
         self._allow_red = False
         self._loading = False
         self._edit_open = False
+        #: Letzte Registerkarte im Tabellen-Inspector (Text / Zelle / Tabelle).
+        self._table_page = 0
         self._datetime_example_item = None
         self._datetime_example_refresh = None
 
@@ -700,24 +699,56 @@ class InspectorPanel(QWidget):
         return (rect.width(), rect.height())
 
     def _build_table(self, item, form: QFormLayout) -> None:
-        """Zellen und Gitter. Steuerelemente gelten fuer die gewaehlten Zellen."""
+        """Drei Register wie im P-touch Editor: Text, Zelle, Tabelle."""
         self._loading = True
         try:
-            self._build_table_fields(item, form)
+            tabs = QTabBar()
+            tabs.setObjectName("table_inspector_tabs")
+            tabs.setDocumentMode(True)
+            tabs.setExpanding(True)
+            tabs.setDrawBase(False)
+            tabs.addTab(tr("Text"))
+            tabs.addTab(tr("Zelle"))
+            tabs.addTab(tr("Tabelle"))
+            stack = QStackedWidget()
+            for page in (
+                self._table_text_page(item),
+                self._table_cell_page(item),
+                self._table_frame_page(item),
+            ):
+                stack.addWidget(page)
+            index = min(self._table_page, tabs.count() - 1)
+
+            def show_page(page: int) -> None:
+                self._table_page = page
+                stack.setCurrentIndex(page)
+
+            tabs.currentChanged.connect(show_page)
+            tabs.setCurrentIndex(index)
+            stack.setCurrentIndex(index)
+            form.addRow(tabs)
+            form.addRow(stack)
         finally:
             self._loading = False
 
-    def _build_table_fields(self, item, form: QFormLayout) -> None:
+    def _table_text_page(self, item) -> QWidget:
+        """Dieselbe Textleiste wie beim freien Textfeld, auf die gewaehlten Zellen."""
+        page = QWidget()
+        form = QFormLayout(page)
+        form.setContentsMargins(0, 8, 0, 0)
+        form.setLabelAlignment(Qt.AlignmentFlag.AlignRight)
+        form.setRowWrapPolicy(QFormLayout.RowWrapPolicy.WrapLongRows)
+
         same_text, text = item.selected_uniform("text")
         edit = QPlainTextEdit("" if not same_text else str(text or ""))
-        edit.setFixedHeight(64)
+        edit.setFixedHeight(52)
         if not same_text:
             edit.setPlaceholderText(tr("Mehrere Zellen"))
         edit.textChanged.connect(
             lambda: self._apply_live(lambda: item.set_selected("text", edit.toPlainText()))
         )
         edit.installEventFilter(self)
-        form.addRow(tr("Text"), edit)
+        form.addRow(edit)
 
         same_font, family = item.selected_uniform("font_family")
         font_box = QFontComboBox()
@@ -739,54 +770,67 @@ class InspectorPanel(QWidget):
         self._wire_spin(size, lambda v: item.set_selected("font_pixel_size", v))
         form.addRow(tr("Größe (px)"), size)
 
-        self._table_check(form, item, "bold", tr("Fett"))
-        self._table_check(form, item, "italic", tr("Kursiv"))
-        self._table_check(form, item, "underline", tr("Unterstrichen"))
+        form.addRow(self._rule())
+        style = [
+            self._cell_toggle(item, "bold", "bold", tr("Fett")),
+            self._cell_toggle(item, "italic", "italic", tr("Kursiv")),
+            self._cell_toggle(item, "underline", "underline", tr("Unterstrichen")),
+        ]
+        if self._allow_red:
+            style.extend((self._divider(), self._cell_color_button(item)))
+        form.addRow(self._bar(*style))
 
-        self._table_choice(form, item, "align", tr("Textausrichtung"), ALIGN_CHOICES, align_label)
-        self._table_choice(
-            form, item, "valign", tr("Vertikale Ausrichtung"), VALIGN_CHOICES, valign_label
-        )
-
-        color = QComboBox()
-        color.addItem(tr("schwarz"), "black")
-        color.addItem(tr("rot"), "red")
-        same_color, color_value = item.selected_uniform("color")
-        color.setCurrentIndex(1 if same_color and color_value == "red" else 0)
-        color.setEnabled(self._allow_red)
-        color.currentIndexChanged.connect(
-            lambda: self._apply_now(lambda: item.set_selected("color", color.currentData()))
-        )
-        form.addRow(tr("Farbe"), color)
-
-        form.addRow(self._section(tr("Zeilen und Spalten")))
-        grid = QGridLayout()
-        grid.setContentsMargins(0, 0, 0, 0)
-        grid.setSpacing(4)
-        actions = (
-            (0, 0, tr("Zeile darüber"), item.insert_row_above, True, ""),
-            (0, 1, tr("Spalte links"), item.insert_column_left, True, ""),
-            (1, 0, tr("Zeile löschen"), item.delete_selected_rows, item.can_delete_row(), ""),
-            (1, 1, tr("Spalte löschen"), item.delete_selected_columns, item.can_delete_column(), ""),
-            (
-                2, 0, tr("Zellen verbinden"), item.merge_selected, item.can_merge(),
-                tr("Umschalt-Klick markiert mehrere Zellen"),
+        form.addRow(self._rule())
+        form.addRow(
+            tr("Textausrichtung"),
+            self._cell_choice(
+                item,
+                "align",
+                [
+                    ("align_left", tr("Links"), "left"),
+                    ("align_hcenter", tr("Mitte"), "center"),
+                    ("align_right", tr("Rechts"), "right"),
+                ],
             ),
-            (2, 1, tr("Verbindung aufheben"), item.unmerge_selected, item.can_unmerge(), ""),
-            (3, 0, tr("Höhen verteilen"), item.distribute_selected_heights, item.can_distribute_heights(), ""),
-            (3, 1, tr("Breiten verteilen"), item.distribute_selected_widths, item.can_distribute_widths(), ""),
         )
-        for row, col, label, fn, enabled, tip in actions:
-            button = QPushButton(label)
-            button.setEnabled(enabled)
-            if tip:
-                button.setToolTip(tip)
-            button.clicked.connect(lambda _checked=False, call=fn: self._apply_now(call))
-            grid.addWidget(button, row, col)
-        holder = QWidget()
-        holder.setLayout(grid)
-        form.addRow(holder)
+        form.addRow(
+            tr("Vertikal ausrichten"),
+            self._cell_choice(
+                item,
+                "valign",
+                [
+                    ("align_top", tr("Oben"), "top"),
+                    ("align_vcenter", tr("Mitte"), "middle"),
+                    ("align_bottom", tr("Unten"), "bottom"),
+                ],
+            ),
+        )
+        return page
 
+    def _table_cell_page(self, item) -> QWidget:
+        """Zelle: Verbindung, Masse, Fuellung."""
+        page = QWidget()
+        form = QFormLayout(page)
+        form.setContentsMargins(0, 8, 0, 0)
+        form.setLabelAlignment(Qt.AlignmentFlag.AlignRight)
+        form.setRowWrapPolicy(QFormLayout.RowWrapPolicy.WrapLongRows)
+        form.addRow(
+            self._bar(
+                self._icon_action(
+                    "cells_merge",
+                    tr("Zellen verbinden"),
+                    item.merge_selected,
+                    item.can_merge(),
+                    tr("Umschalt-Klick markiert mehrere Zellen"),
+                ),
+                self._icon_action(
+                    "cells_split",
+                    tr("Verbindung aufheben"),
+                    item.unmerge_selected,
+                    item.can_unmerge(),
+                ),
+            )
+        )
         _same_h, row_h = item.selected_row_height()
         height = QDoubleSpinBox()
         height.setRange(1.0, 500.0)
@@ -805,16 +849,71 @@ class InspectorPanel(QWidget):
         self._wire_spin(width, lambda v: item.set_selected_col_width(mm_to_dots(v)))
         form.addRow(tr("Spaltenbreite"), width)
 
+        same_fill, fill_value = item.selected_uniform("fill")
+        fill = QComboBox()
+        for key in FILL_CHOICES:
+            fill.addItem(fill_label(key), key)
+        if same_fill:
+            fill.setCurrentIndex(max(0, fill.findData(fill_value)))
+        else:
+            fill.setCurrentIndex(-1)
+        fill.currentIndexChanged.connect(
+            lambda: self._apply_now(lambda: item.set_selected("fill", fill.currentData()))
+            if fill.currentIndex() >= 0
+            else None
+        )
+        form.addRow(tr("Füllung"), fill)
+        return page
+
+    def _table_frame_page(self, item) -> QWidget:
+        """Tabelle: Zeilen, Spalten, Linien."""
+        page = QWidget()
+        form = QFormLayout(page)
+        form.setContentsMargins(0, 8, 0, 0)
+        form.setLabelAlignment(Qt.AlignmentFlag.AlignRight)
+        form.setRowWrapPolicy(QFormLayout.RowWrapPolicy.WrapLongRows)
+        form.addRow(
+            self._bar(
+                self._icon_action("row_above", tr("Zeile darüber"), item.insert_row_above),
+                self._icon_action("col_left", tr("Spalte links"), item.insert_column_left),
+                self._divider(),
+                self._icon_action(
+                    "row_delete",
+                    tr("Zeile löschen"),
+                    item.delete_selected_rows,
+                    item.can_delete_row(),
+                ),
+                self._icon_action(
+                    "col_delete",
+                    tr("Spalte löschen"),
+                    item.delete_selected_columns,
+                    item.can_delete_column(),
+                ),
+            )
+        )
+        form.addRow(
+            self._bar(
+                self._icon_action(
+                    "distribute_heights",
+                    tr("Höhen verteilen"),
+                    item.distribute_selected_heights,
+                    item.can_distribute_heights(),
+                ),
+                self._icon_action(
+                    "distribute_widths",
+                    tr("Breiten verteilen"),
+                    item.distribute_selected_widths,
+                    item.can_distribute_widths(),
+                ),
+            )
+        )
         fixed = QCheckBox(tr("Feste Tabellengröße"))
         fixed.setToolTip(
             tr("Feste Größe: eine Spalte oder Zeile wächst auf Kosten der Nachbarn")
         )
         fixed.setChecked(item.fixed_size)
         fixed.toggled.connect(lambda v: self._apply_now(lambda: item.set_fixed_size(v)))
-        form.addRow("", fixed)
-
-        self._table_choice(form, item, "fill", tr("Füllung"), FILL_CHOICES, fill_label)
-        form.addRow(self._section(tr("Linie")))
+        form.addRow(fixed)
 
         line = QDoubleSpinBox()
         line.setRange(0.5, 40.0)
@@ -832,40 +931,66 @@ class InspectorPanel(QWidget):
             lambda: self._apply_now(lambda: item.set_line_style(style.currentData()))
         )
         form.addRow(tr("Linienart"), style)
+        return page
 
-    def _table_check(self, form: QFormLayout, item, name: str, label: str) -> None:
+    def _cell_toggle(self, item, name: str, icon_name: str, tip: str) -> QToolButton:
         same, value = item.selected_uniform(name)
-        box = QCheckBox(label)
-        box.setChecked(bool(value) if same else False)
-        if not same:
-            box.setToolTip(tr("Mehrere Zellen"))
-        box.toggled.connect(
-            lambda v: self._apply_now(lambda: item.set_selected(name, v))
+        button = self._toggle(
+            icon_name,
+            tip if same else tr("Mehrere Zellen"),
+            bool(value) if same else False,
+            lambda v, field=name: item.set_selected(field, v),
         )
-        form.addRow("", box)
+        return button
 
-    def _table_choice(self, form, item, name: str, label: str, choices, label_of) -> None:
+    def _cell_choice(self, item, name: str, options) -> QWidget:
         same, value = item.selected_uniform(name)
-        box = QComboBox()
-        for key in choices:
-            box.addItem(label_of(key), key)
-        if same:
-            idx = box.findData(value)
-            box.setCurrentIndex(idx if idx >= 0 else 0)
-        else:
-            box.setCurrentIndex(-1)
-        box.currentIndexChanged.connect(
-            lambda: self._apply_now(lambda: item.set_selected(name, box.currentData()))
-            if box.currentIndex() >= 0
-            else None
+        return self._choice(
+            options,
+            value if same else None,
+            lambda chosen, field=name: item.set_selected(field, chosen),
         )
-        form.addRow(label, box)
 
-    @staticmethod
-    def _section(text: str) -> QLabel:
-        label = QLabel(text)
-        label.setStyleSheet("font-weight:600; margin-top:6px;")
-        return label
+    def _cell_color_button(self, item) -> QToolButton:
+        same, color_value = item.selected_uniform("color")
+        button = QToolButton()
+        button.setText("A")
+        button.setToolTip(tr("Farbe") if same else tr("Mehrere Zellen"))
+        button.setAutoRaise(True)
+        button.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        button.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
+        menu = QMenu(button)
+        group = QActionGroup(menu)
+        for label, value in ((tr("schwarz"), "black"), (tr("rot"), "red")):
+            act = menu.addAction(label)
+            act.setCheckable(True)
+            act.setChecked(same and color_value == value)
+            group.addAction(act)
+            act.triggered.connect(
+                lambda _=False, v=value: self._apply_now(
+                    lambda: item.set_selected("color", v)
+                )
+            )
+        button.setMenu(menu)
+        return button
+
+    def _icon_action(
+        self,
+        name: str,
+        tip: str,
+        fn,
+        enabled: bool = True,
+        extra_tip: str = "",
+    ) -> QToolButton:
+        """Symbolknopf ohne Beschriftung (Tabellenbefehle)."""
+        button = QToolButton()
+        button.setIcon(icon(name))
+        button.setToolTip(tip if not extra_tip else f"{tip}\n{extra_tip}")
+        button.setAutoRaise(True)
+        button.setEnabled(enabled)
+        button.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        button.clicked.connect(lambda _checked=False, call=fn: self._apply_now(call))
+        return button
 
     def _build_clipart(self, item, form: QFormLayout) -> None:
         name = QLabel(symbol_label(item.symbol))
