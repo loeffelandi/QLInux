@@ -675,16 +675,30 @@ def _draw_flag_de(p: QPainter, color: QColor) -> None:
 
 
 def _draw_flag_en(p: QPainter, color: QColor) -> None:
-    """Georgskreuz. Der Rand folgt der Textfarbe, damit Weiss hell sichtbar bleibt."""
+    """Union Jack, klein gehalten. Der Rand folgt der Textfarbe."""
     x, y, width, height = 3.5, 6.0, 17.0, 12.0
+    rect = QRectF(x, y, width, height)
+    p.save()
+    p.setClipRect(rect)
+    _fill_only(p, QColor("#012169"))
+    p.drawRect(rect)
+    _stroke_only(p, QColor("#FFFFFF"), 3.4)
+    _line(p, x, y, x + width, y + height)
+    _line(p, x + width, y, x, y + height)
+    _stroke_only(p, QColor("#C8102E"), 1.4)
+    _line(p, x, y, x + width, y + height)
+    _line(p, x + width, y, x, y + height)
     _fill_only(p, QColor("#FFFFFF"))
-    p.drawRect(QRectF(x, y, width, height))
-    _fill_only(p, QColor("#CF142B"))
-    bar = 3.2
-    p.drawRect(QRectF(x, y + (height - bar) / 2.0, width, bar))
-    p.drawRect(QRectF(x + (width - bar) / 2.0, y, bar, height))
+    band = 3.8
+    p.drawRect(QRectF(x, y + (height - band) / 2.0, width, band))
+    p.drawRect(QRectF(x + (width - band) / 2.0, y, band, height))
+    _fill_only(p, QColor("#C8102E"))
+    band = 2.1
+    p.drawRect(QRectF(x, y + (height - band) / 2.0, width, band))
+    p.drawRect(QRectF(x + (width - band) / 2.0, y, band, height))
+    p.restore()
     _stroke_only(p, color, 1.2)
-    p.drawRect(QRectF(x, y, width, height))
+    p.drawRect(rect)
 
 
 def _draw_language(p: QPainter, color: QColor) -> None:

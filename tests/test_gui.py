@@ -5075,6 +5075,14 @@ def test_language_switch_is_offered_in_the_menu(qapp, tmp_path):
     flags = [action.icon() for action in submenu.actions()]
     assert all(not flag.isNull() for flag in flags)
     assert flags[0].cacheKey() != flags[1].cacheKey()
+    english = flags[1].pixmap(24, 24).toImage()
+    blue = 0
+    for px in range(english.width()):
+        for py in range(english.height()):
+            pixel = english.pixelColor(px, py)
+            if pixel.blue() > 80 and pixel.blue() > pixel.red() + 30 and pixel.alpha() > 200:
+                blue += 1
+    assert blue > 8
     win.close()
 
 
