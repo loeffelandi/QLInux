@@ -1358,6 +1358,27 @@ def test_inspector_shows_only_selected_kind(qapp):
     assert inspector._title.text() == "Nichts ausgewählt"
 
 
+def test_inspector_puts_x_and_y_on_one_row(qapp):
+    from PySide6.QtWidgets import QLabel, QSpinBox
+
+    from ql_editor.inspector import InspectorPanel
+
+    inspector = InspectorPanel()
+    inspector.set_item(TextItem("Hallo"))
+
+    labels = {label.text(): label for label in inspector.findChildren(QLabel)}
+    assert "X" in labels
+    assert "Y" in labels
+    assert "X (Dots)" not in labels
+    assert "Y (Dots)" not in labels
+    assert labels["X"].parentWidget() is labels["Y"].parentWidget()
+
+    xy_row = labels["X"].parentWidget()
+    assert len(xy_row.findChildren(QSpinBox)) == 2
+    assert "Drehung" in labels
+    assert labels["Drehung"].parentWidget() is not xy_row
+
+
 def test_mainwindow_double_click_creates_text(qapp):
     from PySide6.QtCore import QPointF
 

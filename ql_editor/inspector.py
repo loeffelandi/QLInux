@@ -945,13 +945,21 @@ class InspectorPanel(QWidget):
         x.setRange(-10000, 10000)
         x.setValue(int(pos.x()))
         self._wire_spin(x, lambda v: item.setPos(v, item.pos().y()))
-        form.addRow(tr("X (Dots)"), x)
 
         y = QSpinBox()
         y.setRange(-10000, 10000)
         y.setValue(int(pos.y()))
         self._wire_spin(y, lambda v: item.setPos(item.pos().x(), v))
-        form.addRow(tr("Y (Dots)"), y)
+
+        xy_row = QWidget()
+        xy_layout = QHBoxLayout(xy_row)
+        xy_layout.setContentsMargins(0, 0, 0, 0)
+        xy_layout.setSpacing(6)
+        xy_layout.addWidget(QLabel(tr("X")))
+        xy_layout.addWidget(x, 1)
+        xy_layout.addWidget(QLabel(tr("Y")))
+        xy_layout.addWidget(y, 1)
+        form.addRow(xy_row)
 
         rot = QSpinBox()
         rot.setRange(-180, 180)
