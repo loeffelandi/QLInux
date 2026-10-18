@@ -461,12 +461,17 @@ def test_shorter_csv_does_not_forget_the_record_range(qapp, tmp_path):
     assert win._range_from.value() == 2
     assert win._range_to.value() == 3
     assert win._range_request_to == 8
+    # Nur „Von“ anfassen. Die geklemmte 3 darf die gemerkte 8 nicht ersetzen.
+    win._range_from.setValue(1)
+    assert win._range_request_from == 1
+    assert win._range_request_to == 8
+    assert win._range_to.value() == 3
     # close() speichert die gemerkten Grenzen. Sonst raeumt conftest nur auf.
     win.close()
 
     again = MainWindow(discover=False)
     assert again._scope_range.isChecked()
-    assert again._range_from.value() == 2
+    assert again._range_from.value() == 1
     assert again._range_to.value() == 8
 
 

@@ -805,8 +805,8 @@ class MainWindow(QMainWindow):
         self._hq_check.toggled.connect(self._on_hq_toggled)
         for radio in (self._scope_selected, self._scope_all, self._scope_range):
             radio.toggled.connect(self._on_print_scope_toggled)
-        self._range_from.valueChanged.connect(self._on_print_range_edited)
-        self._range_to.valueChanged.connect(self._on_print_range_edited)
+        self._range_from.valueChanged.connect(self._on_print_range_from_edited)
+        self._range_to.valueChanged.connect(self._on_print_range_to_edited)
         self._sync_resolution_options()
         self._sync_print_scope_ui()
         return widget
@@ -820,10 +820,16 @@ class MainWindow(QMainWindow):
         self._range_request_from = max(1, int(start))
         self._range_request_to = max(1, int(end))
 
-    def _on_print_range_edited(self, _value: int) -> None:
+    def _on_print_range_from_edited(self, value: int) -> None:
         if self._syncing_print_range:
             return
-        self._remember_print_range(self._range_from.value(), self._range_to.value())
+        self._range_request_from = max(1, int(value))
+        self._sync_cut_options()
+
+    def _on_print_range_to_edited(self, value: int) -> None:
+        if self._syncing_print_range:
+            return
+        self._range_request_to = max(1, int(value))
         self._sync_cut_options()
 
     def _print_scope(self) -> str:
