@@ -9,8 +9,8 @@ Gezeichnet wird bewusst schlicht (ein Etikettenstreifen mit "QL"): es muss bei
 32 px in einer Fensterliste genauso lesbar sein wie bei 256 px im Dock.
 
 Dazu kommen die Symbole fuer die Dateitypen ``.qlx`` und ``.lbx``: ein Blatt
-mit Eselsohr, unten ein Streifen mit dem Kuerzel. Die Dateinamen stehen in
-``packaging/ql-editor-mime.xml``.
+mit Eselsohr, unten ein Streifen mit dem Kuerzel, in 256 und 128 px. Die
+Dateinamen stehen in ``packaging/ql-editor-mime.xml``.
 """
 
 from __future__ import annotations
@@ -51,6 +51,9 @@ MIME_ICONS = {
     "application-x-brother-lbx.png": ("LBX", "#1f5fa8"),
 }
 MIME_TARGET_DIR = ROOT / "assets" / "mimetypes"
+#: Zusaetzlich zu 256, damit Dateimanager nicht nur die grosse Stufe skalieren.
+MIME_SMALL = 128
+MIME_SMALL_DIR = MIME_TARGET_DIR / "128"
 
 
 def build_icon() -> QImage:
@@ -158,12 +161,25 @@ def main() -> int:
         return 1
     print(f"geschrieben: {TARGET} ({SIZE}x{SIZE})")
     MIME_TARGET_DIR.mkdir(parents=True, exist_ok=True)
+    MIME_SMALL_DIR.mkdir(parents=True, exist_ok=True)
     for name, (badge, color) in MIME_ICONS.items():
+        image = build_mime_icon(badge, color)
         target = MIME_TARGET_DIR / name
-        if not build_mime_icon(badge, color).save(str(target)):
+        if not image.save(str(target)):
             print(f"konnte {target} nicht schreiben", file=sys.stderr)
             return 1
         print(f"geschrieben: {target} ({SIZE}x{SIZE})")
+        small = image.scaled(
+            MIME_SMALL,
+            MIME_SMALL,
+            Qt.AspectRatioMode.IgnoreAspectRatio,
+            Qt.TransformationMode.SmoothTransformation,
+        )
+        small_target = MIME_SMALL_DIR / name
+        if not small.save(str(small_target)):
+            print(f"konnte {small_target} nicht schreiben", file=sys.stderr)
+            return 1
+        print(f"geschrieben: {small_target} ({MIME_SMALL}x{MIME_SMALL})")
     return 0
 
 

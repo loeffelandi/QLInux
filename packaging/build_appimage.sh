@@ -52,11 +52,16 @@ install -m 0644 "$ROOT/assets/ql-editor.png" "$APPDIR/ql-editor.png"
 install -m 0644 "$ROOT/assets/ql-editor.png" \
     "$APPDIR/usr/share/icons/hicolor/256x256/apps/ql-editor.png"
 # Dateitypen: .qlx und .lbx (MIME-Definition + Symbole fuer beide Typen).
-mkdir -p "$APPDIR/usr/share/mime/packages" "$APPDIR/usr/share/icons/hicolor/256x256/mimetypes"
+mkdir -p "$APPDIR/usr/share/mime/packages" \
+    "$APPDIR/usr/share/icons/hicolor/256x256/mimetypes" \
+    "$APPDIR/usr/share/icons/hicolor/128x128/mimetypes"
 install -m 0644 "$ROOT/packaging/ql-editor-mime.xml" \
     "$APPDIR/usr/share/mime/packages/ql-editor-mime.xml"
 for icon in "$ROOT"/assets/mimetypes/*.png; do
     install -m 0644 "$icon" "$APPDIR/usr/share/icons/hicolor/256x256/mimetypes/"
+done
+for icon in "$ROOT"/assets/mimetypes/128/*.png; do
+    install -m 0644 "$icon" "$APPDIR/usr/share/icons/hicolor/128x128/mimetypes/"
 done
 
 echo "==> appimagetool"

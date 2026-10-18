@@ -1,4 +1,5 @@
-"""Canvas-Items fuer den Editor: Text, Bild, Barcode, QR, Linie, Rahmen, Tabelle, Datum, Clip Art.
+"""Canvas-Items fuer den Editor: Text, Bild, Barcode, QR, Linie, Rahmen, Formen
+(``ShapeItem``: Ellipse, Dreieck, Stern, Pfeile), Tabelle, Datum, Clip Art.
 
 Jedes Item:
 

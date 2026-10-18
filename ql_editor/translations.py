@@ -160,6 +160,10 @@ EN: dict[str, str] = {
     "Symbologie": "Symbology",
     "In den Vordergrund": "Bring to front",
     "In den Hintergrund": "Send to back",
+    "Eine Ebene nach vorn": "Bring forward",
+    "Eine Ebene nach hinten": "Send backward",
+    "An Hilfslinien ausrichten": "Align to guides",
+    "Layout": "Layout",
     "Löschen": "Delete",
     "Löschen (Entf)": "Delete (Del)",
     # -- Zoom und Vorschau --------------------------------------------------

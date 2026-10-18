@@ -123,7 +123,8 @@ Settings (last printer, tape, print options, language) are stored in
 | Ctrl + click | Add or remove an object from the selection |
 | Shift + arrow keys | Move the selected object in larger steps |
 | Shift + click in a table | Extend the cell selection |
-| Shift while rotating | Rotate in 15° steps (plain rotation snaps to 90°, sticky) |
+| Rotating without Shift | Stick to the nearest 90° until the pointer moves clearly away |
+| Shift while rotating | Rotate in 15° steps |
 
 ## Margins
 
@@ -166,7 +167,10 @@ xdg-mime default ql-editor.desktop application/x-brother-lbx
 
 A file opened from the file manager always gets its own tab. If QLInux is
 already running, the file opens as a new tab in that window and the window comes
-to the front. Only when QLInux is not running yet does a new window start; the
+to the front. Starting QLInux again with no file does the same focus and the
+second process exits, instead of opening another window. On Wayland the
+compositor may ignore that raise, so the running window is not always focused.
+Only when QLInux is not running yet does a new window start; the
 empty starting label is then replaced by the file, unless you already changed it.
 
 ### Opening a Brother `.lbx` file

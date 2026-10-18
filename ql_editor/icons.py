@@ -69,6 +69,12 @@ ICON_COLORS: dict[str, str] = {
     "line": "#597697",       # Zusatzfarbe indigo
     "rect": "#597697",
     "shape": "#597697",
+    "shape_ellipse": "#597697",
+    "shape_triangle": "#597697",
+    "shape_star": "#597697",
+    "shape_arrow_right": "#597697",
+    "shape_arrow_left": "#597697",
+    "shape_arrow_double": "#597697",
     "table": "#3f6f54",
     "datetime": "#3d6d8c",
     "clipart": "#7a4e2d",

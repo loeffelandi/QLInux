@@ -14,8 +14,8 @@ sofort bei Schaltern).
 
 from __future__ import annotations
 
-from PySide6.QtCore import QDate, QSize, QTime, Qt, QTimer, Signal
-from PySide6.QtGui import QActionGroup, QFont
+from PySide6.QtCore import QDate, QRectF, QSize, QTime, Qt, QTimer, Signal
+from PySide6.QtGui import QActionGroup, QColor, QFont, QIcon, QPainter, QPixmap
 from PySide6.QtWidgets import (
     QButtonGroup,
     QCheckBox,
@@ -61,6 +61,29 @@ from .media import dots_to_mm, mm_to_dots
 from .widgets import install_wheel_guard_recursive
 
 BARCODE_SYMBOLOGIES = ["code128", "code39", "ean13", "ean8", "upca", "itf", "codabar"]
+
+
+def _text_color_icon(value: str | None) -> QIcon:
+    """„A“ mit Balken in der Schriftfarbe (nicht der nackte Buchstabe)."""
+    pixmap = QPixmap(24, 24)
+    pixmap.fill(Qt.GlobalColor.transparent)
+    painter = QPainter(pixmap)
+    painter.setRenderHint(QPainter.RenderHint.TextAntialiasing, True)
+    font = QFont("DejaVu Sans")
+    font.setBold(True)
+    font.setPixelSize(15)
+    painter.setFont(font)
+    painter.setPen(QColor("#222222"))
+    painter.drawText(QRectF(0, 0, 24, 18), Qt.AlignmentFlag.AlignCenter, "A")
+    if value == "red":
+        bar = QColor("red")
+    elif value == "black":
+        bar = QColor("#222222")
+    else:
+        bar = QColor("#888888")
+    painter.fillRect(QRectF(5, 19, 14, 3), bar)
+    painter.end()
+    return QIcon(pixmap)
 
 
 class InspectorPanel(QWidget):
@@ -281,9 +304,10 @@ class InspectorPanel(QWidget):
         return button
 
     def _color_menu_button(self, tip: str, current, apply_fn) -> QToolButton:
-        """„A“-Knopf: Menue mit Schwarz/Rot. ``current`` ist None bei Mischauswahl."""
+        """Farbknopf mit „A“ und Farbstrich. ``current`` ist None bei Mischauswahl."""
         button = QToolButton()
-        button.setText("A")
+        button.setIcon(_text_color_icon(current))
+        button.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonIconOnly)
         button.setToolTip(tip)
         button.setAutoRaise(True)
         button.setFocusPolicy(Qt.FocusPolicy.NoFocus)
@@ -296,13 +320,17 @@ class InspectorPanel(QWidget):
             act.setChecked(current == value)
             group.addAction(act)
             act.triggered.connect(
-                lambda _=False, v=value: self._apply_now(lambda: apply_fn(v))
+                lambda _=False, v=value: self._choose_text_color(button, apply_fn, v)
             )
         button.setMenu(menu)
         return button
 
+    def _choose_text_color(self, button: QToolButton, apply_fn, value: str) -> None:
+        button.setIcon(_text_color_icon(value))
+        self._apply_now(lambda: apply_fn(value))
+
     def _color_button(self, item) -> QToolButton:
-        """„A“-Knopf wie in Textverarbeitungen: Menue mit Schwarz/Rot."""
+        """Farbknopf: Symbol mit der aktuellen Schriftfarbe, Menue Schwarz/Rot."""
         return self._color_menu_button(tr("Farbe"), item.color, item.set_text_color)
 
     def _choice(self, options, current, apply_fn) -> QWidget:

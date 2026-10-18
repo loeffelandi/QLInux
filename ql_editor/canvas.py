@@ -24,7 +24,9 @@ Direkte Bearbeitung mit der Maus (modernes Editor-Gefuehl):
   gegenueberliegende Griff bleibt stehen (auch bei gedrehten Objekten), der
   Cursor dreht sich mit.
 * **Drehen**: Kreisfoermiger Griff ueber dem Objekt, gedreht wird um die
-  Objektmitte (Shift rastet auf 15 Grad).
+  Objektmitte. Ohne Modifier haftet der Winkel an der naechsten 90-Grad-Raste
+  (sticky), bis der Zeiger deutlich weggezogen wird. Shift rastet stattdessen
+  auf 15 Grad.
 * **Mehrfachauswahl**: Gummiband auf freier Flaeche; **Ctrl+Klick** schaltet
   einzelne Objekte zur Auswahl hinzu/ab.
 * **Drag & Drop**: Bilddateien aus dem Dateimanager auf den Canvas ziehen.
@@ -1219,6 +1221,7 @@ class LabelCanvas(QGraphicsView):
                 scene_pos.y() - self._op_rotate_center.y(),
                 scene_pos.x() - self._op_rotate_center.x(),
             )
+            self._set_hint(tr("Shift: 15°-Schritte"))
         else:
             self._op = "resize"
 
@@ -1311,21 +1314,26 @@ class LabelCanvas(QGraphicsView):
                 self.viewport().setCursor(self._cursor_for_handle(hovered, name))
             else:
                 self.viewport().unsetCursor()
-        hint = ""
-        if handle is not None and handle[0] == "rotate":
-            hint = tr("Shift: 15°-Schritte")
-        else:
-            item = self._top_serializable_item_at(self._event_pos(event))
-            if item is None:
-                hint = tr("Strg+Rad: zoomen")
-            elif not item.isSelected():
-                hint = tr("Strg+Klick: zur Auswahl hinzufügen")
-        self._set_hint(hint)
+        self._update_idle_hint(scene_pos, self._event_pos(event))
         super().mouseMoveEvent(event)
 
     def leaveEvent(self, event) -> None:  # noqa: N802
         self._set_hint("")
         super().leaveEvent(event)
+
+    def _update_idle_hint(self, scene_pos: QPointF, view_pos: QPoint) -> None:
+        """Statusleisten-Hinweis nach Zeigerlage, wenn keine Geste laeuft."""
+        handle = self._handle_at(scene_pos)
+        hint = ""
+        if handle is not None and handle[0] == "rotate":
+            hint = tr("Shift: 15°-Schritte")
+        else:
+            item = self._top_serializable_item_at(view_pos)
+            if item is None:
+                hint = tr("Strg+Rad: zoomen")
+            elif not item.isSelected():
+                hint = tr("Strg+Klick: zur Auswahl hinzufügen")
+        self._set_hint(hint)
 
     def _set_hint(self, text: str) -> None:
         if text != self._hint:
@@ -1496,6 +1504,10 @@ class LabelCanvas(QGraphicsView):
                 # Nach der Geste: Scrollbereich an die neue Objektlage anpassen.
                 self._update_pasteboard()
                 self.items_changed.emit()
+            if finished == "rotate":
+                # Der Dreh-Pfad in mouseMove kehrt vor dem Hinweis zurueck.
+                view_pos = self._event_pos(event)
+                self._update_idle_hint(self.mapToScene(view_pos), view_pos)
             event.accept()
             return
         super().mouseReleaseEvent(event)
