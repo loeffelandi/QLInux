@@ -31,11 +31,16 @@ def test_unknown_shape_falls_back_to_ellipse():
     assert ShapeItem(QRectF(0, 0, 10, 10), "gibt-es-nicht").shape_name == "ellipse"
 
 
-def test_resize_changes_bounds():
-    item = ShapeItem(QRectF(0, 0, 50, 50), "triangle")
+@pytest.mark.parametrize("shape", SHAPES)
+def test_resize_changes_bounds(shape):
+    """Pfad-BoundingRect muss dem Ziel-_rect entsprechen (kein Handle-Drift)."""
+    item = ShapeItem(QRectF(0, 0, 50, 50), shape)
     item.apply_resize(200, 100)
-    assert item.path().boundingRect().width() == pytest.approx(200)
-    assert item.path().boundingRect().height() == pytest.approx(100)
+    bounds = item.path().boundingRect()
+    assert bounds.width() == pytest.approx(200)
+    assert bounds.height() == pytest.approx(100)
+    assert bounds.x() == pytest.approx(0)
+    assert bounds.y() == pytest.approx(0)
 
 
 def test_filled_arrow_renders_dark():

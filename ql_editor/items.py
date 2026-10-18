@@ -784,11 +784,22 @@ def _shape_path(shape: str, r: QRectF) -> QPainterPath:
     if shape == "triangle":
         points = [QPointF(cx, y), QPointF(x + w, y + h), QPointF(x, y + h)]
     elif shape == "star":
-        points = []
+        # Einheitstern um den Ursprung, dann so skalieren/verschieben, dass
+        # path.boundingRect() exakt ``r`` fuellt (sonst driftens die Handles).
+        unit: list[QPointF] = []
         for i in range(10):
             ratio = 1.0 if i % 2 == 0 else 0.45
             angle = -math.pi / 2 + i * math.pi / 5
-            points.append(QPointF(cx + w / 2 * ratio * math.cos(angle), cy + h / 2 * ratio * math.sin(angle)))
+            unit.append(QPointF(ratio * math.cos(angle), ratio * math.sin(angle)))
+        xs = [p.x() for p in unit]
+        ys = [p.y() for p in unit]
+        min_x, max_x = min(xs), max(xs)
+        min_y, max_y = min(ys), max(ys)
+        bw, bh = max_x - min_x, max_y - min_y
+        points = [
+            QPointF(x + (p.x() - min_x) / bw * w, y + (p.y() - min_y) / bh * h)
+            for p in unit
+        ]
     else:
         shaft = h / 4
         head = min(w / 2, h / 2)
