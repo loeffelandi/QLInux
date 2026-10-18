@@ -31,6 +31,8 @@ def write_lbx(
     images: dict[str, Image.Image] | None = None,
     raw_files: dict[str, bytes] | None = None,
     paper_extra: str = "",
+    extra_ns: str = "",
+    before_objects: str = "",
 ) -> Path:
     """Minimale ``.lbx`` schreiben."""
     if background is None:
@@ -39,12 +41,13 @@ def write_lbx(
             f'width="{pt(width_mm)}" height="{pt(10)}"/>'
         )
     xml = f"""<?xml version="1.0"?>
-<pt:document {NS} version="1.7">
+<pt:document {NS}{extra_ns} version="1.7">
   <pt:body currentSheet="Sheet 1">
     <style:sheet name="Sheet 1">
       <style:paper width="{pt(width_mm)}" height="{pt(height_mm)}"
         orientation="{orientation}" autoLength="{"true" if auto_length else "false"}" {paper_extra}/>
       {background}
+      {before_objects}
       <pt:objects>
         {objects}
       </pt:objects>
@@ -77,7 +80,13 @@ def text_object(
     body: str = "Hallo",
     font: str = "DIN",
     angle: str = "0",
+    expanded: str | None = None,
 ) -> str:
+    expanded_xml = ""
+    if expanded:
+        expanded_xml = (
+            f'<pt:expanded dbMergeFieldStyleName="{expanded}" dbRecordOffset="0"/>'
+        )
     return f"""
     <text:text>
       <pt:objectStyle x="{pt(x)}" y="{pt(y)}" width="{pt(width)}" height="{pt(height)}" angle="{angle}">
@@ -89,6 +98,7 @@ def text_object(
       </text:ptFontInfo>
       <text:textControl control="{control}" autoLF="{auto_lf}"/>
       <text:textAlign horizontalAlignment="{align}"/>
+      {expanded_xml}
       <pt:data>{body}</pt:data>
     </text:text>
     """

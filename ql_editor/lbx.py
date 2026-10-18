@@ -7,8 +7,10 @@ und folgende). Dieses Modul baut daraus ein QLInux-Dokument
 bleibt ``.qlx``; zurück nach ``.lbx`` schreiben wir nicht.
 
 Bewusst **ohne Qt**, damit der Import headless testbar ist. Was QLInux nicht
-abbildet (Barcode, Tabelle, Datenbank, Kabelvorlage, Datum), landet in
-``warnings`` und fehlt in der Objektliste - der Rest wird trotzdem geladen.
+abbildet (Barcode, Tabelle, Kabelvorlage, Datum), landet in ``warnings`` und
+fehlt in der Objektliste - der Rest wird trotzdem geladen. Datenbank-Merge
+(Namespace ``lbx/database``, Bindings, leere Merge-Texte) wird übernommen;
+ohne erreichbare CSV bleiben Layout, Bindings und Snapshots (D12).
 """
 
 from __future__ import annotations
@@ -23,8 +25,9 @@ from typing import Any
 
 from PIL import Image, ImageChops
 
-from . import document, media
+from . import csv_source, document, media
 from .i18n import tr
+from .merge import clamp_record_index
 
 #: Endung der P-touch-Dateien.
 LBX_SUFFIX = ".lbx"
@@ -46,6 +49,7 @@ _STYLE = "http://schemas.brother.info/ptouch/2007/lbx/style"
 _TEXT = "http://schemas.brother.info/ptouch/2007/lbx/text"
 _DRAW = "http://schemas.brother.info/ptouch/2007/lbx/draw"
 _IMAGE = "http://schemas.brother.info/ptouch/2007/lbx/image"
+_DATABASE = "http://schemas.brother.info/ptouch/2007/lbx/database"
 
 _ALIGN = {
     "LEFT": "left",
@@ -65,6 +69,9 @@ class _Lbx:
         self.warnings: list[str] = []
         self._skipped: Counter[str] = Counter()
         self._recovered: Counter[str] = Counter()
+        self.merge_styles: dict[str, str] = {}
+        self.database_imported = False
+        self.data_source: dict[str, Any] | None = None
         paper = root.find(f".//{{{_STYLE}}}paper")
         if paper is None:
             raise document.DocumentError(
@@ -139,11 +146,12 @@ def load(path: str | Path) -> dict[str, Any]:
                 )
             ) from exc
         lbx = _Lbx(path, archive, root)
+        _read_database(lbx)
         media_state = lbx_media(lbx)
         items = lbx_items(lbx)
         _note_red(lbx)
         lbx.finish_warnings()
-    data = document.build(media_state, items)
+    data = document.build(media_state, items, data_source=lbx.data_source)
     data["warnings"] = lbx.warnings
     return data
 
@@ -227,6 +235,9 @@ def _take(lbx: _Lbx, element: ET.Element, items: list[dict[str, Any]], *, nested
         item["z"] = float(len(items))
         items.append(item)
         return
+    if local == "database" and lbx.database_imported:
+        # Merge-Metadaten sind gelesen; kein pauschales „Datenbankfeld“.
+        return
     if local in _CONTAINERS:
         lbx._skipped[local] += 1
         before = len(items)
@@ -305,7 +316,9 @@ def _fixed_label(width_mm: float, height_mm: float) -> media.LabelSpec | None:
 def _text_item(lbx: _Lbx, element: ET.Element) -> dict[str, Any] | None:
     data = element.find(f"{{{_PT}}}data")
     text = data.text if data is not None and data.text else ""
-    if not text.strip():
+    field = _merge_field_name(element, lbx.merge_styles)
+    # Leere Merge-Snapshots bleiben (Filters/Accessories). Statischer Leertext nicht.
+    if not text.strip() and not field:
         return None
     style = _object_style(element)
     item, width, _height = _base(lbx, style, "text")
@@ -340,7 +353,148 @@ def _text_item(lbx: _Lbx, element: ET.Element) -> dict[str, Any] | None:
         align=align,
         text_width=text_width,
     )
+    if field:
+        item["binding"] = {"source": "database", "field": field}
     return item
+
+
+def _read_database(lbx: _Lbx) -> None:
+    """``database:database`` → ``data_source``; Styles → Spaltennamen (M3).
+
+    ``joinedField`` und ``removeEmptyLine`` werden nicht übernommen.
+    CSV: (1) ``databasePath``, wenn die Datei existiert, (2) ``mergeTable``
+    neben der ``.lbx``, (3) ``*Data*.csv`` / ``Fixture Data.csv`` im Ordner.
+    Fehlt die CSV, bleiben Pfad, Bindings und Snapshots plus Warnung (D12).
+    """
+    lbx.merge_styles = _merge_styles(lbx.root)
+    element = lbx.root.find(f".//{{{_DATABASE}}}database")
+    if element is None:
+        return
+    lbx.database_imported = True
+    database_path = (element.get("databasePath") or "").strip()
+    merge_table = (element.get("mergeTable") or "").strip()
+    current = _int(element.get("currentRecord"), 0)
+    if current < 0:
+        current = 0
+    contains = (element.get("containsFieldName") or "").strip().lower() == "true"
+    found = _find_merge_csv(lbx.path, database_path, merge_table)
+    source: dict[str, Any] = {
+        "type": "csv",
+        "containsFieldName": contains,
+    }
+    if found is None:
+        recorded = _recorded_csv_path(database_path, merge_table)
+        source["path"] = recorded
+        source["current_record"] = current
+        lbx.data_source = source
+        if recorded:
+            lbx.warnings.append(
+                tr("CSV zur Datenbank nicht gefunden: {path}").format(path=recorded)
+            )
+        else:
+            lbx.warnings.append(tr("CSV zur Datenbank nicht gefunden."))
+        return
+    try:
+        table = csv_source.load(found)
+    except csv_source.CsvSourceError as exc:
+        source["path"] = str(found)
+        source["current_record"] = current
+        lbx.data_source = source
+        lbx.warnings.append(
+            tr("CSV zur Datenbank nicht lesbar: {error}").format(error=exc)
+        )
+        return
+    index = clamp_record_index(current, len(table.records))
+    loaded = csv_source.data_source_dict(
+        table, path=found, current_record=index
+    )
+    loaded["containsFieldName"] = contains
+    lbx.data_source = loaded
+
+
+def _merge_styles(root: ET.Element) -> dict[str, str]:
+    """``dbMergeFieldStyle`` ``name`` → ``fieldName``. ``dbField`` bleibt ungenutzt."""
+    styles: dict[str, str] = {}
+    for element in root.iter():
+        if _local(element.tag) != "dbMergeFieldStyle":
+            continue
+        # joinedField / removeEmptyLine bewusst nicht lesen.
+        name = (element.get("name") or "").strip()
+        field = (element.get("fieldName") or "").strip() or name
+        if name and field:
+            styles[name] = field
+    return styles
+
+
+def _merge_field_name(element: ET.Element, styles: dict[str, str]) -> str | None:
+    """Spalte aus ``pt:expanded/@dbMergeFieldStyleName``, sonst ``None``."""
+    style_name = ""
+    for node in element.iter():
+        raw = node.get("dbMergeFieldStyleName")
+        if raw and raw.strip():
+            style_name = raw.strip()
+            break
+    if not style_name:
+        return None
+    field = (styles.get(style_name) or style_name).strip()
+    return field or None
+
+
+def _find_merge_csv(lbx_path: Path, database_path: str, merge_table: str) -> Path | None:
+    """CSV neben der ``.lbx`` suchen (D3/D12)."""
+    folder = lbx_path.parent
+    if database_path:
+        candidate = Path(database_path).expanduser()
+        if _is_file(candidate):
+            return candidate.resolve()
+        if not candidate.is_absolute():
+            beside = folder / candidate
+            if _is_file(beside):
+                return beside.resolve()
+    table_name = Path(merge_table).name if merge_table else ""
+    if table_name:
+        beside = folder / table_name
+        if _is_file(beside):
+            return beside.resolve()
+    matches = _data_csvs(folder)
+    for match in matches:
+        if match.name == "Fixture Data.csv":
+            return match.resolve()
+    if matches:
+        return matches[0].resolve()
+    return None
+
+
+def _data_csvs(folder: Path) -> list[Path]:
+    """``*Data*.csv`` im Ordner, Gross/Klein egal, nach Name sortiert."""
+    try:
+        entries = list(folder.iterdir())
+    except OSError:
+        return []
+    found = [
+        entry
+        for entry in entries
+        if entry.is_file()
+        and entry.suffix.lower() == ".csv"
+        and "data" in entry.name.lower()
+    ]
+    found.sort(key=lambda path: path.name.lower())
+    return found
+
+
+def _recorded_csv_path(database_path: str, merge_table: str) -> str:
+    if database_path:
+        return database_path
+    if merge_table:
+        return Path(merge_table).name or merge_table
+    return ""
+
+
+def _is_file(path: Path) -> bool:
+    try:
+        return path.is_file()
+    except OSError:
+        return False
 
 
 def _image_item(lbx: _Lbx, element: ET.Element) -> dict[str, Any] | None:

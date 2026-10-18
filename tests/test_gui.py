@@ -4180,6 +4180,54 @@ def test_an_untouched_tab_is_kept_when_a_file_opens(qapp, tmp_path):
     qapp.processEvents()
 
 
+def test_opening_an_lbx_merges_the_csv_beside_it(qapp, tmp_path):
+    """LBX-Import: CSV neben der Datei, Record 0-basiert, Speicherziel bleibt leer."""
+    from ql_editor import document
+    from tests.lbx_samples import text_object, write_lbx
+    from tests.test_lbx_database import _database
+
+    csv_path = tmp_path / "Fixture Data.csv"
+    lines = ["Circuit;Filters"]
+    for index in range(6):
+        lines.append(f"c{index};f{index}")
+    csv_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    objects = (
+        _database(database_path="/tmp/missing-fixture.csv", current_record="4")
+        + text_object(body="CH:", x=2)
+        + text_object(body="ALT", x=12, expanded="Circuit")
+        + text_object(body="", x=22, expanded="Filters")
+    )
+    path = write_lbx(
+        tmp_path / "labels.lbx",
+        width_mm=62,
+        height_mm=1000,
+        objects=objects,
+    )
+    win = _temp_window(qapp, tmp_path)
+    win._open_document_chosen(str(path))
+    qapp.processEvents()
+
+    texts = [item["text"] for item in win._canvas.items_serialized()]
+    assert "CH:" in texts
+    assert "c4" in texts
+    assert "f4" in texts
+    assert "ALT" not in texts
+    assert win._document_path == ""
+    assert win._active.current_record == 4
+    assert win._database_panel.current_record() == 4
+    assert win._active.data_source["containsFieldName"] is True
+
+    qlx = tmp_path / "labels.qlx"
+    assert win._save_document_to(str(qlx))
+    saved = document.load(qlx)
+    assert saved["data_source"]["path"] == "Fixture Data.csv"
+    assert [item["text"] for item in saved["items"]] == ["CH:", "c4", "f4"]
+    assert "records" not in saved["data_source"]
+
+    win.close()
+    qapp.processEvents()
+
+
 def test_an_lbx_warning_is_shown(qapp, tmp_path):
     """Was nicht übernommen wird, steht danach in einem Hinweis."""
     from PySide6.QtWidgets import QLabel

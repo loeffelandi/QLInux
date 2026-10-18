@@ -3073,10 +3073,10 @@ class MainWindow(QMainWindow):
         self._ask_about_tab(tab, on_save=_continue, on_discard=_continue, on_cancel=_cancel)
 
     # ------------------------------------------------------------- Dateien --
-    def _document_data(self) -> dict:
+    def _document_data(self, *, relative_to: str | None = None) -> dict:
         """Aktuelles Design als Dokumentdaten (Band/Design + Objekte + Merge)."""
         tab = self._require_tab()
-        data_source = self._data_source_for_save(tab)
+        data_source = self._data_source_for_save(tab, relative_to=relative_to)
         return document.build(
             self._media_panel.media_state(),
             self._canvas.items_serialized(),
@@ -3084,8 +3084,15 @@ class MainWindow(QMainWindow):
             serial=tab.serial,
         )
 
-    def _data_source_for_save(self, tab: LabelTab) -> dict[str, Any] | None:
-        """``data_source`` fuer Speichern: Pfad relativ zur ``.qlx`` (D3)."""
+    def _data_source_for_save(
+        self, tab: LabelTab, *, relative_to: str | None = None
+    ) -> dict[str, Any] | None:
+        """``data_source`` fuer Speichern: Pfad relativ zur ``.qlx`` (D3).
+
+        ``relative_to`` ist das Ziel der ``.qlx``, auch wenn der Reiter noch
+        keinen Pfad hat (erster Speichervorgang nach einem LBX-Import).
+        """
+        base = relative_to if relative_to is not None else (tab.path or None)
         if tab.csv_table is not None:
             csv_path = tab.csv_table.path
             if csv_path is None and tab.data_source:
@@ -3094,14 +3101,20 @@ class MainWindow(QMainWindow):
             if csv_path is None:
                 return None
             try:
-                return csv_source.data_source_dict(
+                stored = csv_source.data_source_dict(
                     tab.csv_table,
                     path=csv_path,
                     current_record=tab.current_record,
-                    relative_to=tab.path or None,
+                    relative_to=base,
                 )
             except csv_source.CsvSourceError:
                 pass
+            else:
+                if tab.data_source and "containsFieldName" in tab.data_source:
+                    stored["containsFieldName"] = tab.data_source.get(
+                        "containsFieldName"
+                    )
+                return stored
         if tab.data_source is None:
             return None
         stored = dict(tab.data_source)
@@ -3176,6 +3189,10 @@ class MainWindow(QMainWindow):
             path=stored_path,
             current_record=tab.current_record,
         )
+        if "containsFieldName" in raw_source:
+            tab.data_source["containsFieldName"] = raw_source.get(
+                "containsFieldName"
+            )
 
     def _restore_tab_database(
         self, tab: LabelTab, spec: Mapping[str, Any]
@@ -3417,9 +3434,9 @@ class MainWindow(QMainWindow):
                 return
         if new_tab or not self._can_reuse_current():
             self._create_tab()
-        self._apply_document(
-            data, document_path=None if imported else path
-        )
+        # Auch beim LBX-Import: relative CSV neben der Datei aufloesen.
+        # Der Pfad wird danach nicht als Speicherziel gemerkt.
+        self._apply_document(data, document_path=path)
         if imported:
             # Nicht als .lbx-Pfad merken: „Speichern" würde JSON hineinschreiben.
             # Der Reiter bleibt „Unbenannt*", der nächste Speicherdialog fragt
@@ -3513,7 +3530,7 @@ class MainWindow(QMainWindow):
     def _save_document_to(self, path: str) -> bool:
         """Design schreiben - ohne Dialog (auch fuer Tests und „Speichern")."""
         try:
-            document.save(path, self._document_data())
+            document.save(path, self._document_data(relative_to=path))
         except document.DocumentError as exc:
             show_message(self, "critical", tr("Etikett speichern"), str(exc))
             return False
