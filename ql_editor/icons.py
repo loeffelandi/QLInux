@@ -664,6 +664,43 @@ def _draw_usb(p: QPainter, color: QColor) -> None:
     p.drawEllipse(QPointF(12.0, 19.6), 1.7, 1.7)
 
 
+def _draw_flag_de(p: QPainter, color: QColor) -> None:
+    """Bundesflagge: Schwarz, Rot, Gold. ``color`` bleibt ungenutzt."""
+    del color
+    x, y, width, height = 3.5, 6.0, 17.0, 12.0
+    stripe = height / 3.0
+    for offset, value in ((0.0, "#000000"), (1.0, "#DD0000"), (2.0, "#FFCE00")):
+        _fill_only(p, QColor(value))
+        p.drawRect(QRectF(x, y + offset * stripe, width, stripe + 0.2))
+
+
+def _draw_flag_en(p: QPainter, color: QColor) -> None:
+    """Union Jack, klein gehalten. Der Rand folgt der Textfarbe."""
+    x, y, width, height = 3.5, 6.0, 17.0, 12.0
+    rect = QRectF(x, y, width, height)
+    p.save()
+    p.setClipRect(rect)
+    _fill_only(p, QColor("#012169"))
+    p.drawRect(rect)
+    _stroke_only(p, QColor("#FFFFFF"), 3.4)
+    _line(p, x, y, x + width, y + height)
+    _line(p, x + width, y, x, y + height)
+    _stroke_only(p, QColor("#C8102E"), 1.4)
+    _line(p, x, y, x + width, y + height)
+    _line(p, x + width, y, x, y + height)
+    _fill_only(p, QColor("#FFFFFF"))
+    band = 3.8
+    p.drawRect(QRectF(x, y + (height - band) / 2.0, width, band))
+    p.drawRect(QRectF(x + (width - band) / 2.0, y, band, height))
+    _fill_only(p, QColor("#C8102E"))
+    band = 2.1
+    p.drawRect(QRectF(x, y + (height - band) / 2.0, width, band))
+    p.drawRect(QRectF(x + (width - band) / 2.0, y, band, height))
+    p.restore()
+    _stroke_only(p, color, 1.2)
+    p.drawRect(rect)
+
+
 def _draw_language(p: QPainter, color: QColor) -> None:
     """Zwei Sprechblasen - das uebliche Symbol fuer Sprache/Sprachwahl."""
     _stroke_only(p, color, 1.6)
@@ -974,6 +1011,8 @@ _DRAW = {
     "preview": _draw_preview,
     "rotate": _draw_rotate,
     "language": _draw_language,
+    "flag_de": _draw_flag_de,
+    "flag_en": _draw_flag_en,
     "new": _draw_new,
     "close": _draw_close,
     "open": _draw_open,
