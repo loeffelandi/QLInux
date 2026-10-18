@@ -26,13 +26,15 @@ Direkte Bearbeitung mit der Maus (modernes Editor-Gefuehl):
 * **Hilfslinien**: vom oberen Lineal nach unten ziehen (waagerecht) oder vom
   linken Lineal nach rechts (senkrecht). Zurueck auf das Lineal ziehen
   entfernt die Linie. Sie bleibt sichtbar und gehoert zum Etikett.
-* **Groesse**: 8 Anfasser (Ecken + Kanten) am ausgewaehlten Objekt; der
-  gegenueberliegende Griff bleibt stehen (auch bei gedrehten Objekten), der
-  Cursor dreht sich mit.
+* **Groesse**: 8 Anfasser (Ecken + Kanten) am ausgewaehlten Objekt, schon bei
+  der ersten Auswahl; der gegenueberliegende Griff bleibt stehen (auch bei
+  gedrehten Objekten), der Cursor dreht sich mit.
 * **Drehen**: Kreisfoermiger Griff ueber dem Objekt, gedreht wird um die
   Objektmitte. Ohne Modifier haftet der Winkel an der naechsten 90-Grad-Raste
   (sticky), bis der Zeiger deutlich weggezogen wird. Shift rastet stattdessen
   auf 15 Grad.
+* **Marken**: Jedes Objekt behaelt leichte Eck- und Kantenstriche, auch ohne
+  Auswahl. Die Anfasser liegen darueber, solange das Objekt gewaehlt ist.
 * **Mehrfachauswahl**: Gummiband auf freier Flaeche; **Ctrl+Klick** schaltet
   einzelne Objekte zur Auswahl hinzu/ab.
 * **Drag & Drop**: Bilddateien aus dem Dateimanager auf den Canvas ziehen.
@@ -110,6 +112,8 @@ MIN_ZOOM = 0.05
 MAX_ZOOM = 8.0
 HANDLE_SIZE_PX = 9
 ROTATE_OFFSET_PX = 24
+#: Eck- und Kantenstriche, die an jedem Objekt stehen bleiben (Bildschirmpixel).
+FRAME_TICK_PX = 8
 SNAP_TOLERANCE_PX = 6
 #: Wie nah der Zeiger einer Hilfslinie kommen muss, um sie zu greifen.
 GUIDE_HIT_PX = 5
@@ -479,6 +483,10 @@ class LabelCanvas(QGraphicsView):
         self._scene.setSceneRect(QRectF(0, 0, 554, 472))
         self.setScene(self._scene)
         self.setSceneRect(QRectF(0, 0, 554, 472))
+        # Die Anfasser liegen ausserhalb der Objektbox. Die Szene wuerde sonst
+        # nur die Box neu zeichnen, und die Griffe fehlen bis zum naechsten
+        # vollstaendigen Anstrich.
+        self._scene.selectionChanged.connect(self._invalidate_object_chrome)
         self.setRenderHint(QPainter.RenderHint.Antialiasing, True)
         self.setRenderHint(QPainter.RenderHint.TextAntialiasing, True)
         self.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform, True)
@@ -1168,6 +1176,17 @@ class LabelCanvas(QGraphicsView):
         painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
         self._draw_placed_guides(painter, rect)
 
+        # Leichte Marken an jedem Objekt, auch ohne Auswahl.
+        tick_pen = QPen(QColor("#1f6feb"))
+        tick_pen.setWidthF(0)
+        painter.setPen(tick_pen)
+        painter.setBrush(Qt.BrushStyle.NoBrush)
+        for item in self._scene.items():
+            if not hasattr(item, "to_dict"):
+                continue
+            for start, end in self._tick_segments(item):
+                painter.drawLine(start, end)
+
         # Auswahlrahmen (rotationsfest) fuer alle ausgewaehlten Items.
         outline = QPen(QColor("#1f6feb"))
         outline.setWidthF(0)
@@ -1235,6 +1254,59 @@ class LabelCanvas(QGraphicsView):
                 painter.drawLine(QPointF(coord, rect.top()), QPointF(coord, rect.bottom()))
             else:
                 painter.drawLine(QPointF(rect.left(), coord), QPointF(rect.right(), coord))
+
+    def _invalidate_object_chrome(self) -> None:
+        """Objektbox plus Anfasser neu zeichnen.
+
+        Griffe und der kurze Drehstrich liegen ausserhalb von ``boundingRect``.
+        Ein normales Auswahl-Update wuerde sie abschneiden.
+        """
+        margin = (ROTATE_OFFSET_PX + HANDLE_SIZE_PX) / self._scale()
+        for item in self._scene.items():
+            if not hasattr(item, "to_dict"):
+                continue
+            bounds = item.mapToScene(item.boundingRect()).boundingRect()
+            self._scene.update(bounds.adjusted(-margin, -margin, margin, margin))
+
+    def _screen_lengths(self, item, px: float) -> tuple[float, float]:
+        """``px`` Bildschirmpixel als Laenge in den lokalen Achsen von ``item``."""
+        origin = item.mapToScene(QPointF(0.0, 0.0))
+        axis_x = item.mapToScene(QPointF(1.0, 0.0)) - origin
+        axis_y = item.mapToScene(QPointF(0.0, 1.0)) - origin
+        scene = px / self._scale()
+        len_x = math.hypot(axis_x.x(), axis_x.y())
+        len_y = math.hypot(axis_y.x(), axis_y.y())
+        return scene / max(len_x, 1e-9), scene / max(len_y, 1e-9)
+
+    def _tick_segments(self, item) -> list[tuple[QPointF, QPointF]]:
+        """Ecken, Kantenstriche und kurzer Drehstrich in Szenenkoordinaten."""
+        br = item.boundingRect()
+        if br.width() <= 0 or br.height() <= 0:
+            return []
+        tx, ty = self._screen_lengths(item, FRAME_TICK_PX)
+        tx = min(tx, br.width() / 2.0)
+        ty = min(ty, br.height() / 2.0)
+        left, top, right, bottom = br.left(), br.top(), br.right(), br.bottom()
+        cx, cy = br.center().x(), br.center().y()
+        local = (
+            # Ecken, entlang der Kanten.
+            (QPointF(left, top), QPointF(left + tx, top)),
+            (QPointF(left, top), QPointF(left, top + ty)),
+            (QPointF(right, top), QPointF(right - tx, top)),
+            (QPointF(right, top), QPointF(right, top + ty)),
+            (QPointF(left, bottom), QPointF(left + tx, bottom)),
+            (QPointF(left, bottom), QPointF(left, bottom - ty)),
+            (QPointF(right, bottom), QPointF(right - tx, bottom)),
+            (QPointF(right, bottom), QPointF(right, bottom - ty)),
+            # Kantenmitten, nach innen.
+            (QPointF(cx, top), QPointF(cx, top + ty)),
+            (QPointF(cx, bottom), QPointF(cx, bottom - ty)),
+            (QPointF(left, cy), QPointF(left + tx, cy)),
+            (QPointF(right, cy), QPointF(right - tx, cy)),
+            # Kurzer Strich ueber der Oberkante, ohne Drehkreis.
+            (QPointF(cx, top), QPointF(cx, top - ty)),
+        )
+        return [(item.mapToScene(start), item.mapToScene(end)) for start, end in local]
 
     # -- Griff-Geometrie ----------------------------------------------------
     def _editable_selection(self):
@@ -2092,8 +2164,10 @@ class LabelCanvas(QGraphicsView):
             dy = step
         if dx or dy:
             self.gesture_begun.emit()
+            self._invalidate_object_chrome()
             for item in self.selected_items():
                 item.moveBy(dx, dy)
+            self._invalidate_object_chrome()
             self.items_changed.emit()
             event.accept()
             return
