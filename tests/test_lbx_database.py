@@ -5,6 +5,8 @@ from __future__ import annotations
 import hashlib
 from pathlib import Path
 
+import pytest
+
 from ql_editor import csv_source, lbx
 from tests.lbx_samples import text_object, write_lbx
 
@@ -237,3 +239,23 @@ def test_current_record_is_clamped_when_csv_is_short(tmp_path):
 
     assert data["data_source"]["current_record"] == 1
     assert csv_source.load(csv_path).record(1)["Circuit"] == "b"
+
+
+def test_optional_fixture_labels_when_present():
+    """Echte Fixture Labels, wenn sie unter tests/data/ liegen — sonst skip."""
+    folder = Path(__file__).resolve().parent / "data" / "fixture_labels"
+    lbx_files = sorted(folder.glob("*.lbx")) if folder.is_dir() else []
+    if not lbx_files:
+        pytest.skip("optional fixture not under tests/data/fixture_labels")
+    data = lbx.load(lbx_files[0])
+    bound = [
+        item
+        for item in data["items"]
+        if isinstance(item.get("binding"), dict)
+        and item["binding"].get("source") == "database"
+    ]
+    fields = {item["binding"]["field"] for item in bound}
+    assert "Circuit" in fields
+    assert data.get("data_source", {}).get("type") == "csv"
+    assert int(data["data_source"].get("current_record", 0)) >= 0
+    assert not any("Datenbankfeld" in warning for warning in data["warnings"])

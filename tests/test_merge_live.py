@@ -394,6 +394,137 @@ def test_print_range_over_page_limit_does_not_start(qapp, tmp_path, monkeypatch)
     qapp.processEvents()
 
 
+def test_print_all_recomputes_auto_length_per_record(qapp, tmp_path, monkeypatch):
+    """Jedes Etikett bekommt die Länge seines Records, die Auswahl danach wieder."""
+    from ql_editor import app as app_module
+
+    csv_path = tmp_path / "rows.csv"
+    csv_path.write_text("Name\nA\n" + ("W" * 24) + "\n", encoding="utf-8")
+    table = csv_source.load(csv_path)
+    qlx = tmp_path / "label.qlx"
+    document.save(
+        qlx,
+        document.build(
+            {
+                "model": "QL-820NWB",
+                "label": "62",
+                "auto_length": True,
+                "orientation": "along",
+            },
+            [
+                {
+                    "type": "text",
+                    "text": "?",
+                    "x": 4,
+                    "y": 4,
+                    "binding": {"source": "database", "field": "Name"},
+                }
+            ],
+            data_source={
+                "type": "csv",
+                "path": csv_path.name,
+                "encoding": table.encoding,
+                "delimiter": table.delimiter,
+                "current_record": 0,
+                "content_sha256": table.content_sha256,
+            },
+        ),
+    )
+    win = MainWindow(discover=False)
+    win.open_path(str(qlx))
+    win._media_panel.set_network_host("192.168.178.62")
+    length_before = win._canvas._length_dots
+    captured: dict = {}
+    monkeypatch.setattr(app_module, "PrintWorker", _fake_print_worker(captured))
+    win._scope_all.setChecked(True)
+    undo_before = win._undo_stack.count()
+    win._on_print()
+    heights = [image.height for image in captured["images"]]
+    assert len(heights) == 2
+    assert heights[1] > heights[0]
+    assert win._canvas._length_dots == length_before
+    assert win._undo_stack.count() == undo_before
+    texts = [item.text_value for item in _bound_texts(win)]
+    assert texts == ["A"]
+
+
+def test_shorter_csv_does_not_forget_the_record_range(qapp, tmp_path):
+    """Eine kürzere CSV klemmt Von/Bis nur für diese Datei."""
+    win = MainWindow(discover=False)
+    win._scope_range.setChecked(True)
+    win._range_from.setMaximum(20)
+    win._range_to.setMaximum(20)
+    win._range_from.setValue(2)
+    win._range_to.setValue(8)
+    qlx, _csv = _write_fixture(tmp_path)
+    win.open_path(str(qlx))
+    assert win._range_from.value() == 2
+    assert win._range_to.value() == 3
+    assert win._range_request_to == 8
+    # Nur „Von“ anfassen. Die geklemmte 3 darf die gemerkte 8 nicht ersetzen.
+    win._range_from.setValue(1)
+    assert win._range_request_from == 1
+    assert win._range_request_to == 8
+    assert win._range_to.value() == 3
+    # close() speichert die gemerkten Grenzen. Sonst raeumt conftest nur auf.
+    win.close()
+
+    again = MainWindow(discover=False)
+    assert again._scope_range.isChecked()
+    assert again._range_from.value() == 1
+    assert again._range_to.value() == 8
+
+
+def test_print_recomputes_auto_length_per_serial_step(
+    qapp, tmp_path, monkeypatch
+):
+    """Zwei Serien-Schritte bekommen je ihre eigene Bandlaenge."""
+    from ql_editor import app as app_module
+
+    qlx = tmp_path / "serial.qlx"
+    document.save(
+        qlx,
+        document.build(
+            {
+                "model": "QL-820NWB",
+                "label": "62",
+                "auto_length": True,
+                "orientation": "along",
+            },
+            [
+                {
+                    "type": "text",
+                    "text": "?",
+                    "x": 4,
+                    "y": 4,
+                    "binding": {"source": "serial"},
+                }
+            ],
+            serial={
+                "enabled": True,
+                "start": 1,
+                "count": 2,
+                "step": 10**18,
+                "prefix": "",
+                "suffix": "",
+                "pad_width": 0,
+            },
+        ),
+    )
+    win = MainWindow(discover=False)
+    win.open_path(str(qlx))
+    win._media_panel.set_network_host("192.168.178.62")
+    length_before = win._canvas._length_dots
+    captured: dict = {}
+    monkeypatch.setattr(app_module, "PrintWorker", _fake_print_worker(captured))
+    win._on_print()
+    heights = [image.height for image in captured["images"]]
+    assert len(heights) == 2
+    assert heights[1] > heights[0]
+    assert win._canvas._length_dots == length_before
+    assert [item.text_value for item in _bound_texts(win)] == ["1"]
+
+
 def test_serial_prints_inside_each_record_and_hides_without_csv(
     qapp, tmp_path, monkeypatch
 ):

@@ -376,6 +376,11 @@ class MainWindow(QMainWindow):
         self._close_prompt = False
         #: CSV-/Hash-Status nach Open zuletzt anzeigen (nicht von „geöffnet“ überdecken).
         self._pending_database_status: str | None = None
+        # Von/Bis, wie der Nutzer sie gesetzt hat. Eine kürzere CSV klemmt nur
+        # die Anzeige; die gemerkten Grenzen bleiben für die nächste Datei.
+        self._range_request_from = 1
+        self._range_request_to = 1
+        self._syncing_print_range = False
 
         self._canvas_stack = QStackedWidget()
         self._canvas_stack.setMinimumSize(240, 180)
@@ -800,8 +805,8 @@ class MainWindow(QMainWindow):
         self._hq_check.toggled.connect(self._on_hq_toggled)
         for radio in (self._scope_selected, self._scope_all, self._scope_range):
             radio.toggled.connect(self._on_print_scope_toggled)
-        self._range_from.valueChanged.connect(lambda _value: self._sync_cut_options())
-        self._range_to.valueChanged.connect(lambda _value: self._sync_cut_options())
+        self._range_from.valueChanged.connect(self._on_print_range_from_edited)
+        self._range_to.valueChanged.connect(self._on_print_range_to_edited)
         self._sync_resolution_options()
         self._sync_print_scope_ui()
         return widget
@@ -809,6 +814,23 @@ class MainWindow(QMainWindow):
     def _on_print_scope_toggled(self, checked: bool) -> None:
         if checked:
             self._sync_print_scope_ui()
+
+    def _remember_print_range(self, start: int, end: int) -> None:
+        """Nutzergrenzen merken (1-basiert), unabhängig von der aktuellen CSV."""
+        self._range_request_from = max(1, int(start))
+        self._range_request_to = max(1, int(end))
+
+    def _on_print_range_from_edited(self, value: int) -> None:
+        if self._syncing_print_range:
+            return
+        self._range_request_from = max(1, int(value))
+        self._sync_cut_options()
+
+    def _on_print_range_to_edited(self, value: int) -> None:
+        if self._syncing_print_range:
+            return
+        self._range_request_to = max(1, int(value))
+        self._sync_cut_options()
 
     def _print_scope(self) -> str:
         """Gewaehlter Datenbank-Druckbereich (D16)."""
@@ -875,20 +897,25 @@ class MainWindow(QMainWindow):
         self._db_print_box.setEnabled(enabled)
         if count > 0:
             maximum = count
+            shown_from = min(self._range_request_from, maximum)
+            shown_to = min(self._range_request_to, maximum)
         else:
             # Ohne CSV die gemerkten Grenzen behalten (nicht auf 1 klemmen).
-            maximum = max(
-                1,
-                self._range_from.maximum(),
-                self._range_from.value(),
-                self._range_to.value(),
-            )
-        for spin in (self._range_from, self._range_to):
-            spin.blockSignals(True)
-            spin.setMaximum(maximum)
-            if spin.value() > maximum:
-                spin.setValue(maximum)
-            spin.blockSignals(False)
+            maximum = max(1, self._range_request_from, self._range_request_to)
+            shown_from = self._range_request_from
+            shown_to = self._range_request_to
+        self._syncing_print_range = True
+        try:
+            for spin, value in (
+                (self._range_from, shown_from),
+                (self._range_to, shown_to),
+            ):
+                spin.blockSignals(True)
+                spin.setMaximum(maximum)
+                spin.setValue(min(value, maximum))
+                spin.blockSignals(False)
+        finally:
+            self._syncing_print_range = False
         range_on = enabled and self._scope_range.isChecked()
         self._range_row.setVisible(range_on)
         self._range_from.setEnabled(range_on)
@@ -1621,8 +1648,8 @@ class MainWindow(QMainWindow):
             "copies": self._copies_spin.value(),
             "cut_mode": self._cut_combo.currentData(),
             "print_scope": self._print_scope(),
-            "record_from": self._range_from.value(),
-            "record_to": self._range_to.value(),
+            "record_from": self._range_request_from,
+            "record_to": self._range_request_to,
             "document_path": self._document_path,
             "document_dirty": self._is_document_dirty(),
             "address_dirty": self._address_dirty,
@@ -1644,18 +1671,11 @@ class MainWindow(QMainWindow):
         cut_mode = self._cut_combo.findData(str(state.get("cut_mode") or CUT_EACH))
         if cut_mode >= 0:
             self._cut_combo.setCurrentIndex(cut_mode)
-        record_from = max(1, int(state.get("record_from", 1) or 1))
-        record_to = max(1, int(state.get("record_to", 1) or 1))
+        self._remember_print_range(
+            int(state.get("record_from", 1) or 1),
+            int(state.get("record_to", 1) or 1),
+        )
         self._set_print_scope(str(state.get("print_scope") or ""))
-        ceiling = max(self._range_from.maximum(), record_from, record_to)
-        for spin, value in (
-            (self._range_from, record_from),
-            (self._range_to, record_to),
-        ):
-            spin.blockSignals(True)
-            spin.setMaximum(ceiling)
-            spin.setValue(value)
-            spin.blockSignals(False)
         specs = state.get("tabs")
         if not specs:
             specs = [
@@ -1734,16 +1754,8 @@ class MainWindow(QMainWindow):
         index = self._cut_combo.findData(cut_mode)
         if index >= 0:
             self._cut_combo.setCurrentIndex(index)
+        self._remember_print_range(record_from, record_to)
         self._set_print_scope(print_scope)
-        ceiling = max(self._range_from.maximum(), record_from, record_to)
-        for spin, value in (
-            (self._range_from, record_from),
-            (self._range_to, record_to),
-        ):
-            spin.blockSignals(True)
-            spin.setMaximum(ceiling)
-            spin.setValue(value)
-            spin.blockSignals(False)
         self._sync_print_scope_ui()
         self._schedule_refresh()
 
@@ -2947,6 +2959,8 @@ class MainWindow(QMainWindow):
         """Varianten vor dem Worker rendern (D5/D8/D10/D16).
 
         Pro gewaehltem Record laeuft die Serie einmal, dann ``+step``.
+        Die automatische Laenge wird pro Etikett neu gerechnet, auch fuer
+        jeden Serien-Schritt, sonst behielten alle die Laenge der Vorschau.
         ``copies`` wiederholt jedes Bild erst im Drucker, identisch.
         Danach steht wieder der aktuelle Record und Serien-Index 0
         auf dem Canvas.
@@ -2971,6 +2985,7 @@ class MainWindow(QMainWindow):
                     serial_index=label.serial_index,
                     strict=True,
                 )
+                self._recompute_canvas()
                 images.append(self._for_print())
             return images
         finally:
@@ -4449,8 +4464,8 @@ class MainWindow(QMainWindow):
         self._settings.copies = self._copies_spin.value()
         self._settings.cut_mode = self._cut_combo.currentData()
         self._settings.print_scope = self._print_scope()
-        self._settings.record_from = self._range_from.value()
-        self._settings.record_to = self._range_to.value()
+        self._settings.record_from = self._range_request_from
+        self._settings.record_to = self._range_request_to
         self._settings.sync()
         super().closeEvent(event)
 

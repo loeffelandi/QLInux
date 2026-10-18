@@ -28,7 +28,7 @@ from .printer import COPIES_MAX
 #: Binding-Quellen, die ein Anzeigewert-Merge betreffen.
 _MERGE_KINDS = frozenset({"text", "qr", "barcode"})
 
-#: Druckbereich wie im Brother-Drucksheet (D16). Serie bleibt M6.
+#: Druckbereich wie im Brother-Drucksheet (D16).
 PRINT_SELECTED = "selected"
 PRINT_ALL = "all"
 PRINT_RANGE = "range"

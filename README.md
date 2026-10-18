@@ -29,37 +29,31 @@ The model list even appears in the app: *menu → About QLInux*.
 
 ## Features
 
-- **Canvas**: text (double-click to edit; inverted white on black, underline,
-  strikethrough, character and line spacing, vertical text direction and
-  alignment, automatic size or wrapping, bullet and numbered lists), images,
-  barcodes, QR codes, lines, rectangles, shapes (arrows, ellipse, triangle,
-  star), tables (cells, merge, insert and resize rows and columns; cell text is
-  typed directly on the label), date/time stamps (current clock or a fixed value,
-  formats, offset) and clip art (a sheet of original symbols, black or red,
-  optional locked aspect); move, scale, rotate, align (to the margin frame, to
-  the selection or to the guides), change the stacking order (one step or to the
-  front or back), undo/redo.
+- **Canvas**: text, images, barcodes, QR codes, lines, shapes, tables,
+  date/time stamps and clip art. The usual editing: move, scale, rotate,
+  align, reorder, undo and redo.
 - **Database (CSV)**: connect a CSV file in the bottom database panel and drag a
   column onto a text, barcode or QR code (or onto an empty spot for a new bound
   text). The value comes from the current record; select another row in the grid
   to change it. The inspector's *Database field* changes the bound column. The
   merged values stay on the label if the CSV is later disconnected or missing.
-  Not yet: one label per record or several labels in one print job.
+  With a CSV connected, print can use the selected row, every row, or a
+  from–to range. Copies repeat each of those labels.
 - **Label media**: pick tape by model, fixed or automatic length, margins,
   orientation across/along the tape, red printing where supported.
 - **Print**: 300 × 300 or 300 × 600 dpi, high quality mode, grayscale
   (dithering), ink amount, **1–99 copies per job** and
   **cutting** — after each copy, only at the end, or not at all. A status area
   shows the print state and the job history of the session.
-- **Printer selection without knowing addresses**: switches for network/USB,
-  discovery of network printers (mDNS + SNMP) and USB devices; the printer you
-  used last is selected again on start when it is found; *Detect label*
-  reads the inserted tape (USB only — the network port has no read-back).
+- **Printer**: network or USB. Printers are found with mDNS and SNMP, USB
+  devices show up in the list, and the last one is selected again when it
+  is still there. *Detect label* reads the tape over USB. The network port
+  has no read-back.
 - **Preview** in real print dots, plus a print preview mode at 1:1 (Ctrl+Shift+P).
 - **Templates**: seven ready-made labels plus your own stored as `.qlx`
   files.
-- **German and English UI** (switch at runtime), macOS-like sheets instead of
-  extra windows.
+- **German and English UI** (switch at runtime), with dialogs as sheets in
+  the main window.
 
 ![Print preview](assets/screenshot-preview-en.png)
 
@@ -198,9 +192,10 @@ What comes across: text (one font per box; horizontal alignment; rotation in
 down to the label size), lines and frames. Text inside a cable template comes
 across too; the template itself does not. Text is not shrunk to fit the way
 P-touch does it. Rotation in the file is counter-clockwise (checked against
-P-touch Editor on a vertical logo). Database text fields come across as bound text: the CSV is
-looked up next to the `.lbx`, and if it cannot be found the last merged text stays
-on the label. What does not: barcodes, tables, date/time fields, image cropping,
+P-touch Editor on a vertical logo). Database text fields come across as bound
+text. QLInux opens the CSV at the path stored in the `.lbx` when that path
+points at a file, and otherwise looks for a CSV next to the `.lbx`. If neither
+can be read, the last merged text stays on the label. What does not: barcodes, tables, date/time fields, image cropping,
 and red ink on two-colour tapes. Those are listed in a note after import. Mixed-style runs inside one text box
 keep the box's base font, and Brother's monochrome image settings (threshold,
 dither) are not copied — the print dialog has its own.
@@ -265,7 +260,8 @@ Your own templates then appear in the same menu.
 | M4.4 | Open Brother P-touch files (`.lbx`, import only) | ✅ |
 | Database | CSV source, field bindings, record preview, LBX database import | ✅ |
 | Database | Database panel, drag-and-drop binding, database field in the inspector | ✅ |
-| Database | One label per record and multi-label print (serial numbering) | 🚧 |
+| Database | Print the selected row, all rows, or a record range | ✅ |
+| Database | Numbering on one object | ✅ |
 
 ## License
 
