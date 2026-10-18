@@ -146,7 +146,7 @@ def test_inspector_formatting_buttons_have_tooltips(window):
     QApplication.processEvents()
 
     for tip in (
-        "Unterstrichen",
+        "Unterstrichen (Strg+U)",
         "Durchgestrichen",
         "Keine",
         "Punkte",
@@ -162,7 +162,7 @@ def test_inspector_formatting_buttons_have_tooltips(window):
     assert not color.icon().isNull()
     assert [action.text() for action in color.menu().actions()] == ["schwarz", "rot"]
 
-    _tool_button(inspector, "Unterstrichen").click()
+    _tool_button(inspector, "Unterstrichen (Strg+U)").click()
     _tool_button(inspector, "Punkte").click()
     _tool_button(inspector, "Vertikal").click()
     color.menu().actions()[1].trigger()
@@ -181,8 +181,8 @@ def test_inspector_fett_und_kursiv_fuer_text(window):
     inspector.set_item(text)
     QApplication.processEvents()
 
-    _tool_button(inspector, "Fett").click()
-    _tool_button(inspector, "Kursiv").click()
+    _tool_button(inspector, "Fett (Strg+B)").click()
+    _tool_button(inspector, "Kursiv (Strg+I)").click()
     QApplication.processEvents()
 
     assert text.bold is True

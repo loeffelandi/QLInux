@@ -11,7 +11,7 @@ Layout, kein ``QDockWidget``). Dadurch sind drei Zustaende moeglich:
 * **Peek**: liegt der Mauszeiger auf dem eingeklappten Streifen, klappt das
   Panel als **Overlay ueber dem Canvas** auf - ohne den Canvas zu verschieben.
 
-Der Pfeil sitzt *im* Panel (nicht in der Toolbar); Strg+B / Strg+Umschalt+B
+Der Pfeil sitzt *im* Panel (nicht in der Toolbar); F9 / Umschalt+F9
 schalten dasselbe. Die Inhalte (Bandauswahl, Inspector, Druckoptionen) bleiben
 unveraendert und scrollen bei Platzmangel.
 """
@@ -370,7 +370,7 @@ class OverlayPanel(QWidget):
         else:
             name = "chevron_right" if open_ else "chevron_left"
         self._button.setIcon(icon(name))
-        shortcut = "Strg+B" if self._side == Qt.Edge.LeftEdge else "Strg+Umschalt+B"
+        shortcut = "F9" if self._side == Qt.Edge.LeftEdge else "Umschalt+F9"
         if open_:
             self._button.setToolTip(
                 tr("{panel} einklappen ({shortcut})").format(

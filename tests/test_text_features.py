@@ -7,7 +7,8 @@ Ausrichtung und Umbruch - jeweils mit Serialisierung und Renderpfad.
 from __future__ import annotations
 
 import pytest
-from PySide6.QtCore import QPointF, QRectF
+from PySide6.QtCore import QEvent, QPointF, QRectF, Qt
+from PySide6.QtGui import QKeyEvent
 from PySide6.QtWidgets import QGraphicsScene
 
 from ql_editor.items import TextItem, item_from_dict
@@ -219,6 +220,20 @@ def test_auto_width_toggle():
     assert not item.auto_width
     item.set_auto_width(True)
     assert item.auto_width
+
+
+def test_editing_yields_style_shortcuts_to_the_item_action():
+    item = TextItem("Hallo", font_pixel_size=32)
+    item.start_editing()
+    for key in (Qt.Key.Key_B, Qt.Key.Key_I, Qt.Key.Key_U):
+        event = QKeyEvent(
+            QEvent.Type.ShortcutOverride, key, Qt.KeyboardModifier.ControlModifier
+        )
+        assert item.sceneEvent(event) is False
+        assert not event.isAccepted()
+    letter = QKeyEvent(QEvent.Type.KeyPress, Qt.Key.Key_X, Qt.KeyboardModifier.NoModifier, "x")
+    item.sceneEvent(letter)
+    assert "x" in item.toPlainText()
 
 
 def test_legacy_text_width_means_wrap():

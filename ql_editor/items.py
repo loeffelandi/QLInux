@@ -25,12 +25,13 @@ from datetime import datetime
 from typing import Any, Mapping
 
 from PIL import Image
-from PySide6.QtCore import QBuffer, QIODevice, QPointF, QRectF, Qt, QTimer, Signal
+from PySide6.QtCore import QBuffer, QEvent, QIODevice, QPointF, QRectF, Qt, QTimer, Signal
 from PySide6.QtGui import (
     QBrush,
     QColor,
     QFont,
     QImage,
+    QKeySequence,
     QPainter,
     QPainterPath,
     QPen,
@@ -262,6 +263,24 @@ class LabelItem(_ClampMixin):
     """Gemeinsame Basis (nur Serialisierung/Annotation, kein Qt-Zustand)."""
 
     kind = "item"
+
+
+def _yields_style_shortcut(event) -> bool:
+    """Ctrl+B, Ctrl+I und Ctrl+U gehoeren den Objekt-Aktionen.
+
+    ``QGraphicsTextItem`` wuerde sie sonst als Zeichenformat schlucken. Das
+    Etikett kennt Fett, Kursiv und Unterstrichen nur am ganzen Objekt.
+    """
+    if event.type() != QEvent.Type.ShortcutOverride:
+        return False
+    return any(
+        event.matches(standard)
+        for standard in (
+            QKeySequence.StandardKey.Bold,
+            QKeySequence.StandardKey.Italic,
+            QKeySequence.StandardKey.Underline,
+        )
+    )
 
 
 # --------------------------------------------------------------------------- #
@@ -682,6 +701,12 @@ class TextItem(_BindingMixin, _ClampMixin, QGraphicsTextItem):
         super().focusOutEvent(event)
         self.finish_editing()
 
+    def sceneEvent(self, event) -> bool:  # noqa: N802
+        if _yields_style_shortcut(event):
+            event.ignore()
+            return False
+        return super().sceneEvent(event)
+
     # -- Groesse ------------------------------------------------------------
     resizable = True
 
@@ -786,6 +811,7 @@ class DateTimeItem(_ClampMixin, QGraphicsTextItem):
         self._font_pixel_size = font_pixel_size
         self._bold = False
         self._italic = False
+        self._underline = False
         self._color = "black"
         self._align = "left"
         self._mode = MODE_DEFAULT
@@ -820,6 +846,7 @@ class DateTimeItem(_ClampMixin, QGraphicsTextItem):
         font.setPixelSize(self._font_pixel_size)
         font.setBold(self._bold)
         font.setItalic(self._italic)
+        font.setUnderline(self._underline)
         self.setFont(font)
 
     def set_font_pixel_size(self, size: int) -> None:
@@ -832,6 +859,10 @@ class DateTimeItem(_ClampMixin, QGraphicsTextItem):
 
     def set_italic(self, value: bool) -> None:
         self._italic = bool(value)
+        self._apply_font()
+
+    def set_underline(self, value: bool) -> None:
+        self._underline = bool(value)
         self._apply_font()
 
     def set_font_family(self, family: str) -> None:
@@ -853,6 +884,10 @@ class DateTimeItem(_ClampMixin, QGraphicsTextItem):
     @property
     def italic(self) -> bool:
         return self._italic
+
+    @property
+    def underline(self) -> bool:
+        return self._underline
 
     @property
     def color(self) -> str:
@@ -987,6 +1022,7 @@ class DateTimeItem(_ClampMixin, QGraphicsTextItem):
             font_pixel_size=self._font_pixel_size,
             bold=self._bold,
             italic=self._italic,
+            underline=self._underline,
             color=self._color,
             align=self._align,
             text_width=self.textWidth(),
@@ -1005,6 +1041,7 @@ class DateTimeItem(_ClampMixin, QGraphicsTextItem):
         item = cls(data.get("font_family", "Sans"), int(data.get("font_pixel_size", 48)))
         item.set_bold(bool(data.get("bold", False)))
         item.set_italic(bool(data.get("italic", False)))
+        item.set_underline(bool(data.get("underline", False)))
         item.set_text_color(data.get("color", "black"))
         item.set_align(data.get("align", "left"))
         item.set_text_width(float(data.get("text_width", -1)))
@@ -1796,6 +1833,12 @@ class _CellEditor(QGraphicsTextItem):
         super().focusOutEvent(event)
         if isinstance(parent, TableItem) and parent.editor is self:
             parent.finish_editing()
+
+    def sceneEvent(self, event) -> bool:  # noqa: N802
+        if _yields_style_shortcut(event):
+            event.ignore()
+            return False
+        return super().sceneEvent(event)
 
 
 class TableItem(_ClampMixin, QGraphicsObject):

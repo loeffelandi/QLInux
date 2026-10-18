@@ -19,14 +19,17 @@ EN: dict[str, str] = {
     "Eigenschaften & Druck": "Properties & print",
     "Panel links": "Left panel",
     "Panel rechts": "Right panel",
-    "Panel links ein-/ausklappen (Strg+B)\nEingeklappt bleibt ein Streifen mit Pfeil; er klappt beim Überfahren über dem Canvas auf": (
-        "Show/hide left panel (Ctrl+B)\n"
+    "Panel links ein-/ausklappen (F9)\nEingeklappt bleibt ein Streifen mit Pfeil; er klappt beim Überfahren über dem Canvas auf": (
+        "Show/hide left panel (F9)\n"
         "When hidden a strip with an arrow remains; it opens when the pointer "
         "moves over the canvas"
     ),
-    "Panel rechts ein-/ausklappen (Strg+Shift+B)\nEigenschaften und Druckoptionen": (
-        "Show/hide right panel (Ctrl+Shift+B)\nProperties and print options"
+    "Panel rechts ein-/ausklappen (Umschalt+F9)\nEigenschaften und Druckoptionen": (
+        "Show/hide right panel (Shift+F9)\nProperties and print options"
     ),
+    "Fett (Strg+B)": "Bold (Ctrl+B)",
+    "Kursiv (Strg+I)": "Italic (Ctrl+I)",
+    "Unterstrichen (Strg+U)": "Underline (Ctrl+U)",
     "Menü": "Menu",
     "Befehle…": "Commands…",
     "Befehle": "Commands",
