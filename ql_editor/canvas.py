@@ -11,9 +11,10 @@ mm-Linealen und sichtbarer, nicht bedruckbarer Randzone.
   muessen. Der Renderer ist davon unberuehrt.
 * **mm-Lineale** an Ober-/Unterkante.
 * **Randbegrenzung**: die volle Medienhoehe (Bandbreite inkl. Kanten) ist
-  sichtbar. Nicht bedruckbare Kanten und die eingestellten Raender werden
-  schraffiert. Ein grauer Pfeil zeigt die Druckrichtung (Bandvorschub).
-  Items bleiben auf der bedruckbaren Flaeche geklemmt.
+  sichtbar. Ein durchgehender grauer Streifen in Bandrichtung zeigt, wohin
+  das Band laeuft (volle Arbeitsflaeche, ohne Pfeil). Eingestellte Raender
+  bleiben als gepunkteter Rahmen. Items bleiben auf der bedruckbaren
+  Flaeche geklemmt.
 
 Direkte Bearbeitung mit der Maus (modernes Editor-Gefuehl):
 
@@ -39,7 +40,7 @@ from contextlib import contextmanager
 from typing import Any, Iterator
 
 from PySide6.QtCore import QEvent, QLocale, QPoint, QPointF, QRectF, Qt, Signal
-from PySide6.QtGui import QBrush, QColor, QFont, QFontMetricsF, QImage, QPainter, QPainterPath, QPen
+from PySide6.QtGui import QColor, QFont, QFontMetricsF, QImage, QPainter, QPen
 from PySide6.QtWidgets import QGraphicsItem, QGraphicsScene, QGraphicsView, QWidget
 from PIL import Image
 
@@ -86,8 +87,10 @@ SIZE_LABEL_GAP_PX = 6
 SIZE_LABEL_COLOR = "#5a6472"
 #: Rand um das Band beim Einpassen: Platz fuer die Groessen-Angabe.
 FIT_MARGIN_MM = 2.5
-#: Grauer Auslauf hinter dem Etikett: so weit laeuft das Band in Druckrichtung.
-FEED_TAIL_MM = 16.0
+#: Arbeitsflaeche um das Etikett (View-Hintergrund).
+WORKSPACE_COLOR = "#dfe3e8"
+#: Durchgehender Bandstreifen: andere Graustufe als die Arbeitsflaeche.
+TAPE_BAND_COLOR = "#c8cfd6"
 #: Mit dieser Taste zoomt das Mausrad, statt zu scrollen (auf dem Mac Cmd).
 ZOOM_MODIFIER = Qt.KeyboardModifier.ControlModifier
 #: Faktor pro Rad-Raste beim Zoomen.
@@ -404,13 +407,13 @@ class LabelCanvas(QGraphicsView):
         self.setRenderHint(QPainter.RenderHint.Antialiasing, True)
         self.setRenderHint(QPainter.RenderHint.TextAntialiasing, True)
         self.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform, True)
-        self.setBackgroundBrush(QColor("#dfe3e8"))
+        self.setBackgroundBrush(QColor(WORKSPACE_COLOR))
         self.setDragMode(QGraphicsView.DragMode.RubberBandDrag)
         self.setTransformationAnchor(QGraphicsView.ViewportAnchor.AnchorUnderMouse)
         self.setResizeAnchor(QGraphicsView.ViewportAnchor.AnchorViewCenter)
         self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
         self.setAcceptDrops(True)
-        # Hintergrund (Band, Schraffur) cachen -> fluessigeres Scrollen.
+        # Hintergrund (Bandstreifen) cachen -> fluessigeres Scrollen.
         self.setCacheMode(QGraphicsView.CacheModeFlag.CacheBackground)
         self._v_scroller = SmoothScroller(self, self.verticalScrollBar())
         self._h_scroller = SmoothScroller(self, self.horizontalScrollBar())
@@ -518,7 +521,7 @@ class LabelCanvas(QGraphicsView):
         """Scrollbare Flaeche: Designflaeche + ueberstehende Objekte + Rand."""
         rect = self.printable_rect()
         if self._label is not None:
-            rect = rect.united(self.tape_rect()).united(self.feed_tail_rect())
+            rect = rect.united(self.tape_rect())
         items = self._scene.itemsBoundingRect()
         if not items.isNull():
             rect = rect.united(items)
@@ -618,13 +621,17 @@ class LabelCanvas(QGraphicsView):
             return printable.adjusted(0, -b, 0, b)
         return printable.adjusted(-b, 0, b, 0)
 
-    def feed_tail_rect(self) -> QRectF:
-        """Grauer Auslauf in Druckrichtung, hinter dem Etikett (Szenenkoordinaten)."""
+    def tape_band_rect(self, exposed: QRectF) -> QRectF:
+        """Grauer Bandstreifen ueber die ganze Arbeitsflaeche (Szenenkoordinaten).
+
+        Hoehe bzw. Breite ist die volle Medienflaeche. In Bandrichtung laeuft
+        der Streifen durch ``exposed`` - also immer ueber den sichtbaren
+        Ausschnitt, ohne Pfeil und ohne begrenzten Auslauf.
+        """
         tape = self.tape_rect()
-        lead = mm_to_dots(FEED_TAIL_MM)
         if self._orientation is Orientation.ALONG:
-            return QRectF(tape.right(), tape.top(), lead, tape.height())
-        return QRectF(tape.left(), tape.bottom(), tape.width(), lead)
+            return QRectF(exposed.left(), tape.top(), exposed.width(), tape.height())
+        return QRectF(tape.left(), exposed.top(), tape.width(), exposed.height())
 
     def is_interacting(self) -> bool:
         return self._op is not None or self._pan_active
@@ -732,9 +739,8 @@ class LabelCanvas(QGraphicsView):
         margin = mm_to_dots(FIT_MARGIN_MM)
         self._fitting = True
         try:
-            target = self.tape_rect().united(self.feed_tail_rect())
             self.fitInView(
-                target.adjusted(-margin, -margin, margin, margin),
+                self.tape_rect().adjusted(-margin, -margin, margin, margin),
                 Qt.AspectRatioMode.KeepAspectRatio,
             )
             self._clamp_zoom()
@@ -877,73 +883,27 @@ class LabelCanvas(QGraphicsView):
         super().drawBackground(painter, rect)
         if self._label is None:
             return
-        tape = self.tape_rect()
         printable = self.printable_rect()
-        self._draw_feed_direction(painter, tape)
-        painter.fillRect(tape, QColor("#f7f7f7"))
+        band = self.tape_band_rect(rect)
+        painter.fillRect(band, QColor(TAPE_BAND_COLOR))
         painter.fillRect(printable, QColor("#ffffff"))
-        self._hatch_nonprintable(painter, tape, printable)
         pen = QPen(QColor("#9aa3ad"))
         pen.setWidthF(0)
         painter.setPen(pen)
         painter.setBrush(Qt.BrushStyle.NoBrush)
-        painter.drawRect(tape)
-        painter.setPen(Qt.PenStyle.NoPen)
-
-    def _hatch_nonprintable(
-        self, painter: QPainter, tape: QRectF, printable: QRectF
-    ) -> None:
-        """Volle Medienflaeche bleibt sichtbar; nicht Druckbares wird schraffiert."""
-        painter.save()
-        painter.setPen(Qt.PenStyle.NoPen)
-        painter.setBrush(QBrush(QColor("#8b949e"), Qt.BrushStyle.BDiagPattern))
-        side = float(self._label.side_border_dots) if self._label is not None else 0.0
-        if side > 0:
-            if self._orientation is Orientation.ALONG:
-                painter.drawRect(QRectF(tape.left(), tape.top(), tape.width(), side))
-                painter.drawRect(QRectF(tape.left(), printable.bottom(), tape.width(), side))
-            else:
-                painter.drawRect(QRectF(tape.left(), tape.top(), side, tape.height()))
-                painter.drawRect(QRectF(printable.right(), tape.top(), side, tape.height()))
-        inner = self.margin_rect()
-        if any(self._margins_mm) and inner.width() > 0 and inner.height() > 0:
-            painter.drawRect(QRectF(printable.left(), printable.top(), printable.width(), inner.top() - printable.top()))
-            painter.drawRect(QRectF(printable.left(), inner.bottom(), printable.width(), printable.bottom() - inner.bottom()))
-            painter.drawRect(QRectF(printable.left(), inner.top(), inner.left() - printable.left(), inner.height()))
-            painter.drawRect(QRectF(inner.right(), inner.top(), printable.right() - inner.right(), inner.height()))
-        painter.restore()
-
-    def _draw_feed_direction(self, painter: QPainter, tape: QRectF) -> None:
-        """Grauer Auslauf und Pfeil: wohin das Band aus dem Drucker laeuft."""
-        tail = self.feed_tail_rect()
-        painter.fillRect(tail, QColor("#d5d8dc"))
-        along = self._orientation is Orientation.ALONG
-        cross = tape.height() if along else tape.width()
-        shaft = max(mm_to_dots(3.5), cross * 0.16)
-        painter.setPen(Qt.PenStyle.NoPen)
-        painter.setBrush(QColor("#c5c9ce"))
-        if along:
-            cy = tape.center().y()
-            x0 = tape.left() + tape.width() * 0.2
-            x1 = tail.left() + tail.width() * 0.42
-            painter.drawRect(QRectF(x0, cy - shaft / 2.0, max(0.0, x1 - x0), shaft))
-            head = QPainterPath()
-            head.moveTo(x1, cy - shaft * 1.7)
-            head.lineTo(tail.right() - mm_to_dots(1.5), cy)
-            head.lineTo(x1, cy + shaft * 1.7)
-            head.closeSubpath()
+        if self._orientation is Orientation.ALONG:
+            painter.drawLine(band.topLeft(), band.topRight())
+            painter.drawLine(band.bottomLeft(), band.bottomRight())
         else:
-            cx = tape.center().x()
-            y0 = tape.top() + tape.height() * 0.2
-            y1 = tail.top() + tail.height() * 0.42
-            painter.drawRect(QRectF(cx - shaft / 2.0, y0, shaft, max(0.0, y1 - y0)))
-            head = QPainterPath()
-            head.moveTo(cx - shaft * 1.7, y1)
-            head.lineTo(cx, tail.bottom() - mm_to_dots(1.5))
-            head.lineTo(cx + shaft * 1.7, y1)
-            head.closeSubpath()
-        painter.setBrush(QColor("#b7bcc2"))
-        painter.drawPath(head)
+            painter.drawLine(band.topLeft(), band.bottomLeft())
+            painter.drawLine(band.topRight(), band.bottomRight())
+        if any(self._margins_mm):
+            margin_pen = QPen(QColor("#9aa5b1"))
+            margin_pen.setStyle(Qt.PenStyle.DotLine)
+            margin_pen.setWidthF(0)
+            painter.setPen(margin_pen)
+            painter.drawRect(self.margin_rect())
+        painter.setPen(Qt.PenStyle.NoPen)
 
     def _draw_size_labels(self, painter: QPainter) -> None:
         """Bandbreite und Etikettenlaenge am Etikett anschreiben.

@@ -693,22 +693,29 @@ def test_canvas_tape_rect_includes_side_border(qapp):
     assert tape.width() == pytest.approx(554 + 2 * label.side_border_dots)
 
 
-def test_feed_tail_points_along_the_tape(qapp):
-    """Druckrichtung: Auslauf unter dem Etikett, bei Laengs rechts daneben."""
+def test_tape_band_spans_the_workspace(qapp):
+    """Grauer Streifen: volle Medienhoehe, ueber die ganze sichtbare Arbeitsflaeche."""
+    from PySide6.QtCore import QRectF
+
     canvas = LabelCanvas()
     label = get_label("50")
     canvas.set_label(label, 472)
     tape = canvas.tape_rect()
-    tail = canvas.feed_tail_rect()
-    assert tail.top() == pytest.approx(tape.bottom())
-    assert tail.width() == pytest.approx(tape.width())
-    assert tail.height() > 0
+    exposed = QRectF(-400, -200, 2000, 1600)
+    band = canvas.tape_band_rect(exposed)
+    # ACROSS: Band laeuft senkrecht, Streifen ueber die ganze Hoehe.
+    assert band.left() == pytest.approx(tape.left())
+    assert band.width() == pytest.approx(tape.width())
+    assert band.top() == pytest.approx(exposed.top())
+    assert band.bottom() == pytest.approx(exposed.bottom())
 
     canvas.set_label(label, 472, orientation=media.Orientation.ALONG)
     tape = canvas.tape_rect()
-    tail = canvas.feed_tail_rect()
-    assert tail.left() == pytest.approx(tape.right())
-    assert tail.height() == pytest.approx(tape.height())
+    band = canvas.tape_band_rect(exposed)
+    assert band.top() == pytest.approx(tape.top())
+    assert band.height() == pytest.approx(tape.height())
+    assert band.left() == pytest.approx(exposed.left())
+    assert band.right() == pytest.approx(exposed.right())
     assert tape.height() == pytest.approx(label.width_dots + 2 * label.side_border_dots)
 
 
