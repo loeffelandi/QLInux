@@ -693,6 +693,27 @@ def test_canvas_tape_rect_includes_side_border(qapp):
     assert tape.width() == pytest.approx(554 + 2 * label.side_border_dots)
 
 
+def test_cut_offset_follows_the_last_printed_line(qapp):
+    """Schnittversatz hinter der letzten Zeile: unten quer, links laengs."""
+    canvas = LabelCanvas()
+    label = get_label("50")
+    canvas.set_label(label, 472)
+    tape = canvas.tape_rect()
+    printable = canvas.printable_rect()
+    assert printable.top() - tape.top() == pytest.approx(label.feed_margin)
+    assert tape.bottom() - printable.bottom() == pytest.approx(
+        label.feed_margin + media.CUT_OFFSET_DOTS
+    )
+
+    canvas.set_label(label, 472, orientation=media.Orientation.ALONG)
+    tape = canvas.tape_rect()
+    printable = canvas.printable_rect()
+    assert printable.left() - tape.left() == pytest.approx(
+        label.feed_margin + media.CUT_OFFSET_DOTS
+    )
+    assert tape.right() - printable.right() == pytest.approx(label.feed_margin)
+
+
 def test_tape_band_starts_after_the_full_label(qapp):
     """Grau erst hinter dem fertigen Etikett; das Etikett hat die volle Hoehe."""
     from PySide6.QtCore import QRectF
@@ -2563,12 +2584,11 @@ def test_orientation_moves_side_border_to_tape_edges(qapp):
     win._media_panel.set_orientation(media.Orientation.ALONG)
     tape = win._canvas.tape_rect()
     printable = win._canvas.printable_rect()
-    extra_lead = label.feed_margin
-    extra_trail = label.feed_margin + media.CUT_OFFSET_DOTS
+    # Letzte Druckzeile ist links (ROTATE_90), dort sitzt der Schnittversatz.
     assert tape.top() == pytest.approx(-label.side_border_dots)
     assert tape.bottom() == pytest.approx(printable.bottom() + label.side_border_dots)
-    assert tape.left() == pytest.approx(printable.left() - extra_lead)
-    assert tape.right() == pytest.approx(printable.right() + extra_trail)
+    assert printable.left() - tape.left() == pytest.approx(label.feed_margin + media.CUT_OFFSET_DOTS)
+    assert tape.right() - printable.right() == pytest.approx(label.feed_margin)
 
 
 def test_print_preview_image_stays_canvas_aligned(qapp):

@@ -570,22 +570,33 @@ class LabelCanvas(QGraphicsView):
         return dots_to_mm(label.width_dots + 2 * label.side_border_dots)
 
     def _unprintable_length(self) -> tuple[float, float]:
-        """Nicht bedruckbare Dots vor und nach dem Inhalt, in Bandrichtung.
+        """Nicht bedruckbare Dots an erster und letzter Druckzeile.
 
-        Endlos: ``feed_margin`` davor, ``feed_margin`` plus Schnittversatz
-        danach - zusammen die Laenge, die die Ergebnis-Anzeige als fertiges
-        Etikett ausweist. Die-cut: die Differenz aus Gesamt- und
-        Druckflaeche, haelftig auf beide Enden.
+        Endlos: beide Enden ``feed_margin``. Der Schnittversatz kommt nur
+        hinter die letzte Zeile, weil die Schneide hinter dem Druckkopf
+        liegt. Die-cut: Differenz aus Gesamt- und Druckflaeche, haelftig.
         """
         label = self._label
         if label is None:
             return (0.0, 0.0)
         if label.is_endless:
-            lead = float(label.feed_margin)
-            return (lead, lead + float(CUT_OFFSET_DOTS))
+            feed = float(label.feed_margin)
+            return (feed, feed + float(CUT_OFFSET_DOTS))
         extra = max(0, int(label.dots_total[1]) - int(label.dots_printable[1]))
-        lead = extra // 2
-        return (float(lead), float(extra - lead))
+        first = extra // 2
+        return (float(first), float(extra - first))
+
+    def _canvas_length_margins(self) -> tuple[float, float]:
+        """(niedrige, hohe) Achse in Szenenkoordinaten.
+
+        ACROSS druckt von oben nach unten, die letzte Zeile liegt unten.
+        ALONG wird zum Druck 90 Grad gegen den Uhrzeigersinn gedreht
+        (:meth:`render_scene_to_image`), dadurch liegt die letzte Zeile links.
+        """
+        first, last = self._unprintable_length()
+        if self._orientation is Orientation.ALONG:
+            return (last, first)
+        return (first, last)
 
     def _length_mm(self) -> float:
         """Fertige Etikettenlaenge in mm, inklusive nicht bedruckbarem Vorschub."""
@@ -612,7 +623,7 @@ class LabelCanvas(QGraphicsView):
         tape_mm = self._tape_width_mm()
         length_mm = self._length_mm()
         edge = -float(self._label.side_border_dots)
-        lead, _trail = self._unprintable_length()
+        lead, _trail = self._canvas_length_margins()
         if self._orientation is Orientation.ALONG:
             self._h_ruler.set_total_mm(length_mm, -lead)
             self._v_ruler.set_total_mm(tape_mm, edge)
@@ -658,7 +669,7 @@ class LabelCanvas(QGraphicsView):
         if self._label is None:
             return printable
         side = float(self._label.side_border_dots)
-        lead, trail = self._unprintable_length()
+        lead, trail = self._canvas_length_margins()
         if self._orientation is Orientation.ALONG:
             return printable.adjusted(-lead, -side, trail, side)
         return printable.adjusted(-side, -lead, side, trail)
@@ -998,7 +1009,7 @@ class LabelCanvas(QGraphicsView):
         painter.setPen(Qt.PenStyle.NoPen)
         painter.setBrush(QBrush(QColor("#8b949e"), Qt.BrushStyle.BDiagPattern))
         side = float(self._label.side_border_dots) if self._label is not None else 0.0
-        lead, trail = self._unprintable_length()
+        lead, trail = self._canvas_length_margins()
         if self._orientation is Orientation.ALONG:
             if side > 0:
                 painter.drawRect(QRectF(tape.left(), tape.top(), tape.width(), side))
