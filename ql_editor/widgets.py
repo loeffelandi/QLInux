@@ -13,11 +13,14 @@ from __future__ import annotations
 from PySide6.QtCore import (
     QEasingCurve,
     QEvent,
+    QRect,
     QObject,
     QPropertyAnimation,
     Qt,
+    QTimer,
 )
-from PySide6.QtWidgets import QAbstractScrollArea, QScrollArea
+from PySide6.QtGui import QColor, QPainter, QPen
+from PySide6.QtWidgets import QAbstractScrollArea, QScrollArea, QWidget
 
 #: Pixel, die eine Mausrad-Raste (120 Einheiten) scrollt.
 WHEEL_PIXELS_PER_NOTCH = 64
@@ -165,3 +168,46 @@ __all__ = [
     "wheel_deltas",
     "WHEEL_PIXELS_PER_NOTCH",
 ]
+
+
+class FeedIndicator(QWidget):
+    """Animierter Papierstreifen, solange der Drucker den Auftrag ausgibt."""
+
+    TICK_PX = 10
+    STEP_PX = 2
+    TAPE_PX = 12
+
+    def __init__(self, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self._offset = 0
+        self._timer = QTimer(self)
+        self._timer.setInterval(30)
+        self._timer.timeout.connect(self._advance)
+
+    def start(self) -> None:
+        self._timer.start()
+
+    def stop(self) -> None:
+        self._timer.stop()
+
+    def _advance(self) -> None:
+        self._offset = (self._offset + self.STEP_PX) % self.TICK_PX
+        self.update()
+
+    def paintEvent(self, event) -> None:  # noqa: N802
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        band = self.rect().adjusted(0, 0, -1, 0)
+        top = band.center().y() - self.TAPE_PX // 2
+        rect = QRect(band.left(), top, band.width(), self.TAPE_PX)
+        painter.setPen(QPen(QColor("#999"), 1))
+        painter.setBrush(QColor("#fff"))
+        painter.drawRect(rect)
+        painter.setClipRect(rect.adjusted(1, 1, -1, -1))
+        painter.setPen(QPen(QColor("#333"), 2))
+        x = rect.left() - self.TICK_PX + self._offset
+        while x < rect.right():
+            painter.drawLine(x, rect.top() + 2, x + 4, rect.bottom() - 2)
+            x += self.TICK_PX
+        painter.end()
+

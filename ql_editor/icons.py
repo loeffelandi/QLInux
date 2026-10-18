@@ -398,6 +398,14 @@ def _draw_zoom_fit(p: QPainter, color: QColor) -> None:
         _line(p, x2, y2, x3, y3)
 
 
+def _draw_history(p: QPainter, color: QColor) -> None:
+    # Uhr: Druckverlauf.
+    _stroke_only(p, color, 1.7)
+    p.drawEllipse(QPointF(12, 12), 8, 8)
+    _line(p, 12, 8, 12, 12)
+    _line(p, 12, 12, 15, 14)
+
+
 def _draw_zoom_100(p: QPainter, color: QColor) -> None:
     # Lupe mit Punktraster: Ansicht in tatsaechlicher Groesse (1:1 = echte Dots).
     _stroke_only(p, color, 1.7)
@@ -841,6 +849,7 @@ _DRAW = {
     "zoom_out": _draw_zoom_out,
     "zoom_fit": _draw_zoom_fit,
     "zoom_100": _draw_zoom_100,
+    "history": _draw_history,
     "chevron_left": _draw_chevron_left,
     "chevron_right": _draw_chevron_right,
     "print": _draw_print,

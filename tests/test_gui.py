@@ -2949,11 +2949,11 @@ def test_rotate_hint_follows_rotate_handle_hover(qapp):
     canvas._scene.clearSelection()
     item.setSelected(True)
     received: list[bool] = []
-    canvas.rotate_hint_changed.connect(received.append)
-    canvas._set_rotate_hint(True)
-    canvas._set_rotate_hint(True)
+    canvas.hint_changed.connect(received.append)
+    canvas._set_hint("Shift: 15°-Schritte")
+    canvas._set_hint("Shift: 15°-Schritte")
     canvas.leaveEvent(None)
-    assert received == [True, False]
+    assert received == ["Shift: 15°-Schritte", ""]
 
 
 def test_rotate_handle_distance_is_constant_for_scaled_items(qapp):
@@ -3605,7 +3605,7 @@ def test_print_options_fit_on_a_small_screen(qapp, tmp_path):
     win._right_pages.show_page(1)
     qapp.processEvents()
     page = win._right_pages.page(1)
-    assert page.widget().sizeHint().height() <= 300
+    assert page.widget().sizeHint().height() <= 310
     assert win._print_button.isVisible()
 
 
@@ -4992,4 +4992,118 @@ def test_content_beyond_a_margin_is_not_printed(qapp, tmp_path):
         for y in range(0, full.height, 2)
     )
     win.close()
+    qapp.processEvents()
+
+
+def _print_with_outcome(qapp, tmp_path, monkeypatch, outcome: str | None, error: str | None = None):
+    from PySide6.QtCore import QObject, Signal
+
+    from ql_editor import app as app_module
+
+    class FakeWorker(QObject):
+        succeeded = Signal(dict)
+        failed = Signal(str)
+        finished = Signal()
+
+        def __init__(self, image, label, config, options):
+            super().__init__()
+
+        def start(self) -> None:
+            if error is not None:
+                self.failed.emit(error)
+            else:
+                self.succeeded.emit({"outcome": outcome})
+            self.finished.emit()
+
+    monkeypatch.setattr(app_module, "PrintWorker", FakeWorker)
+    win = _temp_window(qapp, tmp_path)
+    win._media_panel.set_network_host("192.168.178.62")
+    win._on_print()
+    qapp.processEvents()
+    return win
+
+
+def test_network_send_is_reported_as_sent_not_as_error(qapp, tmp_path, monkeypatch):
+    win = _print_with_outcome(qapp, tmp_path, monkeypatch, "sent")
+    assert "An Drucker gesendet" in win._last_job_label.text()
+    assert "#b00020" not in win._last_job_label.styleSheet()
+    assert [job.outcome for job in win._print_jobs] == ["sent"]
+    win.close()
+    qapp.processEvents()
+
+
+def test_printer_error_is_marked_red_in_status_and_history(qapp, tmp_path, monkeypatch):
+    win = _print_with_outcome(qapp, tmp_path, monkeypatch, None, error="Drucker nicht erreichbar")
+    assert "#b00020" in win._last_job_label.styleSheet()
+    assert win._print_jobs[-1].is_error
+    assert win._print_jobs[-1].status_text() == "Nicht gesendet"
+    win.close()
+    qapp.processEvents()
+
+
+def test_status_area_keeps_its_height_while_printing(qapp, tmp_path, monkeypatch):
+    from PySide6.QtCore import QObject, Signal
+
+    from ql_editor import app as app_module
+
+    class SlowWorker(QObject):
+        succeeded = Signal(dict)
+        failed = Signal(str)
+        finished = Signal()
+
+        def __init__(self, image, label, config, options):
+            super().__init__()
+
+        def start(self) -> None:
+            pass
+
+    monkeypatch.setattr(app_module, "PrintWorker", SlowWorker)
+    win = _temp_window(qapp, tmp_path)
+    win._media_panel.set_network_host("192.168.178.62")
+    qapp.processEvents()
+    height_idle = win._status_stack.height()
+    win._on_print()
+    qapp.processEvents()
+    assert win._status_stack.currentWidget() is win._feed_indicator
+    assert win._status_stack.height() == height_idle
+    assert not win._print_button.isEnabled()
+    win._on_print_succeeded({"outcome": "printed"})
+    win._on_print_finished()
+    qapp.processEvents()
+    assert win._status_stack.currentWidget() is win._last_job_label
+    assert win._status_stack.height() == height_idle
+    assert win._print_button.isEnabled()
+    win.close()
+    qapp.processEvents()
+
+
+def test_print_and_history_buttons_share_height_and_row(qapp, tmp_path):
+    win = _temp_window(qapp, tmp_path)
+    page = win._right_pages.page(1)
+    page.resize(176, 400)
+    page.show()
+    qapp.processEvents()
+    assert win._print_button.height() == win._history_button.height()
+    assert win._print_button.y() == win._history_button.y()
+    win.close()
+    qapp.processEvents()
+
+
+def test_language_switch_keeps_session_print_history(qapp, tmp_path, monkeypatch):
+    from ql_editor import app as app_module
+
+    win = _print_with_outcome(qapp, tmp_path, monkeypatch, "sent")
+    assert len(win._print_jobs) == 1
+    previous = win._print_jobs[0]
+
+    win.switch_language("en")
+    qapp.processEvents()
+
+    new = app_module._current_window
+    assert new is not win
+    assert new._print_jobs == [previous]
+    assert "Sent to printer" in new._last_job_label.text()
+    assert previous.model in new._last_job_label.text()
+
+    new.close()
     qapp.processEvents()

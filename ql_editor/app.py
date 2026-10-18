@@ -24,6 +24,7 @@ import math
 import os
 import sys
 import threading
+from datetime import datetime
 from copy import deepcopy
 from functools import partial
 from pathlib import Path
@@ -89,6 +90,7 @@ from .i18n import (
     tr,
 )
 from .icons import icon
+from .jobs import PrintHistoryDialog, PrintJob
 from .inspector import InspectorPanel
 from .items import (
     BarcodeItem,
@@ -133,7 +135,7 @@ from .settings import AppSettings
 from .adaptive import AdaptivePages
 from .sheet import ask_choice, ask_save, ask_text, choose_file, save_file, show_message, show_widget
 from .symbols import SymbolPicker
-from .widgets import SmoothScrollArea, install_wheel_guard_recursive
+from .widgets import FeedIndicator, SmoothScrollArea, install_wheel_guard_recursive
 
 BARCODE_SYMBOLOGIES = ["code128", "code39", "ean13", "ean8", "upca", "itf", "codabar"]
 
@@ -296,6 +298,8 @@ class MainWindow(QMainWindow):
         self.setWindowIcon(icon("label"))
         self._adjusting = False
         self._print_worker: PrintWorker | None = None
+        self._print_jobs: list[PrintJob] = []
+        self._pending_job: tuple[datetime, str, int, str] | None = None
         # Netzwerksuche im Hintergrund (mDNS + SNMP); ``_network_cancel``
         # bricht sie beim Schliessen des Fensters ab.
         self._network_worker: NetworkSearchWorker | None = None
@@ -357,11 +361,15 @@ class MainWindow(QMainWindow):
             tr("Mausrad scrollt – Strg + Mausrad (oder Zoomgeste) zoomt")
         )
         self.statusBar().addPermanentWidget(self._zoom_label)
-        self._rotate_hint_label = QLabel(
-            tr("Drehgriff: rastet auf 90° · Shift halten für 15°-Schritte")
-        )
-        self._rotate_hint_label.setVisible(False)
-        self.statusBar().addWidget(self._rotate_hint_label)
+        self._hint_label = QLabel()
+        self._hint_label.setVisible(False)
+        hint_row = QWidget()
+        hint_layout = QHBoxLayout(hint_row)
+        hint_layout.setContentsMargins(0, 0, 0, 0)
+        hint_layout.addStretch(1)
+        hint_layout.addWidget(self._hint_label)
+        hint_layout.addStretch(1)
+        self.statusBar().addWidget(hint_row, 1)
 
         # Erstes Etikett, bevor Medien-Signale den Undo-Stapel anfassen.
         self._create_tab()
@@ -501,7 +509,13 @@ class MainWindow(QMainWindow):
         widget = QWidget(self)
         layout = QVBoxLayout(widget)
         # Knapp bemessen: das Panel ist auf kleinen Bildschirmen nur ~170 px breit.
-        layout.setContentsMargins(2, 2, 2, 2)
+        layout.setContentsMargins(8, 8, 8, 8)
+        layout.setSpacing(4)
+
+        separator = QFrame()
+        separator.setFrameShape(QFrame.Shape.HLine)
+        separator.setFrameShadow(QFrame.Shadow.Sunken)
+        layout.addWidget(separator)
 
         # Aufloesung: nur was das gewaehlte Modell kann (die Liste kommt aus den
         # Datenblaettern, siehe printer.resolution_options). Der High-Resolution-
@@ -614,20 +628,45 @@ class MainWindow(QMainWindow):
         cut_row.addWidget(self._cut_combo, 1)
 
         self._print_button = QPushButton(icon("print"), tr("Drucken"))
+        self._print_button.clicked.connect(self._on_print)
+        self._history_button = QToolButton()
+        self._history_button.setIcon(icon("history"))
+        self._history_button.setToolTip(tr("Druckverlauf dieser Sitzung anzeigen"))
+        self._history_button.clicked.connect(self._show_print_history)
+        self._history_button.setAutoRaise(False)
+        # Gleiche Hoehe wie der Druckknopf: ein reiner Icon-Knopf ist sonst
+        # niedriger und steht klein neben dem Text-Knopf.
+        self._history_button.setFixedHeight(self._print_button.sizeHint().height())
+        button_row = QHBoxLayout()
+        button_row.setContentsMargins(0, 0, 0, 0)
+        button_row.setSpacing(6)
+        button_row.addWidget(self._print_button, 16)
+        button_row.addWidget(self._history_button, 3)
+
+        # Feste Hoehe fuer zwei Zeilen: der Status springt nicht mehr beim Druck.
+        self._last_job_label = QLabel(tr("Noch kein Auftrag"))
+        self._last_job_label.setStyleSheet("color:#777;")
+        status_height = 2 * self._last_job_label.fontMetrics().lineSpacing()
+        self._feed_indicator = FeedIndicator()
+        self._status_stack = QStackedWidget()
+        self._status_stack.addWidget(self._last_job_label)
+        self._status_stack.addWidget(self._feed_indicator)
+        self._status_stack.setFixedHeight(status_height)
 
         layout.addWidget(self._dither_check)
         layout.addWidget(self._threshold_label)
         layout.addLayout(threshold_row)
+        layout.addSpacing(8)
         layout.addLayout(copies_row)
         layout.addLayout(cut_row)
         layout.addStretch(1)
-        layout.addWidget(self._print_button)
+        layout.addWidget(self._status_stack)
+        layout.addLayout(button_row)
 
         self._resolution_combo.currentIndexChanged.connect(self._on_resolution_changed)
         self._threshold_spin.valueChanged.connect(self._schedule_refresh)
         self._dither_check.toggled.connect(self._on_dither_toggled)
         self._copies_spin.valueChanged.connect(self._sync_cut_options)
-        self._print_button.clicked.connect(self._on_print)
         self._hq_check.toggled.connect(self._on_hq_toggled)
         self._sync_resolution_options()
         self._sync_cut_options()
@@ -868,6 +907,11 @@ class MainWindow(QMainWindow):
         self._act_print.setShortcut("Ctrl+P")
         self._act_print.triggered.connect(self._on_print)
 
+        self._act_print_history = QAction(icon("history"), tr("Druckverlauf anzeigen"), self)
+        self._act_print_history.setToolTip(tr("Druckverlauf dieser Sitzung anzeigen"))
+        self._act_print_history.triggered.connect(self._show_print_history)
+
+
         self._act_print_preview = QAction(icon("preview"), tr("Druckvorschau"), self)
         self._act_print_preview.setCheckable(True)
         self._act_print_preview.setToolTip(tr("Druckvorschau: echte 1-bit-Ausgabe (Ctrl+Shift+P)"))
@@ -1001,6 +1045,7 @@ class MainWindow(QMainWindow):
         bar.addSeparator()
         bar.addAction(self._act_print_preview)
         bar.addAction(self._act_print)
+        bar.addAction(self._act_print_history)
 
     def _build_template_button(self, parent: QWidget) -> QToolButton:
         """Toolbar-Knopf "Vorlage laden": Klick oeffnet die Vorlagenliste."""
@@ -1125,6 +1170,7 @@ class MainWindow(QMainWindow):
             menu.addAction(act)
         menu.addSection(tr("Drucken"))
         menu.addAction(self._act_print)
+        menu.addAction(self._act_print_history)
         menu.addSeparator()
         self._build_language_menu(menu)
         menu.addAction(self._act_about)
@@ -1247,7 +1293,8 @@ class MainWindow(QMainWindow):
         gilt das letzte Fenster als geschlossen und Qt beendet das Programm.
 
         Der Undo-Stapel geht dabei verloren (neues Fenster); der Stern im Titel
-        bleibt ueber ``document_dirty`` / ``address_dirty`` erhalten.
+        bleibt ueber ``document_dirty`` / ``address_dirty`` erhalten. Der
+        Druckverlauf der Sitzung wandert mit dem Zustand ins neue Fenster.
         """
         if code not in LANGUAGES or code == language():
             return
@@ -1296,6 +1343,7 @@ class MainWindow(QMainWindow):
             "document_path": self._document_path,
             "document_dirty": self._is_document_dirty(),
             "address_dirty": self._address_dirty,
+            "print_jobs": list(self._print_jobs),
         }
 
     def apply_state(self, state: Mapping[str, Any]) -> None:
@@ -1328,6 +1376,8 @@ class MainWindow(QMainWindow):
             ]
         self._replace_tabs(list(specs), int(state.get("active") or 0))
         self._address_dirty = bool(state.get("address_dirty", False))
+        self._print_jobs = list(state.get("print_jobs") or [])
+        self._refresh_last_job_label()
         if self._canvas.print_preview and not self._act_print_preview.isChecked():
             self._act_print_preview.setChecked(True)
         else:
@@ -2059,8 +2109,9 @@ class MainWindow(QMainWindow):
     def _on_zoom_changed(self, percent: float) -> None:
         self._update_zoom_label(percent)
 
-    def _on_rotate_hint_changed(self, active: bool) -> None:
-        self._rotate_hint_label.setVisible(active)
+    def _on_canvas_hint(self, text: str) -> None:
+        self._hint_label.setText(text)
+        self._hint_label.setVisible(bool(text))
 
     def _update_zoom_label(self, percent: float | None = None) -> None:
         """Zoomanzeige - mit Hinweis, wenn die Vorschau nicht 1:1 ist.
@@ -2337,7 +2388,10 @@ class MainWindow(QMainWindow):
             "copies": copies,
             "cut_mode": self._cut_combo.currentData(),
         }
+        self._pending_job = (datetime.now(), label.name, copies, config.model, config.address)
         self._print_button.setEnabled(False)
+        self._status_stack.setCurrentWidget(self._feed_indicator)
+        self._feed_indicator.start()
         message = (
             tr("Sende {count} Kopien an {address}…")
             if copies > 1
@@ -2356,8 +2410,11 @@ class MainWindow(QMainWindow):
     def _on_print_finished(self) -> None:
         self._print_worker = None
         self._print_button.setEnabled(True)
+        self._feed_indicator.stop()
+        self._status_stack.setCurrentWidget(self._last_job_label)
 
     def _on_print_succeeded(self, status: dict) -> None:
+        self._record_print_job(status.get("outcome") or "sent")
         self.statusBar().showMessage(
             tr("Druckauftrag gesendet (outcome={outcome}).").format(
                 outcome=status.get("outcome")
@@ -2366,11 +2423,36 @@ class MainWindow(QMainWindow):
         )
 
     def _on_print_failed(self, message: str) -> None:
+        self._record_print_job("failed")
         self.statusBar().showMessage(tr("Druck fehlgeschlagen."), 8000)
         hint = access.failure_hint(message)
         if hint:
             message = f"{message}\n\n{hint}"
         show_message(self, "critical", tr("Druckfehler"), message, selectable=bool(hint))
+
+    def _record_print_job(self, outcome: str) -> None:
+        if self._pending_job is None:
+            return
+        started, label, copies, model, address = self._pending_job
+        self._pending_job = None
+        job = PrintJob(started, label, copies, model, address, outcome)
+        self._print_jobs.append(job)
+        self._refresh_last_job_label()
+
+    def _refresh_last_job_label(self) -> None:
+        """Statuszeile zum letzten Auftrag der Sitzung neu setzen."""
+        if not self._print_jobs:
+            self._last_job_label.setText(tr("Noch kein Auftrag"))
+            self._last_job_label.setStyleSheet("color:#777;")
+            return
+        job = self._print_jobs[-1]
+        self._last_job_label.setText(f"{job.started:%H:%M} · {job.model}\n{job.status_text()}")
+        color = "#b00020" if job.is_error else "#777"
+        self._last_job_label.setStyleSheet(f"color:{color};")
+
+    def _show_print_history(self) -> None:
+        PrintHistoryDialog(self._print_jobs, self).exec()
+
     # --------------------------------------------------------- USB-Zugriff --
     def _on_usb_permission(self) -> None:
         """udev-Regel einrichten: das System fragt dabei nach dem Passwort.
@@ -2677,7 +2759,7 @@ class MainWindow(QMainWindow):
         canvas.text_dropped.connect(self._on_text_dropped)
         canvas.print_preview_exit_requested.connect(self._exit_print_preview)
         canvas.zoom_changed.connect(self._on_zoom_changed)
-        canvas.rotate_hint_changed.connect(self._on_rotate_hint_changed)
+        canvas.hint_changed.connect(self._on_canvas_hint)
         canvas.scene().selectionChanged.connect(self._on_selection_changed)
         canvas.scene().changed.connect(self._on_scene_changed)
         tab.undo.cleanChanged.connect(self._on_undo_clean_changed)
@@ -2694,7 +2776,7 @@ class MainWindow(QMainWindow):
             (canvas.text_dropped, self._on_text_dropped),
             (canvas.print_preview_exit_requested, self._exit_print_preview),
             (canvas.zoom_changed, self._on_zoom_changed),
-            (canvas.rotate_hint_changed, self._on_rotate_hint_changed),
+            (canvas.hint_changed, self._on_canvas_hint),
             (canvas.scene().selectionChanged, self._on_selection_changed),
             (canvas.scene().changed, self._on_scene_changed),
             (tab.undo.cleanChanged, self._on_undo_clean_changed),

@@ -380,8 +380,8 @@ class LabelCanvas(QGraphicsView):
     image_dropped = Signal(str, QPointF)
     text_dropped = Signal(str, QPointF)
     print_preview_exit_requested = Signal()
-    #: Drehgriff unter dem Mauszeiger (oder gerade am Drehen) - fuer den Hinweis in der Statusleiste.
-    rotate_hint_changed = Signal(bool)
+    #: Kurzer Bedienhinweis fuer die Statusleiste (leer = kein Hinweis).
+    hint_changed = Signal(str)
 
     def __init__(self, parent: QWidget | None = None):
         super().__init__(parent)
@@ -429,7 +429,7 @@ class LabelCanvas(QGraphicsView):
         self._op_start_rotation = 0.0
         self._op_rotate_center = QPointF()
         self._op_rotate_start = 0.0
-        self._rotate_hint_active = False
+        self._hint = ""
         self._rotate_detent: float | None = None
         self._op_div_index = 0
         self._op_start_widths: list[float] = []
@@ -1311,17 +1311,26 @@ class LabelCanvas(QGraphicsView):
                 self.viewport().setCursor(self._cursor_for_handle(hovered, name))
             else:
                 self.viewport().unsetCursor()
-        self._set_rotate_hint(handle is not None and handle[0] == "rotate")
+        hint = ""
+        if handle is not None and handle[0] == "rotate":
+            hint = tr("Shift: 15°-Schritte")
+        else:
+            item = self._top_serializable_item_at(self._event_pos(event))
+            if item is None:
+                hint = tr("Strg+Rad: zoomen")
+            elif not item.isSelected():
+                hint = tr("Strg+Klick: zur Auswahl hinzufügen")
+        self._set_hint(hint)
         super().mouseMoveEvent(event)
 
     def leaveEvent(self, event) -> None:  # noqa: N802
-        self._set_rotate_hint(False)
+        self._set_hint("")
         super().leaveEvent(event)
 
-    def _set_rotate_hint(self, active: bool) -> None:
-        if active != self._rotate_hint_active:
-            self._rotate_hint_active = active
-            self.rotate_hint_changed.emit(active)
+    def _set_hint(self, text: str) -> None:
+        if text != self._hint:
+            self._hint = text
+            self.hint_changed.emit(text)
 
     def _do_move(self, scene_pos: QPointF) -> None:
         dx = scene_pos.x() - self._op_start_scene.x()
