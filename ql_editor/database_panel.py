@@ -1,6 +1,7 @@
 """Unteres Datenbank-Panel (D13/D14/D15).
 
-Grid, Dateiname, Verbinden/Andere/Trennen, Record-Zaehler und Banner.
+Grid, Dateiname, Andere/Trennen, Record-Zaehler und Banner.
+Verbinden liegt in der Toolbar.
 Spaltenkoepfe (○) lassen sich auf den Canvas ziehen.
 
 Sichtbar ist das Panel nur, wenn eine CSV verbunden ist und die Toolbar
@@ -129,15 +130,10 @@ class DatabasePanel(QWidget):
         self._counter = QLabel("")
         self._counter.setObjectName("database_panel_counter")
 
-        self._connect = QPushButton(tr("Verbinden"))
-        self._connect.setObjectName("database_panel_connect")
         self._other = QPushButton(tr("Andere…"))
         self._other.setObjectName("database_panel_other")
         self._disconnect = QPushButton(tr("Trennen"))
         self._disconnect.setObjectName("database_panel_disconnect")
-        self._connect.clicked.connect(
-            lambda _checked=False: self.connect_requested.emit()
-        )
         self._other.clicked.connect(
             lambda _checked=False: self.replace_requested.emit()
         )
@@ -151,7 +147,6 @@ class DatabasePanel(QWidget):
         header.addWidget(self._title)
         header.addWidget(self._file_label, 1)
         header.addWidget(self._counter)
-        header.addWidget(self._connect)
         header.addWidget(self._other)
         header.addWidget(self._disconnect)
 
@@ -368,7 +363,6 @@ class DatabasePanel(QWidget):
         self._banner.setVisible(bool(text))
 
     def _set_actions(self, *, connected: bool, linked: bool) -> None:
-        self._connect.setEnabled(not connected)
         self._other.setEnabled(linked)
         self._disconnect.setEnabled(linked)
 

@@ -8,7 +8,7 @@ from pathlib import Path
 import pytest
 from PySide6.QtCore import QMimeData, QPointF, Qt
 from PySide6.QtGui import QDropEvent
-from PySide6.QtWidgets import QComboBox, QLabel, QPushButton, QToolBar
+from PySide6.QtWidgets import QCheckBox, QComboBox, QLabel, QPushButton, QToolBar
 
 from ql_editor.app import MainWindow
 from ql_editor.database_panel import field_from_mime, field_mime
@@ -30,7 +30,7 @@ def _csv(tmp_path: Path) -> Path:
 
 
 def _window_with_csv(qapp, tmp_path: Path) -> MainWindow:
-    win = MainWindow()
+    win = MainWindow(discover=False)
     win.resize(1100, 760)
     win.show()
     assert win.connect_csv_path(str(_csv(tmp_path)))
@@ -62,7 +62,7 @@ def _open_database(win: MainWindow) -> None:
 
 
 def test_database_ui_hidden_without_csv(qapp):
-    win = MainWindow()
+    win = MainWindow(discover=False)
     win.resize(1100, 760)
     win.show()
     qapp.processEvents()
@@ -70,11 +70,16 @@ def test_database_ui_hidden_without_csv(qapp):
     assert not win._database_panel.isVisible()
     assert win._act_connect_csv.isVisible()
     bar = win.findChild(QToolBar, "main_toolbar")
+    assert win._act_connect_csv in bar.actions()
     assert win._act_database in bar.actions()
     assert not win._act_database_separator.isVisible()
     separator = bar.widgetForAction(win._act_database_separator)
     assert separator is None or not separator.isVisible()
-    win.close()
+    text = TextItem("A")
+    win._canvas.add_item(text)
+    text.setSelected(True)
+    win._on_selection_changed()
+    assert win._inspector.findChild(QCheckBox, "inspector_serial_enabled") is None
 
 
 def test_connect_shows_grid_counter_and_headers(qapp, tmp_path):
@@ -91,7 +96,6 @@ def test_connect_shows_grid_counter_and_headers(qapp, tmp_path):
     assert panel._grid.columnCount() == 3
     assert panel._grid.horizontalHeaderItem(0).text().startswith("○")
     assert panel._counter.text() == "Datensatz 1 / 2"
-    assert not panel._connect.isEnabled()
     assert panel._disconnect.isEnabled()
     assert panel._other.isEnabled()
     win.close()
@@ -351,10 +355,36 @@ def test_collapse_keeps_row_selection(qapp, tmp_path):
     _open_database(win)
     win._database_panel.set_expanded(False)
     assert not win._database_panel._body.isVisible()
-    assert win._database_panel._connect.isVisible()
+    assert win._database_panel._other.isVisible()
     win._database_panel.set_expanded(True)
     assert win._database_panel._grid.rowCount() == 2
     win.close()
+
+
+def test_serial_step_zero_returns_to_the_previous_value():
+    """Schritt 0 ist kein Fortschritt. Der Spin geht auf den letzten Wert."""
+    from PySide6.QtWidgets import QSpinBox
+
+    inspector = InspectorPanel()
+    inspector.set_serial_context(
+        {
+            "enabled": True,
+            "start": 1,
+            "count": 1,
+            "step": 4,
+            "prefix": "",
+            "suffix": "",
+            "pad_width": 0,
+        },
+        csv_connected=True,
+    )
+    item = TextItem("1")
+    item.set_binding({"source": "serial"})
+    inspector.set_item(item)
+    step = inspector.findChild(QSpinBox, "inspector_serial_step")
+    assert step is not None
+    step.setValue(0)
+    assert step.value() == 4
 
 
 def test_connect_save_stores_relative_path(qapp, tmp_path):

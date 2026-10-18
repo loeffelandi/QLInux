@@ -96,6 +96,10 @@ class InspectorPanel(QWidget):
     rejected = Signal(str)
     #: Database Field geaendert - die App merged den aktuellen Record (D11/D14).
     database_binding_changed = Signal()
+    #: Checkbox: Serie an das ausgewaehlte Objekt binden oder loesen.
+    serial_toggle_requested = Signal(bool)
+    #: Start, Anzahl, Schritt, Praefix, Suffix, Stellen.
+    serial_spec_changed = Signal(object)
 
     def __init__(self, parent: QWidget | None = None):
         super().__init__(parent)
@@ -105,6 +109,10 @@ class InspectorPanel(QWidget):
         self._edit_open = False
         self._database_fields: list[str] = []
         self._binding_refresh = False
+        self._csv_connected = False
+        self._serial_spec: dict = {}
+        self._updating_serial = False
+        self._serial_step_last = 1
         #: Letzte Registerkarte im Tabellen-Inspector (Text / Zelle / Tabelle).
         self._table_page = 0
         self._datetime_example_item = None
@@ -130,6 +138,11 @@ class InspectorPanel(QWidget):
     def set_database_fields(self, fields: list[str] | None) -> None:
         """Spalten der verbundenen CSV fuer das Database-Field-Menue."""
         self._database_fields = [str(name) for name in (fields or []) if str(name)]
+
+    def set_serial_context(self, serial, *, csv_connected: bool) -> None:
+        """Serienparameter fuer den naechsten Aufbau. Ohne CSV kein Serienblock."""
+        self._csv_connected = bool(csv_connected)
+        self._serial_spec = dict(serial) if isinstance(serial, dict) else {}
 
     def take_binding_refresh(self) -> bool:
         """Ob der Inspector nach dem Undo-Schritt neu aufgebaut werden soll."""
@@ -231,6 +244,7 @@ class InspectorPanel(QWidget):
             note.setWordWrap(True)
             note.setObjectName("inspector_serial_exclusive")
             form.addRow(note)
+        self._build_serial(source, form)
         if source == "database":
             hint = QLabel(
                 tr(
@@ -272,6 +286,130 @@ class InspectorPanel(QWidget):
             self.database_binding_changed.emit()
 
         self._apply_now(apply)
+
+    def _build_serial(self, source: str | None, form: QFormLayout) -> None:
+        """Serie im Inspector. Ohne CSV bleibt der Block weg."""
+        if not self._csv_connected:
+            return
+        spec = self._serial_spec
+        locked = source == "database"
+        serial_on = source == "serial"
+        step = spec.get("step", 1)
+        if isinstance(step, bool) or not isinstance(step, int) or step == 0:
+            step = 1
+        self._serial_step_last = step
+
+        check = QCheckBox(tr("Serie"))
+        check.setObjectName("inspector_serial_enabled")
+        check.setEnabled(not locked)
+        self._updating_serial = True
+        check.setChecked(serial_on)
+        self._updating_serial = False
+        check.toggled.connect(self._on_serial_toggled)
+        form.addRow(check)
+
+        self._serial_start = self._serial_spin(
+            "inspector_serial_start", -1000000, 1000000
+        )
+        self._serial_count = self._serial_spin("inspector_serial_count", 1, 99)
+        self._serial_step = self._serial_spin(
+            "inspector_serial_step", -1000000, 1000000
+        )
+        self._serial_pad = self._serial_spin("inspector_serial_pad", 0, 12)
+        self._serial_pad.setToolTip(
+            tr("Führende Nullen; 0 lässt die Zahl, wie sie ist.")
+        )
+        self._serial_prefix = self._serial_line("inspector_serial_prefix")
+        self._serial_suffix = self._serial_line("inspector_serial_suffix")
+        self._updating_serial = True
+        try:
+            self._serial_start.setValue(self._clamp_serial_int(spec.get("start"), 1, self._serial_start))
+            self._serial_count.setValue(self._clamp_serial_int(spec.get("count"), 1, self._serial_count))
+            self._serial_step.setValue(step)
+            self._serial_pad.setValue(self._clamp_serial_int(spec.get("pad_width"), 0, self._serial_pad))
+            self._serial_prefix.setText(str(spec.get("prefix") or ""))
+            self._serial_suffix.setText(str(spec.get("suffix") or ""))
+        finally:
+            self._updating_serial = False
+        fields_on = serial_on and not locked
+        for widget in (
+            self._serial_start,
+            self._serial_count,
+            self._serial_step,
+            self._serial_pad,
+            self._serial_prefix,
+            self._serial_suffix,
+        ):
+            widget.setEnabled(fields_on)
+        form.addRow(tr("Start"), self._serial_start)
+        form.addRow(tr("Anzahl"), self._serial_count)
+        form.addRow(tr("Schritt"), self._serial_step)
+        form.addRow(tr("Präfix"), self._serial_prefix)
+        form.addRow(tr("Suffix"), self._serial_suffix)
+        form.addRow(tr("Stellen"), self._serial_pad)
+        if locked:
+            note = QLabel(
+                tr("Datenbankfeld und Serie schließen sich an diesem Objekt aus.")
+            )
+            note.setWordWrap(True)
+            note.setObjectName("inspector_serial_locked")
+            form.addRow(note)
+
+    def _serial_spin(self, name: str, low: int, high: int) -> QSpinBox:
+        spin = QSpinBox()
+        spin.setObjectName(name)
+        spin.setRange(low, high)
+        spin.valueChanged.connect(self._on_serial_value)
+        spin.editingFinished.connect(self._on_serial_edit_finished)
+        return spin
+
+    def _serial_line(self, name: str) -> QLineEdit:
+        edit = QLineEdit()
+        edit.setObjectName(name)
+        edit.setMaxLength(32)
+        edit.textEdited.connect(lambda _text: self._on_serial_value())
+        edit.editingFinished.connect(self._on_serial_edit_finished)
+        return edit
+
+    @staticmethod
+    def _clamp_serial_int(value, default: int, spin: QSpinBox) -> int:
+        if isinstance(value, bool) or not isinstance(value, int):
+            number = default
+        else:
+            number = value
+        return max(spin.minimum(), min(spin.maximum(), number))
+
+    def _on_serial_toggled(self, checked: bool) -> None:
+        if self._loading or self._updating_serial:
+            return
+        self._binding_refresh = True
+        self._apply_now(lambda: self.serial_toggle_requested.emit(bool(checked)))
+
+    def _on_serial_value(self, *_args) -> None:
+        if self._loading or self._updating_serial or not hasattr(self, "_serial_suffix"):
+            return
+        if self._serial_step.value() == 0:
+            self._updating_serial = True
+            self._serial_step.setValue(self._serial_step_last or 1)
+            self._updating_serial = False
+            return
+        self._serial_step_last = self._serial_step.value()
+        self._apply_live(lambda: self.serial_spec_changed.emit(self._serial_spec_from_widgets()))
+
+    def _on_serial_edit_finished(self) -> None:
+        if self._loading or self._updating_serial:
+            return
+        self._finish_edit()
+
+    def _serial_spec_from_widgets(self) -> dict:
+        return {
+            "start": self._serial_start.value(),
+            "count": self._serial_count.value(),
+            "step": self._serial_step.value(),
+            "pad_width": self._serial_pad.value(),
+            "prefix": self._serial_prefix.text(),
+            "suffix": self._serial_suffix.text(),
+        }
 
     def _build_text(self, item, form: QFormLayout) -> None:
         self._build_database_binding(item, form)

@@ -17,18 +17,30 @@ def design_snapshot(
     media: Mapping[str, Any],
     items: list[Mapping[str, Any]],
     selection: list[Mapping[str, Any]] | None = None,
+    serial: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
-    """Unveraenderlicher Schnappschuss von Band/Design und Objekten."""
-    return {
+    """Unveraenderlicher Schnappschuss von Band/Design und Objekten.
+
+    ``serial`` gehoert dazu, sobald die App es uebergibt: Anzahl und Start
+    aendern sonst kein Objekt und waeren nicht rueckgaengig zu machen.
+    """
+    snapshot: dict[str, Any] = {
         "media": deepcopy(dict(media)),
         "items": deepcopy(list(items)),
         "selection": deepcopy(list(selection or [])),
     }
+    if serial is not None:
+        snapshot["serial"] = deepcopy(dict(serial))
+    return snapshot
 
 
 def snapshots_equal(a: Mapping[str, Any], b: Mapping[str, Any]) -> bool:
     """Vergleich ohne Auswahl - die Auswahl ist nur fuer die Wiederherstellung."""
-    return a.get("media") == b.get("media") and a.get("items") == b.get("items")
+    return (
+        a.get("media") == b.get("media")
+        and a.get("items") == b.get("items")
+        and a.get("serial") == b.get("serial")
+    )
 
 
 class DesignCommand(QUndoCommand):
@@ -48,10 +60,16 @@ class DesignCommand(QUndoCommand):
     ) -> None:
         super().__init__(text)
         self._before = design_snapshot(
-            before["media"], before["items"], before.get("selection")
+            before["media"],
+            before["items"],
+            before.get("selection"),
+            serial=before.get("serial"),
         )
         self._after = design_snapshot(
-            after["media"], after["items"], after.get("selection")
+            after["media"],
+            after["items"],
+            after.get("selection"),
+            serial=after.get("serial"),
         )
         self._restore = restore
         self._skip_first_redo = True

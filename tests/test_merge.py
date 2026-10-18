@@ -253,6 +253,46 @@ def test_plan_print_variants_keeps_selection_order_and_drops_gaps():
         merge.plan_print_variants(rows, scope="range", range_from=8, range_to=9)
 
 
+def test_plan_serial_labels_walks_each_record_then_the_series():
+    """D5: Record aussen, Serie innen. Kopien vervielfachen hier nicht."""
+    rows = _rows()
+    variants = merge.plan_print_variants(rows, scope="all")
+    serial = {"enabled": True, "start": 1, "count": 2, "step": 10}
+    labels = merge.plan_serial_labels(variants, serial)
+    assert [(label.variant.index, label.serial_index) for label in labels] == [
+        (0, 0),
+        (0, 1),
+        (1, 0),
+        (1, 1),
+        (2, 0),
+        (2, 1),
+    ]
+    assert [merge.format_serial(serial, index=label.serial_index) for label in labels] == [
+        "1",
+        "11",
+        "1",
+        "11",
+        "1",
+        "11",
+    ]
+
+
+def test_plan_serial_labels_without_database_is_one_virtual_record():
+    variants = merge.plan_print_variants(None)
+    serial = {"enabled": True, "start": 4, "count": 3, "step": 1}
+    labels = merge.plan_serial_labels(variants, serial)
+    assert len(labels) == 3
+    assert all(label.variant.record is None for label in labels)
+    assert [label.serial_index for label in labels] == [0, 1, 2]
+
+
+def test_serial_length_ignores_count_until_enabled():
+    assert merge.serial_length({"enabled": False, "count": 8}) == 1
+    assert merge.serial_length(None) == 1
+    with pytest.raises(merge.MergeError):
+        merge.serial_length({"enabled": True, "count": 0})
+
+
 def test_job_page_count_is_variants_times_copies():
     from ql_editor.printer import COPIES_MAX
 
