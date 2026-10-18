@@ -733,6 +733,18 @@ def _draw_flag_en(p: QPainter, color: QColor) -> None:
     p.drawRect(rect)
 
 
+def _draw_appearance(p: QPainter, color: QColor) -> None:
+    """Halb gefuellter Kreis: hell und dunkel."""
+    rect = QRectF(4.0, 4.0, 16.0, 16.0)
+    _stroke_only(p, color)
+    p.drawEllipse(rect)
+    p.save()
+    p.setClipRect(QRectF(12.0, 3.0, 9.0, 18.0))
+    _fill_only(p, color)
+    p.drawEllipse(rect)
+    p.restore()
+
+
 def _draw_language(p: QPainter, color: QColor) -> None:
     """Zwei Sprechblasen - das uebliche Symbol fuer Sprache/Sprachwahl."""
     _stroke_only(p, color, 1.6)
@@ -1048,6 +1060,7 @@ _DRAW = {
     "preview": _draw_preview,
     "rotate": _draw_rotate,
     "language": _draw_language,
+    "appearance": _draw_appearance,
     "flag_de": _draw_flag_de,
     "flag_en": _draw_flag_en,
     "new": _draw_new,

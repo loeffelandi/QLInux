@@ -1573,12 +1573,15 @@ def test_canvas_keyboard_delete_and_nudge(qapp):
 
 
 def test_inspector_shows_only_selected_kind(qapp):
+    from PySide6.QtWidgets import QGroupBox
+
     from ql_editor.inspector import InspectorPanel
     from ql_editor.items import QRItem
 
     inspector = InspectorPanel()
     inspector.set_item(TextItem("x"))
     assert inspector._title.text() == "Text"
+    assert {box.title() for box in inspector.findChildren(QGroupBox)} >= {"Text", "Lage"}
     inspector.set_item(QRItem("y", 100))
     assert inspector._title.text() == "QR-Code"
     inspector.set_item(None)
@@ -3000,6 +3003,7 @@ def test_no_menu_bar_but_hamburger_menu(qapp):
         "Speichern unter…",
         "|",
         "Sprache",
+        "Erscheinungsbild",
         "Hilfe",
         "Über QLInux",
         "Beenden",
@@ -3027,6 +3031,7 @@ def test_no_menu_bar_but_hamburger_menu(qapp):
         "Ansicht",
         "Drucken",
         "Sprache",
+        "Erscheinungsbild",
         "Hilfe",
         "Über QLInux",
         "Beenden",
@@ -5212,16 +5217,24 @@ def test_resolution_combo_follows_a_model_change(qapp, tmp_path):
 
 
 def test_print_options_fit_on_a_small_screen(qapp, tmp_path):
-    """Auf dem Reiter "Drucken" braucht das Panel wenig Hoehe - der Drucken-
-    Knopf bleibt ohne Scrollen sichtbar, auch auf kleinen Bildschirmen."""
-    win = _temp_window(qapp, tmp_path)
+    """Auf dem Reiter "Drucken" bleiben die Kästen und der Knopf im Bereich.
+
+    Die Gruppenkästen sind dieselben wie links und daher etwas höher als eine
+    flache Liste. 360 px lässt den Rahmen zu und faengt ein Layout, das
+    ausufert.
+    """
+    from PySide6.QtWidgets import QGroupBox
+
     from ql_editor.adaptive import TABS
 
+    win = _temp_window(qapp, tmp_path)
     win._right_pages.set_mode(TABS)
     win._right_pages.show_page(1)
     qapp.processEvents()
     page = win._right_pages.page(1)
-    assert page.widget().sizeHint().height() <= 310
+    titles = {box.title() for box in page.widget().findChildren(QGroupBox)}
+    assert {"Qualität", "Ausgabe", "Datenbank"} <= titles
+    assert page.widget().sizeHint().height() <= 360
     assert win._print_button.isVisible()
 
 
@@ -5437,6 +5450,43 @@ def test_language_switch_is_offered_in_the_menu(qapp, tmp_path):
                 blue += 1
     assert blue > 8
     win.close()
+
+
+def test_appearance_menu_switches_between_light_and_dark(qapp, tmp_path):
+    """Hell und Dunkel schalten die Palette um. Vorgabe bleibt das System."""
+    from PySide6.QtGui import QPalette
+
+    from ql_editor.theme import ACCENT, apply_theme
+
+    original = QPalette(qapp.palette())
+    win = _temp_window(qapp, tmp_path)
+    try:
+        menu = win._menu_button.menu()
+        submenu = next(
+            action.menu()
+            for action in menu.actions()
+            if action.menu() is not None and action.menu().title() == "Erscheinungsbild"
+        )
+        choices = {action.text(): action for action in submenu.actions()}
+        assert choices["Wie das System"].isChecked()
+        choices["Dunkel"].trigger()
+        qapp.processEvents()
+        assert win._settings.appearance == "dark"
+        assert qapp.palette().color(QPalette.ColorRole.Window).name() == "#242424"
+        assert qapp.palette().color(QPalette.ColorRole.Highlight).name() == ACCENT
+        choices["Hell"].trigger()
+        qapp.processEvents()
+        assert win._settings.appearance == "light"
+        assert qapp.palette().color(QPalette.ColorRole.Window).name() == "#fafafa"
+        choices["Wie das System"].trigger()
+        qapp.processEvents()
+        assert win._settings.appearance == "system"
+        assert qapp.palette().color(QPalette.ColorRole.Window).name() == "#fafafa"
+    finally:
+        apply_theme(qapp)
+        qapp.setPalette(original)
+        win.close()
+        qapp.processEvents()
 
 
 def test_english_ui_has_no_german_leftovers(qapp, tmp_path):

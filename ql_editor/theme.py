@@ -75,6 +75,15 @@ def palette_for(scheme: Qt.ColorScheme) -> QPalette:
     return pal
 
 
+def scheme_for(name: str | None) -> Qt.ColorScheme | None:
+    """Gespeicherte Wahl in ein Farbschema. ``system`` folgt der Arbeitsumgebung."""
+    if name == "dark":
+        return Qt.ColorScheme.Dark
+    if name == "light":
+        return Qt.ColorScheme.Light
+    return None
+
+
 def apply_theme(app: QApplication, scheme: Qt.ColorScheme | None = None) -> None:
     """Palette der Anwendung setzen.
 

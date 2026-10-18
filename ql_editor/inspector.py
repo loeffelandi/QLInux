@@ -25,6 +25,7 @@ from PySide6.QtWidgets import (
     QFontComboBox,
     QFormLayout,
     QFrame,
+    QGroupBox,
     QHBoxLayout,
     QLabel,
     QLineEdit,
@@ -119,7 +120,8 @@ class InspectorPanel(QWidget):
         self._datetime_example_refresh = None
 
         self._root = QVBoxLayout(self)
-        self._root.setContentsMargins(8, 8, 8, 8)
+        # Dieselben Abstaende wie die Gruppenkaesten im linken Panel.
+        self._root.setContentsMargins(6, 6, 6, 6)
         self._root.setSpacing(6)
         self._title = QLabel(tr("Nichts ausgewählt"))
         self._title.setStyleSheet("font-weight:600; color:palette(windowText);")
@@ -167,18 +169,18 @@ class InspectorPanel(QWidget):
         item = self._item
         if item is None:
             self._title.setText(tr("Nichts ausgewählt"))
+            self._title.show()
             self._root.addStretch(1)
             return
 
         kind = getattr(item, "kind", "?")
         title = _KIND_TITLES.get(kind)
         self._title.setText(tr(title) if title else tr("Objekt"))
+        # Der Titel steht am Kasten, wie "Drucker" oder "Band" links.
+        self._title.hide()
 
-        body = QWidget()
-        form = QFormLayout(body)
-        form.setContentsMargins(0, 0, 0, 0)
-        form.setLabelAlignment(Qt.AlignmentFlag.AlignRight)
-        form.setRowWrapPolicy(QFormLayout.RowWrapPolicy.WrapLongRows)
+        box = QGroupBox(self._title.text())
+        form = self._group_form(box)
 
         builder = {
             "text": self._build_text,
@@ -195,13 +197,17 @@ class InspectorPanel(QWidget):
         if builder is not None:
             builder(item, form)
 
-        self._build_common(item, form)
-        self._root.addWidget(body)
+        place = QGroupBox(tr("Lage"))
+        self._build_common(item, self._group_form(place))
+        self._root.addWidget(box)
+        self._root.addWidget(place)
         # addWidget zeigt das neue Formular nicht immer (z. B. nach
         # Zellenwechsel). Versteckt bliebe der Inspector sonst leer.
-        body.show()
+        box.show()
+        place.show()
         self._root.addStretch(1)
-        install_wheel_guard_recursive(body)
+        install_wheel_guard_recursive(box)
+        install_wheel_guard_recursive(place)
 
     # -- Typ-spezifisch -----------------------------------------------------
     def _build_database_binding(self, item, form: QFormLayout) -> None:
@@ -599,17 +605,25 @@ class InspectorPanel(QWidget):
         box.toggled.connect(lambda v: self._apply_now(lambda: apply_fn(v)))
         return box
 
+    def _group_form(self, box: QGroupBox) -> QFormLayout:
+        """Formular in einem Kasten, gleiche Zeilenregeln wie links."""
+        form = QFormLayout(box)
+        form.setLabelAlignment(Qt.AlignmentFlag.AlignRight)
+        form.setRowWrapPolicy(QFormLayout.RowWrapPolicy.WrapLongRows)
+        form.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.AllNonFixedFieldsGrow)
+        return form
+
     def _divider(self) -> QFrame:
         line = QFrame()
         line.setFrameShape(QFrame.Shape.VLine)
         line.setFrameShadow(QFrame.Shadow.Sunken)
         return line
 
-    def _rule(self) -> QFrame:
-        line = QFrame()
-        line.setFrameShape(QFrame.Shape.HLine)
-        line.setFrameShadow(QFrame.Shadow.Sunken)
-        return line
+    def _rule(self) -> QWidget:
+        """Abstand zwischen Feldgruppen, ohne eingeprägte Trennlinie."""
+        gap = QWidget()
+        gap.setFixedHeight(6)
+        return gap
 
     def _build_shape(self, item, form: QFormLayout) -> None:
         shape = QComboBox()

@@ -5,7 +5,15 @@ from __future__ import annotations
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QPalette
 
-from ql_editor.theme import ACCENT, apply_theme, palette_for
+from ql_editor.theme import ACCENT, apply_theme, palette_for, scheme_for
+
+
+def test_scheme_for_keeps_the_system_as_default():
+    assert scheme_for(None) is None
+    assert scheme_for("system") is None
+    assert scheme_for("light") == Qt.ColorScheme.Light
+    assert scheme_for("dark") == Qt.ColorScheme.Dark
+    assert scheme_for("nope") is None
 
 
 def test_dark_palette_is_darker_and_shares_one_accent():
