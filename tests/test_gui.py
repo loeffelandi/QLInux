@@ -3999,6 +3999,57 @@ def test_opening_an_lbx_imports_without_keeping_that_path(qapp, tmp_path):
     qapp.processEvents()
 
 
+def test_files_given_on_the_command_line_are_opened(qapp, tmp_path):
+    """Doppelklick im Dateimanager: ``ql-editor datei.qlx`` oeffnet die Datei.
+
+    Optionen und fremde Argumente werden ignoriert.
+    """
+    from ql_editor.app import _document_args
+
+    design = tmp_path / "design.qlx"
+    brother = tmp_path / "logo.lbx"
+    args = ["ql-editor", "--foo", "xcb", str(design), str(brother), "notiz.txt"]
+
+    assert _document_args(args) == [str(design), str(brother)]
+
+    win = _temp_window(qapp, tmp_path)
+    win._canvas.add_item(TextItem("Datei", font_pixel_size=30))
+    win._save_document_to(str(design))
+    win.close()
+    qapp.processEvents()
+
+    win = _temp_window(qapp, tmp_path)
+    for path in _document_args(["ql-editor", str(design)]):
+        win.open_path(path)
+    qapp.processEvents()
+
+    # Das leere Ausgangs-Etikett ist weg, nur die Datei bleibt.
+    assert len(win._tab_ids) == 1
+    assert win._document_path == str(design)
+    assert win.windowTitle().startswith("design")
+
+    win.close()
+    qapp.processEvents()
+
+
+def test_an_untouched_tab_is_kept_when_a_file_opens(qapp, tmp_path):
+    """Hat das Etikett Inhalt, bleibt es offen - die Datei kommt als eigener Reiter."""
+    design = tmp_path / "design.qlx"
+    from ql_editor import document
+
+    document.save(design, document.build({}, []))
+    win = _temp_window(qapp, tmp_path)
+    win._canvas.add_item(TextItem("Entwurf", font_pixel_size=30))
+    win.open_path(str(design))
+    qapp.processEvents()
+
+    assert len(win._tab_ids) == 2
+    assert win._document_path == str(design)
+
+    win.close()
+    qapp.processEvents()
+
+
 def test_an_lbx_warning_is_shown(qapp, tmp_path):
     """Was nicht übernommen wird, steht danach in einem Hinweis."""
     from PySide6.QtWidgets import QLabel
