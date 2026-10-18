@@ -104,7 +104,9 @@ def test_a_broken_message_is_ignored(qapp):
         socket.write(b"das ist kein json\n")
         socket.flush()
         socket.waitForBytesWritten(1000)
-        _wait_for(qapp, lambda: False, 0.3)
+        # readyRead laeuft ueber den Event-Loop; danach darf nichts angekommen sein.
+        for _ in range(5):
+            qapp.processEvents()
         assert received == []
     finally:
         server.close()
