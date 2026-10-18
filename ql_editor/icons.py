@@ -635,7 +635,47 @@ def _draw_rotate(p: QPainter, color: QColor) -> None:
     )
 
 
+def _outline(p: QPainter, color: QColor, points: tuple[tuple[float, float], ...]) -> None:
+    _stroke_only(p, color, 1.6)
+    _poly(p, points + (points[0],))
+
+
+def _draw_shape_ellipse(p: QPainter, color: QColor) -> None:
+    _stroke_only(p, color, 1.6)
+    p.drawEllipse(QRectF(3.0, 6.0, 18.0, 12.0))
+
+
+def _draw_shape_triangle(p: QPainter, color: QColor) -> None:
+    _outline(p, color, ((12.0, 4.0), (21.0, 20.0), (3.0, 20.0)))
+
+
+def _draw_shape_star(p: QPainter, color: QColor) -> None:
+    _outline(p, color, ((12.0, 3.5), (14.35, 9.26), (20.56, 9.72), (15.8, 13.74), (17.29, 19.78), (12.0, 16.5), (6.71, 19.78), (8.2, 13.74), (3.44, 9.72), (9.65, 9.26)))
+
+
+_ARROW_RIGHT = ((3.0, 8.5), (14.0, 8.5), (14.0, 4.5), (21.0, 12.0), (14.0, 19.5), (14.0, 15.5), (3.0, 15.5))
+
+
+def _draw_shape_arrow_right(p: QPainter, color: QColor) -> None:
+    _outline(p, color, _ARROW_RIGHT)
+
+
+def _draw_shape_arrow_left(p: QPainter, color: QColor) -> None:
+    _outline(p, color, tuple((24.0 - x, y) for x, y in _ARROW_RIGHT))
+
+
+def _draw_shape_arrow_double(p: QPainter, color: QColor) -> None:
+    _outline(p, color, ((3.0, 12.0), (8.0, 4.5), (8.0, 8.5), (16.0, 8.5), (16.0, 4.5), (21.0, 12.0),
+                        (16.0, 19.5), (16.0, 15.5), (8.0, 15.5), (8.0, 19.5)))
+
+
 _DRAW = {
+    "shape_ellipse": _draw_shape_ellipse,
+    "shape_triangle": _draw_shape_triangle,
+    "shape_star": _draw_shape_star,
+    "shape_arrow_right": _draw_shape_arrow_right,
+    "shape_arrow_left": _draw_shape_arrow_left,
+    "shape_arrow_double": _draw_shape_arrow_double,
     "menu": _draw_menu,
     "text": _draw_text,
     "image": _draw_image,

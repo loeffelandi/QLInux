@@ -954,8 +954,6 @@ class MainWindow(QMainWindow):
         bar.addAction(self._act_add_image)
         bar.addAction(self._act_add_barcode)
         bar.addAction(self._act_add_qr)
-        bar.addAction(self._act_add_line)
-        bar.addAction(self._act_add_rect)
         bar.addSeparator()
         bar.addWidget(self._build_shape_button(bar))
         bar.addWidget(self._build_align_button(bar))
@@ -1006,7 +1004,7 @@ class MainWindow(QMainWindow):
             ("arrow_left", tr("Pfeil links")),
             ("arrow_double", tr("Doppelpfeil")),
         ):
-            menu.addAction(icon("shape"), label, lambda _=False, s=shape: self._add_shape(s))
+            menu.addAction(icon(f"shape_{shape}"), label, lambda _=False, s=shape: self._add_shape(s))
         button.setMenu(menu)
         return button
 
