@@ -693,6 +693,184 @@ def test_canvas_tape_rect_includes_side_border(qapp):
     assert tape.width() == pytest.approx(554 + 2 * label.side_border_dots)
 
 
+def test_cut_offset_follows_the_last_printed_line(qapp):
+    """Schnittversatz hinter der letzten Zeile: unten quer, links laengs."""
+    canvas = LabelCanvas()
+    label = get_label("50")
+    canvas.set_label(label, 472)
+    tape = canvas.tape_rect()
+    printable = canvas.printable_rect()
+    assert printable.top() - tape.top() == pytest.approx(label.feed_margin)
+    assert tape.bottom() - printable.bottom() == pytest.approx(
+        label.feed_margin + media.CUT_OFFSET_DOTS
+    )
+
+    canvas.set_label(label, 472, orientation=media.Orientation.ALONG)
+    tape = canvas.tape_rect()
+    printable = canvas.printable_rect()
+    assert printable.left() - tape.left() == pytest.approx(
+        label.feed_margin + media.CUT_OFFSET_DOTS
+    )
+    assert tape.right() - printable.right() == pytest.approx(label.feed_margin)
+
+
+def test_die_cut_length_matches_the_result_readout(qapp):
+    """Die-cut: Laenge ist die Druckflaeche, wie die Ergebniszeile. Seitenkanten bleiben."""
+    canvas = LabelCanvas()
+    label = get_label("62x100")
+    assert not label.is_endless
+    assert label.dots_total[1] > label.dots_printable[1]
+    canvas.set_label(label, label.height_dots)
+    tape = canvas.tape_rect()
+    printable = canvas.printable_rect()
+    assert tape.top() == pytest.approx(printable.top())
+    assert tape.bottom() == pytest.approx(printable.bottom())
+    assert tape.left() == pytest.approx(printable.left() - label.side_border_dots)
+    assert tape.right() == pytest.approx(printable.right() + label.side_border_dots)
+    assert canvas._length_mm() == pytest.approx(media.dots_to_mm(label.height_dots))
+
+    canvas.set_label(label, label.height_dots, orientation=media.Orientation.ALONG)
+    tape = canvas.tape_rect()
+    printable = canvas.printable_rect()
+    assert tape.left() == pytest.approx(printable.left())
+    assert tape.right() == pytest.approx(printable.right())
+    assert tape.top() == pytest.approx(printable.top() - label.side_border_dots)
+    assert tape.bottom() == pytest.approx(printable.bottom() + label.side_border_dots)
+
+
+def test_tape_band_starts_after_the_full_label(qapp):
+    """Grau erst hinter dem fertigen Etikett; das Etikett hat die volle Hoehe."""
+    from PySide6.QtCore import QRectF
+
+    canvas = LabelCanvas()
+    label = get_label("50")
+    canvas.set_label(label, 472)
+    tape = canvas.tape_rect()
+    printable = canvas.printable_rect()
+    exposed = QRectF(-400, -200, 2000, 1600)
+    band = canvas.tape_band_rect(exposed)
+    extra = 2 * label.feed_margin + media.CUT_OFFSET_DOTS
+    # ACROSS: volle Breite, Laenge inkl. Vorschub, Grau darunter.
+    assert tape.left() == pytest.approx(printable.left() - label.side_border_dots)
+    assert tape.width() == pytest.approx(printable.width() + 2 * label.side_border_dots)
+    assert tape.height() == pytest.approx(printable.height() + extra)
+    assert band.top() == pytest.approx(tape.bottom())
+    assert band.left() == pytest.approx(tape.left())
+    assert band.width() == pytest.approx(tape.width())
+    assert band.bottom() == pytest.approx(exposed.bottom())
+
+    canvas.set_label(label, 472, orientation=media.Orientation.ALONG)
+    tape = canvas.tape_rect()
+    printable = canvas.printable_rect()
+    band = canvas.tape_band_rect(exposed)
+    assert tape.height() == pytest.approx(label.width_dots + 2 * label.side_border_dots)
+    assert tape.width() == pytest.approx(printable.width() + extra)
+    assert band.left() == pytest.approx(tape.right())
+    assert band.top() == pytest.approx(tape.top())
+    assert band.height() == pytest.approx(tape.height())
+    assert band.right() == pytest.approx(exposed.right())
+
+
+def test_fitted_label_sits_at_the_top_left(qapp):
+    """Wie im P-touch Editor: Etikett und Bandstreifen oben links, nicht mittig."""
+    from ql_editor.canvas import FIT_MARGIN_MM
+    from ql_editor.media import mm_to_dots
+
+    canvas = LabelCanvas()
+    canvas.resize(900, 600)
+    canvas.show()
+    qapp.processEvents()
+    label = get_label("50")
+    margin = mm_to_dots(FIT_MARGIN_MM)
+
+    def origin_is_pinned():
+        tape = canvas.tape_rect()
+        corner = canvas.mapToScene(0, 0)
+        assert corner.x() == pytest.approx(tape.left() - margin, abs=2)
+        assert corner.y() == pytest.approx(tape.top() - margin, abs=2)
+        # Die Mitte des Fensters liegt rechts unter der Etikettenmitte.
+        view_center = canvas.mapToScene(canvas.viewport().rect().center())
+        assert view_center.x() > tape.center().x()
+        assert view_center.y() > tape.center().y()
+
+    canvas.set_label(label, 472)
+    canvas.fit_tape()
+    qapp.processEvents()
+    origin_is_pinned()
+
+    canvas.set_label(label, 472, orientation=media.Orientation.ALONG)
+    canvas.fit_tape()
+    qapp.processEvents()
+    origin_is_pinned()
+
+
+def test_unprintable_edge_is_hatched_band_beyond_label_is_plain(qapp):
+    """Kanten schraffiert; der graue Streifen hinter dem Etikett bleibt ohne Muster."""
+    from PySide6.QtCore import QPoint, QPointF
+    from PySide6.QtGui import QColor, QImage, QPainter
+
+    from ql_editor.canvas import TAPE_BAND_COLOR
+
+    canvas = LabelCanvas()
+    canvas.resize(900, 600)
+    canvas.show()
+    qapp.processEvents()
+    label = get_label("50")
+    assert label.side_border_dots > 0
+    canvas.set_label(label, 472, orientation=media.Orientation.ALONG)
+    canvas.fit_tape()
+    qapp.processEvents()
+
+    image = QImage(canvas.viewport().size(), QImage.Format.Format_RGB32)
+    painter = QPainter(image)
+    canvas.viewport().render(painter, QPoint())
+    painter.end()
+
+    tape = canvas.tape_rect()
+    printable = canvas.printable_rect()
+
+    def colors_at(scene_pt, radius):
+        view = canvas.mapFromScene(scene_pt)
+        found = set()
+        for dy in range(-radius, radius + 1):
+            for dx in range(-radius, radius + 1):
+                color = image.pixelColor(int(view.x()) + dx, int(view.y()) + dy)
+                found.add((color.red(), color.green(), color.blue()))
+        return found
+
+    hatch = colors_at(QPointF(printable.center().x(), (tape.top() + printable.top()) / 2.0), 4)
+    assert len(hatch) > 1
+    # Schnittversatz hinter der letzten Zeile: bei ALONG links, noch Teil des Etiketts.
+    cut = colors_at(
+        QPointF((tape.left() + printable.left()) / 2.0, printable.center().y()),
+        3,
+    )
+    assert len(cut) > 1
+    # Vorschub vor der ersten Zeile: rechts, schmaler, ebenfalls schraffiert.
+    lead = colors_at(
+        QPointF((printable.right() + tape.right()) / 2.0, printable.center().y()),
+        3,
+    )
+    assert len(lead) > 1
+    plain = QColor(TAPE_BAND_COLOR)
+    beyond = colors_at(QPointF(tape.right() + 30, tape.center().y()), 1)
+    assert beyond == {(plain.red(), plain.green(), plain.blue())}
+    # Vor dem Etikett kein Bandgrau - die Graustufe beginnt erst dahinter.
+    before = colors_at(QPointF(tape.left() - 20, tape.center().y()), 1)
+    assert (plain.red(), plain.green(), plain.blue()) not in before
+
+    # Eigene Labelraender liegen in der bedruckbaren Flaeche und bleiben weiss.
+    canvas.set_margins(4.0, 4.0, 4.0, 4.0)
+    qapp.processEvents()
+    painter = QPainter(image)
+    canvas.viewport().render(painter, QPoint())
+    painter.end()
+    inner = canvas.margin_rect()
+    printable = canvas.printable_rect()
+    margin_sample = QPointF(printable.center().x(), (printable.top() + inner.top()) / 2.0)
+    assert colors_at(margin_sample, 2) == {(255, 255, 255)}
+
+
 def test_canvas_has_ruler_corner_with_unit(qapp):
     """Die Ecke zwischen den Linealen traegt die Einheit (wie P-touch Editor)."""
     from ql_editor.canvas import RULER_WIDTH, RulerCorner
@@ -712,10 +890,10 @@ def test_canvas_size_labels_show_tape_width_and_length(qapp):
     previous = QLocale()
     try:
         QLocale.setDefault(QLocale("de"))
-        # Bandbreite quer zum Band (50 mm Rolle), Laenge in Bandrichtung.
-        assert canvas.size_labels() == ("50 mm", "40,0 mm")
+        # Bandbreite der Rolle, fertige Laenge inkl. Vorschub (Ergebnis-Anzeige).
+        assert canvas.size_labels() == ("50 mm", "47,0 mm")
         QLocale.setDefault(QLocale("en"))
-        assert canvas.size_labels() == ("50 mm", "40.0 mm")
+        assert canvas.size_labels() == ("50 mm", "47.0 mm")
     finally:
         QLocale.setDefault(previous)
 
@@ -726,17 +904,18 @@ def test_canvas_size_labels_follow_the_orientation(qapp):
     canvas.set_label(get_label("50"), 472, orientation=media.Orientation.ALONG)
     horizontal, vertical = canvas.size_labels()
     assert vertical == "50 mm"
-    assert horizontal.startswith("40")
+    assert horizontal.startswith("47")
 
 
 def test_ruler_totals_match_the_label_size(qapp):
     """Was das Lineal beschriftet, ist die Groesse des Etiketts."""
     canvas = LabelCanvas()
     canvas.set_label(get_label("50"), 472)
+    finished = media.dots_to_mm(472 + 2 * get_label("50").feed_margin + media.CUT_OFFSET_DOTS)
     assert canvas._h_ruler.total_mm == pytest.approx(49.95, abs=0.05)
-    assert canvas._v_ruler.total_mm == pytest.approx(39.96, abs=0.05)
+    assert canvas._v_ruler.total_mm == pytest.approx(finished, abs=0.05)
     canvas.set_label(get_label("50"), 472, orientation=media.Orientation.ALONG)
-    assert canvas._h_ruler.total_mm == pytest.approx(39.96, abs=0.05)
+    assert canvas._h_ruler.total_mm == pytest.approx(finished, abs=0.05)
     assert canvas._v_ruler.total_mm == pytest.approx(49.95, abs=0.05)
 
 
@@ -2555,10 +2734,11 @@ def test_orientation_moves_side_border_to_tape_edges(qapp):
     win._media_panel.set_orientation(media.Orientation.ALONG)
     tape = win._canvas.tape_rect()
     printable = win._canvas.printable_rect()
+    # Letzte Druckzeile ist links (ROTATE_90), dort sitzt der Schnittversatz.
     assert tape.top() == pytest.approx(-label.side_border_dots)
     assert tape.bottom() == pytest.approx(printable.bottom() + label.side_border_dots)
-    assert tape.left() == pytest.approx(printable.left())
-    assert tape.width() == pytest.approx(printable.width())
+    assert printable.left() - tape.left() == pytest.approx(label.feed_margin + media.CUT_OFFSET_DOTS)
+    assert tape.right() - printable.right() == pytest.approx(label.feed_margin)
 
 
 def test_print_preview_image_stays_canvas_aligned(qapp):
@@ -3417,6 +3597,517 @@ def test_startup_keeps_the_stored_printer_address(qapp, tmp_path, monkeypatch):
     assert win._media_panel.connection() == CONNECTION_USB
     assert win._media_panel.model_id() == "QL-700"
     assert settings.address == "/dev/usb/lp1"
+
+
+def _wait_startup_discovery(win, qapp):
+    """Startsuche zu Ende laufen lassen (der Netzwerk-Thread ist asynchron)."""
+    worker = win._network_worker
+    if worker is not None and worker.isRunning():
+        worker.wait(3000)
+    qapp.processEvents()
+
+
+def _hold_network_discovery(monkeypatch, printers):
+    """Suche anhalten, bis der Test den Fensterstand geaendert hat.
+
+    Liefert ``(entered, release)``. ``release.set()`` laesst die Treffer zu.
+    """
+    import threading
+
+    from ql_editor import app as app_module
+
+    entered = threading.Event()
+    release = threading.Event()
+
+    def _discover(*_args, **_kwargs):
+        entered.set()
+        release.wait(5)
+        return printers
+
+    monkeypatch.setattr(app_module, "discover_network_printers", _discover)
+    return entered, release
+
+
+def test_fresh_start_leaves_the_network_field_empty(qapp, tmp_path):
+    """Ohne gespeicherte Adresse bleibt das Netzwerkfeld leer.
+
+    ``192.168.178.62`` war frueher die fest eingebaute Adresse. Sie darf weder
+    als Default noch als Platzhalter im Feld stehen.
+    """
+    from ql_editor.media_panel import CONNECTION_NETWORK
+    from ql_editor.printer import DEFAULT_ADDRESS
+
+    assert DEFAULT_ADDRESS == ""
+    win = _temp_window(qapp, tmp_path)
+    _wait_startup_discovery(win, qapp)
+
+    assert win._media_panel.connection() == CONNECTION_NETWORK
+    assert win._media_panel.address() == ""
+    assert win._media_panel._network_host == ""
+    assert "192.168.178.62" not in win._media_panel._net_combo.currentText()
+    assert "*" not in win.windowTitle()
+    win.close()
+    qapp.processEvents()
+
+
+def test_startup_selects_the_saved_network_printer(qapp, tmp_path, monkeypatch):
+    """Der letzte Netzwerkdrucker wird gewaehlt, wenn die Suche ihn findet."""
+    from PySide6.QtCore import QSettings
+
+    from ql_editor import app as app_module
+    from ql_editor import discovery
+    from ql_editor.app import MainWindow
+    from ql_editor.settings import AppSettings
+
+    printers = [
+        discovery.NetworkPrinter(host="192.0.2.10", model_id="QL-700"),
+        discovery.NetworkPrinter(host="192.0.2.20", model_id="QL-820NWB"),
+    ]
+    monkeypatch.setattr(
+        app_module, "discover_network_printers", lambda *args, **kwargs: printers
+    )
+    settings = AppSettings(
+        QSettings(str(tmp_path / "settings.ini"), QSettings.Format.IniFormat)
+    )
+    settings.connection = "network"
+    settings.address = "tcp://192.0.2.20:9100"
+
+    win = MainWindow(settings=settings)
+    _wait_startup_discovery(win, qapp)
+
+    assert win._media_panel.address() == "tcp://192.0.2.20:9100"
+    assert win._media_panel.model_id() == "QL-820NWB"
+    assert settings.address == "tcp://192.0.2.20:9100"
+    assert "*" not in win.windowTitle()
+    win.close()
+    qapp.processEvents()
+
+
+def test_startup_falls_back_to_the_first_network_printer(qapp, tmp_path, monkeypatch):
+    """Fehlt der letzte Drucker in den Treffern, gilt der erste."""
+    from PySide6.QtCore import QSettings
+
+    from ql_editor import app as app_module
+    from ql_editor import discovery
+    from ql_editor.app import MainWindow
+    from ql_editor.settings import AppSettings
+
+    printers = [
+        discovery.NetworkPrinter(host="192.0.2.10", model_id="QL-700"),
+        discovery.NetworkPrinter(host="192.0.2.20", model_id="QL-820NWB"),
+    ]
+    monkeypatch.setattr(
+        app_module, "discover_network_printers", lambda *args, **kwargs: printers
+    )
+    settings = AppSettings(
+        QSettings(str(tmp_path / "settings.ini"), QSettings.Format.IniFormat)
+    )
+    settings.connection = "network"
+    settings.address = "tcp://192.0.2.99:9100"
+
+    win = MainWindow(settings=settings)
+    _wait_startup_discovery(win, qapp)
+
+    assert win._media_panel.address() == "tcp://192.0.2.10:9100"
+    assert win._media_panel.model_id() == "QL-700"
+    assert settings.address == "tcp://192.0.2.10:9100"
+    # Der Wechsel steht im Panel, nicht in der Statuszeile: die bleibt frei
+    # fuer „Etikett geöffnet“.
+    assert win._media_panel._net_hint.text() == (
+        "Gespeicherten Drucker nicht gefunden, 192.0.2.10 gewählt."
+    )
+    assert "nicht gefunden" not in win.statusBar().currentMessage()
+    win.close()
+    qapp.processEvents()
+
+
+def test_startup_picks_the_first_network_printer_without_a_saved_one(
+    qapp, tmp_path, monkeypatch
+):
+    from PySide6.QtCore import QSettings
+
+    from ql_editor import app as app_module
+    from ql_editor import discovery
+    from ql_editor.app import MainWindow
+    from ql_editor.settings import AppSettings
+
+    printers = [
+        discovery.NetworkPrinter(host="192.0.2.10", model_id="QL-800"),
+        discovery.NetworkPrinter(host="192.0.2.20", model_id="QL-700"),
+    ]
+    monkeypatch.setattr(
+        app_module, "discover_network_printers", lambda *args, **kwargs: printers
+    )
+    settings = AppSettings(
+        QSettings(str(tmp_path / "settings.ini"), QSettings.Format.IniFormat)
+    )
+
+    win = MainWindow(settings=settings)
+    _wait_startup_discovery(win, qapp)
+
+    assert win._media_panel.address() == "tcp://192.0.2.10:9100"
+    assert settings.connection == "network"
+    win.close()
+    qapp.processEvents()
+
+
+def test_startup_keeps_a_saved_address_when_the_network_is_empty(qapp, tmp_path):
+    """Ohne Treffer bleibt die letzte Adresse stehen - sie ist nicht erfunden."""
+    from ql_editor.media_panel import CONNECTION_NETWORK
+
+    win = _temp_window(qapp, tmp_path)
+    win._media_panel.set_network_host("192.0.2.20")
+    win.close()
+    qapp.processEvents()
+
+    again = _temp_window(qapp, tmp_path)
+    _wait_startup_discovery(again, qapp)
+
+    assert again._media_panel.connection() == CONNECTION_NETWORK
+    assert again._media_panel.address() == "tcp://192.0.2.20:9100"
+    again.close()
+    qapp.processEvents()
+
+
+def test_startup_selects_the_saved_usb_printer(qapp, tmp_path, monkeypatch):
+    from PySide6.QtCore import QSettings
+
+    from ql_editor import media_panel as media_panel_module
+    from ql_editor.app import MainWindow
+    from ql_editor.media_panel import CONNECTION_USB
+    from ql_editor.settings import AppSettings
+
+    monkeypatch.setattr(
+        media_panel_module,
+        "usb_printers",
+        lambda devices=None: ["/dev/usb/lp0", "/dev/usb/lp1"],
+    )
+    settings = AppSettings(
+        QSettings(str(tmp_path / "settings.ini"), QSettings.Format.IniFormat)
+    )
+    settings.connection = CONNECTION_USB
+    settings.address = "/dev/usb/lp1"
+
+    win = MainWindow(settings=settings)
+    qapp.processEvents()
+
+    assert win._media_panel.connection() == CONNECTION_USB
+    assert win._media_panel.address() == "/dev/usb/lp1"
+    assert settings.connection == CONNECTION_USB
+    win.close()
+    qapp.processEvents()
+
+
+def test_startup_falls_back_to_the_first_usb_printer(qapp, tmp_path, monkeypatch):
+    from PySide6.QtCore import QSettings
+
+    from ql_editor import media_panel as media_panel_module
+    from ql_editor.app import MainWindow
+    from ql_editor.media_panel import CONNECTION_USB
+    from ql_editor.settings import AppSettings
+
+    monkeypatch.setattr(
+        media_panel_module,
+        "usb_printers",
+        lambda devices=None: ["/dev/usb/lp0", "/dev/usb/lp2"],
+    )
+    settings = AppSettings(
+        QSettings(str(tmp_path / "settings.ini"), QSettings.Format.IniFormat)
+    )
+    settings.connection = CONNECTION_USB
+    settings.address = "/dev/usb/lp1"
+
+    win = MainWindow(settings=settings)
+    qapp.processEvents()
+
+    assert win._media_panel.connection() == CONNECTION_USB
+    assert win._media_panel.address() == "/dev/usb/lp0"
+    assert settings.address == "/dev/usb/lp0"
+    win.close()
+    qapp.processEvents()
+
+
+def test_usb_connection_is_restored_when_nothing_is_plugged_in(
+    qapp, tmp_path, monkeypatch
+):
+    """Der letzte Anschluss bleibt USB, auch wenn gerade kein Geraet da ist."""
+    from ql_editor import media_panel as media_panel_module
+    from ql_editor.media_panel import CONNECTION_USB
+
+    monkeypatch.setattr(media_panel_module, "usb_printers", lambda devices=None: [])
+    win = _temp_window(qapp, tmp_path)
+    win._media_panel.set_connection(CONNECTION_USB)
+    win._on_media_changed()
+    win.close()
+    qapp.processEvents()
+
+    again = _temp_window(qapp, tmp_path)
+    qapp.processEvents()
+
+    assert again._media_panel.connection() == CONNECTION_USB
+    assert again._media_panel.address() == ""
+    assert again._settings.connection == CONNECTION_USB
+    again.close()
+    qapp.processEvents()
+
+
+def test_startup_keeps_a_loaded_label_until_the_user_adapts(
+    qapp, tmp_path, monkeypatch
+):
+    """Ein geoeffnetes Etikett behaelt Modell und Raender, bis man zustimmt."""
+    from PySide6.QtCore import QSettings
+
+    from ql_editor import app as app_module
+    from ql_editor import discovery, document
+    from ql_editor.app import MainWindow
+    from ql_editor.settings import AppSettings
+
+    printers = [discovery.NetworkPrinter(host="192.0.2.20", model_id="QL-820NWB")]
+    entered, release = _hold_network_discovery(monkeypatch, printers)
+    choices = []
+
+    def _ask(_parent, *, title, text, on_choice):
+        choices.append((title, text))
+        on_choice("keep")
+
+    monkeypatch.setattr(app_module, "ask_label_printer", _ask)
+    settings = AppSettings(
+        QSettings(str(tmp_path / "settings.ini"), QSettings.Format.IniFormat)
+    )
+    settings.connection = "network"
+    settings.model = "QL-700"
+    settings.address = "tcp://192.0.2.20:9100"
+
+    win = MainWindow(settings=settings)
+    assert entered.wait(3)
+    win._media_panel._margin_spins["top"].setValue(9.0)
+    path = tmp_path / "etikett.qlx"
+    document.save(path, document.build(win._media_panel.media_state(), []))
+    win.open_path(str(path))
+    release.set()
+    _wait_startup_discovery(win, qapp)
+
+    assert choices
+    assert "QL-700" in choices[0][1]
+    assert "QL-820NWB" in choices[0][1]
+    assert win._media_panel.model_id() == "QL-700"
+    assert win._media_panel.margins().top == pytest.approx(9.0)
+    assert "*" not in win.windowTitle()
+    win.close()
+    qapp.processEvents()
+
+
+def test_startup_adapt_label_is_an_undo_step(qapp, tmp_path, monkeypatch):
+    """Wer anpasst, bekommt einen Undo-Schritt und den Stern."""
+    from PySide6.QtCore import QSettings
+
+    from ql_editor import app as app_module
+    from ql_editor import discovery, document
+    from ql_editor.app import MainWindow
+    from ql_editor.settings import AppSettings
+
+    printers = [discovery.NetworkPrinter(host="192.0.2.20", model_id="QL-820NWB")]
+    entered, release = _hold_network_discovery(monkeypatch, printers)
+    monkeypatch.setattr(
+        app_module,
+        "ask_label_printer",
+        lambda *_args, on_choice, **_kwargs: on_choice("adapt"),
+    )
+    settings = AppSettings(
+        QSettings(str(tmp_path / "settings.ini"), QSettings.Format.IniFormat)
+    )
+    settings.connection = "network"
+    settings.model = "QL-700"
+    settings.address = "tcp://192.0.2.20:9100"
+
+    win = MainWindow(settings=settings)
+    assert entered.wait(3)
+    win._media_panel._margin_spins["top"].setValue(9.0)
+    path = tmp_path / "etikett.qlx"
+    document.save(path, document.build(win._media_panel.media_state(), []))
+    win.open_path(str(path))
+    release.set()
+    _wait_startup_discovery(win, qapp)
+    qapp.processEvents()
+
+    assert win._media_panel.model_id() == "QL-820NWB"
+    assert win._media_panel.margins().top != pytest.approx(9.0)
+    assert "*" in win.windowTitle()
+    win._undo_stack.undo()
+    qapp.processEvents()
+    assert win._media_panel.model_id() == "QL-700"
+    assert win._media_panel.margins().top == pytest.approx(9.0)
+    win.close()
+    qapp.processEvents()
+
+
+def test_startup_does_not_ask_when_the_model_already_matches(
+    qapp, tmp_path, monkeypatch
+):
+    from PySide6.QtCore import QSettings
+
+    from ql_editor import app as app_module
+    from ql_editor import discovery, document
+    from ql_editor.app import MainWindow
+    from ql_editor.settings import AppSettings
+
+    printers = [discovery.NetworkPrinter(host="192.0.2.20", model_id="QL-820NWB")]
+    entered, release = _hold_network_discovery(monkeypatch, printers)
+    asked = []
+    monkeypatch.setattr(
+        app_module,
+        "ask_label_printer",
+        lambda *_args, **_kwargs: asked.append(True),
+    )
+    settings = AppSettings(
+        QSettings(str(tmp_path / "settings.ini"), QSettings.Format.IniFormat)
+    )
+    settings.connection = "network"
+    settings.model = "QL-820NWB"
+    settings.address = "tcp://192.0.2.20:9100"
+
+    win = MainWindow(settings=settings)
+    assert entered.wait(3)
+    path = tmp_path / "etikett.qlx"
+    document.save(path, document.build(win._media_panel.media_state(), []))
+    win.open_path(str(path))
+    release.set()
+    _wait_startup_discovery(win, qapp)
+
+    assert asked == []
+    assert win._media_panel.model_id() == "QL-820NWB"
+    assert "*" not in win.windowTitle()
+    win.close()
+    qapp.processEvents()
+
+
+def test_startup_ignores_an_address_typed_while_searching(
+    qapp, tmp_path, monkeypatch
+):
+    """Eine IP aus der Suchsekunde wird nicht durch den ersten Treffer ersetzt."""
+    from PySide6.QtCore import QSettings
+
+    from ql_editor import discovery
+    from ql_editor.app import MainWindow
+    from ql_editor.settings import AppSettings
+
+    printers = [
+        discovery.NetworkPrinter(host="192.0.2.10", model_id="QL-820NWB"),
+        discovery.NetworkPrinter(host="192.0.2.20", model_id="QL-700"),
+    ]
+    entered, release = _hold_network_discovery(monkeypatch, printers)
+    settings = AppSettings(
+        QSettings(str(tmp_path / "settings.ini"), QSettings.Format.IniFormat)
+    )
+    settings.connection = "network"
+    settings.model = "QL-700"
+    settings.address = "tcp://192.0.2.20:9100"
+
+    win = MainWindow(settings=settings)
+    assert entered.wait(3)
+    win._media_panel.set_network_host("192.0.2.77")
+    release.set()
+    _wait_startup_discovery(win, qapp)
+
+    assert win._media_panel.address() == "tcp://192.0.2.77:9100"
+    assert win._media_panel.model_id() == "QL-700"
+    win.close()
+    qapp.processEvents()
+
+
+def test_startup_ignores_a_usb_switch_while_searching(qapp, tmp_path, monkeypatch):
+    """Wer waehrend der Suche auf USB geht, behaelt Anschluss und Modell."""
+    from PySide6.QtCore import QSettings
+
+    from ql_editor import discovery
+    from ql_editor import media_panel as media_panel_module
+    from ql_editor.app import MainWindow
+    from ql_editor.media_panel import CONNECTION_USB
+    from ql_editor.settings import AppSettings
+
+    printers = [discovery.NetworkPrinter(host="192.0.2.20", model_id="QL-820NWB")]
+    entered, release = _hold_network_discovery(monkeypatch, printers)
+    monkeypatch.setattr(media_panel_module, "usb_printers", lambda devices=None: [])
+    settings = AppSettings(
+        QSettings(str(tmp_path / "settings.ini"), QSettings.Format.IniFormat)
+    )
+    settings.connection = "network"
+    settings.model = "QL-700"
+    settings.address = "tcp://192.0.2.20:9100"
+
+    win = MainWindow(settings=settings)
+    assert entered.wait(3)
+    win._media_panel._conn_buttons[CONNECTION_USB].setChecked(True)
+    release.set()
+    _wait_startup_discovery(win, qapp)
+
+    assert win._media_panel.connection() == CONNECTION_USB
+    assert win._media_panel.model_id() == "QL-700"
+    win.close()
+    qapp.processEvents()
+
+
+def test_startup_matches_the_same_host_on_another_port(qapp, tmp_path, monkeypatch):
+    """Gleicher Host, anderer Port: dieser Drucker, nicht der erste Treffer."""
+    from PySide6.QtCore import QSettings
+
+    from ql_editor import app as app_module
+    from ql_editor import discovery
+    from ql_editor.app import MainWindow
+    from ql_editor.settings import AppSettings
+
+    printers = [
+        discovery.NetworkPrinter(host="192.0.2.10", model_id="QL-700"),
+        discovery.NetworkPrinter(host="192.0.2.20", model_id="QL-820NWB"),
+    ]
+    monkeypatch.setattr(
+        app_module, "discover_network_printers", lambda *args, **kwargs: printers
+    )
+    settings = AppSettings(
+        QSettings(str(tmp_path / "settings.ini"), QSettings.Format.IniFormat)
+    )
+    settings.connection = "network"
+    settings.model = "QL-820NWB"
+    settings.address = "tcp://192.0.2.20:9101"
+
+    win = MainWindow(settings=settings)
+    _wait_startup_discovery(win, qapp)
+
+    assert win._media_panel.address() == "tcp://192.0.2.20:9100"
+    assert win._media_panel.model_id() == "QL-820NWB"
+    assert win._media_panel._net_hint.text() == "Gleicher Drucker, Port 9100."
+    assert "Port" not in win.statusBar().currentMessage()
+    win.close()
+    qapp.processEvents()
+
+
+def test_language_switch_does_not_search_again(qapp, tmp_path, monkeypatch):
+    """Der Neuaufbau uebernimmt die Auswahl und sucht nicht noch einmal."""
+    from ql_editor import app as app_module
+    from ql_editor.i18n import set_language
+
+    calls = {"n": 0}
+
+    def _discover(*_args, **_kwargs):
+        calls["n"] += 1
+        return []
+
+    monkeypatch.setattr(app_module, "discover_network_printers", _discover)
+    win = _temp_window(qapp, tmp_path)
+    _wait_startup_discovery(win, qapp)
+    assert calls["n"] == 1
+
+    try:
+        win.switch_language("en")
+        qapp.processEvents()
+        new = app_module._current_window
+        _wait_startup_discovery(new, qapp)
+        assert calls["n"] == 1
+        assert new._network_worker is None
+        new.close()
+        qapp.processEvents()
+    finally:
+        set_language("de")
 
 
 def test_resolution_and_hq_are_forwarded_to_the_printer(qapp, tmp_path):

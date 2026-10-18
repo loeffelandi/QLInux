@@ -176,6 +176,8 @@ def test_sheet_blocks_app_shortcuts(qapp):
     from PySide6.QtCore import QEvent
     from PySide6.QtGui import QKeySequence, QShortcutEvent
 
+    from ql_editor import sheet as sheet_module
+
     win = _window(qapp)
     sheet = show_message(win, "info", "Titel", "Text")
     qapp.processEvents()
@@ -186,6 +188,14 @@ def test_sheet_blocks_app_shortcuts(qapp):
     assert sheet.eventFilter(win, event) is True
     # Receiver innerhalb des Sheets -> durchgelassen.
     assert sheet.eventFilter(sheet, event) is False
+    # Ein gemeinsamer Filter, nicht einer je Sheet.
+    guard = sheet_module._shortcut_filter
+    assert guard is not None and guard._installed is True
+    assert sheet in guard._sheets
+
+    sheet.close_sheet()
+    qapp.processEvents()
+    assert sheet not in guard._sheets
     win.close()
 
 
