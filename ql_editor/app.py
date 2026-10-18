@@ -4,8 +4,8 @@ Aufbau:
 
 * links: :class:`~ql_editor.media_panel.MediaPanel` (Band, Laenge, Margins)
 * mitte: :class:`~ql_editor.canvas.LabelCanvas` (feste Pixelgroesse, Lineale)
-* rechts: Vorschau (monochrom) + Druckoptionen
-* Toolbar: Items einfuegen, Reihenfolge, Loeschen, Zoom, Drucken
+* rechts: Objekteigenschaften; der Knopf unten oeffnet Drucken als Sheet
+* Toolbar: Items einfuegen, Reihenfolge, Loeschen, Zoom, Datenbank, Drucken
 * Reiter: mehrere Etiketten in einem Fenster (Canvas, Band, Undo je Reiter)
 
 Es gibt **keine klassische Menueleiste**. Haeufige Befehle liegen in der
@@ -47,7 +47,9 @@ from PySide6.QtGui import (
     QAction,
     QActionGroup,
     QIcon,
+    QImage,
     QKeySequence,
+    QPixmap,
     QUndoGroup,
     QUndoStack,
 )
@@ -65,6 +67,7 @@ from PySide6.QtWidgets import (
     QPushButton,
     QRadioButton,
     QScrollArea,
+    QSizePolicy,
     QSpinBox,
     QSplitter,
     QStackedWidget,
@@ -101,7 +104,7 @@ from .i18n import (
     tr,
 )
 from .icons import icon
-from .jobs import PrintHistoryDialog, PrintJob
+from .jobs import PrintJob, fill_history_table, make_history_table
 from .inspector import InspectorPanel
 from .items import (
     BarcodeItem,
@@ -146,7 +149,6 @@ from .printer import (
     resolution_options,
 )
 from .settings import AppSettings
-from .adaptive import AdaptivePages
 from .sheet import (
     ask_choice,
     ask_label_printer,
@@ -316,6 +318,61 @@ def _put_items_on_clipboard(items) -> None:
 
 #: Mindesthoehe des Objekt-Bereichs, wenn Objekt und Drucken untereinander stehen.
 INSPECTOR_MIN_PX = 240
+
+
+class _PrintPreview(QLabel):
+    """1-bit-Bild im Druck-Sheet, skaliert in den vorhandenen Platz.
+
+    Die Groesse kommt vom Layout, nicht vom Bild: sonst waechst das Sheet mit
+    jedem neuen Pixmap und die Skalierung schaukelt sich auf.
+    """
+
+    def __init__(self, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self._image: QImage | None = None
+        self._rescaling = False
+        self.setObjectName("print_preview_image")
+        self.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.setMinimumHeight(140)
+        self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
+        self.setStyleSheet(
+            "background: palette(base); border: 1px solid palette(mid);"
+            " border-radius: 6px;"
+        )
+
+    def sizeHint(self) -> QSize:  # noqa: N802
+        return QSize(360, 180)
+
+    def minimumSizeHint(self) -> QSize:  # noqa: N802
+        return QSize(120, 140)
+
+    def set_image(self, image: QImage | None) -> None:
+        self._image = None if image is None or image.isNull() else image
+        self._rescale()
+
+    def resizeEvent(self, event) -> None:  # noqa: N802
+        super().resizeEvent(event)
+        self._rescale()
+
+    def _rescale(self) -> None:
+        if self._rescaling:
+            return
+        self._rescaling = True
+        try:
+            if self._image is None:
+                self.clear()
+                return
+            box = self.contentsRect().size()
+            if box.width() < 4 or box.height() < 4:
+                return
+            pixmap = QPixmap.fromImage(self._image).scaled(
+                box,
+                Qt.AspectRatioMode.KeepAspectRatio,
+                Qt.TransformationMode.FastTransformation,
+            )
+            self.setPixmap(pixmap)
+        finally:
+            self._rescaling = False
 
 
 class LabelTab:
@@ -575,6 +632,7 @@ class MainWindow(QMainWindow):
         Der Pfeil sitzt *im* Panel (siehe :mod:`ql_editor.panels`); die
         Panel-Breiten orientieren sich an den Formularzeilen (siehe
         ``PANEL_WIDTH``), damit "Symbologie"/"Höhe (Dots)" einzeilig bleiben.
+        Rechts bleibt der Inspector; Drucken oeffnet das Sheet.
         """
         self._left_panel = OverlayPanel(
             tr("Band & Drucker"),
@@ -584,37 +642,53 @@ class MainWindow(QMainWindow):
         )
         self._host.add_panel(self._left_panel)
 
-        # Objekt und Drucken untereinander, solange die Hoehe reicht. Wird es
-        # knapp, wechseln sie in Reiter (siehe ql_editor.adaptive).
-        print_area = self._scroll_wrap(self._build_print_panel())
-        self._right_pages = AdaptivePages(
-            [
-                (
-                    tr("Objekt"),
-                    self._scroll_wrap(self._inspector),
-                    lambda: INSPECTOR_MIN_PX,
-                ),
-                (
-                    tr("Drucken"),
-                    print_area,
-                    lambda: print_area.widget().sizeHint().height(),
-                ),
-            ]
-        )
+        self._print_sheet = None
+        self._print_panel = self._build_print_panel()
+        self._print_panel.hide()
+
+        body = QWidget()
+        layout = QVBoxLayout(body)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(0)
+        layout.addWidget(self._scroll_wrap(self._inspector), 1)
+        footer = QWidget()
+        footer_layout = QVBoxLayout(footer)
+        footer_layout.setContentsMargins(6, 6, 6, 6)
+        self._open_print_button = QPushButton(icon("print"), tr("Drucken…"))
+        self._open_print_button.setObjectName("open_print_button")
+        self._open_print_button.setToolTip(tr("Druckvorschau, Einstellungen und Verlauf"))
+        self._open_print_button.clicked.connect(self._show_print_sheet)
+        footer_layout.addWidget(self._open_print_button)
+        layout.addWidget(footer)
+
         self._right_panel = OverlayPanel(
             tr("Eigenschaften & Druck"),
-            self._right_pages,
+            body,
             Qt.Edge.RightEdge,
             self,
         )
         self._host.add_panel(self._right_panel)
 
     def _build_print_panel(self) -> QWidget:
+        """Inhalt des Druck-Sheets: Vorschau, Optionen, Knopf, Verlauf.
+
+        Das Widget lebt am Fenster und wird nur ins Sheet gehaengt, solange
+        es offen ist. So bleiben die Felder (und ihre Werte) erhalten.
+        """
         widget = QWidget(self)
+        widget.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
         layout = QVBoxLayout(widget)
-        # Dieselben Abstaende wie die Gruppenkaesten links (Band & Drucker).
-        layout.setContentsMargins(6, 6, 6, 6)
+        layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(6)
+
+        preview_box = QGroupBox(tr("Druckvorschau"))
+        preview_box.setSizePolicy(
+            QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding
+        )
+        preview_layout = QVBoxLayout(preview_box)
+        self._print_preview = _PrintPreview()
+        preview_layout.addWidget(self._print_preview)
+        layout.addWidget(preview_box, 2)
 
         # Aufloesung: nur was das gewaehlte Modell kann (die Liste kommt aus den
         # Datenblaettern, siehe printer.resolution_options). Der High-Resolution-
@@ -766,19 +840,6 @@ class MainWindow(QMainWindow):
 
         self._print_button = QPushButton(icon("print"), tr("Drucken"))
         self._print_button.clicked.connect(self._on_print)
-        self._history_button = QToolButton()
-        self._history_button.setIcon(icon("history"))
-        self._history_button.setToolTip(tr("Druckverlauf dieser Sitzung anzeigen"))
-        self._history_button.clicked.connect(self._show_print_history)
-        self._history_button.setAutoRaise(False)
-        # Gleiche Hoehe wie der Druckknopf: ein reiner Icon-Knopf ist sonst
-        # niedriger und steht klein neben dem Text-Knopf.
-        self._history_button.setFixedHeight(self._print_button.sizeHint().height())
-        button_row = QHBoxLayout()
-        button_row.setContentsMargins(0, 0, 0, 0)
-        button_row.setSpacing(6)
-        button_row.addWidget(self._print_button, 16)
-        button_row.addWidget(self._history_button, 3)
 
         # Feste Hoehe fuer zwei Zeilen: der Status springt nicht mehr beim Druck.
         self._last_job_label = QLabel(tr("Noch kein Auftrag"))
@@ -802,12 +863,25 @@ class MainWindow(QMainWindow):
         output_form.addRow(self._copies_label, self._copies_spin)
         output_form.addRow(self._cut_label, self._cut_combo)
 
-        layout.addWidget(quality)
-        layout.addWidget(output)
-        layout.addWidget(self._db_print_box)
-        layout.addWidget(self._status_stack)
-        layout.addLayout(button_row)
-        layout.addStretch(1)
+        history = QGroupBox(tr("Druckverlauf"))
+        history_layout = QVBoxLayout(history)
+        self._history_table = make_history_table()
+        self._history_table.setObjectName("print_history_table")
+        history_layout.addWidget(self._history_table)
+
+        form = QWidget()
+        form_layout = QVBoxLayout(form)
+        form_layout.setContentsMargins(0, 0, 0, 0)
+        form_layout.setSpacing(6)
+        form_layout.addWidget(quality)
+        form_layout.addWidget(output)
+        form_layout.addWidget(self._db_print_box)
+        form_layout.addWidget(self._status_stack)
+        form_layout.addWidget(self._print_button)
+        form_layout.addStretch(1)
+        form_layout.addWidget(history)
+
+        layout.addWidget(self._scroll_wrap(form), 3)
 
         self._resolution_combo.currentIndexChanged.connect(self._on_resolution_changed)
         self._threshold_spin.valueChanged.connect(self._schedule_refresh)
@@ -1271,7 +1345,7 @@ class MainWindow(QMainWindow):
 
         self._act_print_history = QAction(icon("history"), tr("Druckverlauf anzeigen"), self)
         self._act_print_history.setToolTip(tr("Druckverlauf dieser Sitzung anzeigen"))
-        self._act_print_history.triggered.connect(self._show_print_history)
+        self._act_print_history.triggered.connect(self._show_print_sheet)
 
 
         self._act_print_preview = QAction(icon("preview"), tr("Druckvorschau"), self)
@@ -1429,15 +1503,15 @@ class MainWindow(QMainWindow):
         bar.addAction(self._act_zoom_fit)
         bar.addAction(self._act_zoom_in)
         bar.addAction(self._act_zoom_100)
-        bar.addSeparator()
-        bar.addAction(self._act_print_preview)
-        bar.addAction(self._act_print)
-        bar.addAction(self._act_print_history)
-        # Eigene Gruppe am Ende: CSV bleibt sichtbar, das Raster erst mit Datei.
+        # Datenbank vor dem Drucken: CSV bleibt sichtbar, das Raster erst mit Datei.
         bar.addSeparator()
         bar.addAction(self._act_connect_csv)
         self._act_database_separator = bar.addSeparator()
         bar.addAction(self._act_database)
+        bar.addSeparator()
+        bar.addAction(self._act_print_preview)
+        bar.addAction(self._act_print)
+        bar.addAction(self._act_print_history)
 
     def _build_template_button(self, parent: QWidget) -> QToolButton:
         """Toolbar-Knopf "Vorlage laden": Klick oeffnet die Vorlagenliste."""
@@ -2383,11 +2457,12 @@ class MainWindow(QMainWindow):
             )
             return
         options = self._preview_options()
-        if self._canvas.print_preview:
-            printable = binarize(image, options)
-            self._canvas.set_print_image(
-                to_qimage(reduce_for_display(printable, scale))
-            )
+        if self._canvas.print_preview or self._print_sheet_open():
+            display = to_qimage(reduce_for_display(binarize(image, options), scale))
+            if self._canvas.print_preview:
+                self._canvas.set_print_image(display)
+            if self._print_sheet_open():
+                self._print_preview.set_image(display)
         ratio = ink_ratio(image, options)
         self._ink_label.setText(
             tr("Tinte: {value} %").format(
@@ -3475,14 +3550,56 @@ class MainWindow(QMainWindow):
         if not self._print_jobs:
             self._last_job_label.setText(tr("Noch kein Auftrag"))
             self._last_job_label.setStyleSheet("color:#777;")
+            self._refresh_history_table()
             return
         job = self._print_jobs[-1]
         self._last_job_label.setText(f"{job.started:%H:%M} · {job.model}\n{job.status_text()}")
         color = "#b00020" if job.is_error else "#777"
         self._last_job_label.setStyleSheet(f"color:{color};")
+        self._refresh_history_table()
 
-    def _show_print_history(self) -> None:
-        PrintHistoryDialog(self._print_jobs, self).exec()
+    def _refresh_history_table(self) -> None:
+        table = getattr(self, "_history_table", None)
+        if table is None:
+            return
+        fill_history_table(table, self._print_jobs)
+
+    def _print_sheet_open(self) -> bool:
+        sheet = self._print_sheet
+        return sheet is not None and sheet.isVisible()
+
+    def _show_print_sheet(self) -> None:
+        """Druckvorschau, Optionen und Verlauf im Sheet."""
+        if self._print_sheet_open():
+            self._print_sheet.raise_()
+            self._refresh_history_table()
+            self._refresh_now()
+            return
+        self._print_sheet = show_widget(
+            self,
+            title=tr("Drucken"),
+            content=self._print_panel,
+            sizing="fill",
+            max_size=QSize(760, 900),
+        )
+        # hide() am Fenster bleibt sonst stehen: ein Layout zeigt das Widget
+        # nicht von selbst wieder.
+        self._print_panel.show()
+        self._print_sheet.closed.connect(self._on_print_sheet_closed)
+        self._refresh_history_table()
+        self._refresh_now()
+
+    def _on_print_sheet_closed(self) -> None:
+        """Sheet gibt den Inhalt zurueck, sonst loescht deleteLater die Felder."""
+        panel = getattr(self, "_print_panel", None)
+        self._print_sheet = None
+        if panel is None:
+            return
+        try:
+            panel.setParent(self)
+            panel.hide()
+        except RuntimeError:
+            return
 
     # --------------------------------------------------------- USB-Zugriff --
     def _on_usb_permission(self) -> None:

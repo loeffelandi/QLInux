@@ -659,6 +659,8 @@ EN: dict[str, str] = {
     "Objekt": "Object",
     # -- Druckoptionen ------------------------------------------------------
     "Drucken": "Print",
+    "Drucken…": "Print…",
+    "Druckvorschau, Einstellungen und Verlauf": "Print preview, settings and history",
     "Drucken (Ctrl+P)": "Print (Ctrl+P)",
     "Druckverlauf anzeigen": "Show print history",
     "Druckverlauf dieser Sitzung anzeigen": "Show print history of this session",

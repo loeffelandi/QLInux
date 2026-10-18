@@ -47,6 +47,47 @@ class PrintJob:
         return tr("Nicht gesendet")
 
 
+def history_headers() -> list[str]:
+    return [tr("Zeit"), tr("Etikett"), tr("Kopien"), tr("Drucker"), tr("Status")]
+
+
+def configure_history_table(table: QTableWidget) -> None:
+    """Tabelle fuer den Sitzungsverlauf: nur lesen, neueste Zeile oben."""
+    table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
+    table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
+    table.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
+    table.verticalHeader().setVisible(False)
+    table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.ResizeToContents)
+    table.horizontalHeader().setStretchLastSection(True)
+    table.setMinimumHeight(140)
+
+
+def fill_history_table(table: QTableWidget, jobs: list[PrintJob]) -> None:
+    """Verlauf neu schreiben, neueste Aufträge zuerst."""
+    headers = history_headers()
+    table.clearContents()
+    table.setColumnCount(len(headers))
+    table.setHorizontalHeaderLabels(headers)
+    table.setRowCount(len(jobs))
+    for row, job in enumerate(reversed(jobs)):
+        cells = (
+            job.started.strftime("%H:%M:%S"),
+            job.label,
+            str(job.copies),
+            f"{job.model} · {job.address}",
+            job.status_text(),
+        )
+        for column, text in enumerate(cells):
+            table.setItem(row, column, QTableWidgetItem(text))
+
+
+def make_history_table(parent=None) -> QTableWidget:
+    table = QTableWidget(parent)
+    configure_history_table(table)
+    fill_history_table(table, [])
+    return table
+
+
 class PrintHistoryDialog(QDialog):
     """Liste aller Druckaufträge seit Programmstart, neueste zuerst."""
 
@@ -55,23 +96,8 @@ class PrintHistoryDialog(QDialog):
         self.setWindowTitle(tr("Druckverlauf"))
         self.resize(640, 320)
 
-        headers = [tr("Zeit"), tr("Etikett"), tr("Kopien"), tr("Drucker"), tr("Status")]
-        table = QTableWidget(len(jobs), len(headers), self)
-        table.setHorizontalHeaderLabels(headers)
-        table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
-        table.verticalHeader().setVisible(False)
-        table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.ResizeToContents)
-        table.horizontalHeader().setStretchLastSection(True)
-        for row, job in enumerate(reversed(jobs)):
-            cells = (
-                job.started.strftime("%H:%M:%S"),
-                job.label,
-                str(job.copies),
-                f"{job.model} · {job.address}",
-                job.status_text(),
-            )
-            for column, text in enumerate(cells):
-                table.setItem(row, column, QTableWidgetItem(text))
+        table = make_history_table(self)
+        fill_history_table(table, jobs)
 
         close = QPushButton(tr("Schließen"))
         close.clicked.connect(self.accept)

@@ -2886,12 +2886,16 @@ def test_toolbar_has_align_dropdown_before_front(qapp, tmp_path):
         win._act_add_barcode,
         win._act_add_qr,
     ]
+    csv_at = actions.index(win._act_connect_csv)
+    database_at = actions.index(win._act_database)
+    preview_at = actions.index(win._act_print_preview)
+    print_at = actions.index(win._act_print)
     history_at = actions.index(win._act_print_history)
-    assert actions[history_at + 1].isSeparator()
-    assert actions[history_at + 1] is not win._act_database_separator
-    assert actions[history_at + 2] is win._act_connect_csv
-    assert actions[history_at + 3] is win._act_database_separator
-    assert actions[history_at + 4] is win._act_database
+    assert actions[csv_at - 1].isSeparator()
+    assert actions[csv_at + 1] is win._act_database_separator
+    assert csv_at < database_at < preview_at < print_at < history_at
+    assert actions[database_at + 1].isSeparator()
+    assert actions[database_at + 2] is win._act_print_preview
     win.close()
     qapp.processEvents()
 
@@ -5216,26 +5220,41 @@ def test_resolution_combo_follows_a_model_change(qapp, tmp_path):
     assert "QL-500" in win._resolution_combo.toolTip()
 
 
-def test_print_options_fit_on_a_small_screen(qapp, tmp_path):
-    """Auf dem Reiter "Drucken" bleiben die Kästen und der Knopf im Bereich.
-
-    Die Gruppenkästen sind dieselben wie links und daher etwas höher als eine
-    flache Liste. 360 px lässt den Rahmen zu und faengt ein Layout, das
-    ausufert.
-    """
+def test_print_button_opens_sheet_with_preview_settings_and_history(qapp, tmp_path):
+    """Rechts bleibt nur der Knopf. Er oeffnet Vorschau, Optionen und Verlauf."""
     from PySide6.QtWidgets import QGroupBox
 
-    from ql_editor.adaptive import TABS
+    from ql_editor.sheet import Sheet
 
     win = _temp_window(qapp, tmp_path)
-    win._right_pages.set_mode(TABS)
-    win._right_pages.show_page(1)
+    assert win._open_print_button.text() == "Drucken…"
+    assert win._open_print_button.isVisible()
+    assert not win._right_panel.isAncestorOf(win._resolution_combo)
+    assert not win._right_panel.isAncestorOf(win._print_button)
+    assert not win._print_button.isVisible()
+
+    win._open_print_button.click()
     qapp.processEvents()
-    page = win._right_pages.page(1)
-    titles = {box.title() for box in page.widget().findChildren(QGroupBox)}
-    assert {"Qualität", "Ausgabe", "Datenbank"} <= titles
-    assert page.widget().sizeHint().height() <= 360
+    sheet = win.findChild(Sheet)
+    assert sheet is not None and sheet.isVisible()
+    assert win._print_preview.isVisible()
     assert win._print_button.isVisible()
+    assert win._history_table.isVisible()
+    assert sheet.isAncestorOf(win._print_preview)
+    assert sheet.isAncestorOf(win._print_button)
+    assert sheet.isAncestorOf(win._history_table)
+    titles = {box.title() for box in sheet.findChildren(QGroupBox)}
+    assert {"Druckvorschau", "Qualität", "Ausgabe", "Datenbank", "Druckverlauf"} <= titles
+    assert win._print_preview.pixmap() is not None
+    assert not win._print_preview.pixmap().isNull()
+    preview_bottom = win._print_preview.mapToGlobal(
+        win._print_preview.rect().bottomLeft()
+    ).y()
+    print_top = win._print_button.mapToGlobal(win._print_button.rect().topLeft()).y()
+    history_top = win._history_table.mapToGlobal(win._history_table.rect().topLeft()).y()
+    assert preview_bottom <= print_top <= history_top
+    win.close()
+    qapp.processEvents()
 
 
 def test_print_preview_in_600dpi_is_reduced_to_canvas_size(qapp, tmp_path):
@@ -6281,27 +6300,32 @@ def test_orientation_row_cannot_wrap_at_narrow_panel_width(qapp):
     row.deleteLater()
 
 
-def test_right_panel_stacks_when_tall_and_tabs_when_short(qapp, tmp_path):
-    """Viel Hoehe: Objekt und Drucken untereinander. Wenig: als Reiter."""
-    from ql_editor.adaptive import STACKED, TABS
+def test_right_panel_keeps_inspector_and_print_button(qapp, tmp_path):
+    """Viel oder wenig Hoehe: Inspector und der Druckknopf bleiben unten."""
+    from PySide6.QtWidgets import QScrollArea
 
     win = _temp_window(qapp, tmp_path)
     win.resize(1280, 900)
     win.show()
     qapp.processEvents()
-    assert win._right_pages.mode == STACKED
-    assert win._right_pages.page(0).isVisible()
-    assert win._right_pages.page(1).isVisible()
+    area = next(
+        candidate
+        for candidate in win._right_panel.findChildren(QScrollArea)
+        if candidate.widget() is win._inspector
+    )
+    assert area.isVisible()
+    assert win._open_print_button.isVisible()
+    area_bottom = area.mapTo(win._right_panel, area.rect().bottomLeft()).y()
+    button_top = win._open_print_button.mapTo(
+        win._right_panel, win._open_print_button.rect().topLeft()
+    ).y()
+    assert area_bottom <= button_top
 
     win.resize(1280, 420)
     qapp.processEvents()
-    assert win._right_pages.mode == TABS
-
-    win.resize(1280, 900)
-    qapp.processEvents()
-    assert win._right_pages.mode == STACKED
-    assert win._right_pages.page(0).isVisible()
-    assert win._right_pages.page(1).isVisible()
+    assert area.isVisible()
+    assert win._open_print_button.isVisible()
+    assert not win._print_button.isVisible()
     win.close()
     qapp.processEvents()
 
@@ -6812,8 +6836,10 @@ def test_status_area_keeps_its_height_while_printing(qapp, tmp_path, monkeypatch
     monkeypatch.setattr(app_module, "PrintWorker", SlowWorker)
     win = _temp_window(qapp, tmp_path)
     win._media_panel.set_network_host("192.168.178.62")
+    win._show_print_sheet()
     qapp.processEvents()
     height_idle = win._status_stack.height()
+    assert height_idle > 0
     win._on_print()
     qapp.processEvents()
     assert win._status_stack.currentWidget() is win._feed_indicator
@@ -6829,14 +6855,16 @@ def test_status_area_keeps_its_height_while_printing(qapp, tmp_path, monkeypatch
     qapp.processEvents()
 
 
-def test_print_and_history_buttons_share_height_and_row(qapp, tmp_path):
-    win = _temp_window(qapp, tmp_path)
-    page = win._right_pages.page(1)
-    page.resize(176, 400)
-    page.show()
+def test_print_sheet_lists_history_under_the_print_button(qapp, tmp_path, monkeypatch):
+    """Der Verlauf steht im Sheet unter dem Druckknopf, neueste Zeile oben."""
+    win = _print_with_outcome(qapp, tmp_path, monkeypatch, "sent")
+    win._show_print_sheet()
     qapp.processEvents()
-    assert win._print_button.height() == win._history_button.height()
-    assert win._print_button.y() == win._history_button.y()
+    assert win._history_table.rowCount() == 1
+    assert win._history_table.item(0, 4).text() == "An Drucker gesendet"
+    print_bottom = win._print_button.mapToGlobal(win._print_button.rect().bottomLeft()).y()
+    history_top = win._history_table.mapToGlobal(win._history_table.rect().topLeft()).y()
+    assert history_top >= print_bottom
     win.close()
     qapp.processEvents()
 
