@@ -758,4 +758,7 @@ EN: dict[str, str] = {
         "Object {kind!r} does not support merge."
     ),
     "CSV nicht geladen: {error}": "CSV not loaded: {error}",
+    "CSV-Inhalt hat sich geändert (Hash weicht ab).": (
+        "CSV content has changed (hash mismatch)."
+    ),
 }

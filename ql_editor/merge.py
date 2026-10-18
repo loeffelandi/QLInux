@@ -6,7 +6,9 @@ gemeinsam nutzbar.
 
 * D4: Binding ``database`` / ``serial`` / keines (exklusiv am Objekt)
 * D10: Vorschau = aktueller Record + Serienwert Index 0
-* D11: Anzeigewert = Snapshot; Record-Wechsel ueberschreibt ihn
+* D11: Anzeigewert = Snapshot; Record-Wechsel ueberschreibt ihn.
+  Fehlt die CSV (``record is None``), bleiben Database-Snapshots erhalten;
+  nur Serial-Bindings werden weiter angewendet.
 * D15: ``current_record`` 0-basiert steuert den Merge
 """
 
@@ -27,10 +29,10 @@ class MergeError(Exception):
     """Binding oder Serienparameter nicht aufloesbar."""
 
 
-def _normalized_binding(
+def normalize_binding(
     binding: Mapping[str, Any] | None,
 ) -> dict[str, Any] | None:
-    """Binding lesen ohne Qt (gleiche Regeln wie ``normalize_binding``, D4)."""
+    """Binding lesen ohne Qt (D4); gleiche Regeln wie ``items.normalize_binding``."""
     if binding is None:
         return None
     source = binding.get("source")
@@ -46,6 +48,10 @@ def _normalized_binding(
     raise MergeError(
         tr("Unbekannte Binding-Quelle: {source!r}.").format(source=source)
     )
+
+
+# Rueckwaerts-Alias (interne Aufrufer / aeltere Tests).
+_normalized_binding = normalize_binding
 
 
 def format_serial(
@@ -79,18 +85,20 @@ def resolve_binding(
     record: Mapping[str, str] | None = None,
     serial_value: str = "",
 ) -> str | None:
-    """Binding → Anzeigewert, oder ``None`` wenn kein Binding.
+    """Binding → Anzeigewert, oder ``None`` wenn kein Merge noetig.
 
-    Fehlende Spalten liefern ``""`` (leere Merge-Felder bleiben sichtbar, D11).
+    ``None``: kein Binding, oder Database ohne Record (Snapshot behalten, D11/D12).
+    Fehlende Spalten im Record liefern ``""`` (leere Merge-Felder bleiben sichtbar).
     """
-    normalized = _normalized_binding(binding)
+    normalized = normalize_binding(binding)
     if normalized is None:
         return None
     source = normalized["source"]
     if source == "database":
-        field = normalized["field"]
         if record is None:
-            return ""
+            # CSV fehlt / noch nicht geladen: Snapshot nicht mit "" ueberschreiben.
+            return None
+        field = normalized["field"]
         value = record.get(field)
         return "" if value is None else str(value)
     if source == "serial":
@@ -116,25 +124,26 @@ def resolve_item_display(
     )
 
 
-def apply_display_value(item: Any, value: str) -> None:
+def apply_display_value(item: Any, value: str) -> bool:
     """Snapshot auf Text/Barcode/QR setzen (D11).
 
-    Ungueltige Barcodes behalten den bisherigen Snapshot (kein Abbruch der
-    Live-Vorschau).
+    Liefert ``True``, wenn der Snapshot geschrieben wurde. Ungueltige Barcodes
+    behalten den bisherigen Snapshot (kein Abbruch der Live-Vorschau) und
+    zaehlen nicht als Update.
     """
     kind = getattr(item, "kind", None)
     if kind == "text" and hasattr(item, "set_text_value"):
         item.set_text_value(value)
-        return
+        return True
     if kind == "qr" and hasattr(item, "set_data"):
         item.set_data(value)
-        return
+        return True
     if kind == "barcode" and hasattr(item, "set_value"):
         try:
             item.set_value(value)
         except ValueError:
-            return
-        return
+            return False
+        return True
     raise MergeError(
         tr("Objekt {kind!r} unterstuetzt keinen Merge.").format(kind=kind)
     )
@@ -150,7 +159,7 @@ def apply_record(
     """Alle gebundenen Objekte mit Record/Serie aktualisieren.
 
     Liefert die Anzahl der geschriebenen Snapshots. Objekte ohne Binding
-    bleiben unveraendert.
+    und Database-Bindings ohne Record bleiben unveraendert.
     """
     serial_value = format_serial(serial, index=serial_index)
     updated = 0
@@ -166,8 +175,8 @@ def apply_record(
         )
         if value is None:
             continue
-        apply_display_value(item, value)
-        updated += 1
+        if apply_display_value(item, value):
+            updated += 1
     return updated
 
 
@@ -187,11 +196,15 @@ def resolve_csv_path(
     *,
     document_path: str | PathLike[str] | None = None,
 ) -> Path:
-    """CSV-Pfad aus ``data_source`` aufloesen (relativ zur ``.qlx``, D3)."""
+    """CSV-Pfad aus ``data_source`` aufloesen (relativ zur ``.qlx``, D3).
+
+    Relative Pfade werden zuerst neben der ``.qlx`` gesucht; erst danach gilt
+    ein Treffer im aktuellen Arbeitsverzeichnis (vermeidet CWD-Shadowing).
+    """
     candidate = Path(stored_path).expanduser()
-    if candidate.is_file():
+    if candidate.is_absolute():
         return candidate
-    if document_path and not candidate.is_absolute():
+    if document_path is not None:
         root = Path(document_path).expanduser()
         if root.is_file() or root.suffix:
             root = root.parent
@@ -204,6 +217,8 @@ def resolve_csv_path(
                 return resolved
         except OSError:
             pass
+    if candidate.is_file():
+        return candidate
     return candidate
 
 
@@ -213,6 +228,7 @@ __all__ = [
     "apply_record",
     "clamp_record_index",
     "format_serial",
+    "normalize_binding",
     "resolve_binding",
     "resolve_csv_path",
     "resolve_item_display",

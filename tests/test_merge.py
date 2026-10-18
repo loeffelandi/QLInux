@@ -101,10 +101,15 @@ def test_resolve_binding_database_and_serial():
     assert merge.resolve_binding({"source": "none"}) is None
 
 
-def test_resolve_binding_without_record_is_empty():
+def test_resolve_binding_without_record_skips_database():
+    """Ohne Record Database-Bindings nicht anwenden (Snapshot behalten)."""
     assert (
         merge.resolve_binding({"source": "database", "field": "A"}, record=None)
-        == ""
+        is None
+    )
+    assert (
+        merge.resolve_binding({"source": "serial"}, record=None, serial_value="9")
+        == "9"
     )
 
 
@@ -129,10 +134,28 @@ def test_apply_record_updates_bound_items_only():
     assert unbound_barcode.value == "keep"
 
 
+def test_apply_record_without_record_preserves_database_snapshots():
+    text = _FakeText("Spot A", {"source": "database", "field": "Fixture"})
+    qr = _FakeQR("PB 1", {"source": "database", "field": "Circuit"})
+    barcode = _FakeBarcode("0000", {"source": "serial"})
+
+    count = merge.apply_record(
+        [text, qr, barcode],
+        record=None,
+        serial={"start": 100, "pad_width": 4},
+        serial_index=0,
+    )
+    assert count == 1
+    assert text.text_value == "Spot A"
+    assert qr._data == "PB 1"
+    assert barcode.value == "0100"
+
+
 def test_apply_record_keeps_barcode_on_invalid_value():
     barcode = _FakeBarcode("SAFE", {"source": "database", "field": "X"}, fail=True)
-    merge.apply_record([barcode], record={"X": "bad"})
+    count = merge.apply_record([barcode], record={"X": "bad"})
     assert barcode.value == "SAFE"
+    assert count == 0
 
 
 def test_clamp_record_index():
@@ -150,6 +173,32 @@ def test_resolve_csv_path_relative_to_document(tmp_path: Path):
     resolved = merge.resolve_csv_path("Fixture Data.csv", document_path=qlx)
     assert resolved == csv
     assert merge.resolve_csv_path(str(csv)).is_file()
+
+
+def test_resolve_csv_path_prefers_document_neighbor_over_cwd(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    """Relativer Name neben der .qlx gewinnt vor einer gleichnamigen CWD-Datei."""
+    doc_dir = tmp_path / "doc"
+    cwd_dir = tmp_path / "cwd"
+    doc_dir.mkdir()
+    cwd_dir.mkdir()
+    neighbor = doc_dir / "shared.csv"
+    neighbor.write_text("A\nfrom-doc\n", encoding="utf-8")
+    cwd_hit = cwd_dir / "shared.csv"
+    cwd_hit.write_text("A\nfrom-cwd\n", encoding="utf-8")
+    qlx = doc_dir / "label.qlx"
+    qlx.write_text("{}", encoding="utf-8")
+    monkeypatch.chdir(cwd_dir)
+    resolved = merge.resolve_csv_path("shared.csv", document_path=qlx)
+    assert resolved.resolve() == neighbor.resolve()
+
+
+def test_apply_record_empty_records_preserves_database():
+    text = _FakeText("keep", {"source": "database", "field": "A"})
+    count = merge.apply_record([text], record=None)
+    assert count == 0
+    assert text.text_value == "keep"
 
 
 def test_serial_preview_uses_index_zero_like_d10():

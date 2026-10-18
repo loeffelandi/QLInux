@@ -343,6 +343,8 @@ class MainWindow(QMainWindow):
         #: Sprachwechsel übernimmt das Etikett - dabei nicht nach dem Speichern fragen.
         self._accept_close = False
         self._close_prompt = False
+        #: CSV-/Hash-Status nach Open zuletzt anzeigen (nicht von „geöffnet“ überdecken).
+        self._pending_database_status: str | None = None
 
         self._canvas_stack = QStackedWidget()
         self._canvas_stack.setMinimumSize(240, 180)
@@ -3115,6 +3117,18 @@ class MainWindow(QMainWindow):
         stored["current_record"] = int(tab.current_record)
         return stored
 
+    def _queue_database_status(self, message: str) -> None:
+        """CSV-/Hash-Hinweis merken und anzeigen (Open darf spaeter erneut setzen)."""
+        self._pending_database_status = message
+        self.statusBar().showMessage(message, 8000)
+
+    def _flush_database_status(self) -> None:
+        """Ausstehenden Database-Status nachrangig nach „Etikett geöffnet“ setzen."""
+        message = self._pending_database_status
+        self._pending_database_status = None
+        if message:
+            self.statusBar().showMessage(message, 8000)
+
     def _load_document_database(
         self,
         data: Mapping[str, Any],
@@ -3123,6 +3137,7 @@ class MainWindow(QMainWindow):
     ) -> None:
         """``data_source``/``serial`` aus dem Dokument in den aktiven Reiter laden."""
         tab = self._require_tab()
+        self._pending_database_status = None
         raw_serial = data.get("serial")
         tab.serial = document.merge_serial(
             raw_serial if isinstance(raw_serial, Mapping) else None
@@ -3151,10 +3166,15 @@ class MainWindow(QMainWindow):
             )
         except csv_source.CsvSourceError as exc:
             tab.csv_table = None
-            self.statusBar().showMessage(
-                tr("CSV nicht geladen: {error}").format(error=exc), 8000
+            self._queue_database_status(
+                tr("CSV nicht geladen: {error}").format(error=exc)
             )
             return
+        stored_sha = str(raw_source.get("content_sha256") or "")
+        if stored_sha and stored_sha != table.content_sha256:
+            self._queue_database_status(
+                tr("CSV-Inhalt hat sich geändert (Hash weicht ab).")
+            )
         tab.csv_table = table
         tab.current_record = merge_engine.clamp_record_index(
             current, len(table.records)
@@ -3432,6 +3452,8 @@ class MainWindow(QMainWindow):
         self.statusBar().showMessage(
             tr("Etikett geöffnet: {name}").format(name=name), 8000
         )
+        # CSV-Warnung/Hash-Drift nachrangig, sonst verschwindet sie sofort.
+        self._flush_database_status()
 
     def _on_file_save(
         self,

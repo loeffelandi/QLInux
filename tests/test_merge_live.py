@@ -203,3 +203,60 @@ def test_bind_csv_api_applies_merge(qapp, tmp_path):
     qapp.processEvents()
     assert item.text_value == "Beta"
     assert win._database_panel._grid.rowCount() == 2
+
+
+def test_missing_csv_keeps_stored_snapshots_and_status(qapp, tmp_path):
+    """Fehlende CSV: Snapshots bleiben, Status warnt (Major / D11/D12)."""
+    qlx, csv_path = _write_fixture(tmp_path)
+    # Gespeicherte Snapshots vor dem Open auf bekannte Werte setzen.
+    raw = json.loads(qlx.read_text(encoding="utf-8"))
+    for item in raw["items"]:
+        binding = item.get("binding") or {}
+        if binding.get("field") == "Fixture":
+            item["text"] = "Stored Fixture"
+        elif binding.get("field") == "Channel":
+            item["text"] = "Stored Channel"
+        elif item.get("type") == "qr":
+            item["data"] = "Stored Circuit"
+    qlx.write_text(json.dumps(raw), encoding="utf-8")
+    csv_path.rename(tmp_path / "Fixture Data.csv.missing")
+
+    win = MainWindow()
+    win.open_path(str(qlx))
+    qapp.processEvents()
+
+    assert win._active.csv_table is None
+    assert win._active.data_source is not None
+    texts = {item.binding["field"]: item.text_value for item in _bound_texts(win)}
+    assert texts["Fixture"] == "Stored Fixture"
+    assert texts["Channel"] == "Stored Channel"
+    qr = next(i for i in win._canvas.ordered_items() if isinstance(i, QRItem))
+    assert qr.to_dict()["data"] == "Stored Circuit"
+    # Serial-Vorschau (Index 0) darf ohne CSV weiterlaufen.
+    barcode = next(
+        i for i in win._canvas.ordered_items() if isinstance(i, BarcodeItem)
+    )
+    assert barcode.value == "0100"
+    status = win.statusBar().currentMessage()
+    assert "CSV nicht geladen" in status
+
+
+def test_sha_drift_shows_status_after_open(qapp, tmp_path):
+    qlx, csv_path = _write_fixture(tmp_path)
+    raw = json.loads(qlx.read_text(encoding="utf-8"))
+    raw["data_source"]["content_sha256"] = "0" * 64
+    qlx.write_text(json.dumps(raw), encoding="utf-8")
+    # CSV bleibt lesbar, Hash weicht ab.
+    assert csv_path.is_file()
+
+    win = MainWindow()
+    win.open_path(str(qlx))
+    qapp.processEvents()
+
+    assert win._active.csv_table is not None
+    status = win.statusBar().currentMessage()
+    assert "Hash" in status or "geändert" in status
+    # Meta wird auf aktuellen Hash aktualisiert.
+    assert win._active.data_source["content_sha256"] == csv_source.load(
+        csv_path
+    ).content_sha256
