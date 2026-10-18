@@ -248,6 +248,9 @@ EN: dict[str, str] = {
     "Tabelle": "Table",
     "Zelle": "Cell",
     "Datenbankfeld": "Database field",
+    "CSV zur Datenbank nicht gefunden: {path}": "Database CSV not found: {path}",
+    "CSV zur Datenbank nicht gefunden.": "Database CSV not found.",
+    "CSV zur Datenbank nicht lesbar: {error}": "Database CSV could not be read: {error}",
     "Kabelvorlage": "Cable template",
     "Datum/Uhrzeit": "Date/time",
     "Aktuelles Datum und aktuelle Uhrzeit einfügen": "Insert the current date and time",
@@ -748,9 +751,25 @@ EN: dict[str, str] = {
     "Datenbank": "Database",
     "Keine CSV verbunden": "No CSV connected",
     "CSV": "CSV",
-    "Zeile wählen = Live-Vorschau. Spaltenköpfe später per Drag auf Text/Barcode/QR binden.": (
-        "Select a row for live preview. Column headers can later be dragged onto "
-        "text/barcode/QR to bind."
+    "Text, Barcode oder QR auf das Etikett legen und den Spaltenkopf (○) darauf ziehen. Zeile wählen = Live-Vorschau.": (
+        "Add text, a barcode or a QR code to the label, then drag a column header (○) "
+        "onto it. Select a row for live preview."
+    ),
+    "Verbinden": "Connect",
+    "Andere…": "Other…",
+    "Trennen": "Disconnect",
+    "Datensatz {current} / {total}": "Record {current} / {total}",
+    "Auf Text, Barcode oder QR ziehen": "Drag onto text, barcode or QR",
+    "CSV verbinden": "Connect CSV",
+    "CSV-Dateien (*.csv);;Alle Dateien (*)": "CSV files (*.csv);;All files (*)",
+    "(keine)": "(none)",
+    "Verbindung lösen": "Remove link",
+    "Serie ist an diesem Objekt aktiv. Ein Datenbankfeld ersetzt die Serie.": (
+        "Numbering is active on this object. A database field replaces it."
+    ),
+    "Schnappschuss aus der Datenbank. Ein Record-Wechsel überschreibt ihn; manuelles Ändern löst die Verbindung nicht.": (
+        "Snapshot from the database. Changing the record overwrites it; "
+        "editing by hand does not remove the link."
     ),
     "Serien-Index darf nicht negativ sein.": "Serial index must not be negative.",
     "Objekt {kind!r} unterstuetzt keinen Merge.": (

@@ -22,7 +22,8 @@ from __future__ import annotations
 
 from typing import Callable
 
-from PySide6.QtCore import QDir, QEvent, QSize, Qt, Signal
+import shiboken6
+from PySide6.QtCore import QDir, QEvent, QObject, QSize, Qt, Signal
 from PySide6.QtGui import QColor, QFont, QPainter
 from PySide6.QtWidgets import (
     QApplication,
@@ -55,6 +56,83 @@ _MESSAGE_ICONS = {
 }
 
 
+class _SheetShortcutFilter(QObject):
+    """Ein Filter fuer alle offenen Sheets.
+
+    Jedes Sheet als eigenen Filter auf die ``QApplication`` zu setzen wuerde
+    jedes Qt-Ereignis durch Python schicken. Bleibt ein Sheet offen, stapelt
+    der naechste Filter sich obendrauf. Ein gemeinsamer Filter reicht: er
+    haengt nur, solange ein Sheet sichtbar ist, und fragt die Sheets nur bei
+    echten Tastenkuerzeln.
+    """
+
+    def __init__(self) -> None:
+        super().__init__()
+        self._sheets: list[Sheet] = []
+        self._installed = False
+
+    def add(self, sheet: Sheet) -> None:
+        if sheet not in self._sheets:
+            self._sheets.append(sheet)
+            sheet.destroyed.connect(lambda *args, watched=sheet: self.discard(watched))
+        self._install()
+
+    def discard(self, sheet: Sheet) -> None:
+        if not shiboken6.isValid(self):
+            return
+        try:
+            self._sheets.remove(sheet)
+        except ValueError:
+            return
+        if not self._sheets:
+            self._remove()
+
+    def _install(self) -> None:
+        if self._installed:
+            return
+        app = QApplication.instance()
+        if app is None:
+            return
+        app.installEventFilter(self)
+        self._installed = True
+
+    def _remove(self) -> None:
+        if not self._installed:
+            return
+        self._installed = False
+        app = QApplication.instance()
+        if app is not None and shiboken6.isValid(app) and shiboken6.isValid(self):
+            app.removeEventFilter(self)
+
+    def eventFilter(self, obj, event) -> bool:  # noqa: N802
+        if event.type() != QEvent.Type.Shortcut:
+            return False
+        for sheet in list(self._sheets):
+            if sheet.eventFilter(obj, event):
+                return True
+        return False
+
+
+_shortcut_filter: _SheetShortcutFilter | None = None
+
+
+def _same_object(left, right) -> bool:
+    """Qt-Objekte vergleichen, auch wenn Python zwei Wrapper haelt."""
+    if left is right:
+        return True
+    try:
+        return shiboken6.getCppPointer(left) == shiboken6.getCppPointer(right)
+    except Exception:
+        return False
+
+
+def _shortcuts() -> _SheetShortcutFilter:
+    global _shortcut_filter
+    if _shortcut_filter is None:
+        _shortcut_filter = _SheetShortcutFilter()
+    return _shortcut_filter
+
+
 class Sheet(QWidget):
     """Modal-Overlay im Hauptfenster: dimmt den Hintergrund, zeigt den Inhalt.
 
@@ -73,24 +151,27 @@ class Sheet(QWidget):
         sizing: str = "hint",
         margins: int = 40,
         max_size: QSize | None = None,
+        close_on_outside: bool = False,
     ) -> None:
         super().__init__(parent)
         self.setObjectName("qlSheet")
         self._sizing = sizing
         self._margins = margins
         self._max_size = max_size or QSize(1000, 760)
+        self._close_on_outside = bool(close_on_outside)
         self._closing = False
+        self._filtering_parent = False
 
         self._panel = self._build_panel(content, title)
         self._panel.setParent(self)
 
         self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+        self.setAttribute(Qt.WidgetAttribute.WA_MouseTracking, True)
         self.setStyleSheet(
             "#qlSheetCard { background: palette(window); border: 1px solid palette(mid);"
             " border-radius: 12px; }"
             "#qlSheetTitle { color: palette(windowText); }"
         )
-        parent.installEventFilter(self)
         self.setGeometry(parent.rect())
         self._relayout()
 
@@ -125,13 +206,15 @@ class Sheet(QWidget):
             hint = panel.sizeHint()
             w = max(panel.minimumWidth(), hint.width())
             h = max(panel.minimumHeight(), hint.height())
+            # Bei knapper Hoehe nicht an der Mindestgroesse festhalten - sonst
+            # wird Inhalt (z. B. Scrollbalken) abgeschnitten.
+            w = min(w, avail.width(), self._max_size.width())
+            h = min(h, avail.height(), self._max_size.height())
         else:
-            w = self._max_size.width()
-            h = self._max_size.height()
-            w = max(w, panel.minimumWidth())
-            h = max(h, panel.minimumHeight())
-        w = min(w, avail.width())
-        h = min(h, avail.height())
+            w = min(self._max_size.width(), avail.width())
+            h = min(self._max_size.height(), avail.height())
+            w = max(w, min(panel.minimumWidth(), avail.width()))
+            h = max(h, min(panel.minimumHeight(), avail.height()))
         panel.setGeometry(
             avail.x() + (avail.width() - w) // 2,
             avail.y() + (avail.height() - h) // 2,
@@ -147,11 +230,25 @@ class Sheet(QWidget):
         # Solange das Sheet offen ist, keine App-Tastenkombinationen
         # (Ctrl+P, Entf, ...) ausloesen - das Sheet ist modal.
         if event.type() == QEvent.Type.Shortcut and self.isVisible():
-            if obj is not self and not self.isAncestorOf(obj):
+            if not _same_object(obj, self) and not self.isAncestorOf(obj):
                 return True
-        if obj is self.parentWidget() and event.type() == QEvent.Type.Resize:
-            self.setGeometry(self.parentWidget().rect())
+        parent = self.parentWidget()
+        if parent is not None and obj == parent and event.type() == QEvent.Type.Resize:
+            self.setGeometry(parent.rect())
         return super().eventFilter(obj, event)
+
+    def _watch_parent(self) -> None:
+        parent = self.parentWidget()
+        if parent is None or self._filtering_parent:
+            return
+        parent.installEventFilter(self)
+        self._filtering_parent = True
+
+    def _unwatch_parent(self) -> None:
+        parent = self.parentWidget()
+        if parent is not None and self._filtering_parent:
+            parent.removeEventFilter(self)
+        self._filtering_parent = False
 
     # ---------------------------------------------------------- Darstellung --
     def paintEvent(self, event) -> None:  # noqa: N802
@@ -160,14 +257,18 @@ class Sheet(QWidget):
 
     def showEvent(self, event) -> None:  # noqa: N802
         super().showEvent(event)
+        self._watch_parent()
         self.raise_()
         self._relayout()
-        app = QApplication.instance()
-        if app is not None:
-            app.installEventFilter(self)
+        _shortcuts().add(self)
         # QFileDialog/QInputDialog setzen den Fokus selbst auf ihr Eingabefeld.
         if self._panel.findChild(QDialog) is None:
             self.setFocus()
+
+    def hideEvent(self, event) -> None:  # noqa: N802
+        self._unwatch_parent()
+        _shortcuts().discard(self)
+        super().hideEvent(event)
 
     def keyPressEvent(self, event) -> None:  # noqa: N802
         if event.key() == Qt.Key.Key_Escape:
@@ -176,15 +277,24 @@ class Sheet(QWidget):
             return
         super().keyPressEvent(event)
 
+    def mousePressEvent(self, event) -> None:  # noqa: N802
+        """Klick auf die Abdunklung schliesst optional (Picker, Clip Art)."""
+        if (
+            self._close_on_outside
+            and event.button() == Qt.MouseButton.LeftButton
+            and not self._panel.geometry().contains(event.position().toPoint())
+        ):
+            self.close_sheet()
+            event.accept()
+            return
+        super().mousePressEvent(event)
+
     # --------------------------------------------------------- Schliessen ---
     def close_sheet(self) -> None:
         """Schliesst das Sheet (idempotent)."""
         if self._closing:
             return
         self._closing = True
-        app = QApplication.instance()
-        if app is not None:
-            app.removeEventFilter(self)
         self.hide()
         self.closed.emit()
         self.deleteLater()
@@ -208,14 +318,23 @@ def show_widget(
     content: QWidget,
     sizing: str = "hint",
     max_size: QSize | None = None,
+    margins: int = 40,
+    close_on_outside: bool = False,
 ) -> Sheet:
     """Eigenen Inhalt als Sheet zeigen (z. B. "Über QLInux").
 
     Fuer alles, was mehr ist als eine Meldung: der Inhalt ist ein eigenes
     Widget, das Sheet bleibt aber im Hauptfenster (siehe Modulbeschreibung).
+    ``close_on_outside`` schliesst bei Klick auf die Abdunklung (Picker).
     """
     return _open_sheet(
-        parent, content, title=title, sizing=sizing, max_size=max_size
+        parent,
+        content,
+        title=title,
+        sizing=sizing,
+        max_size=max_size,
+        margins=margins,
+        close_on_outside=close_on_outside,
     )
 
 

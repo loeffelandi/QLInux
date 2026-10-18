@@ -30,6 +30,7 @@ Direkte Bearbeitung mit der Maus (modernes Editor-Gefuehl):
 * **Mehrfachauswahl**: Gummiband auf freier Flaeche; **Ctrl+Klick** schaltet
   einzelne Objekte zur Auswahl hinzu/ab.
 * **Drag & Drop**: Bilddateien aus dem Dateimanager auf den Canvas ziehen.
+  Spaltenkoepfe aus dem Datenbank-Panel binden Text, Barcode oder QR.
 * **Tabelle**: Klick waehlt die Zelle, Doppelklick bearbeitet den Text,
   Ziehen an einer inneren Trennlinie aendert Zeile oder Spalte.
 """
@@ -46,6 +47,7 @@ from PySide6.QtWidgets import QGraphicsItem, QGraphicsScene, QGraphicsView, QWid
 from PIL import Image
 
 from . import items as items_mod
+from .database_panel import field_from_mime
 from .i18n import tr
 from .icons import ROTATE_CURSOR_SIZE, cursor
 from .renderer import render_scene_to_image
@@ -396,6 +398,8 @@ class LabelCanvas(QGraphicsView):
     gesture_begun = Signal()
     image_dropped = Signal(str, QPointF)
     text_dropped = Signal(str, QPointF)
+    #: Spaltenname aus dem Datenbank-Panel, Fallposition in Szenenkoordinaten.
+    database_field_dropped = Signal(str, QPointF)
     print_preview_exit_requested = Signal()
     #: Kurzer Bedienhinweis fuer die Statusleiste (leer = kein Hinweis).
     hint_changed = Signal(str)
@@ -1202,6 +1206,10 @@ class LabelCanvas(QGraphicsView):
             item = item.parentItem()
         return item
 
+    def serializable_item_at_scene(self, scene_pos: QPointF):
+        """Oberstes serialisierbares Objekt unter ``scene_pos``."""
+        return self._top_serializable_item_at(self.mapFromScene(scene_pos))
+
     # -- Einrasten ----------------------------------------------------------
     def _snap_targets(self, exclude) -> tuple[list[float], list[float]]:
         if exclude is None:
@@ -1681,11 +1689,16 @@ class LabelCanvas(QGraphicsView):
                 paths.append(path)
         return paths
 
+    def _accepts_external_drop(self, mime) -> bool:
+        return bool(
+            self._drop_paths(mime) or field_from_mime(mime) or mime.hasText()
+        )
+
     def dragEnterEvent(self, event) -> None:  # noqa: N802
         if self._print_preview:
             event.ignore()
             return
-        if self._drop_paths(event.mimeData()) or event.mimeData().hasText():
+        if self._accepts_external_drop(event.mimeData()):
             event.acceptProposedAction()
         else:
             super().dragEnterEvent(event)
@@ -1694,7 +1707,7 @@ class LabelCanvas(QGraphicsView):
         if self._print_preview:
             event.ignore()
             return
-        if self._drop_paths(event.mimeData()) or event.mimeData().hasText():
+        if self._accepts_external_drop(event.mimeData()):
             event.acceptProposedAction()
         else:
             super().dragMoveEvent(event)
@@ -1708,6 +1721,11 @@ class LabelCanvas(QGraphicsView):
         if paths:
             for path in paths:
                 self.image_dropped.emit(path, scene_pos)
+            event.acceptProposedAction()
+            return
+        field = field_from_mime(event.mimeData())
+        if field:
+            self.database_field_dropped.emit(field, scene_pos)
             event.acceptProposedAction()
             return
         if event.mimeData().hasText():

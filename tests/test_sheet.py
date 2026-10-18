@@ -91,6 +91,51 @@ def test_sheet_escape_closes(qapp):
     win.close()
 
 
+def test_sheet_scrim_click_closes_when_enabled(qapp):
+    from PySide6.QtCore import QPoint
+    from PySide6.QtGui import QMouseEvent
+    from PySide6.QtWidgets import QLabel
+
+    from ql_editor.sheet import show_widget
+
+    win = _window(qapp)
+    sheet = show_widget(
+        win,
+        title="Picker",
+        content=QLabel("Inhalt"),
+        close_on_outside=True,
+    )
+    qapp.processEvents()
+    outside = QPoint(4, 4)
+    assert not sheet._panel.geometry().contains(outside)
+    sheet.mousePressEvent(
+        QMouseEvent(
+            QMouseEvent.Type.MouseButtonPress,
+            outside.toPointF(),
+            Qt.MouseButton.LeftButton,
+            Qt.MouseButton.LeftButton,
+            Qt.KeyboardModifier.NoModifier,
+        )
+    )
+    qapp.processEvents()
+    assert not sheet.isVisible()
+
+    sheet = show_message(win, "info", "Titel", "Text")
+    qapp.processEvents()
+    sheet.mousePressEvent(
+        QMouseEvent(
+            QMouseEvent.Type.MouseButtonPress,
+            QPoint(4, 4).toPointF(),
+            Qt.MouseButton.LeftButton,
+            Qt.MouseButton.LeftButton,
+            Qt.KeyboardModifier.NoModifier,
+        )
+    )
+    qapp.processEvents()
+    assert sheet.isVisible()
+    win.close()
+
+
 def test_message_ok_button_closes_sheet(qapp):
     win = _window(qapp)
     sheet = show_message(win, "info", "Titel", "Text")
@@ -131,6 +176,8 @@ def test_sheet_blocks_app_shortcuts(qapp):
     from PySide6.QtCore import QEvent
     from PySide6.QtGui import QKeySequence, QShortcutEvent
 
+    from ql_editor import sheet as sheet_module
+
     win = _window(qapp)
     sheet = show_message(win, "info", "Titel", "Text")
     qapp.processEvents()
@@ -141,6 +188,14 @@ def test_sheet_blocks_app_shortcuts(qapp):
     assert sheet.eventFilter(win, event) is True
     # Receiver innerhalb des Sheets -> durchgelassen.
     assert sheet.eventFilter(sheet, event) is False
+    # Ein gemeinsamer Filter, nicht einer je Sheet.
+    guard = sheet_module._shortcut_filter
+    assert guard is not None and guard._installed is True
+    assert sheet in guard._sheets
+
+    sheet.close_sheet()
+    qapp.processEvents()
+    assert sheet not in guard._sheets
     win.close()
 
 

@@ -14,7 +14,7 @@ sofort bei Schaltern).
 
 from __future__ import annotations
 
-from PySide6.QtCore import QDate, QEvent, QSize, QTime, Qt, QTimer, Signal
+from PySide6.QtCore import QDate, QSize, QTime, Qt, QTimer, Signal
 from PySide6.QtGui import QActionGroup, QFont
 from PySide6.QtWidgets import (
     QButtonGroup,
@@ -29,7 +29,6 @@ from PySide6.QtWidgets import (
     QLabel,
     QLineEdit,
     QMenu,
-    QPlainTextEdit,
     QPushButton,
     QSpinBox,
     QStackedWidget,
@@ -72,6 +71,8 @@ class InspectorPanel(QWidget):
     edit_committed = Signal()
     #: Eingabe abgelehnt (Barcode passt nicht zur Symbologie) - mit Begruendung.
     rejected = Signal(str)
+    #: Database Field geaendert - die App merged den aktuellen Record (D11/D14).
+    database_binding_changed = Signal()
 
     def __init__(self, parent: QWidget | None = None):
         super().__init__(parent)
@@ -79,6 +80,8 @@ class InspectorPanel(QWidget):
         self._allow_red = False
         self._loading = False
         self._edit_open = False
+        self._database_fields: list[str] = []
+        self._binding_refresh = False
         #: Letzte Registerkarte im Tabellen-Inspector (Text / Zelle / Tabelle).
         self._table_page = 0
         self._datetime_example_item = None
@@ -100,6 +103,16 @@ class InspectorPanel(QWidget):
         self._allow_red = allow_red
         self._rebuild()
         self.updateGeometry()
+
+    def set_database_fields(self, fields: list[str] | None) -> None:
+        """Spalten der verbundenen CSV fuer das Database-Field-Menue."""
+        self._database_fields = [str(name) for name in (fields or []) if str(name)]
+
+    def take_binding_refresh(self) -> bool:
+        """Ob der Inspector nach dem Undo-Schritt neu aufgebaut werden soll."""
+        refresh = self._binding_refresh
+        self._binding_refresh = False
+        return refresh
 
     # ------------------------------------------------------------ Aufbau --
     def _clear_body(self) -> None:
@@ -155,7 +168,90 @@ class InspectorPanel(QWidget):
         install_wheel_guard_recursive(body)
 
     # -- Typ-spezifisch -----------------------------------------------------
+    def _build_database_binding(self, item, form: QFormLayout) -> None:
+        """Database Field (D14). Serie am selben Objekt wird ersetzt (D4)."""
+        if getattr(item, "kind", None) not in ("text", "qr", "barcode"):
+            return
+        if not hasattr(item, "set_binding"):
+            return
+        binding = item.binding or {}
+        source = binding.get("source")
+        current = binding.get("field") if source == "database" else None
+        fields = list(self._database_fields)
+        if current and current not in fields:
+            fields.append(str(current))
+
+        combo = QComboBox()
+        combo.setObjectName("inspector_database_field")
+        combo.addItem(tr("(keine)"), None)
+        for field in fields:
+            combo.addItem(field, field)
+        combo.blockSignals(True)
+        if current:
+            index = combo.findData(current)
+            combo.setCurrentIndex(index if index >= 0 else 0)
+        else:
+            combo.setCurrentIndex(0)
+        combo.blockSignals(False)
+        combo.currentIndexChanged.connect(
+            lambda _index, box=combo: self._on_database_field_changed(box)
+        )
+        form.addRow(tr("Datenbankfeld"), combo)
+
+        if source == "serial":
+            note = QLabel(
+                tr(
+                    "Serie ist an diesem Objekt aktiv. "
+                    "Ein Datenbankfeld ersetzt die Serie."
+                )
+            )
+            note.setWordWrap(True)
+            note.setObjectName("inspector_serial_exclusive")
+            form.addRow(note)
+        if source == "database":
+            hint = QLabel(
+                tr(
+                    "Schnappschuss aus der Datenbank. Ein Record-Wechsel "
+                    "überschreibt ihn; manuelles Ändern löst die Verbindung nicht."
+                )
+            )
+            hint.setWordWrap(True)
+            hint.setObjectName("inspector_snapshot_hint")
+            form.addRow(hint)
+            unbind = QPushButton(tr("Verbindung lösen"))
+            unbind.setObjectName("inspector_unbind")
+            unbind.clicked.connect(
+                lambda _checked=False: self._apply_database_field(None)
+            )
+            form.addRow(unbind)
+        form.addRow(self._rule())
+
+    def _on_database_field_changed(self, combo: QComboBox) -> None:
+        if self._loading:
+            return
+        self._apply_database_field(combo.currentData())
+
+    def _apply_database_field(self, field) -> None:
+        """``None`` loest nur ein Datenbank-Binding. Serie bleibt, bis ein Feld kommt."""
+        item = self._item
+        if item is None or not hasattr(item, "set_binding"):
+            return
+
+        def apply() -> None:
+            binding = item.binding or {}
+            if field:
+                item.set_binding({"source": "database", "field": str(field)})
+            elif binding.get("source") == "database":
+                item.clear_binding()
+            else:
+                return
+            self._binding_refresh = True
+            self.database_binding_changed.emit()
+
+        self._apply_now(apply)
+
     def _build_text(self, item, form: QFormLayout) -> None:
+        self._build_database_binding(item, form)
         family = QFontComboBox()
         family.setSizeAdjustPolicy(
             QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon
@@ -600,6 +696,7 @@ class InspectorPanel(QWidget):
         )
 
     def _build_qr(self, item, form: QFormLayout) -> None:
+        self._build_database_binding(item, form)
         data = QLineEdit(item._data)
         data.editingFinished.connect(
             lambda: self._apply_now(lambda: item.set_data(data.text()))
@@ -613,6 +710,7 @@ class InspectorPanel(QWidget):
         form.addRow(tr("Größe (Dots)"), size)
 
     def _build_barcode(self, item, form: QFormLayout) -> None:
+        self._build_database_binding(item, form)
         value = QLineEdit(item.value)
         value.editingFinished.connect(
             lambda: self._guard_now(item, lambda: item.set_value(value.text()))
@@ -745,23 +843,12 @@ class InspectorPanel(QWidget):
             self._loading = False
 
     def _table_text_page(self, item) -> QWidget:
-        """Dieselbe Textleiste wie beim freien Textfeld, auf die gewaehlten Zellen."""
+        """Schrift, Stil und Ausrichtung. Der Zellentext wird auf der Flaeche bearbeitet."""
         page = QWidget()
         form = QFormLayout(page)
         form.setContentsMargins(0, 8, 0, 0)
         form.setLabelAlignment(Qt.AlignmentFlag.AlignRight)
         form.setRowWrapPolicy(QFormLayout.RowWrapPolicy.WrapLongRows)
-
-        same_text, text = item.selected_uniform("text")
-        edit = QPlainTextEdit("" if not same_text else str(text or ""))
-        edit.setFixedHeight(52)
-        if not same_text:
-            edit.setPlaceholderText(tr("Mehrere Zellen"))
-        edit.textChanged.connect(
-            lambda: self._apply_live(lambda: item.set_selected("text", edit.toPlainText()))
-        )
-        edit.installEventFilter(self)
-        form.addRow(edit)
 
         same_font, family = item.selected_uniform("font_family")
         font_box = QFontComboBox()
@@ -1026,7 +1113,10 @@ class InspectorPanel(QWidget):
             host,
             title=tr("Clip Art"),
             content=picker,
-            max_size=QSize(560, 640),
+            sizing="fill",
+            max_size=QSize(560, 560),
+            margins=20,
+            close_on_outside=True,
         )
 
         def _picked(symbol_id: str) -> None:
@@ -1127,12 +1217,6 @@ class InspectorPanel(QWidget):
         refresh = self._datetime_example_refresh
         if refresh is not None:
             refresh()
-
-    def eventFilter(self, watched, event):  # noqa: N802
-        # Tabellen-Textfeld: FocusOut schliesst den Undo-Schritt (kein editingFinished).
-        if event.type() == QEvent.Type.FocusOut:
-            self._finish_edit()
-        return super().eventFilter(watched, event)
 
     @property
     def edit_open(self) -> bool:
