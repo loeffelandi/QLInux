@@ -337,6 +337,8 @@ def test_print_ranges_render_selected_all_and_record_range(
     assert len(captured["images"]) == 2
     assert captured["options"]["copies"] == 2
     assert "4 Etiketten" in win.statusBar().currentMessage()
+    # Verlaufsspalte „Kopien" ist die Kopienzahl, nicht Datensätze × Kopien.
+    assert win._pending_job[2] == 2
     texts = {item.binding["field"]: item.text_value for item in _bound_texts(win)}
     assert texts["Fixture"] == "Spot B"
     win.close()
