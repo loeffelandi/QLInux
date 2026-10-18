@@ -453,6 +453,32 @@ def _draw_back(p: QPainter, color: QColor) -> None:
     _poly(p, ((14.0, 15.0), (17.5, 18.5), (21.0, 15.0)))
 
 
+def _draw_copy(p: QPainter, color: QColor) -> None:
+    _stroke_only(p, color, 1.7)
+    p.drawRoundedRect(QRectF(8.2, 7.6, 11.2, 12.2), 1.6, 1.6)
+    p.drawRoundedRect(QRectF(4.4, 4.0, 11.2, 12.2), 1.6, 1.6)
+
+
+def _draw_cut(p: QPainter, color: QColor) -> None:
+    _stroke_only(p, color, 1.7)
+    p.drawEllipse(QPointF(7.4, 16.2), 2.8, 2.8)
+    p.drawEllipse(QPointF(16.6, 16.2), 2.8, 2.8)
+    _line(p, 9.4, 14.2, 19.2, 4.6)
+    _line(p, 14.6, 14.2, 4.8, 4.6)
+
+
+def _draw_paste(p: QPainter, color: QColor) -> None:
+    _stroke_only(p, color, 1.7)
+    p.drawRoundedRect(QRectF(6.2, 6.2, 11.6, 14.0), 1.6, 1.6)
+    p.drawRoundedRect(QRectF(8.4, 3.6, 7.2, 4.2), 1.2, 1.2)
+
+
+def _draw_duplicate(p: QPainter, color: QColor) -> None:
+    _stroke_only(p, color, 1.7)
+    p.drawRoundedRect(QRectF(4.0, 8.4, 10.6, 10.6), 1.6, 1.6)
+    p.drawRoundedRect(QRectF(9.4, 4.2, 10.6, 10.6), 1.6, 1.6)
+
+
 def _draw_delete(p: QPainter, color: QColor) -> None:
     _stroke_only(p, color, 1.7)
     _line(p, 4.5, 6.8, 19.5, 6.8)
@@ -991,6 +1017,10 @@ _DRAW = {
     "front": _draw_front,
     "backward": _draw_backward,
     "back": _draw_back,
+    "copy": _draw_copy,
+    "cut": _draw_cut,
+    "paste": _draw_paste,
+    "duplicate": _draw_duplicate,
     "delete": _draw_delete,
     "undo": _draw_undo,
     "redo": _draw_redo,

@@ -128,6 +128,7 @@ Settings (last printer, tape, print options, language) are stored in
 | Ctrl + mouse wheel (Cmd on macOS), pinch | Zoom |
 | Shift + mouse wheel | Scroll horizontally |
 | Ctrl + click | Add or remove an object from the selection |
+| Ctrl + drag | Duplicate the selected object and move the copy |
 | Shift + arrow keys | Move the selected object in larger steps |
 | Shift + click in a table | Extend the cell selection |
 | Tab / Shift + Tab in a table | Next or previous cell while typing |

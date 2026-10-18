@@ -283,6 +283,24 @@ def _yields_style_shortcut(event) -> bool:
     )
 
 
+def _claims_text_clipboard(event) -> bool:
+    """Kopieren, Ausschneiden und Einfuegen bleiben im offenen Textfeld.
+
+    Solange inline getippt wird, gehoeren die Tasten dem Text und nicht der
+    Objektauswahl.
+    """
+    if event.type() != QEvent.Type.ShortcutOverride:
+        return False
+    return any(
+        event.matches(standard)
+        for standard in (
+            QKeySequence.StandardKey.Copy,
+            QKeySequence.StandardKey.Cut,
+            QKeySequence.StandardKey.Paste,
+        )
+    )
+
+
 # --------------------------------------------------------------------------- #
 # Text
 # --------------------------------------------------------------------------- #
@@ -705,6 +723,9 @@ class TextItem(_BindingMixin, _ClampMixin, QGraphicsTextItem):
         if _yields_style_shortcut(event):
             event.ignore()
             return False
+        if self.is_editing and _claims_text_clipboard(event):
+            event.accept()
+            return True
         return super().sceneEvent(event)
 
     # -- Groesse ------------------------------------------------------------
@@ -1838,6 +1859,10 @@ class _CellEditor(QGraphicsTextItem):
         if _yields_style_shortcut(event):
             event.ignore()
             return False
+        parent = self.parentItem()
+        if getattr(parent, "is_editing", False) and _claims_text_clipboard(event):
+            event.accept()
+            return True
         return super().sceneEvent(event)
 
 

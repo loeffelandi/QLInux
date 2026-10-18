@@ -19,6 +19,7 @@ gedruckt ueber :mod:`ql_editor.printer` (in einem Worker-Thread).
 
 from __future__ import annotations
 
+import json
 import math
 import sys
 import threading
@@ -31,6 +32,7 @@ from typing import Any, Iterable, Mapping
 from PIL import Image
 from PySide6.QtCore import (
     QLocale,
+    QMimeData,
     QPointF,
     QProcess,
     QRectF,
@@ -80,7 +82,7 @@ from . import media
 from . import merge as merge_engine
 from . import resources
 from . import templates
-from .canvas import LabelCanvas
+from .canvas import DUPLICATE_OFFSET_DOTS, LabelCanvas
 from .command_palette import CommandPalette, PaletteEntry
 from .csv_source import CsvTable
 from .database_panel import DatabasePanel
@@ -91,6 +93,8 @@ from .i18n import (
     LANGUAGES,
     language,
     language_name,
+    paste_hint,
+    paste_label,
     set_language,
     tr,
 )
@@ -108,6 +112,7 @@ from .items import (
     ShapeItem,
     TableItem,
     TextItem,
+    item_from_dict,
 )
 from .media_panel import CONNECTION_USB, MediaPanel
 from .panels import OverlayPanel, PanelHost
@@ -280,6 +285,33 @@ def _remember_window(window: MainWindow) -> None:
 def _signed_dots(mm: float) -> float:
     """Millimeter -> Punkte, auch negativ (ein Rand kann auch kleiner werden)."""
     return math.copysign(media.mm_to_dots(abs(mm)), mm) if mm else 0.0
+
+
+#: Zwischenablage fuer Objekte. Text im Feld bleibt ``text/plain``.
+_CLIPBOARD_MIME = "application/x-qlinux-items"
+
+
+def _items_on_clipboard() -> list[dict[str, Any]] | None:
+    """Objekt-Kopien aus der Zwischenablage, sonst ``None``."""
+    mime = QApplication.clipboard().mimeData()
+    if mime is None or not mime.hasFormat(_CLIPBOARD_MIME):
+        return None
+    try:
+        payload = json.loads(bytes(mime.data(_CLIPBOARD_MIME)).decode("utf-8"))
+    except (UnicodeError, json.JSONDecodeError, TypeError, ValueError):
+        return None
+    if not isinstance(payload, list) or not payload:
+        return None
+    if not all(isinstance(entry, dict) and entry.get("type") for entry in payload):
+        return None
+    return payload
+
+
+def _put_items_on_clipboard(items) -> None:
+    mime = QMimeData()
+    payload = [item.to_dict() for item in items]
+    mime.setData(_CLIPBOARD_MIME, json.dumps(payload).encode("utf-8"))
+    QApplication.clipboard().setMimeData(mime)
 
 
 #: Mindesthoehe des Objekt-Bereichs, wenn Objekt und Drucken untereinander stehen.
@@ -1193,6 +1225,36 @@ class MainWindow(QMainWindow):
         self._act_delete.setShortcut(QKeySequence.StandardKey.Delete)
         self._act_delete.triggered.connect(self._delete_selected)
 
+        # Nicht im Burger. Strg+K und das Kontextmenue. Auf dem Mac werden
+        # Copy/Cut/Paste zu Cmd, wie die anderen Standard-Kuerzel.
+        # „Einfügen" ist schon die Gruppe (Englisch: Insert), deshalb paste_label.
+        self._act_copy = QAction(icon("copy"), tr("Kopieren"), self)
+        self._act_copy.setToolTip(tr("Kopieren (Strg+C)"))
+        self._act_copy.setShortcut(QKeySequence.StandardKey.Copy)
+        self._act_copy.triggered.connect(self._copy_selected)
+        self._act_cut = QAction(icon("cut"), tr("Ausschneiden"), self)
+        self._act_cut.setToolTip(tr("Ausschneiden (Strg+X)"))
+        self._act_cut.setShortcut(QKeySequence.StandardKey.Cut)
+        self._act_cut.triggered.connect(self._cut_selected)
+        self._act_paste = QAction(icon("paste"), paste_label(), self)
+        self._act_paste.setToolTip(paste_hint())
+        self._act_paste.setShortcut(QKeySequence.StandardKey.Paste)
+        self._act_paste.triggered.connect(self._paste_clipboard)
+        self._act_duplicate = QAction(icon("duplicate"), tr("Duplizieren"), self)
+        self._act_duplicate.setToolTip(tr("Duplizieren (Strg+D)"))
+        self._act_duplicate.setShortcut(QKeySequence("Ctrl+D"))
+        self._act_duplicate.triggered.connect(self._duplicate_selected)
+        for act in (
+            self._act_copy,
+            self._act_cut,
+            self._act_paste,
+            self._act_duplicate,
+        ):
+            act.setEnabled(False)
+            self.addAction(act)
+        self._paste_generation = 0
+        QApplication.clipboard().dataChanged.connect(self._sync_clipboard_actions)
+
         self._act_zoom_fit = QAction(icon("zoom_fit"), tr("Einpassen"), self)
         self._act_zoom_fit.setToolTip(tr("Zoom: Einpassen (Ctrl+0)"))
         self._act_zoom_fit.setShortcut("Ctrl+0")
@@ -1577,6 +1639,10 @@ class MainWindow(QMainWindow):
                 [
                     self._act_undo,
                     self._act_redo,
+                    self._act_copy,
+                    self._act_cut,
+                    self._act_paste,
+                    self._act_duplicate,
                     self._act_bold,
                     self._act_italic,
                     self._act_underline,
@@ -2431,8 +2497,10 @@ class MainWindow(QMainWindow):
         # Schnappschuss beim Start der Bearbeitung - ``contentsChanged`` kommt
         # erst *nach* dem ersten Zeichen und waere als Bezug zu spaet.
         item.editing_started.connect(self._capture_history)
+        item.editing_started.connect(self._sync_clipboard_actions)
         item.document().contentsChanged.connect(self._on_text_edited)
         item.editing_finished.connect(self._on_text_editing_finished)
+        item.editing_finished.connect(self._sync_clipboard_actions)
 
     def _wire_loaded_text_items(self) -> None:
         """Nach ``load_items`` (Öffnen, Undo, Sprachwechsel) neu verdrahten.
@@ -2454,8 +2522,10 @@ class MainWindow(QMainWindow):
         if not isinstance(item, TableItem):
             return
         item.editing_started.connect(self._capture_history)
+        item.editing_started.connect(self._sync_clipboard_actions)
         item.content_changed.connect(self._on_text_edited)
         item.editing_finished.connect(self._on_table_editing_finished)
+        item.editing_finished.connect(self._sync_clipboard_actions)
         item.cell_selection_changed.connect(self._defer_selection_refresh)
         item.structure_changed.connect(self._defer_selection_refresh)
 
@@ -2593,6 +2663,7 @@ class MainWindow(QMainWindow):
         self._inspector.set_item(item, allow_red=allow_red)
         self._sync_arrange_actions()
         self._sync_text_style_actions()
+        self._sync_clipboard_actions()
 
     def _on_inspector_edit_committed(self) -> None:
         """Undo-Schritt schliessen; Database Field baut den Inspector neu."""
@@ -2723,6 +2794,104 @@ class MainWindow(QMainWindow):
         self._commit_history(tr("Löschen"))
         self._on_items_changed()
 
+    def _selected_serializable(self) -> list:
+        return [
+            item
+            for item in self._canvas.selected_items()
+            if hasattr(item, "to_dict")
+        ]
+
+    def _sync_clipboard_actions(self) -> None:
+        """Kopieren nur bei Auswahl ausserhalb der Inline-Bearbeitung."""
+        if self._active is None or not hasattr(self, "_act_copy"):
+            return
+        editing = self._canvas.inline_editing()
+        can_copy = bool(self._selected_serializable()) and not editing
+        self._act_copy.setEnabled(can_copy)
+        self._act_cut.setEnabled(can_copy)
+        self._act_duplicate.setEnabled(can_copy)
+        self._act_paste.setEnabled(not editing and _items_on_clipboard() is not None)
+
+    def _on_copies_spawned(self, copies) -> None:
+        for item in copies:
+            self._wire_text_item(item)
+            self._wire_table_item(item)
+            self._wire_datetime_item(item)
+
+    def _copy_selected(self) -> None:
+        if self._active is None or self._canvas.inline_editing():
+            return
+        items = self._selected_serializable()
+        if not items:
+            return
+        _put_items_on_clipboard(items)
+        self._paste_generation = 0
+
+    def _cut_selected(self) -> None:
+        if self._active is None or self._canvas.inline_editing():
+            return
+        items = self._selected_serializable()
+        if not items:
+            return
+        _put_items_on_clipboard(items)
+        self._paste_generation = 0
+        self._capture_history()
+        self._history_suppress = True
+        try:
+            self._canvas.delete_selected()
+        finally:
+            self._history_suppress = False
+        self._reconcile_serial_enabled()
+        self._commit_history(tr("Ausschneiden"))
+        self._on_items_changed()
+
+    def _paste_clipboard(self) -> None:
+        if self._active is None or self._canvas.inline_editing():
+            return
+        payload = _items_on_clipboard()
+        if not payload:
+            return
+        self._paste_generation += 1
+        delta = DUPLICATE_OFFSET_DOTS * self._paste_generation
+        self._spawn_copies(payload, delta, delta, paste_label())
+
+    def _duplicate_selected(self) -> None:
+        if self._active is None or self._canvas.inline_editing():
+            return
+        items = self._selected_serializable()
+        if not items:
+            return
+        self._spawn_copies(
+            [item.to_dict() for item in items],
+            DUPLICATE_OFFSET_DOTS,
+            DUPLICATE_OFFSET_DOTS,
+            tr("Duplizieren"),
+        )
+
+    def _spawn_copies(self, payload: list[dict[str, Any]], dx: float, dy: float, undo_text: str) -> None:
+        """Kopien einsetzen. Ein Undo-Schritt, wie beim Einfuegen eines Objekts."""
+        self._seal_open_inspector_edit()
+        self._capture_history()
+        self._history_suppress = True
+        try:
+            created = []
+            for raw in payload:
+                item = item_from_dict(dict(raw))
+                item.moveBy(dx, dy)
+                self._wire_text_item(item)
+                self._wire_table_item(item)
+                self._wire_datetime_item(item)
+                created.append(item)
+            self._canvas.add_copies(created)
+            self._recompute_canvas()
+            for item in created:
+                self._canvas.keep_inside_printable(item)
+            self._schedule_refresh()
+        finally:
+            self._history_suppress = False
+        self._commit_history(undo_text)
+        self._on_items_changed()
+
     def _on_zoom_changed(self, percent: float) -> None:
         self._update_zoom_label(percent)
 
@@ -2753,11 +2922,14 @@ class MainWindow(QMainWindow):
 
     def _on_items_changed(self) -> None:
         """Nach Abschluss einer Geste: Bandgroesse + Inspector aktualisieren."""
+        duplicated = self._canvas.take_gesture_duplicate()
         if not self._history_suppress:
             self._reconcile_serial_enabled()
             text = tr("Bearbeiten")
             before = self._history_before
-            if before is not None and len(self._canvas.items_serialized()) < len(
+            if duplicated:
+                text = tr("Duplizieren")
+            elif before is not None and len(self._canvas.items_serialized()) < len(
                 before.get("items") or []
             ):
                 text = tr("Löschen")  # Entf-Taste im Canvas
@@ -2797,6 +2969,11 @@ class MainWindow(QMainWindow):
         self._add_shapes_menu(menu)
         menu.addAction(self._act_add_table)
         menu.addAction(self._act_add_datetime)
+        menu.addSeparator()
+        menu.addAction(self._act_copy)
+        menu.addAction(self._act_cut)
+        menu.addAction(self._act_paste)
+        menu.addAction(self._act_duplicate)
         if self._canvas.selected_items():
             menu.addSeparator()
             self._add_align_menu(menu)
@@ -3698,6 +3875,7 @@ class MainWindow(QMainWindow):
         canvas.context_menu_requested.connect(self._show_context_menu)
         canvas.items_changed.connect(self._on_items_changed)
         canvas.gesture_begun.connect(self._capture_history)
+        canvas.copies_spawned.connect(self._on_copies_spawned)
         canvas.image_dropped.connect(self._on_image_dropped)
         canvas.text_dropped.connect(self._on_text_dropped)
         canvas.database_field_dropped.connect(self._on_database_field_dropped)
@@ -3720,6 +3898,7 @@ class MainWindow(QMainWindow):
             (canvas.context_menu_requested, self._show_context_menu),
             (canvas.items_changed, self._on_items_changed),
             (canvas.gesture_begun, self._capture_history),
+            (canvas.copies_spawned, self._on_copies_spawned),
             (canvas.image_dropped, self._on_image_dropped),
             (canvas.text_dropped, self._on_text_dropped),
             (canvas.database_field_dropped, self._on_database_field_dropped),

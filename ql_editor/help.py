@@ -18,7 +18,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from .i18n import tr
+from .i18n import paste_label, tr
 from .icons import icon
 from .sheet import Sheet, show_widget
 
@@ -44,6 +44,10 @@ def action_shortcuts() -> tuple[tuple[str | None, str, str], ...]:
         ("undo", tr("Strg+Z"), tr("Rückgängig")),
         ("redo", tr("Strg+Y"), tr("Wiederholen")),
         ("delete", tr("Entf"), tr("Auswahl löschen")),
+        ("copy", tr("Strg+C"), tr("Kopieren")),
+        ("cut", tr("Strg+X"), tr("Ausschneiden")),
+        ("paste", tr("Strg+V"), paste_label()),
+        ("duplicate", tr("Strg+D"), tr("Duplizieren")),
         ("bold", tr("Strg+B"), tr("Fett")),
         ("italic", tr("Strg+I"), tr("Kursiv")),
         ("underline", tr("Strg+U"), tr("Unterstrichen")),
@@ -66,6 +70,7 @@ def canvas_shortcuts() -> tuple[tuple[str | None, str, str], ...]:
         (None, tr("Pfeiltasten"), tr("Um einen Punkt verschieben")),
         (None, tr("Umschalt+Pfeiltasten"), tr("Um zehn Punkte verschieben")),
         ("delete", tr("Rücktaste"), tr("Auswahl löschen")),
+        (None, tr("Strg+Ziehen"), tr("Ausgewähltes Objekt duplizieren")),
         (None, tr("Tab"), tr("Nächste Zelle")),
         (None, tr("Umschalt+Tab"), tr("Vorherige Zelle")),
         ("text", tr("Eingabe"), tr("Zelle bearbeiten")),
@@ -119,10 +124,12 @@ def build_help_content() -> QWidget:
             tr(
                 "Strg und das Mausrad zoomen, Umschalt und das Mausrad "
                 "schieben seitlich. Strg+Klick nimmt ein Objekt zur Auswahl "
-                "dazu oder wieder weg. In einer Tabelle markiert "
-                "Umschalt+Klick mehrere Zellen, Tab und Umschalt+Tab gehen "
-                "zur nächsten. Beim Drehen rastet der Winkel auf 90 Grad, "
-                "mit gehaltener Umschalttaste in Schritten von 15 Grad."
+                "dazu oder wieder weg. Strg gedrückt halten und ein markiertes "
+                "Objekt ziehen lässt das Original liegen und bewegt die Kopie. "
+                "In einer Tabelle markiert Umschalt+Klick mehrere Zellen, Tab "
+                "und Umschalt+Tab gehen zur nächsten. Beim Drehen rastet der "
+                "Winkel auf 90 Grad, mit gehaltener Umschalttaste in Schritten "
+                "von 15 Grad."
             )
         )
     )
