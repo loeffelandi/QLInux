@@ -1,8 +1,7 @@
 """Suchbare Befehlsliste.
 
-Strg+K (auf dem Mac die Befehlstaste, wie die anderen ``Ctrl+``-Kuerzel)
-oeffnet dieselbe Liste, die das Hamburger-Menue und die Objektbefehle
-hergeben. Ein Filter haengt nur am Suchfeld, nicht an der Anwendung.
+Strg+K oeffnet alle Befehle, nach Bereichen gruppiert. Ein Filter haengt
+nur am Suchfeld, nicht an der Anwendung. Leere Bereiche verschwinden.
 """
 
 from __future__ import annotations
@@ -18,10 +17,11 @@ from .sheet import Sheet
 class CommandPalette(QWidget):
     """Suchfeld plus Liste. Enter fuehrt den gewaehlten Befehl aus."""
 
-    def __init__(self, actions: list, parent: QWidget | None = None) -> None:
+    def __init__(self, groups: list[tuple[str, list]], parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self.setObjectName("command_palette")
-        self._actions = list(actions)
+        self._groups = [(title, list(actions)) for title, actions in groups]
+        self._actions = [action for _title, actions in self._groups for action in actions]
         self._edit = QLineEdit()
         self._edit.setObjectName("command_palette_search")
         self._edit.setPlaceholderText(tr("Befehl suchen"))
@@ -61,36 +61,73 @@ class CommandPalette(QWidget):
     def _refill(self) -> None:
         words = self._edit.text().casefold().split()
         self._list.clear()
-        for index, action in enumerate(self._actions):
-            haystack = action.text().casefold().replace("…", "")
-            if words and not all(word in haystack for word in words):
+        cursor = 0
+        for title, actions in self._groups:
+            matched: list[tuple[int, object]] = []
+            for action in actions:
+                index = cursor
+                cursor += 1
+                haystack = action.text().casefold().replace("…", "")
+                if words and not all(word in haystack for word in words):
+                    continue
+                matched.append((index, action))
+            if not matched:
                 continue
-            label = action.text()
-            shortcut = action.shortcut().toString(QKeySequence.SequenceFormat.NativeText)
-            if shortcut:
-                label = f"{label}    {shortcut}"
-            item = QListWidgetItem(action.icon(), label)
-            item.setData(Qt.ItemDataRole.UserRole, index)
-            if not action.isEnabled():
-                item.setFlags(item.flags() & ~Qt.ItemFlag.ItemIsEnabled)
-            self._list.addItem(item)
-        if self._list.count():
-            self._list.setCurrentRow(0)
+            if title:
+                header = QListWidgetItem(title)
+                header.setFlags(Qt.ItemFlag.ItemIsEnabled)
+                header.setData(Qt.ItemDataRole.UserRole, -1)
+                font = header.font()
+                font.setBold(True)
+                header.setFont(font)
+                self._list.addItem(header)
+            for index, action in matched:
+                label = action.text()
+                shortcut = action.shortcut().toString(QKeySequence.SequenceFormat.NativeText)
+                if shortcut:
+                    label = f"{label}    {shortcut}"
+                item = QListWidgetItem(action.icon(), label)
+                item.setData(Qt.ItemDataRole.UserRole, index)
+                if not action.isEnabled():
+                    item.setFlags(item.flags() & ~Qt.ItemFlag.ItemIsEnabled)
+                self._list.addItem(item)
+        rows = self._command_rows()
+        if rows:
+            self._list.setCurrentRow(rows[0])
+
+    def _command_rows(self) -> list[int]:
+        rows = []
+        for row in range(self._list.count()):
+            data = self._list.item(row).data(Qt.ItemDataRole.UserRole)
+            if isinstance(data, int) and data >= 0:
+                rows.append(row)
+        return rows
 
     def _move(self, step: int) -> None:
-        count = self._list.count()
-        if not count:
+        rows = self._command_rows()
+        if not rows:
             return
-        row = self._list.currentRow()
-        if row < 0:
-            row = 0
-        self._list.setCurrentRow(max(0, min(count - 1, row + step)))
+        current = self._list.currentRow()
+        if current in rows:
+            index = rows.index(current) + step
+        elif step > 0:
+            later = [i for i, row in enumerate(rows) if row > current]
+            index = later[0] if later else len(rows) - 1
+        else:
+            earlier = [i for i, row in enumerate(rows) if row < current]
+            index = earlier[-1] if earlier else 0
+        self._list.setCurrentRow(rows[max(0, min(len(rows) - 1, index))])
 
     def _run(self) -> None:
         item = self._list.currentItem()
-        if item is None or not (item.flags() & Qt.ItemFlag.ItemIsEnabled):
+        if item is None:
             return
-        action = self._actions[int(item.data(Qt.ItemDataRole.UserRole))]
+        index = item.data(Qt.ItemDataRole.UserRole)
+        if not isinstance(index, int) or index < 0:
+            return
+        action = self._actions[index]
+        if not action.isEnabled():
+            return
         self._close()
         QTimer.singleShot(0, action.trigger)
 

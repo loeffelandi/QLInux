@@ -2687,13 +2687,9 @@ def test_shapes_menu_and_inspector_smoke(qapp, tmp_path):
     for label in menu_labels:
         assert label in context_labels
     top_level = [action.text() for action in win._menu_button.menu().actions()]
-    for label in ("Ellipse", "Dreieck", "Stern", "Pfeil rechts", "Pfeil links", "Doppelpfeil"):
+    for label in ("Ellipse", "Dreieck", "Stern", "Pfeil rechts", "Pfeil links", "Doppelpfeil", "Formen"):
         assert label not in top_level
-    shapes = next(
-        action.menu()
-        for action in win._menu_button.menu().actions()
-        if action.menu() is not None and action.text() == "Formen"
-    )
+    shapes = button.menu()
     assert shapes.actions()[0] is win._act_add_line
     codes = next(
         action.menu()
@@ -2742,8 +2738,9 @@ def test_toolbar_is_icon_only(qapp):
 
 
 def test_no_menu_bar_but_hamburger_menu(qapp):
-    """Es gibt keine Menueleiste mehr - alle Befehle liegen im Hamburger-Menue."""
-    from PySide6.QtWidgets import QMenuBar, QToolBar, QToolButton, QWidgetAction
+    """Keine Menueleiste. Der Burger haelt nur, was die Toolbar nicht zeigt."""
+    from PySide6.QtGui import QAction, QKeySequence
+    from PySide6.QtWidgets import QMenuBar, QToolBar, QToolButton
 
     from ql_editor.app import MainWindow
 
@@ -2761,17 +2758,89 @@ def test_no_menu_bar_but_hamburger_menu(qapp):
     items = [a for a in menu.actions() if not a.isSeparator()]
     assert items
     assert all(not a.icon().isNull() for a in items)
-    # Die Befehle werden mit der Toolbar geteilt (dieselben QActions).
-    bar_actions = {
-        a
-        for a in win.findChild(QToolBar).actions()
-        if not a.isSeparator() and not isinstance(a, QWidgetAction)
-    }
-    assert bar_actions <= set(items)
-    assert win._act_commands in items
+    labels = []
+    for action in menu.actions():
+        labels.append("|" if action.isSeparator() else action.text())
+    assert labels == [
+        "Speichern unter…",
+        "Reiter schließen",
+        "Vorlagen",
+        "|",
+        "Quer zum Band",
+        "Längs des Bandes",
+        "|",
+        "Panel links",
+        "Panel rechts",
+        "Verkleinern",
+        "Einpassen",
+        "Vergrößern",
+        "1:1",
+        "Druckverlauf anzeigen",
+        "|",
+        "Sprache",
+        "Über QLInux",
+        "Beenden",
+    ]
+    # Zoom und Druckverlauf teilen sich die QAction mit der Toolbar.
+    bar = win.findChild(QToolBar)
+    for act in (
+        win._act_zoom_out,
+        win._act_zoom_fit,
+        win._act_zoom_in,
+        win._act_zoom_100,
+        win._act_print_history,
+    ):
+        assert act in items
+        assert act in bar.actions()
+    left_the_burger = (
+        win._act_file_new,
+        win._act_file_open,
+        win._act_file_save,
+        win._act_add_text,
+        win._act_add_image,
+        win._act_add_clipart,
+        win._act_add_barcode,
+        win._act_add_qr,
+        win._act_add_line,
+        win._act_add_rect,
+        *win._act_add_shapes,
+        win._act_add_table,
+        win._act_add_datetime,
+        win._act_undo,
+        win._act_redo,
+        win._act_align_left,
+        win._act_delete,
+        win._act_forward,
+        win._act_backward,
+        win._act_front,
+        win._act_back,
+        win._act_snap_guides,
+        win._act_print,
+        win._act_print_preview,
+        win._act_connect_csv,
+        win._act_commands,
+    )
+    assert all(act not in items for act in left_the_burger)
+    grouped = [action for _title, actions in win._palette_groups() for action in actions]
+    assert all(act in grouped for act in left_the_burger)
+    assert [title for title, _actions in win._palette_groups()] == [
+        "Datei",
+        "Einfügen",
+        "Bearbeiten",
+        "Layout",
+        "Etikett",
+        "Datenbank",
+        "Ansicht",
+        "Drucken",
+        "QLInux",
+    ]
+    assert win._act_commands in win.actions()
     assert win._act_commands.shortcut().toString() == "Ctrl+K"
-    assert win._act_front not in items
-    assert win._act_back not in items
+    assert [
+        action
+        for action in win.findChildren(QAction)
+        if action.shortcut().toString() == "Ctrl+K"
+    ] == [win._act_commands]
 
     def _shortcuts(menu):
         found = []
@@ -2783,7 +2852,7 @@ def test_no_menu_bar_but_hamburger_menu(qapp):
                 found.extend(_shortcuts(action.menu()))
         return found
 
-    assert _shortcuts(menu).count("Ctrl+K") == 1
+    assert "Ctrl+K" not in _shortcuts(menu)
 
     from PySide6.QtCore import QPointF, QRectF, Qt
     from PySide6.QtTest import QTest
@@ -2826,9 +2895,22 @@ def test_no_menu_bar_but_hamburger_menu(qapp):
     qapp.processEvents()
     assert not win._act_front.isEnabled()
     sheet, edit, listing = _open_palette()
+    assert listing.item(0).text() == "Datei"
+    assert not listing.item(0).flags() & Qt.ItemFlag.ItemIsSelectable
+    assert listing.currentItem().text().startswith("Neu")
+    edit.setText("Neu")
+    shown = [listing.item(i).text() for i in range(listing.count())]
+    assert shown[0] == "Datei"
+    native = win._act_file_new.shortcut().toString(QKeySequence.SequenceFormat.NativeText)
+    assert any(text.startswith("Neu") and text.endswith(native) for text in shown)
+    assert "Einfügen" not in shown
+    edit.setText("kein-treffer")
+    assert listing.count() == 0
     edit.setText("Vordergrund")
-    assert listing.count() == 1
-    assert not listing.item(0).flags() & Qt.ItemFlag.ItemIsEnabled
+    assert listing.item(0).text() == "Layout"
+    assert not listing.item(0).flags() & Qt.ItemFlag.ItemIsSelectable
+    assert listing.count() == 2
+    assert not listing.item(1).flags() & Qt.ItemFlag.ItemIsEnabled
     sheet.close_sheet()
     qapp.processEvents()
 
@@ -2837,7 +2919,8 @@ def test_no_menu_bar_but_hamburger_menu(qapp):
     assert win._act_front.isEnabled()
     sheet, edit, listing = _open_palette()
     edit.setText("Vordergrund")
-    assert listing.item(0).flags() & Qt.ItemFlag.ItemIsEnabled
+    assert listing.item(1).flags() & Qt.ItemFlag.ItemIsEnabled
+    assert listing.currentItem() is listing.item(1)
     QTest.keyClick(edit, Qt.Key.Key_Return)
     qapp.processEvents()
     assert _visual_bottom_to_top(win._canvas)[-1] is first

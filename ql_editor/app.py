@@ -8,10 +8,9 @@ Aufbau:
 * Toolbar: Items einfuegen, Reihenfolge, Loeschen, Zoom, Drucken
 * Reiter: mehrere Etiketten in einem Fenster (Canvas, Band, Undo je Reiter)
 
-Es gibt **keine klassische Menueleiste**. Alle Befehle liegen in einem
-Hamburger-Menue (``main_menu_button``) links in der Toolbar - das wirkt
-moderner und ist unter Linux/Wayland die uebliche Loesung (einen globalen
-Menuebalken wie unter macOS gibt es hier nicht).
+Es gibt **keine klassische Menueleiste**. Haeufige Befehle liegen in der
+Toolbar. Das Hamburger-Menue (``main_menu_button``) behaelt, was dort keinen
+Knopf hat. Strg+K listet alle Befehle, nach Bereichen gruppiert.
 
 Die GUI haelt keine eigene Wahrheit ueber Bandmasse: alles kommt aus
 :mod:`ql_editor.media`. Gerendert wird ueber :mod:`ql_editor.renderer`,
@@ -1250,6 +1249,8 @@ class MainWindow(QMainWindow):
         self._act_commands.setToolTip(tr("Befehle (Strg+K)"))
         self._act_commands.setShortcut("Ctrl+K")
         self._act_commands.triggered.connect(self._open_command_palette)
+        # Nicht im Burger: das Kuerzel bleibt am Fenster haengen.
+        self.addAction(self._act_commands)
 
         self._act_quit = QAction(icon("quit"), tr("Beenden"), self)
         self._act_quit.setToolTip(tr("Beenden (Strg+Q)"))
@@ -1422,68 +1423,31 @@ class MainWindow(QMainWindow):
         return button
 
     def _build_main_menu(self) -> QMenu:
-        """Alle Befehle in einem einzigen Menue (Hamburger-Menue).
+        """Primaeres Menue: nur Befehle ohne eigenen Toolbar-Knopf.
 
-        Die Befehle liegen bereits als :class:`QAction` vor und werden mit der
-        Toolbar geteilt - so bleiben Icons, Shortcuts und der Aktivierungs-
-        zustand automatisch synchron.
+        Zoom und der Druckverlauf bleiben trotzdem hier - sie sind Ansicht
+        und Verlauf, nicht die taeglichen Datei- und Einfuegen-Knoepfe.
+        Dieselben :class:`QAction`-Objekte wie in der Toolbar, damit Icons
+        und der Aktivierungszustand mitwandern.
         """
         menu = QMenu(self)
-        menu.addAction(self._act_commands)
-        menu.addSeparator()
-        menu.addSection(tr("Datei"))
-        for act in (
-            self._act_file_new,
-            self._act_file_open,
-            self._act_file_save,
-            self._act_file_save_as,
-            self._act_tab_close,
-        ):
-            menu.addAction(act)
+        menu.addAction(self._act_file_save_as)
+        menu.addAction(self._act_tab_close)
         self._build_template_menu(menu)
-        menu.addSection(tr("Einfügen"))
-        for act in (
-            self._act_add_text,
-            self._act_add_image,
-            self._act_add_clipart,
-        ):
-            menu.addAction(act)
-        self._add_codes_menu(menu)
-        self._add_shapes_menu(menu)
-        menu.addAction(self._act_add_table)
-        menu.addAction(self._act_add_datetime)
-        menu.addSection(tr("Bearbeiten"))
-        menu.addAction(self._act_undo)
-        menu.addAction(self._act_redo)
-        self._add_align_menu(menu)
-        menu.addAction(self._act_delete)
-        menu.addSection(tr("Layout"))
-        for act in (
-            self._act_forward,
-            self._act_backward,
-            self._act_snap_guides,
-        ):
-            menu.addAction(act)
-        menu.addSection(tr("Etikett"))
+        menu.addSeparator()
         for act in self._media_panel.orientation_actions():
             menu.addAction(act)
-        menu.addSection(tr("Datenbank"))
-        menu.addAction(self._act_connect_csv)
-        menu.addAction(self._act_database)
-        menu.addSection(tr("Ansicht"))
+        menu.addSeparator()
         for act in (
-            self._act_print_preview,
             self._act_panel_left,
             self._act_panel_right,
             self._act_zoom_out,
             self._act_zoom_fit,
             self._act_zoom_in,
             self._act_zoom_100,
+            self._act_print_history,
         ):
             menu.addAction(act)
-        menu.addSection(tr("Drucken"))
-        menu.addAction(self._act_print)
-        menu.addAction(self._act_print_history)
         menu.addSeparator()
         self._build_language_menu(menu)
         menu.addAction(self._act_about)
@@ -1530,47 +1494,103 @@ class MainWindow(QMainWindow):
         return submenu
 
     def _open_command_palette(self) -> None:
-        """Strg+K: suchbare Liste der Befehle, die das Menue auch kennt."""
+        """Strg+K: suchbare Liste aller Befehle, unabhaengig vom Burger."""
         show_widget(
             self,
             title=tr("Befehle"),
-            content=CommandPalette(self._palette_actions()),
+            content=CommandPalette(self._palette_groups()),
             sizing="hint",
             max_size=QSize(440, 480),
             close_on_outside=True,
         )
 
-    def _palette_actions(self) -> list[QAction]:
-        """Blaetter des Hamburger-Menues, plus Vordergrund/Hintergrund."""
-        found: list[QAction] = []
-        seen: set[int] = set()
-
-        def add(action: QAction) -> None:
-            if action.isSeparator() or not action.text() or action.menu() is not None:
-                return
-            key = id(action)
-            if key in seen:
-                return
-            seen.add(key)
-            found.append(action)
-
-        def walk(menu: QMenu) -> None:
-            for action in menu.actions():
-                child = action.menu()
-                if child is not None:
-                    walk(child)
-                else:
-                    add(action)
-
-        walk(self._menu_button.menu())
-        ordered: list[QAction] = []
-        for action in found:
-            ordered.append(action)
-            if action is self._act_forward:
-                ordered.append(self._act_front)
-            elif action is self._act_backward:
-                ordered.append(self._act_back)
-        return ordered
+    def _palette_groups(self) -> list[tuple[str, list[QAction]]]:
+        """Volle Befehlsliste. Das Burger-Menue ist nur ein Ausschnitt."""
+        self._fill_template_menu()
+        templates_here = [
+            action
+            for action in self._template_menu.actions()
+            if not action.isSeparator() and action.text() and action.menu() is None
+        ]
+        return [
+            (
+                tr("Datei"),
+                [
+                    self._act_file_new,
+                    self._act_file_open,
+                    self._act_file_save,
+                    self._act_file_save_as,
+                    self._act_tab_close,
+                    *templates_here,
+                ],
+            ),
+            (
+                tr("Einfügen"),
+                [
+                    self._act_add_text,
+                    self._act_add_image,
+                    self._act_add_clipart,
+                    self._act_add_barcode,
+                    self._act_add_qr,
+                    self._act_add_line,
+                    self._act_add_rect,
+                    *self._act_add_shapes,
+                    self._act_add_table,
+                    self._act_add_datetime,
+                ],
+            ),
+            (
+                tr("Bearbeiten"),
+                [
+                    self._act_undo,
+                    self._act_redo,
+                    self._act_align_left,
+                    self._act_align_hcenter,
+                    self._act_align_right,
+                    self._act_align_top,
+                    self._act_align_vcenter,
+                    self._act_align_bottom,
+                    self._act_delete,
+                ],
+            ),
+            (
+                tr("Layout"),
+                [
+                    self._act_forward,
+                    self._act_front,
+                    self._act_backward,
+                    self._act_back,
+                    self._act_snap_guides,
+                ],
+            ),
+            (tr("Etikett"), list(self._media_panel.orientation_actions())),
+            (
+                tr("Datenbank"),
+                [self._act_connect_csv, self._act_database],
+            ),
+            (
+                tr("Ansicht"),
+                [
+                    self._act_print_preview,
+                    self._act_panel_left,
+                    self._act_panel_right,
+                    self._act_zoom_out,
+                    self._act_zoom_fit,
+                    self._act_zoom_in,
+                    self._act_zoom_100,
+                ],
+            ),
+            (tr("Drucken"), [self._act_print, self._act_print_history]),
+            (
+                "QLInux",
+                [
+                    self._act_commands,
+                    *self._language_group.actions(),
+                    self._act_about,
+                    self._act_quit,
+                ],
+            ),
+        ]
 
     def _build_template_menu(self, menu: QMenu) -> None:
         """„Vorlagen": eingebaute und eigene Etiketten als Untermenue."""
@@ -2792,7 +2812,7 @@ class MainWindow(QMainWindow):
         self._add_item(item)
 
     def _add_shape_actions(self, menu: QMenu) -> None:
-        """Dieselben Formen wie der Toolbar-Knopf und das Menue „Einfügen"."""
+        """Dieselben Formen wie der Toolbar-Knopf und das Kontextmenue."""
         menu.addAction(self._act_add_line)
         menu.addAction(self._act_add_rect)
         menu.addSeparator()
