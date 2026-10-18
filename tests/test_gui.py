@@ -2765,6 +2765,7 @@ def test_no_menu_bar_but_hamburger_menu(qapp):
         "Speichern unter…",
         "|",
         "Sprache",
+        "Hilfe",
         "Über QLInux",
         "Beenden",
     ]
@@ -2791,6 +2792,7 @@ def test_no_menu_bar_but_hamburger_menu(qapp):
         "Ansicht",
         "Drucken",
         "Sprache",
+        "Hilfe",
         "Über QLInux",
         "Beenden",
     ]
@@ -2963,7 +2965,7 @@ def test_menu_actions_have_icons(qapp):
     menu = win._menu_button.menu()
     assert menu is not None
     items = [a for a in menu.actions() if not a.isSeparator()]
-    assert len(items) == 4
+    assert len(items) == 5
     assert all(not a.icon().isNull() for a in items)
 
 

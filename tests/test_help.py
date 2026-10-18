@@ -79,6 +79,9 @@ def test_help_opens_from_the_menu_beside_about(qapp):
     assert actions[index - 1].text() == "Sprache"
     assert actions[index + 1] is win._act_about
     assert actions[index + 2] is win._act_quit
+    titles = [entry.title for entry in win._palette_entries()]
+    assert titles[titles.index("Sprache") + 1] == "Hilfe"
+    assert titles[titles.index("Hilfe") + 1] == "Über QLInux"
     assert not win._act_help.icon().isNull()
 
     win._act_help.trigger()

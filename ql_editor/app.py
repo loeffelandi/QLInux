@@ -1432,8 +1432,8 @@ class MainWindow(QMainWindow):
     def _build_main_menu(self) -> QMenu:
         """Primaeres Menue: nur was keinen eigenen Schalter hat.
 
-        Speichern unter, Sprache, Ueber und Beenden. Alles andere liegt in
-        der Toolbar, im Kontextmenue oder unter Strg+K.
+        Speichern unter, Sprache, Hilfe, Ueber und Beenden. Alles andere liegt
+        in der Toolbar, im Kontextmenue oder unter Strg+K.
         """
         menu = QMenu(self)
         self._ensure_template_menu()
@@ -1609,6 +1609,7 @@ class MainWindow(QMainWindow):
                 "language",
                 list(self._language_group.actions()),
             ),
+            self._palette_leaf(self._act_help),
             self._palette_leaf(self._act_about),
             self._palette_leaf(self._act_quit),
         ]
