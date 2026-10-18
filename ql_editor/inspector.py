@@ -966,7 +966,17 @@ class InspectorPanel(QWidget):
         rot.setSuffix(" °")
         rot.setValue(int(item.rotation()))
         self._wire_spin(rot, lambda v: item.setRotation(v))
-        form.addRow(tr("Drehung"), rot)
+
+        # Eigene Zeile, linksbuendig: die Formularspalte schiebt das Feld
+        # sonst nach rechts und zieht es auf die Feldspalte auf.
+        rot_row = QWidget()
+        rot_layout = QHBoxLayout(rot_row)
+        rot_layout.setContentsMargins(0, 0, 0, 0)
+        rot_layout.setSpacing(6)
+        rot_layout.addWidget(QLabel(tr("Drehung")))
+        rot_layout.addWidget(rot)
+        rot_layout.addStretch(1)
+        form.addRow(rot_row)
 
     # -- Helpers ------------------------------------------------------------
     def _wire_spin(self, spin, apply_fn) -> None:

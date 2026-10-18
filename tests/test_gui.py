@@ -1379,6 +1379,32 @@ def test_inspector_puts_x_and_y_on_one_row(qapp):
     assert labels["Drehung"].parentWidget() is not xy_row
 
 
+def test_inspector_rotation_field_is_left_aligned(qapp):
+    from PySide6.QtWidgets import QLabel, QSpinBox
+
+    from ql_editor.inspector import InspectorPanel
+
+    inspector = InspectorPanel()
+    inspector.resize(320, 700)
+    inspector.show()
+    inspector.set_item(TextItem("Hallo"))
+    qapp.processEvents()
+
+    labels = {label.text(): label for label in inspector.findChildren(QLabel)}
+    x_label = labels["X"]
+    rot_label = labels["Drehung"]
+    xy_row = x_label.parentWidget()
+    rot_row = rot_label.parentWidget()
+    rot_spin = next(spin for spin in rot_row.findChildren(QSpinBox) if "°" in spin.suffix())
+
+    assert rot_row.mapTo(inspector, rot_row.rect().topLeft()).x() == xy_row.mapTo(
+        inspector, xy_row.rect().topLeft()
+    ).x()
+    assert rot_label.x() <= 2
+    assert rot_spin.x() == rot_label.geometry().right() + 6
+    assert rot_spin.geometry().right() < rot_row.width() // 2
+
+
 def test_mainwindow_double_click_creates_text(qapp):
     from PySide6.QtCore import QPointF
 
