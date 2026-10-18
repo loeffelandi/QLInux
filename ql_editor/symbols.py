@@ -170,7 +170,9 @@ class SymbolPicker(QWidget):
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self.setObjectName("clipart_picker")
-        self.setMinimumSize(440, 380)
+        # Niedrige Mindestmasse: im kleinen Fenster muss das Sheet den
+        # Scrollbalken noch zeigen koennen (sonst wird er unten abgeschnitten).
+        self.setMinimumSize(260, 140)
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
@@ -188,16 +190,18 @@ class SymbolPicker(QWidget):
         layout.addLayout(row)
 
         scroll = QScrollArea()
+        scroll.setObjectName("clipart_scroll")
         scroll.setWidgetResizable(True)
         scroll.setFrameShape(QFrame.Shape.NoFrame)
         scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-        scroll.setMinimumHeight(320)
+        scroll.setMinimumHeight(72)
+        scroll.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
         self._host = QWidget()
         self._grid = QGridLayout(self._host)
         self._grid.setContentsMargins(0, 0, 0, 0)
         self._grid.setSpacing(6)
         scroll.setWidget(self._host)
-        layout.addWidget(scroll)
+        layout.addWidget(scroll, 1)
         self._refill()
 
     def _refill(self) -> None:

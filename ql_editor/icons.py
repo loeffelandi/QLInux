@@ -322,6 +322,72 @@ def _draw_table(p: QPainter, color: QColor) -> None:
     _line(p, 12.0, 4.5, 12.0, 19.5)
 
 
+def _table_frame(p: QPainter, color: QColor) -> None:
+    _stroke_only(p, color, 1.6)
+    p.drawRoundedRect(QRectF(3.0, 5.0, 18.0, 14.0), 1.6, 1.6)
+
+
+def _draw_row_above(p: QPainter, color: QColor) -> None:
+    _table_frame(p, color)
+    _line(p, 3.0, 12.0, 21.0, 12.0)
+    _line(p, 12.0, 5.0, 12.0, 19.0)
+    _fill_only(p, color)
+    p.drawRect(QRectF(4.2, 6.2, 6.6, 4.6))
+
+
+def _draw_col_left(p: QPainter, color: QColor) -> None:
+    _table_frame(p, color)
+    _line(p, 3.0, 12.0, 21.0, 12.0)
+    _line(p, 12.0, 5.0, 12.0, 19.0)
+    _fill_only(p, color)
+    p.drawRect(QRectF(4.2, 6.2, 6.6, 11.6))
+
+
+def _draw_row_delete(p: QPainter, color: QColor) -> None:
+    _table_frame(p, color)
+    _line(p, 3.0, 12.0, 21.0, 12.0)
+    _line(p, 12.0, 5.0, 12.0, 19.0)
+    _stroke_only(p, color, 1.8)
+    _line(p, 5.2, 8.5, 9.8, 8.5)
+
+
+def _draw_col_delete(p: QPainter, color: QColor) -> None:
+    _table_frame(p, color)
+    _line(p, 3.0, 12.0, 21.0, 12.0)
+    _line(p, 12.0, 5.0, 12.0, 19.0)
+    _stroke_only(p, color, 1.8)
+    _line(p, 7.5, 7.2, 7.5, 16.8)
+
+
+def _draw_cells_merge(p: QPainter, color: QColor) -> None:
+    _stroke_only(p, color, 1.6)
+    p.drawRoundedRect(QRectF(3.0, 6.0, 18.0, 12.0), 1.6, 1.6)
+    _line(p, 12.0, 6.0, 12.0, 18.0)
+    _line(p, 8.5, 12.0, 15.5, 12.0)
+
+
+def _draw_cells_split(p: QPainter, color: QColor) -> None:
+    _stroke_only(p, color, 1.6)
+    p.drawRoundedRect(QRectF(3.0, 6.0, 8.0, 12.0), 1.6, 1.6)
+    p.drawRoundedRect(QRectF(13.0, 6.0, 8.0, 12.0), 1.6, 1.6)
+
+
+def _draw_distribute_heights(p: QPainter, color: QColor) -> None:
+    _stroke_only(p, color, 1.6)
+    for y in (5.0, 10.0, 15.0, 20.0):
+        _line(p, 6.0, y, 18.0, y)
+    _line(p, 12.0, 6.2, 12.0, 8.8)
+    _line(p, 12.0, 16.2, 12.0, 18.8)
+
+
+def _draw_distribute_widths(p: QPainter, color: QColor) -> None:
+    _stroke_only(p, color, 1.6)
+    for x in (4.0, 9.0, 14.0, 19.0):
+        _line(p, x, 6.0, x, 18.0)
+    _line(p, 5.2, 12.0, 7.8, 12.0)
+    _line(p, 15.2, 12.0, 17.8, 12.0)
+
+
 def _draw_orient_across(p: QPainter, color: QColor) -> None:
     # Designflaeche so breit wie das Band: der Inhalt laeuft ueber die Bandbreite.
     _stroke_only(p, color, 1.7)
@@ -828,6 +894,14 @@ _DRAW = {
     "rect": _draw_rect,
     "shape": _draw_shape,
     "table": _draw_table,
+    "row_above": _draw_row_above,
+    "col_left": _draw_col_left,
+    "row_delete": _draw_row_delete,
+    "col_delete": _draw_col_delete,
+    "cells_merge": _draw_cells_merge,
+    "cells_split": _draw_cells_split,
+    "distribute_heights": _draw_distribute_heights,
+    "distribute_widths": _draw_distribute_widths,
     "datetime": _draw_datetime,
     "clipart": _draw_clipart,
     "panel_left": _draw_panel_left,

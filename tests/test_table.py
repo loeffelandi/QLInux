@@ -225,26 +225,167 @@ def test_render_draws_the_grid_without_the_selection_chrome(qapp):
     assert blue == 0
 
 
-def test_main_window_inserts_a_table_like_ptouch(qapp):
+def _tab_texts(inspector) -> list[str]:
+    from PySide6.QtWidgets import QTabBar
+
+    tabs = inspector.findChild(QTabBar, "table_inspector_tabs")
+    assert tabs is not None
+    return [tabs.tabText(i) for i in range(tabs.count())]
+
+
+def _page_labels(inspector, index: int) -> set[str]:
+    from PySide6.QtWidgets import QLabel, QStackedWidget
+
+    stack = inspector.findChild(QStackedWidget)
+    assert stack is not None
+    return {label.text() for label in stack.widget(index).findChildren(QLabel)}
+
+
+def _inspector_body(inspector):
+    # deleteLater-Reste haengen noch am Panel; das aktuelle Formular steckt im Layout.
+    body = inspector._root.itemAt(1).widget()
+    assert body is not None
+    return body
+
+
+def _tabs(inspector):
+    from PySide6.QtWidgets import QTabBar
+
+    bars = _inspector_body(inspector).findChildren(QTabBar, "table_inspector_tabs")
+    assert len(bars) == 1
+    return bars[0]
+
+
+def _tool(inspector, tip: str):
+    from PySide6.QtWidgets import QStackedWidget, QToolButton
+
+    stacks = _inspector_body(inspector).findChildren(QStackedWidget)
+    assert len(stacks) == 1
+    page = stacks[0].currentWidget()
+    matches = [
+        button
+        for button in page.findChildren(QToolButton)
+        if button.toolTip().split("\n", 1)[0] == tip
+    ]
+    assert len(matches) == 1, tip
+    assert matches[0].isEnabled()
+    return matches[0]
+
+
+def test_main_window_inserts_a_compact_one_by_two_table(qapp):
+    from PySide6.QtWidgets import QTabBar, QToolButton
+
+    from ql_editor.app import MainWindow
+    from ql_editor.media import dots_to_mm
+
+    win = MainWindow()
+    win.resize(1100, 760)
+    win.show()
+    qapp.processEvents()
+    win._act_add_table.trigger()
+    qapp.processEvents()
+    tables = [it for it in win._canvas.scene().items() if getattr(it, "kind", None) == "table"]
+    assert len(tables) == 1
+    table = tables[0]
+    assert table.rows == 1 and table.cols == 2
+    assert dots_to_mm(table.table_width) == pytest.approx(44, abs=0.2)
+    assert dots_to_mm(table.table_height) == pytest.approx(8, abs=0.2)
+    assert table._cells[0][0].font_pixel_size == max(16, int(table.table_height * 0.45))
+    assert table._cells[0][0].font_pixel_size < int(table.table_height * 0.55)
+    assert win._inspector._title.text() == "Tabelle"
+    tabs = win._inspector.findChild(QTabBar, "table_inspector_tabs")
+    assert tabs is not None
+    assert [tabs.tabText(i) for i in range(tabs.count())] == ["Text", "Zelle", "Tabelle"]
+    # Zellentext wird auf der Flaeche bearbeitet, nicht im Inspector.
+    assert not win._inspector.findChildren(QPlainTextEdit)
+    assert "Schrift" in _page_labels(win._inspector, 0)
+    assert not any(
+        button.text()
+        for button in win._inspector.findChildren(QToolButton)
+        if button.icon() is not None and not button.icon().isNull() and button.text() not in ("", "A")
+    )
+    # Fuellung gehoert auf die Zellen-Seite, nicht zu Text oder Tabelle.
+    assert "Füllung" in _page_labels(win._inspector, 1)
+    assert "Füllung" not in _page_labels(win._inspector, 0)
+    assert "Füllung" not in _page_labels(win._inspector, 2)
+    tabs.setCurrentIndex(2)
+    qapp.processEvents()
+    assert win._inspector._table_page == 2
+    win.close()
+    qapp.processEvents()
+
+
+def test_table_inspector_icon_buttons_merge_and_insert_a_row(qapp):
+    from ql_editor.app import MainWindow
+
+    win = MainWindow()
+    win.resize(1100, 760)
+    win.show()
+    # Ein frueherer Test kann das rechte Panel ausblenden und das speichern.
+    win._act_panel_right.setChecked(True)
+    qapp.processEvents()
+    win._act_add_table.trigger()
+    qapp.processEvents()
+    table = _live_table(win)
+    table.select_cell_at(QPointF(10, 10))
+    table.select_cell_at(QPointF(table.table_width - 10, 10), extend=True)
+    qapp.processEvents()
+    tabs = _tabs(win._inspector)
+    tabs.setCurrentIndex(1)
+    assert tabs.currentIndex() == 1
+    _tool(win._inspector, "Zellen verbinden").click()
+    qapp.processEvents()
+    table = _live_table(win)
+    assert table._cells[0][0].col_span == 2
+
+    tabs = _tabs(win._inspector)
+    tabs.setCurrentIndex(2)
+    assert tabs.currentIndex() == 2
+    _tool(win._inspector, "Zeile darüber").click()
+    qapp.processEvents()
+    table = _live_table(win)
+    assert table.rows == 2
+    win.close()
+    qapp.processEvents()
+
+
+def test_table_inspector_tabs_follow_the_ui_language(qapp):
+    from ql_editor import app as app_module
     from ql_editor.app import MainWindow
 
     win = MainWindow()
     win.resize(1100, 760)
     win.show()
     qapp.processEvents()
-    before = win._canvas.length_dots
     win._act_add_table.trigger()
     qapp.processEvents()
-    tables = [it for it in win._canvas.scene().items() if getattr(it, "kind", None) == "table"]
-    assert len(tables) == 1
-    table = tables[0]
-    assert table.rows == 3 and table.cols == 2
-    # Laengs der Bandrichtung (ACROSS: Hoehe) groesser als das bisherige Minimum.
-    assert win._canvas.length_dots > before
-    assert win._inspector._title.text() == "Tabelle"
-    assert table.table_height > table.table_width
-    win.close()
+    win.switch_language("en")
     qapp.processEvents()
+    new = app_module._current_window
+    table = _live_table(new)
+    _select_table(new, table)
+    assert _tab_texts(new._inspector) == ["Text", "Cell", "Table"]
+    new.close()
+    qapp.processEvents()
+
+
+def test_negative_table_page_stays_on_the_first_tab(qapp):
+    from PySide6.QtWidgets import QStackedWidget, QTabBar
+
+    from ql_editor.inspector import InspectorPanel
+
+    panel = InspectorPanel()
+    panel._table_page = -1
+    panel.set_item(TableItem(1, 2, 200, 80))
+    qapp.processEvents()
+    tabs = panel.findChild(QTabBar, "table_inspector_tabs")
+    stack = panel.findChild(QStackedWidget)
+    assert tabs.currentIndex() == 0
+    assert stack.currentIndex() == 0
+    assert panel._table_page == 0
+    tabs.currentChanged.emit(-1)
+    assert panel._table_page == 0
+    assert stack.currentIndex() == 0
 
 
 def test_shift_click_selects_cells_without_starting_move(qapp):
@@ -365,8 +506,8 @@ def _select_table(win, table) -> None:
         qapp.processEvents()
 
 
-def test_main_window_undoes_table_merge_row_and_inspector_text(qapp):
-    """Struktur und Inspector-Text schliessen Undo (M1 / m4)."""
+def test_main_window_undoes_table_merge_and_row(qapp):
+    """Struktur-Aktionen im Inspector schliessen Undo."""
     from ql_editor.app import MainWindow
 
     win = MainWindow()
@@ -376,7 +517,7 @@ def test_main_window_undoes_table_merge_row_and_inspector_text(qapp):
     win._act_add_table.trigger()
     qapp.processEvents()
     table = _live_table(win)
-    assert table.rows == 3 and table.cols == 2
+    assert table.rows == 1 and table.cols == 2
 
     table.select_cell_at(QPointF(10, 10))
     table.select_cell_at(QPointF(table.table_width - 10, 10), extend=True)
@@ -400,30 +541,5 @@ def test_main_window_undoes_table_merge_row_and_inspector_text(qapp):
     qapp.processEvents()
     table = _live_table(win)
     assert table.rows == rows_before
-
-    _select_table(win, table)
-    original = table._cells[0][0].text
-    # deleteLater-Reste zuerst: das aktuelle Textfeld ist das letzte mit Parent.
-    edits = [
-        field
-        for field in win._inspector.findChildren(QPlainTextEdit)
-        if field.parent() is not None
-    ]
-    assert edits
-    edit = edits[-1]
-    edit.setFocus()
-    qapp.processEvents()
-    edit.setPlainText("Kabel")
-    qapp.processEvents()
-    assert win._inspector.edit_open is True
-    assert table._cells[0][0].text == "Kabel"
-    # FocusOut schliesst den Undo-Schritt (eventFilter / M1).
-    QApplication.sendEvent(edit, QEvent(QEvent.Type.FocusOut))
-    qapp.processEvents()
-    assert win._inspector.edit_open is False
-    win._act_undo.trigger()
-    qapp.processEvents()
-    table = _live_table(win)
-    assert table._cells[0][0].text == original
     win.close()
     qapp.processEvents()
