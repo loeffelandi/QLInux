@@ -2204,6 +2204,90 @@ def test_empty_text_ticks_stay_fully_visible(qapp):
     assert _bluish(canvas, _render_view(canvas), _tick_points(canvas, item)[0], 2)
 
 
+def test_new_text_field_shows_handles_while_editing(qapp):
+    """Frisch angelegtes Textfeld: Griffe sofort da, Ziehen beendet die Eingabe nicht."""
+    from PySide6.QtCore import QPointF
+
+    canvas = _prepared_canvas(qapp)
+    canvas.zoom_100()
+    qapp.processEvents()
+    item = TextItem("", font_pixel_size=28)
+    item.set_text_width(140)
+    item.set_box_height(40)
+    canvas.add_item(item)
+    item.setPos(90, 100)
+    item.start_editing()
+    qapp.processEvents()
+    assert item.is_editing
+    assert canvas._editable_selection() is item
+
+    image = _render_view(canvas)
+    points = canvas._handle_points(item)
+    assert _bluish(canvas, image, canvas._rotate_handle_point(item), 6)
+    assert _bluish(canvas, image, points["se"], 6)
+    assert canvas._handle_at(points["se"]) == ("se", item)
+
+    width_before = item.sceneBoundingRect().width()
+    se = QPointF(points["se"])
+    _press(canvas, se)
+    _drag_to(canvas, QPointF(se.x() + 60, se.y()))
+    _release(canvas, QPointF(se.x() + 60, se.y()))
+    assert item.sceneBoundingRect().width() > width_before + 30
+    assert item.is_editing
+    assert item.isSelected()
+
+    # Schraffierter Rand: knapp ausserhalb der Box, nicht auf einem Griff.
+    from ql_editor.canvas import EDIT_BORDER_PX
+
+    box = item.sceneBoundingRect()
+    band = EDIT_BORDER_PX * 0.5 / canvas._scale()
+    on_border = QPointF(box.left() + box.width() * 0.25, box.top() - band)
+    assert canvas._edit_border_at(on_border) is item
+    assert canvas._handle_at(on_border) is None
+    assert canvas._edit_border_at(box.center()) is None
+    assert _bluish(canvas, _render_view(canvas), on_border, 3)
+
+    pos_before = QPointF(item.pos())
+    _press(canvas, on_border)
+    assert canvas._op == "move"
+    _drag_to(canvas, QPointF(on_border.x() + 40, on_border.y()))
+    _release(canvas, QPointF(on_border.x() + 40, on_border.y()))
+    assert item.pos().x() == pytest.approx(pos_before.x() + 40, abs=2)
+    assert item.is_editing
+    assert item.isSelected()
+
+    # Ein Klick mitten ins Feld schiebt nicht - er gehoert dem Text.
+    _press(canvas, item.sceneBoundingRect().center())
+    assert canvas._op is None
+
+
+def test_double_click_on_edit_border_creates_no_text(qapp):
+    from PySide6.QtCore import QEvent, QPointF, Qt
+
+    from ql_editor.canvas import EDIT_BORDER_PX
+
+    canvas = _prepared_canvas(qapp)
+    canvas.zoom_100()
+    qapp.processEvents()
+    item = TextItem("abc", font_pixel_size=28)
+    canvas.add_item(item)
+    item.setPos(90, 100)
+    item.start_editing()
+    requested: list[QPointF] = []
+    canvas.text_requested.connect(requested.append)
+
+    box = item.sceneBoundingRect()
+    on_border = QPointF(box.center().x(), box.top() - EDIT_BORDER_PX * 0.5 / canvas._scale())
+    canvas.mouseDoubleClickEvent(
+        _mouse_event(
+            QEvent.Type.MouseButtonDblClick, canvas, on_border,
+            Qt.MouseButton.LeftButton, Qt.MouseButton.LeftButton, Qt.KeyboardModifier.NoModifier,
+        )
+    )
+    assert requested == []
+    assert item.is_editing
+
+
 def test_canvas_drag_moves_item(qapp):
     from PySide6.QtCore import QPointF
 

@@ -33,6 +33,9 @@ Direkte Bearbeitung mit der Maus (modernes Editor-Gefuehl):
   Objektmitte. Ohne Modifier haftet der Winkel an der naechsten 90-Grad-Raste
   (sticky), bis der Zeiger deutlich weggezogen wird. Shift rastet stattdessen
   auf 15 Grad.
+* **Textfeld in Bearbeitung**: Griffe bleiben; um das Feld liegt ein
+  schraffierter Rand, an dem es sich verschieben laesst, ohne die Eingabe zu
+  beenden. Ein Klick innen setzt die Textmarke.
 * **Marken**: Leichte Eck- und Kantenstriche. Ohne Zeiger auf dem Objekt
   blenden sie aus und beim Darueberfahren wieder ein; ein leeres Textfeld
   bleibt voll sichtbar, damit man es wiederfindet. Die Anfasser liegen
@@ -64,7 +67,18 @@ from PySide6.QtCore import (
     QVariantAnimation,
     Signal,
 )
-from PySide6.QtGui import QBrush, QColor, QFont, QFontMetricsF, QImage, QPainter, QPen
+from PySide6.QtGui import (
+    QBrush,
+    QColor,
+    QFont,
+    QFontMetricsF,
+    QImage,
+    QPainter,
+    QPainterPath,
+    QPen,
+    QPolygonF,
+    QTransform,
+)
 from PySide6.QtWidgets import QGraphicsItem, QGraphicsScene, QGraphicsView, QWidget
 from PIL import Image
 
@@ -126,6 +140,9 @@ MIN_ZOOM = 0.05
 MAX_ZOOM = 8.0
 HANDLE_SIZE_PX = 9
 ROTATE_OFFSET_PX = 24
+#: Schraffierter Rand um ein Textfeld in Bearbeitung (Bildschirmpixel); daran
+#: laesst sich das Feld verschieben, waehrend ein Klick innen die Textmarke setzt.
+EDIT_BORDER_PX = 8
 #: Eck- und Kantenstriche an jedem Objekt (Bildschirmpixel).
 FRAME_TICK_PX = 8
 #: Wie lange die Striche ein- und ausblenden, statt hart zu wechseln.
@@ -1224,10 +1241,21 @@ class LabelCanvas(QGraphicsView):
             painter.setBrush(Qt.BrushStyle.NoBrush)
             painter.drawPolygon(item.mapToScene(item.boundingRect()))
 
-        # Griffe nur bei genau einem, nicht in Bearbeitung befindlichen Item.
+        # Griffe nur bei genau einem Item; ein Textfeld in Bearbeitung bekommt
+        # zusaetzlich den schraffierten Rand zum Verschieben.
         item = self._editable_selection()
         if item is not None:
             size = self._handle_size()
+            band = self._edit_border_path(item)
+            if band is not None:
+                hatch = QBrush(QColor("#1f6feb"), Qt.BrushStyle.BDiagPattern)
+                hatch.setTransform(QTransform.fromScale(1.0 / self._scale(), 1.0 / self._scale()))
+                painter.setPen(Qt.PenStyle.NoPen)
+                painter.setBrush(hatch)
+                painter.drawPath(band)
+                painter.setPen(outline)
+                painter.setBrush(Qt.BrushStyle.NoBrush)
+                painter.drawPolygon(self._edit_border_polygons(item)[0])
             handle_pen = QPen(QColor("#1f6feb"))
             handle_pen.setWidthF(0)
             if getattr(item, "resizable", False):
@@ -1332,9 +1360,14 @@ class LabelCanvas(QGraphicsView):
         if self._op is None and not self.viewport().rect().contains(view_pos):
             self._set_hover_item(None)
             return
-        handle = self._handle_at(self.mapToScene(view_pos))
+        scene_pos = self.mapToScene(view_pos)
+        handle = self._handle_at(scene_pos)
         if handle is not None:
             self._set_hover_item(handle[1])
+            return
+        border = self._edit_border_at(scene_pos)
+        if border is not None:
+            self._set_hover_item(border)
             return
         self._set_hover_item(self._top_serializable_item_at(view_pos))
 
@@ -1492,11 +1525,18 @@ class LabelCanvas(QGraphicsView):
 
     # -- Griff-Geometrie ----------------------------------------------------
     def _editable_selection(self):
+        """Das eine Objekt, das Griffe bekommt - oder ``None``.
+
+        Ein Textfeld behaelt seine Griffe auch waehrend der Eingabe: ein neues
+        Feld oeffnet direkt zum Tippen und soll trotzdem sofort als Objekt
+        greifbar sein. Nur der offene Zellen-Editor einer Tabelle blendet sie
+        aus, der Klick auf den Rand gehoert dort dem Editor.
+        """
         selection = self.selected_items()
         if len(selection) != 1:
             return None
         item = selection[0]
-        if getattr(item, "is_editing", False):
+        if getattr(item, "kind", None) == "table" and getattr(item, "is_editing", False):
             return None
         return item
 
@@ -1556,6 +1596,53 @@ class LabelCanvas(QGraphicsView):
             for name, pt in self._handle_points(item).items():
                 if abs(scene_pos.x() - pt.x()) <= tol and abs(scene_pos.y() - pt.y()) <= tol:
                     return name, item
+        return None
+
+    # -- Rand in Bearbeitung ------------------------------------------------
+    def _editing_text_selection(self):
+        """Das Textfeld in Bearbeitung mit Griffen - oder ``None``."""
+        item = self._editable_selection()
+        if item is None or getattr(item, "kind", None) != "text":
+            return None
+        return item if getattr(item, "is_editing", False) else None
+
+    def _edit_border_polygons(self, item) -> tuple[QPolygonF, QPolygonF] | None:
+        """Aussen- und Innenkante des Rands in Szenenkoordinaten."""
+        br = item.boundingRect()
+        if br.width() <= 0 or br.height() <= 0:
+            return None
+        wx, wy = self._screen_lengths(item, EDIT_BORDER_PX)
+        outer = br.adjusted(-wx, -wy, wx, wy)
+        return item.mapToScene(outer), item.mapToScene(br)
+
+    def _edit_border_path(self, item) -> QPainterPath | None:
+        if self._editing_text_selection() is not item:
+            return None
+        polygons = self._edit_border_polygons(item)
+        if polygons is None:
+            return None
+        path = QPainterPath()
+        path.setFillRule(Qt.FillRule.OddEvenFill)
+        path.addPolygon(polygons[0])
+        path.closeSubpath()
+        path.addPolygon(polygons[1])
+        path.closeSubpath()
+        return path
+
+    def _edit_border_at(self, scene_pos: QPointF):
+        """Liegt ``scene_pos`` auf dem schraffierten Rand? Dann das Textfeld."""
+        item = self._editing_text_selection()
+        if item is None:
+            return None
+        br = item.boundingRect()
+        if br.width() <= 0 or br.height() <= 0:
+            return None
+        local = item.mapFromScene(scene_pos)
+        if br.contains(local):
+            return None
+        wx, wy = self._screen_lengths(item, EDIT_BORDER_PX + 2)
+        if br.adjusted(-wx, -wy, wx, wy).contains(local):
+            return item
         return None
 
     def _top_serializable_item_at(self, view_pos: QPoint):
@@ -1800,6 +1887,13 @@ class LabelCanvas(QGraphicsView):
                 event.accept()
                 return
 
+            # Schraffierter Rand eines Textfelds in Bearbeitung: verschieben,
+            # ohne die Eingabe zu beenden (innen setzt der Klick die Textmarke).
+            if self._edit_border_at(scene_pos) is not None:
+                self._begin_move(scene_pos)
+                event.accept()
+                return
+
             guide_index = self._guide_at(scene_pos)
             if guide_index is not None:
                 self._begin_guide_move(guide_index)
@@ -1947,7 +2041,9 @@ class LabelCanvas(QGraphicsView):
         # Cursor je nach Griff (mitgedreht wie das Item)
         handle = self._handle_at(scene_pos)
         guide_index = None if handle is not None else self._guide_at(scene_pos)
-        if guide_index is not None:
+        if handle is None and guide_index is None and self._edit_border_at(scene_pos) is not None:
+            self.viewport().setCursor(Qt.CursorShape.SizeAllCursor)
+        elif guide_index is not None:
             axis = self._placed_guides[guide_index][0]
             guide_cursor = (
                 Qt.CursorShape.SizeVerCursor
@@ -2194,12 +2290,17 @@ class LabelCanvas(QGraphicsView):
         if event.button() != Qt.MouseButton.LeftButton:
             super().mouseDoubleClickEvent(event)
             return
-        if self._guide_at(self.mapToScene(self._event_pos(event))) is not None:
+        scene_pos = self.mapToScene(self._event_pos(event))
+        if self._guide_at(scene_pos) is not None:
+            event.accept()
+            return
+        if self._handle_at(scene_pos) is not None or self._edit_border_at(scene_pos) is not None:
+            # Griffe und Rand gehoeren dem gewaehlten Objekt - kein neues Feld.
             event.accept()
             return
         item = self._top_serializable_item_at(self._event_pos(event))
         if item is None:
-            self.text_requested.emit(self.mapToScene(self._event_pos(event)))
+            self.text_requested.emit(scene_pos)
         elif getattr(item, "kind", None) == "text":
             # Oeffnet das Feld und markiert den Text (im offenen Feld ebenso).
             item.start_editing()
