@@ -846,6 +846,20 @@ class MainWindow(QMainWindow):
         self._act_add_rect.setToolTip(tr("Rahmen einfügen"))
         self._act_add_rect.triggered.connect(self._add_rect)
 
+        self._act_add_shapes = []
+        for shape, label in (
+            ("ellipse", tr("Ellipse")),
+            ("triangle", tr("Dreieck")),
+            ("star", tr("Stern")),
+            ("arrow_right", tr("Pfeil rechts")),
+            ("arrow_left", tr("Pfeil links")),
+            ("arrow_double", tr("Doppelpfeil")),
+        ):
+            act = QAction(icon(f"shape_{shape}"), label, self)
+            act.setToolTip(label)
+            act.triggered.connect(lambda _=False, s=shape: self._add_shape(s))
+            self._act_add_shapes.append(act)
+
         self._act_add_table = QAction(icon("table"), tr("Tabelle"), self)
         self._act_add_table.setToolTip(tr("Tabelle einfügen"))
         self._act_add_table.triggered.connect(self._add_table)
@@ -888,13 +902,13 @@ class MainWindow(QMainWindow):
         )
         self._act_align_bottom.triggered.connect(lambda: self._align_selected("bottom"))
 
-        self._act_forward = QAction(icon("front"), tr("Eine Ebene nach vorn"), self)
+        self._act_forward = QAction(icon("forward"), tr("Eine Ebene nach vorn"), self)
         self._act_forward.setToolTip(tr("Eine Ebene nach vorn"))
-        self._act_forward.triggered.connect(lambda: self._bump_z(+1))
+        self._act_forward.triggered.connect(lambda: self._step_stack(+1))
 
-        self._act_backward = QAction(icon("back"), tr("Eine Ebene nach hinten"), self)
+        self._act_backward = QAction(icon("backward"), tr("Eine Ebene nach hinten"), self)
         self._act_backward.setToolTip(tr("Eine Ebene nach hinten"))
-        self._act_backward.triggered.connect(lambda: self._bump_z(-1))
+        self._act_backward.triggered.connect(lambda: self._step_stack(-1))
 
         self._act_front = QAction(icon("front"), tr("In den Vordergrund"), self)
         self._act_front.setToolTip(tr("In den Vordergrund"))
@@ -1168,6 +1182,7 @@ class MainWindow(QMainWindow):
             self._act_add_qr,
             self._act_add_line,
             self._act_add_rect,
+            *self._act_add_shapes,
             self._act_add_table,
             self._act_add_datetime,
         ):
@@ -2323,23 +2338,12 @@ class MainWindow(QMainWindow):
         self._add_item(item)
 
     def _add_shape_actions(self, menu: QMenu) -> None:
-        """Dieselben Formen wie der Toolbar-Knopf „Formen"."""
-        menu.addAction(icon("line"), tr("Linie"), self._add_line)
-        menu.addAction(icon("rect"), tr("Rahmen"), self._add_rect)
+        """Dieselben Formen wie der Toolbar-Knopf und das Menue „Einfügen"."""
+        menu.addAction(self._act_add_line)
+        menu.addAction(self._act_add_rect)
         menu.addSeparator()
-        for shape, label in (
-            ("ellipse", tr("Ellipse")),
-            ("triangle", tr("Dreieck")),
-            ("star", tr("Stern")),
-            ("arrow_right", tr("Pfeil rechts")),
-            ("arrow_left", tr("Pfeil links")),
-            ("arrow_double", tr("Doppelpfeil")),
-        ):
-            menu.addAction(
-                icon(f"shape_{shape}"),
-                label,
-                lambda _=False, s=shape: self._add_shape(s),
-            )
+        for act in self._act_add_shapes:
+            menu.addAction(act)
 
     def _add_shape(self, shape: str) -> None:
         width = self._canvas.printable_rect().width()
@@ -2419,40 +2423,75 @@ class MainWindow(QMainWindow):
             act.setEnabled(can_stack)
         self._act_snap_guides.setEnabled(bool(selected))
 
-    def _bump_z(self, direction: int) -> None:
-        if not self._canvas.selected_items():
+    def _stack_bottom_to_top(self) -> list:
+        """Sichtbare Stapelreihenfolge, unten zuerst.
+
+        ``scene.items()`` ist oben zuerst und kennt z zusammen mit der
+        Einfuegereihenfolge. Nur nach z zu sortieren dreht den Gleichstand um.
+        """
+        items = [
+            item
+            for item in self._canvas.scene().items()
+            if hasattr(item, "to_dict") and not getattr(item, "_pending_discard", False)
+        ]
+        items.reverse()
+        return items
+
+    def _apply_stack(self, order: list) -> None:
+        current = [id(item) for item in self._stack_bottom_to_top()]
+        if current == [id(item) for item in order]:
             return
         self._capture_history()
-        for item in self._canvas.selected_items():
-            item.setZValue(item.zValue() + direction)
+        for index, item in enumerate(order):
+            item.setZValue(float(index))
         self._commit_history(tr("Reihenfolge"))
         self._canvas.viewport().update()
 
-    def _stack_extreme(self, *, front: bool) -> None:
-        """Auswahl in einem Schritt ganz nach vorn oder ganz nach hinten."""
-        selected = [
-            item
+    def _step_stack(self, direction: int) -> None:
+        """Eine sichtbare Stufe, an den nicht ausgewaehlten Nachbarn vorbei."""
+        selected = {
+            id(item)
             for item in self._canvas.selected_items()
             if hasattr(item, "to_dict")
-        ]
-        others = [
-            item for item in self._canvas.ordered_items() if item not in selected
-        ]
-        if not selected or not others:
+        }
+        order = self._stack_bottom_to_top()
+        if not selected or len(order) < 2:
             return
-        ordered = sorted(selected, key=lambda item: (item.zValue(), id(item)))
-        self._capture_history()
-        if front:
-            base = max(item.zValue() for item in others)
-            for offset, item in enumerate(ordered, start=1):
-                item.setZValue(base + offset)
+        if direction > 0:
+            index = len(order) - 1
+            while index >= 0:
+                if (
+                    id(order[index]) in selected
+                    and index + 1 < len(order)
+                    and id(order[index + 1]) not in selected
+                ):
+                    order[index], order[index + 1] = order[index + 1], order[index]
+                index -= 1
         else:
-            floor = min(item.zValue() for item in others)
-            start = floor - len(ordered)
-            for offset, item in enumerate(ordered, start=1):
-                item.setZValue(start + offset)
-        self._commit_history(tr("Reihenfolge"))
-        self._canvas.viewport().update()
+            index = 0
+            while index < len(order):
+                if (
+                    id(order[index]) in selected
+                    and index > 0
+                    and id(order[index - 1]) not in selected
+                ):
+                    order[index], order[index - 1] = order[index - 1], order[index]
+                index += 1
+        self._apply_stack(order)
+
+    def _stack_extreme(self, *, front: bool) -> None:
+        """Auswahl in einem Schritt ganz nach vorn oder ganz nach hinten."""
+        selected = {
+            id(item)
+            for item in self._canvas.selected_items()
+            if hasattr(item, "to_dict")
+        }
+        order = self._stack_bottom_to_top()
+        picked = [item for item in order if id(item) in selected]
+        others = [item for item in order if id(item) not in selected]
+        if not picked or not others:
+            return
+        self._apply_stack(others + picked if front else picked + others)
 
     def _snap_selection_to_guides(self) -> None:
         """Dieselbe Snap-Distanz wie beim Ziehen, einmal auf die Auswahl."""
@@ -2467,13 +2506,14 @@ class MainWindow(QMainWindow):
         for item in items:
             box = item.sceneBoundingRect()
             bbox = box if bbox.isNull() else bbox.united(box)
-        dx, dy, _guides = self._canvas._snap_move(bbox, 0.0, 0.0, exclude=items)
+        dx, dy, guides = self._canvas._snap_move(bbox, 0.0, 0.0, exclude=items)
         if not dx and not dy:
             return
         self._capture_history()
         for item in items:
             item.moveBy(dx, dy)
-        self._commit_history(tr("Ausrichten"))
+        self._canvas._guides = guides
+        self._commit_history(tr("An Hilfslinien ausrichten"))
         self._on_items_changed()
 
     # -------------------------------------------------------------- Print ---

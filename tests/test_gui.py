@@ -2199,32 +2199,68 @@ def test_toolbar_has_undo_and_redo(qapp):
     assert not win._act_redo.icon().isNull()
 
 
-def test_stack_forward_steps_and_front_jumps(qapp, tmp_path):
-    """Eine Ebene hebt nur um 1; Vordergrund setzt z ueber alle anderen."""
+def _visual_bottom_to_top(canvas):
+    items = [item for item in canvas.scene().items() if hasattr(item, "to_dict")]
+    items.reverse()
+    return items
+
+
+def _icon_bytes(action):
+    from PySide6.QtGui import QImage
+
+    image = action.icon().pixmap(24, 24).toImage()
+    image = image.convertToFormat(QImage.Format.Format_ARGB32)
+    return bytes(image.bits())
+
+
+def test_stack_steps_one_place_and_extremes_keep_order(qapp, tmp_path):
+    """Eine Ebene tauscht mit dem Nachbarn; Extrem legt die Gruppe ganz nach vorn oder hinten."""
     from PySide6.QtCore import QRectF
 
     from ql_editor.items import RectItem
 
     win = _temp_window(qapp, tmp_path)
-    back = RectItem(QRectF(0, 0, 80, 40))
-    front = RectItem(QRectF(20, 10, 80, 40))
-    win._canvas.add_item(back)
+    bottom = RectItem(QRectF(0, 0, 40, 20))
+    win._canvas.add_item(bottom)
     assert not win._act_forward.isEnabled()
-    win._canvas.add_item(front)
-    back.setZValue(0)
-    front.setZValue(2)
-    win._canvas.scene().clearSelection()
-    back.setSelected(True)
+    mid = RectItem(QRectF(10, 8, 40, 20))
+    top = RectItem(QRectF(20, 16, 40, 20))
+    win._canvas.add_item(mid)
+    win._canvas.add_item(top)
     qapp.processEvents()
-    assert win._act_forward.isEnabled() and win._act_front.isEnabled()
+    assert _visual_bottom_to_top(win._canvas) == [bottom, mid, top]
+    assert win._act_forward.icon().cacheKey() != win._act_front.icon().cacheKey()
+    assert win._act_backward.icon().cacheKey() != win._act_back.icon().cacheKey()
+    assert _icon_bytes(win._act_forward) != _icon_bytes(win._act_front)
 
+    win._canvas.scene().clearSelection()
+    bottom.setSelected(True)
+    qapp.processEvents()
+    assert win._act_forward.isEnabled() and win._act_back.isEnabled()
     win._act_forward.trigger()
-    assert back.zValue() == pytest.approx(1)
-    assert front.zValue() == pytest.approx(2)
+    assert _visual_bottom_to_top(win._canvas) == [mid, bottom, top]
+    assert bottom.zValue() < top.zValue()
 
     win._act_front.trigger()
-    assert back.zValue() == pytest.approx(3)
+    assert _visual_bottom_to_top(win._canvas) == [mid, top, bottom]
     assert win._undo_stack.undoText() == "Reihenfolge"
+
+    win._act_back.trigger()
+    assert _visual_bottom_to_top(win._canvas) == [bottom, mid, top]
+    assert bottom.zValue() < mid.zValue() < top.zValue()
+
+    win._canvas.scene().clearSelection()
+    top.setSelected(True)
+    qapp.processEvents()
+    win._act_backward.trigger()
+    assert _visual_bottom_to_top(win._canvas) == [bottom, top, mid]
+
+    win._canvas.scene().clearSelection()
+    bottom.setSelected(True)
+    mid.setSelected(True)
+    qapp.processEvents()
+    win._act_front.trigger()
+    assert _visual_bottom_to_top(win._canvas) == [top, bottom, mid]
     win.close()
     qapp.processEvents()
 
@@ -2246,7 +2282,9 @@ def test_snap_to_guides_applies_drag_snap_once(qapp, tmp_path):
     win._act_snap_guides.trigger()
     qapp.processEvents()
     assert item.sceneBoundingRect().left() == pytest.approx(left, abs=0.6)
-    assert win._undo_stack.undoText() == "Ausrichten"
+    assert win._undo_stack.undoText() == "An Hilfslinien ausrichten"
+    assert canvas._guides
+    assert any(axis == "v" and coord == pytest.approx(left, abs=0.6) for axis, coord in canvas._guides)
     win.close()
     qapp.processEvents()
 
@@ -2309,6 +2347,13 @@ def test_shapes_menu_and_inspector_smoke(qapp, tmp_path):
     ]
     for label in menu_labels:
         assert label in context_labels
+    insert_labels = [
+        action.text()
+        for action in win._menu_button.menu().actions()
+        if action.text()
+    ]
+    for label in ("Ellipse", "Dreieck", "Stern", "Pfeil rechts", "Pfeil links", "Doppelpfeil"):
+        assert label in insert_labels
 
     win._add_shape("star")
     shapes = [item for item in win._canvas.scene().items() if isinstance(item, ShapeItem)]

@@ -1323,6 +1323,10 @@ class LabelCanvas(QGraphicsView):
 
     def _update_idle_hint(self, scene_pos: QPointF, view_pos: QPoint) -> None:
         """Statusleisten-Hinweis nach Zeigerlage, wenn keine Geste laeuft."""
+        if self._guides:
+            # Einmal-Snap laesst die Linien stehen, bis der Zeiger sich wieder bewegt.
+            self._guides = []
+            self.viewport().update()
         handle = self._handle_at(scene_pos)
         hint = ""
         if handle is not None and handle[0] == "rotate":
