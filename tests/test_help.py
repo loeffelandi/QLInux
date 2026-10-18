@@ -41,6 +41,8 @@ def test_help_text_is_short_and_follows_the_language(qapp):
 
     assert "printer and the tape" in english
     assert "Ctrl+N" in english
+    assert "Paste" in english
+    assert "Einfügen" not in english
     assert "Ctrl+Y" in english
     assert "Ctrl+B" in english
     assert "Ctrl+I" in english

@@ -117,6 +117,83 @@ def test_ctrl_drag_duplicates_and_plain_drag_moves(qapp):
     assert stayed[0].toPlainText() == shifted[0].toPlainText() == "Hallo"
 
 
+def test_ctrl_drag_follows_the_key_and_skips_the_source(qapp):
+    """Losgelassenes Strg verschiebt. Eine kurze Kopie rastet nicht aufs Original."""
+    from ql_editor.canvas import LabelCanvas
+    from ql_editor.media import get_label
+
+    canvas = LabelCanvas()
+    canvas.resize(800, 700)
+    canvas.set_label(get_label("50"), 472)
+    canvas.zoom_100()
+    item = TextItem("Hallo", font_pixel_size=32)
+    canvas.add_item(item)
+    item.setPos(120, 80)
+    origin = QPointF(item.pos())
+    ctrl = Qt.KeyboardModifier.ControlModifier
+
+    def press(pos, mods):
+        canvas.mousePressEvent(
+            _mouse(
+                canvas,
+                QEvent.Type.MouseButtonPress,
+                pos,
+                Qt.MouseButton.LeftButton,
+                Qt.MouseButton.LeftButton,
+                mods,
+            )
+        )
+
+    def drag(pos, mods):
+        canvas.mouseMoveEvent(
+            _mouse(
+                canvas,
+                QEvent.Type.MouseMove,
+                pos,
+                Qt.MouseButton.NoButton,
+                Qt.MouseButton.LeftButton,
+                mods,
+            )
+        )
+
+    def release(pos):
+        canvas.mouseReleaseEvent(
+            _mouse(
+                canvas,
+                QEvent.Type.MouseButtonRelease,
+                pos,
+                Qt.MouseButton.LeftButton,
+                Qt.MouseButton.NoButton,
+                Qt.KeyboardModifier.NoModifier,
+            )
+        )
+
+    none = Qt.KeyboardModifier.NoModifier
+    press(_at(item), none)
+    drag(_at(item) + QPointF(40, 20), ctrl)
+    release(_at(item) + QPointF(40, 20))
+    assert len(canvas.ordered_items()) == 1
+    assert item.pos() != origin
+    item.setPos(origin)
+
+    press(_at(item), ctrl)
+    drag(_at(item) + QPointF(40, 20), none)
+    release(_at(item) + QPointF(40, 20))
+    assert len(canvas.ordered_items()) == 1
+    assert item.pos() != origin
+    item.setPos(origin)
+
+    step = QPointF(8, 0)
+    press(_at(item), ctrl)
+    drag(_at(item) + step, ctrl)
+    release(_at(item) + step)
+    copies = [obj for obj in canvas.ordered_items() if obj is not item]
+    assert item.pos() == origin
+    assert len(copies) == 1
+    assert abs(copies[0].pos().x() - (origin.x() + 8)) < 0.6
+    assert abs(copies[0].pos().y() - origin.y()) < 0.6
+
+
 def test_copy_paste_duplicate_and_ctrl_drag(qapp):
     clipboard = QApplication.clipboard()
     clipboard.clear()
@@ -217,7 +294,9 @@ def test_copy_paste_duplicate_and_ctrl_drag(qapp):
     assert clipboard.mimeData().hasFormat(_CLIPBOARD_MIME)
     win._act_paste.trigger()
     assert len(canvas.ordered_items()) == 2
-    assert win._undo_stack.undoText() == "Einfügen\u2060"
+    assert win._act_paste.text() == "Einfügen"
+    assert "\u2060" not in win._act_paste.text()
+    assert win._undo_stack.undoText() == "Einfügen"
     pasted = [obj for obj in canvas.ordered_items() if obj is not item][0]
     assert pasted.toPlainText() == "Hallo"
     assert pasted.pos().x() == origin.x() + DUPLICATE_OFFSET_DOTS

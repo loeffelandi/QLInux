@@ -18,7 +18,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from .i18n import tr
+from .i18n import paste_label, tr
 from .icons import icon
 from .sheet import Sheet, show_widget
 
@@ -46,7 +46,7 @@ def action_shortcuts() -> tuple[tuple[str | None, str, str], ...]:
         ("delete", tr("Entf"), tr("Auswahl löschen")),
         ("copy", tr("Strg+C"), tr("Kopieren")),
         ("cut", tr("Strg+X"), tr("Ausschneiden")),
-        ("paste", tr("Strg+V"), tr("Einfügen\u2060")),
+        ("paste", tr("Strg+V"), paste_label()),
         ("duplicate", tr("Strg+D"), tr("Duplizieren")),
         ("bold", tr("Strg+B"), tr("Fett")),
         ("italic", tr("Strg+I"), tr("Kursiv")),

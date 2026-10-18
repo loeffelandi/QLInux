@@ -585,6 +585,8 @@ class LabelCanvas(QGraphicsView):
         #: Ctrl auf einem schon gewaehlten Objekt: Klick schaltet um, Ziehen kopiert.
         self._pending_ctrl_item = None
         self._gesture_duplicated = False
+        #: Originale einer Ctrl-Kopie. Beim Ziehen nicht als Einrastziel nutzen.
+        self._drag_sources: list = []
 
         self._pan_active = False
         self._pan_start = QPoint()
@@ -2000,7 +2002,9 @@ class LabelCanvas(QGraphicsView):
         """
         originals = [item for item in self.selected_items() if hasattr(item, "to_dict")]
         if not originals:
+            self._drag_sources = []
             return
+        self._drag_sources = list(originals)
         self.gesture_begun.emit()
         copies = [items_mod.item_from_dict(item.to_dict()) for item in originals]
         self._scene.clearSelection()
@@ -2056,8 +2060,11 @@ class LabelCanvas(QGraphicsView):
                 self._pending_move_start = None
                 ctrl_item = self._pending_ctrl_item
                 self._pending_ctrl_item = None
-                if ctrl_item is not None:
+                ctrl_held = bool(event.modifiers() & Qt.KeyboardModifier.ControlModifier)
+                if ctrl_item is not None and ctrl_held:
                     self._spawn_drag_copies()
+                else:
+                    self._drag_sources = []
                 self._begin_move(start)
                 self._do_move(scene_pos)
                 event.accept()
@@ -2149,7 +2156,9 @@ class LabelCanvas(QGraphicsView):
         dx = scene_pos.x() - self._op_start_scene.x()
         dy = scene_pos.y() - self._op_start_scene.y()
         moving = [item for item, _ in self._move_items]
-        dx, dy, guides = self._snap_move(self._op_start_bbox, dx, dy, exclude=moving)
+        dx, dy, guides = self._snap_move(
+            self._op_start_bbox, dx, dy, exclude=[*moving, *self._drag_sources]
+        )
         for item, start in self._move_items:
             item.setPos(start.x() + dx, start.y() + dy)
         self._guides = guides
@@ -2317,6 +2326,7 @@ class LabelCanvas(QGraphicsView):
             self._op_item = None
             self._op_handle = ""
             self._move_items = []
+            self._drag_sources = []
             self._guides = []
             self.viewport().update()
             if finished in ("move", "resize", "rotate", "table-divider"):

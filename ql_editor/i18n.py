@@ -57,11 +57,29 @@ def tr(text: str) -> str:
     return _TRANSLATIONS.get(_language, {}).get(text, text)
 
 
+def paste_label() -> str:
+    """Einfügen aus der Zwischenablage.
+
+    Der gleiche deutsche Wortlaut ist die Gruppe „Einfügen" und heißt dort
+    auf Englisch Insert. Deshalb nicht über :func:`tr`.
+    """
+    return "Paste" if _language == "en" else "Einfügen"
+
+
+def paste_hint() -> str:
+    """Kurzbefehle neben dem Einfügen-Befehl."""
+    if _language == "en":
+        return "Paste (Ctrl+V)"
+    return "Einfügen (Strg+V)"
+
+
 __all__ = [
     "DEFAULT_LANGUAGE",
     "LANGUAGES",
     "language",
     "language_name",
+    "paste_hint",
+    "paste_label",
     "set_language",
     "tr",
 ]

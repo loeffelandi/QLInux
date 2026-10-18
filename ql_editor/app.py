@@ -93,6 +93,8 @@ from .i18n import (
     LANGUAGES,
     language,
     language_name,
+    paste_hint,
+    paste_label,
     set_language,
     tr,
 )
@@ -1225,8 +1227,7 @@ class MainWindow(QMainWindow):
 
         # Nicht im Burger. Strg+K und das Kontextmenue. Auf dem Mac werden
         # Copy/Cut/Paste zu Cmd, wie die anderen Standard-Kuerzel.
-        # „Einfügen" ist schon die Gruppe (Englisch: Insert). Das unsichtbare
-        # Wortzeichen lässt die Beschriftung Einfügen und die Übersetzung Paste.
+        # „Einfügen" ist schon die Gruppe (Englisch: Insert), deshalb paste_label.
         self._act_copy = QAction(icon("copy"), tr("Kopieren"), self)
         self._act_copy.setToolTip(tr("Kopieren (Strg+C)"))
         self._act_copy.setShortcut(QKeySequence.StandardKey.Copy)
@@ -1235,8 +1236,8 @@ class MainWindow(QMainWindow):
         self._act_cut.setToolTip(tr("Ausschneiden (Strg+X)"))
         self._act_cut.setShortcut(QKeySequence.StandardKey.Cut)
         self._act_cut.triggered.connect(self._cut_selected)
-        self._act_paste = QAction(icon("paste"), tr("Einfügen\u2060"), self)
-        self._act_paste.setToolTip(tr("Einfügen\u2060 (Strg+V)"))
+        self._act_paste = QAction(icon("paste"), paste_label(), self)
+        self._act_paste.setToolTip(paste_hint())
         self._act_paste.setShortcut(QKeySequence.StandardKey.Paste)
         self._act_paste.triggered.connect(self._paste_clipboard)
         self._act_duplicate = QAction(icon("duplicate"), tr("Duplizieren"), self)
@@ -2852,7 +2853,7 @@ class MainWindow(QMainWindow):
             return
         self._paste_generation += 1
         delta = DUPLICATE_OFFSET_DOTS * self._paste_generation
-        self._spawn_copies(payload, delta, delta, tr("Einfügen\u2060"))
+        self._spawn_copies(payload, delta, delta, paste_label())
 
     def _duplicate_selected(self) -> None:
         if self._active is None or self._canvas.inline_editing():
