@@ -69,6 +69,9 @@ ICON_COLORS: dict[str, str] = {
     "line": "#597697",       # Zusatzfarbe indigo
     "rect": "#597697",
     "shape": "#597697",
+    "table": "#3f6f54",
+    "datetime": "#3d6d8c",
+    "clipart": "#7a4e2d",
     # Datei und Vorlagen
     "open": "#5D5553",       # Zusatzfarbe warmgrau
     "new": "#5D5553",
@@ -274,6 +277,49 @@ def _draw_line(p: QPainter, color: QColor) -> None:
 def _draw_rect(p: QPainter, color: QColor) -> None:
     _stroke_only(p, color)
     p.drawRoundedRect(QRectF(4.0, 6.5, 16.0, 11.0), _RADIUS, _RADIUS)
+
+
+def _draw_clipart(p: QPainter, color: QColor) -> None:
+    _stroke_only(p, color, 1.6)
+    p.drawRoundedRect(QRectF(3.4, 3.4, 17.2, 17.2), _RADIUS, _RADIUS)
+    _fill_only(p, color)
+    p.drawPolygon(
+        QPolygonF(
+            [
+                QPointF(12.0, 6.4),
+                QPointF(13.5, 10.0),
+                QPointF(17.4, 10.4),
+                QPointF(14.5, 13.0),
+                QPointF(15.3, 16.8),
+                QPointF(12.0, 14.8),
+                QPointF(8.7, 16.8),
+                QPointF(9.5, 13.0),
+                QPointF(6.6, 10.4),
+                QPointF(10.5, 10.0),
+            ]
+        )
+    )
+
+
+def _draw_datetime(p: QPainter, color: QColor) -> None:
+    _stroke_only(p, color, 1.6)
+    p.drawRoundedRect(QRectF(3.2, 5.2, 12.2, 13.2), _RADIUS, _RADIUS)
+    _line(p, 3.2, 9.0, 15.4, 9.0)
+    _fill_only(p, color)
+    p.drawRoundedRect(QRectF(6.0, 3.4, 1.5, 3.2), 0.6, 0.6)
+    p.drawRoundedRect(QRectF(11.0, 3.4, 1.5, 3.2), 0.6, 0.6)
+    _stroke_only(p, color, 1.6)
+    p.drawEllipse(QPointF(16.4, 16.2), 5.0, 5.0)
+    _line(p, 16.4, 16.2, 16.4, 13.4)
+    _line(p, 16.4, 16.2, 18.6, 17.4)
+
+
+def _draw_table(p: QPainter, color: QColor) -> None:
+    _stroke_only(p, color, 1.6)
+    p.drawRoundedRect(QRectF(3.5, 4.5, 17.0, 15.0), _RADIUS, _RADIUS)
+    _line(p, 3.5, 9.5, 20.5, 9.5)
+    _line(p, 3.5, 14.5, 20.5, 14.5)
+    _line(p, 12.0, 4.5, 12.0, 19.5)
 
 
 def _draw_orient_across(p: QPainter, color: QColor) -> None:
@@ -781,6 +827,9 @@ _DRAW = {
     "line": _draw_line,
     "rect": _draw_rect,
     "shape": _draw_shape,
+    "table": _draw_table,
+    "datetime": _draw_datetime,
+    "clipart": _draw_clipart,
     "panel_left": _draw_panel_left,
     "panel_right": _draw_panel_right,
     "orient_across": _draw_orient_across,

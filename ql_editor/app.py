@@ -92,7 +92,18 @@ from .i18n import (
 from .icons import icon
 from .jobs import PrintHistoryDialog, PrintJob
 from .inspector import InspectorPanel
-from .items import BarcodeItem, ImageItem, LineItem, QRItem, RectItem, ShapeItem, TextItem
+from .items import (
+    BarcodeItem,
+    ClipArtItem,
+    DateTimeItem,
+    ImageItem,
+    LineItem,
+    QRItem,
+    RectItem,
+    ShapeItem,
+    TableItem,
+    TextItem,
+)
 from .media_panel import MediaPanel
 from .panels import OverlayPanel, PanelHost
 from .preview import (
@@ -122,7 +133,8 @@ from .printer import (
 )
 from .settings import AppSettings
 from .adaptive import AdaptivePages
-from .sheet import ask_choice, ask_save, ask_text, choose_file, save_file, show_message
+from .sheet import ask_choice, ask_save, ask_text, choose_file, save_file, show_message, show_widget
+from .symbols import SymbolPicker
 from .widgets import FeedIndicator, SmoothScrollArea, install_wheel_guard_recursive
 
 BARCODE_SYMBOLOGIES = ["code128", "code39", "ean13", "ean8", "upca", "itf", "codabar"]
@@ -792,6 +804,10 @@ class MainWindow(QMainWindow):
         self._act_add_image.setToolTip(tr("Bild einfügen"))
         self._act_add_image.triggered.connect(self._add_image)
 
+        self._act_add_clipart = QAction(icon("clipart"), tr("Clip Art"), self)
+        self._act_add_clipart.setToolTip(tr("Clip Art einfügen"))
+        self._act_add_clipart.triggered.connect(self._add_clipart)
+
         self._act_add_barcode = QAction(icon("barcode"), tr("Barcode…"), self)
         self._act_add_barcode.setToolTip(tr("Barcode einfügen"))
         self._act_add_barcode.triggered.connect(self._add_barcode)
@@ -807,6 +823,14 @@ class MainWindow(QMainWindow):
         self._act_add_rect = QAction(icon("rect"), tr("Rahmen"), self)
         self._act_add_rect.setToolTip(tr("Rahmen einfügen"))
         self._act_add_rect.triggered.connect(self._add_rect)
+
+        self._act_add_table = QAction(icon("table"), tr("Tabelle"), self)
+        self._act_add_table.setToolTip(tr("Tabelle einfügen"))
+        self._act_add_table.triggered.connect(self._add_table)
+
+        self._act_add_datetime = QAction(icon("datetime"), tr("Datum/Uhrzeit"), self)
+        self._act_add_datetime.setToolTip(tr("Aktuelles Datum und aktuelle Uhrzeit einfügen"))
+        self._act_add_datetime.triggered.connect(self._add_datetime)
 
         self._act_undo = self._undo_group.createUndoAction(self, tr("Rückgängig"))
         self._act_undo.setIcon(icon("undo"))
@@ -1002,8 +1026,11 @@ class MainWindow(QMainWindow):
 
         bar.addAction(self._act_add_text)
         bar.addAction(self._act_add_image)
+        bar.addAction(self._act_add_clipart)
         bar.addAction(self._act_add_barcode)
         bar.addAction(self._act_add_qr)
+        bar.addAction(self._act_add_table)
+        bar.addAction(self._act_add_datetime)
         bar.addSeparator()
         bar.addWidget(self._build_shape_button(bar))
         bar.addWidget(self._build_align_button(bar))
@@ -1103,10 +1130,13 @@ class MainWindow(QMainWindow):
         for act in (
             self._act_add_text,
             self._act_add_image,
+            self._act_add_clipart,
             self._act_add_barcode,
             self._act_add_qr,
             self._act_add_line,
             self._act_add_rect,
+            self._act_add_table,
+            self._act_add_datetime,
         ):
             menu.addAction(act)
         menu.addSection(tr("Bearbeiten"))
@@ -1263,7 +1293,8 @@ class MainWindow(QMainWindow):
         gilt das letzte Fenster als geschlossen und Qt beendet das Programm.
 
         Der Undo-Stapel geht dabei verloren (neues Fenster); der Stern im Titel
-        bleibt ueber ``document_dirty`` / ``address_dirty`` erhalten.
+        bleibt ueber ``document_dirty`` / ``address_dirty`` erhalten. Der
+        Druckverlauf der Sitzung wandert mit dem Zustand ins neue Fenster.
         """
         if code not in LANGUAGES or code == language():
             return
@@ -1312,6 +1343,7 @@ class MainWindow(QMainWindow):
             "document_path": self._document_path,
             "document_dirty": self._is_document_dirty(),
             "address_dirty": self._address_dirty,
+            "print_jobs": list(self._print_jobs),
         }
 
     def apply_state(self, state: Mapping[str, Any]) -> None:
@@ -1344,6 +1376,8 @@ class MainWindow(QMainWindow):
             ]
         self._replace_tabs(list(specs), int(state.get("active") or 0))
         self._address_dirty = bool(state.get("address_dirty", False))
+        self._print_jobs = list(state.get("print_jobs") or [])
+        self._refresh_last_job_label()
         if self._canvas.print_preview and not self._act_print_preview.isChecked():
             self._act_print_preview.setChecked(True)
         else:
@@ -1837,7 +1871,7 @@ class MainWindow(QMainWindow):
         return True
 
     def _add_item(
-        self, item, pos: QPointF | None = None, *, commit: bool = True
+        self, item, pos: QPointF | None = None, *, commit: bool = True, fit: bool = True
     ) -> None:
         """Objekt einfuegen - als ein Undo-Schritt.
 
@@ -1849,9 +1883,12 @@ class MainWindow(QMainWindow):
         self._capture_history()
         self._history_suppress = True
         try:
-            self._fit_item_into_label(item)
+            if fit:
+                self._fit_item_into_label(item)
             item.setPos(pos if pos is not None else self._default_item_pos())
             self._wire_text_item(item)
+            self._wire_table_item(item)
+            self._wire_datetime_item(item)
             self._canvas.add_item(item)
             self._canvas.setFocus()
             self._recompute_canvas()
@@ -1885,6 +1922,71 @@ class MainWindow(QMainWindow):
     def _wire_canvas_text(self, canvas: LabelCanvas) -> None:
         for item in canvas.scene().items():
             self._wire_text_item(item)
+            self._wire_table_item(item)
+            self._wire_datetime_item(item)
+
+    def _wire_table_item(self, item) -> None:
+        """Tabelle an Undo haengen und den Inspector bei Zellenwechsel neu bauen."""
+        if not isinstance(item, TableItem):
+            return
+        item.editing_started.connect(self._capture_history)
+        item.content_changed.connect(self._on_text_edited)
+        item.editing_finished.connect(self._on_table_editing_finished)
+        item.cell_selection_changed.connect(self._defer_selection_refresh)
+        item.structure_changed.connect(self._defer_selection_refresh)
+
+    def _wire_datetime_item(self, item) -> None:
+        """Stempel nachziehen, wenn die Uhr oder das Format den Text ändert.
+
+        Der Text steht nicht im Undo: gespeichert werden Format und Versatz.
+        Die Bandlänge und die Vorschau sollen der neuen Breite aber folgen.
+        """
+        if not isinstance(item, DateTimeItem):
+            return
+        item.display_changed.connect(self._on_datetime_displayed)
+
+    def _on_datetime_displayed(self) -> None:
+        # Sekunden-Ticks aendern oft nur den Text, nicht die Bounding-Breite.
+        sender = self.sender()
+        if isinstance(sender, DateTimeItem):
+            width = sender.boundingRect().width()
+            prev = getattr(sender, "_last_display_width", None)
+            sender._last_display_width = width
+            if prev is not None and abs(prev - width) < 0.5:
+                self._schedule_refresh()
+                return
+        self._recompute_canvas()
+        self._schedule_refresh()
+
+    def _on_table_editing_finished(self) -> None:
+        """Zellen-Text abschliessen, ausser der Inspector committet gerade selbst.
+
+        Sonst wuerde das Schliessen des Editors den Schnappschuss verbrauchen,
+        bevor Einfuegen oder Loeschen einer Zeile darin landet.
+        """
+        if self._inspector.edit_open:
+            return
+        self._commit_history(tr("Text"))
+
+    def _defer_selection_refresh(self) -> None:
+        """Inspector nach der laufenden Maus- oder Knopfaktion neu aufbauen.
+
+        Ein Neuaufbau mitten im Klick wuerde das Feld wegwerfen, das das Signal
+        gerade sendet. Danach den Zellen-Editor wieder fokussieren, falls die
+        Tabelle noch in Bearbeitung ist.
+        """
+        QTimer.singleShot(0, self._refresh_selection_keep_focus)
+
+    def _refresh_selection_keep_focus(self) -> None:
+        editing = [
+            it
+            for it in self._canvas.scene().items()
+            if isinstance(it, TableItem) and it.is_editing
+        ]
+        self._on_selection_changed()
+        for item in editing:
+            if item.scene() is not None and item.is_editing:
+                item.focus_editor()
 
     def _new_text(self, pos: QPointF | None = None, text: str = "") -> TextItem:
         """Neues Textfeld anlegen und direkt bearbeiten.
@@ -2072,10 +2174,13 @@ class MainWindow(QMainWindow):
             lambda: self._on_text_requested(scene_pos),
         )
         menu.addAction(icon("image"), tr("Bild…"), self._add_image)
+        menu.addAction(self._act_add_clipart)
         menu.addAction(icon("barcode"), tr("Barcode…"), self._add_barcode)
         menu.addAction(icon("qr"), tr("QR-Code…"), self._add_qr)
         menu.addAction(icon("line"), tr("Linie"), self._add_line)
         menu.addAction(icon("rect"), tr("Rahmen"), self._add_rect)
+        menu.addAction(self._act_add_table)
+        menu.addAction(self._act_add_datetime)
         if self._canvas.selected_items():
             menu.addSeparator()
             for act in (
@@ -2180,6 +2285,64 @@ class MainWindow(QMainWindow):
             rect = QRectF(0, 0, size, size)
         self._add_item(ShapeItem(rect, shape))
 
+    def _add_datetime(self) -> None:
+        self._add_item(DateTimeItem(font_pixel_size=self._default_font_size()))
+
+    def _add_clipart(self) -> None:
+        """Raster im Sheet. Ein Klick setzt das Symbol aufs Etikett."""
+        picker = SymbolPicker()
+        sheet = show_widget(
+            self,
+            title=tr("Clip Art"),
+            content=picker,
+            max_size=QSize(560, 640),
+        )
+
+        def _picked(symbol_id: str) -> None:
+            sheet.close_sheet()
+            area = self._canvas.printable_rect()
+            side = min(area.width(), area.height())
+            item = ClipArtItem(symbol_id, max(48.0, side * 0.55))
+            self._add_item(item)
+
+        picker.chosen.connect(_picked)
+
+    def _add_table(self) -> None:
+        """2×3-Tabelle, fast so hoch wie das Band und etwa dreimal so lang.
+
+        Das ist die Tabelle, die P-touch Editor mit einem Klick anlegt: sie
+        fuellt die bedruckbare Breite und zieht bei automatischer Laenge das
+        Etikett mit. ``fit=False``, weil die Laenge gerade erst entstehen soll
+        und nicht auf das bisherige Minimum gekuerzt werden darf.
+        """
+        rect = self._canvas.margin_rect()
+        if rect.width() < 40 or rect.height() < 40:
+            rect = self._canvas.printable_rect()
+        inset = 2.0
+        rows, cols = 3, 2
+        along = self._canvas.orientation is media.Orientation.ALONG
+        if along:
+            cross = max(40.0, rect.height() - 2 * inset)
+            length = cross * 3.0
+            if not self._media_panel.auto_length():
+                length = min(length, max(40.0, rect.width() - 2 * inset))
+            width, height = length, cross
+        else:
+            cross = max(40.0, rect.width() - 2 * inset)
+            length = cross * 3.0
+            if not self._media_panel.auto_length():
+                length = min(length, max(40.0, rect.height() - 2 * inset))
+            width, height = cross, length
+        cell = min(width / cols, height / rows)
+        item = TableItem(
+            rows, cols, width, height, font_pixel_size=max(16, int(cell * 0.45))
+        )
+        self._add_item(
+            item,
+            QPointF(rect.left() + inset, rect.top() + inset),
+            fit=False,
+        )
+
     def _bump_z(self, direction: int) -> None:
         if not self._canvas.selected_items():
             return
@@ -2266,6 +2429,7 @@ class MainWindow(QMainWindow):
         if hint:
             message = f"{message}\n\n{hint}"
         show_message(self, "critical", tr("Druckfehler"), message, selectable=bool(hint))
+
     def _record_print_job(self, outcome: str) -> None:
         if self._pending_job is None:
             return
@@ -2273,6 +2437,15 @@ class MainWindow(QMainWindow):
         self._pending_job = None
         job = PrintJob(started, label, copies, model, address, outcome)
         self._print_jobs.append(job)
+        self._refresh_last_job_label()
+
+    def _refresh_last_job_label(self) -> None:
+        """Statuszeile zum letzten Auftrag der Sitzung neu setzen."""
+        if not self._print_jobs:
+            self._last_job_label.setText(tr("Noch kein Auftrag"))
+            self._last_job_label.setStyleSheet("color:#777;")
+            return
+        job = self._print_jobs[-1]
         self._last_job_label.setText(f"{job.started:%H:%M} · {job.model}\n{job.status_text()}")
         color = "#b00020" if job.is_error else "#777"
         self._last_job_label.setStyleSheet(f"color:{color};")

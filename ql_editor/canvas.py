@@ -28,6 +28,8 @@ Direkte Bearbeitung mit der Maus (modernes Editor-Gefuehl):
 * **Mehrfachauswahl**: Gummiband auf freier Flaeche; **Ctrl+Klick** schaltet
   einzelne Objekte zur Auswahl hinzu/ab.
 * **Drag & Drop**: Bilddateien aus dem Dateimanager auf den Canvas ziehen.
+* **Tabelle**: Klick waehlt die Zelle, Doppelklick bearbeitet den Text,
+  Ziehen an einer inneren Trennlinie aendert Zeile oder Spalte.
 """
 
 from __future__ import annotations
@@ -93,6 +95,8 @@ MAX_ZOOM = 8.0
 HANDLE_SIZE_PX = 9
 ROTATE_OFFSET_PX = 24
 SNAP_TOLERANCE_PX = 6
+#: Tabellen-Zellklick: erst ab dieser View-Distanz (Manhattan) verschieben.
+_TABLE_MOVE_THRESHOLD_PX = 4
 #: Drehrasten (alle 90 Grad), wirken ohne Modifier. Sticky: man fängt die Rast
 #: nur knapp ein, hält sie dann bis zum Weg-Drehen über ROTATE_DETENT_RELEASE_DEG.
 ROTATE_DETENT_DEG = 90.0
@@ -427,8 +431,13 @@ class LabelCanvas(QGraphicsView):
         self._op_rotate_start = 0.0
         self._hint = ""
         self._rotate_detent: float | None = None
+        self._op_div_index = 0
+        self._op_start_widths: list[float] = []
+        self._op_start_heights: list[float] = []
         self._move_items: list[tuple[Any, QPointF]] = []
         self._guides: list[tuple[str, float]] = []
+        # Tabellen-Zellklick: Verschieben erst ab Drag-Schwelle (Auswahl ohne Move).
+        self._pending_move_start: QPointF | None = None
 
         self._pan_active = False
         self._pan_start = QPoint()
@@ -675,6 +684,10 @@ class LabelCanvas(QGraphicsView):
             inner.width() * scale,
             inner.height() * scale,
         )
+        for item in self._scene.items():
+            refresh = getattr(item, "refresh_for_output", None)
+            if refresh is not None:
+                refresh()
         with self.suspend_text_caret():
             return render_scene_to_image(
                 self.scene(),
@@ -1148,14 +1161,44 @@ class LabelCanvas(QGraphicsView):
 
             item = self._top_serializable_item_at(self._event_pos(event))
             ctrl = bool(event.modifiers() & Qt.KeyboardModifier.ControlModifier)
+            shift = bool(event.modifiers() & Qt.KeyboardModifier.ShiftModifier)
+            if getattr(item, "kind", None) == "table" and item.is_editing:
+                raw = self.itemAt(self._event_pos(event))
+                if raw is not None and (raw is item.editor or raw.parentItem() is item.editor):
+                    super().mousePressEvent(event)
+                    return
+                item.finish_editing()
+                handle = self._handle_at(scene_pos)
+                if handle is not None:
+                    self._begin_handle_op(handle[0], handle[1], scene_pos)
+                    event.accept()
+                    return
             if item is not None and not getattr(item, "is_editing", False):
+                table_cell_click = False
+                if getattr(item, "kind", None) == "table" and not ctrl:
+                    local = item.mapFromScene(scene_pos)
+                    divider = item.divider_at(local, 5.0 / self._scale())
+                    if divider is not None:
+                        if not item.isSelected():
+                            self._scene.clearSelection()
+                            item.setSelected(True)
+                        self._begin_table_divider(item, divider, scene_pos)
+                        event.accept()
+                        return
+                    item.select_cell_at(local, extend=shift)
+                    table_cell_click = True
                 if ctrl:
                     item.setSelected(not item.isSelected())
                 else:
                     if not item.isSelected():
                         self._scene.clearSelection()
                         item.setSelected(True)
-                    self._begin_move(scene_pos)
+                    if table_cell_click:
+                        # Zellauswahl (auch Umschalt) ohne sofortiges Verschieben;
+                        # Move startet erst nach Drag-Schwelle in mouseMoveEvent.
+                        self._pending_move_start = QPointF(scene_pos)
+                    else:
+                        self._begin_move(scene_pos)
                 event.accept()
                 return
         super().mousePressEvent(event)
@@ -1178,6 +1221,16 @@ class LabelCanvas(QGraphicsView):
             )
         else:
             self._op = "resize"
+
+    def _begin_table_divider(self, item, divider: tuple[str, int], scene_pos: QPointF) -> None:
+        self.gesture_begun.emit()
+        self._op = "table-divider"
+        self._op_item = item
+        self._op_handle = divider[0]
+        self._op_div_index = divider[1]
+        self._op_start_scene = scene_pos
+        self._op_start_widths = item.col_widths
+        self._op_start_heights = item.row_heights
 
     def _begin_move(self, scene_pos: QPointF) -> None:
         self.gesture_begun.emit()
@@ -1205,8 +1258,27 @@ class LabelCanvas(QGraphicsView):
             return
 
         scene_pos = self.mapToScene(self._event_pos(event))
+        if (
+            self._pending_move_start is not None
+            and event.buttons() & Qt.MouseButton.LeftButton
+        ):
+            start = self._pending_move_start
+            p0 = self.mapFromScene(start)
+            p1 = self.mapFromScene(scene_pos)
+            if (p1 - p0).manhattanLength() >= _TABLE_MOVE_THRESHOLD_PX:
+                self._pending_move_start = None
+                self._begin_move(start)
+                self._do_move(scene_pos)
+                event.accept()
+                return
         if self._op == "move":
             self._do_move(scene_pos)
+            event.accept()
+            return
+        if self._op == "table-divider":
+            name = "e" if self._op_handle == "col" else "s"
+            self.viewport().setCursor(self._cursor_for_handle(self._op_item, name))
+            self._do_table_divider(scene_pos)
             event.accept()
             return
         if self._op == "resize":
@@ -1228,7 +1300,17 @@ class LabelCanvas(QGraphicsView):
             else:
                 self.viewport().setCursor(self._cursor_for_handle(handle[1], handle[0]))
         else:
-            self.viewport().unsetCursor()
+            hovered = self._top_serializable_item_at(self._event_pos(event))
+            divider = None
+            if getattr(hovered, "kind", None) == "table":
+                divider = hovered.divider_at(
+                    hovered.mapFromScene(scene_pos), 5.0 / self._scale()
+                )
+            if divider is not None:
+                name = "e" if divider[0] == "col" else "s"
+                self.viewport().setCursor(self._cursor_for_handle(hovered, name))
+            else:
+                self.viewport().unsetCursor()
         hint = ""
         if handle is not None and handle[0] == "rotate":
             hint = tr("Shift: 15°-Schritte")
@@ -1323,6 +1405,27 @@ class LabelCanvas(QGraphicsView):
         self._guides = guides
         self.viewport().update()
 
+    def _do_table_divider(self, scene_pos: QPointF) -> None:
+        item = self._op_item
+        dx = scene_pos.x() - self._op_start_scene.x()
+        dy = scene_pos.y() - self._op_start_scene.y()
+        angle = item.rotation()
+        if angle:
+            theta = math.radians(angle)
+            local_dx = dx * math.cos(theta) + dy * math.sin(theta)
+            local_dy = -dx * math.sin(theta) + dy * math.cos(theta)
+        else:
+            local_dx, local_dy = dx, dy
+        delta = local_dx if self._op_handle == "col" else local_dy
+        item.drag_divider(
+            self._op_handle,
+            self._op_div_index,
+            delta,
+            self._op_start_widths,
+            self._op_start_heights,
+        )
+        self.viewport().update()
+
     def _do_rotate(self, scene_pos: QPointF, *, snap: bool = False) -> None:
         """Drehen um die **Item-Mitte** (nicht um die obere linke Ecke).
 
@@ -1377,6 +1480,10 @@ class LabelCanvas(QGraphicsView):
             self.viewport().unsetCursor()
             event.accept()
             return
+        if event.button() == Qt.MouseButton.LeftButton and self._pending_move_start is not None:
+            self._pending_move_start = None
+            event.accept()
+            return
         if self._op is not None and event.button() == Qt.MouseButton.LeftButton:
             finished = self._op
             self._op = None
@@ -1385,7 +1492,7 @@ class LabelCanvas(QGraphicsView):
             self._move_items = []
             self._guides = []
             self.viewport().update()
-            if finished in ("move", "resize", "rotate"):
+            if finished in ("move", "resize", "rotate", "table-divider"):
                 # Nach der Geste: Scrollbereich an die neue Objektlage anpassen.
                 self._update_pasteboard()
                 self.items_changed.emit()
@@ -1406,6 +1513,16 @@ class LabelCanvas(QGraphicsView):
         elif getattr(item, "kind", None) == "text":
             # Oeffnet das Feld und markiert den Text (im offenen Feld ebenso).
             item.start_editing()
+        elif getattr(item, "kind", None) == "table":
+            # Der zweite Klick kann eine (schwebende) Verschiebung aufgemacht
+            # haben. Die Bearbeitung ersetzt sie; sonst wuerde das Loslassen
+            # einen leeren Schritt „Bearbeiten" aus dem Schnappschuss machen.
+            self._pending_move_start = None
+            self._op = None
+            self._op_item = None
+            self._move_items = []
+            self._guides = []
+            item.begin_edit_at(item.mapFromScene(self.mapToScene(self._event_pos(event))))
         else:
             self._scene.clearSelection()
             item.setSelected(True)
@@ -1478,8 +1595,24 @@ class LabelCanvas(QGraphicsView):
             event.accept()
             return
         key = event.key()
-        focus = self._scene.focusItem()
-        editing = focus is not None and getattr(focus, "is_editing", False)
+        editing_item = self._focused_editor()
+        editing = editing_item is not None
+        if key in (Qt.Key.Key_Tab, Qt.Key.Key_Backtab):
+            table = editing_item if getattr(editing_item, "kind", None) == "table" else None
+            if table is None:
+                selected = self.selected_items()
+                if len(selected) == 1 and getattr(selected[0], "kind", None) == "table":
+                    table = selected[0]
+            if table is not None:
+                if table.is_editing:
+                    table.finish_editing()
+                backward = key == Qt.Key.Key_Backtab or bool(
+                    event.modifiers() & Qt.KeyboardModifier.ShiftModifier
+                )
+                table.advance_cell(backward)
+                table.begin_edit_current()
+                event.accept()
+                return
         if key == Qt.Key.Key_Escape:
             # Esc beendet die Inline-Bearbeitung und die Auswahl. Qt laesst ein
             # Textfeld in Bearbeitung von sich aus offen - deshalb hier zuerst.
@@ -1490,6 +1623,12 @@ class LabelCanvas(QGraphicsView):
         if editing:
             super().keyPressEvent(event)
             return
+        if key in (Qt.Key.Key_Return, Qt.Key.Key_Enter, Qt.Key.Key_F2):
+            selected = self.selected_items()
+            if len(selected) == 1 and getattr(selected[0], "kind", None) == "table":
+                selected[0].begin_edit_current()
+                event.accept()
+                return
         if key in (Qt.Key.Key_Delete, Qt.Key.Key_Backspace):
             if self.selected_items():
                 self.gesture_begun.emit()
@@ -1515,10 +1654,21 @@ class LabelCanvas(QGraphicsView):
             return
         super().keyPressEvent(event)
 
+    def _focused_editor(self):
+        """Das Objekt, das gerade Text annimmt - auch wenn der Fokus im Kind liegt."""
+        item = self._scene.focusItem()
+        while item is not None:
+            if getattr(item, "is_editing", False):
+                return item
+            item = item.parentItem()
+        return None
+
     def cancel_editing(self) -> None:
         focus = self._scene.focusItem()
-        if focus is not None and getattr(focus, "is_editing", False):
-            focus.finish_editing()
+        item = self._focused_editor()
+        if item is not None:
+            item.finish_editing()
+        if focus is not None:
             focus.clearFocus()
 
     # -- Items --------------------------------------------------------------

@@ -5087,3 +5087,23 @@ def test_print_and_history_buttons_share_height_and_row(qapp, tmp_path):
     assert win._print_button.y() == win._history_button.y()
     win.close()
     qapp.processEvents()
+
+
+def test_language_switch_keeps_session_print_history(qapp, tmp_path, monkeypatch):
+    from ql_editor import app as app_module
+
+    win = _print_with_outcome(qapp, tmp_path, monkeypatch, "sent")
+    assert len(win._print_jobs) == 1
+    previous = win._print_jobs[0]
+
+    win.switch_language("en")
+    qapp.processEvents()
+
+    new = app_module._current_window
+    assert new is not win
+    assert new._print_jobs == [previous]
+    assert "Sent to printer" in new._last_job_label.text()
+    assert previous.model in new._last_job_label.text()
+
+    new.close()
+    qapp.processEvents()
