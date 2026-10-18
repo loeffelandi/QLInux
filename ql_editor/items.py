@@ -1712,6 +1712,7 @@ class TableCell:
         align = raw.get("align", "left")
         valign = raw.get("valign", "middle")
         fill = raw.get("fill", "none")
+        color = str(raw.get("color", "black"))
         return cls(
             text=str(raw.get("text", "")),
             row_span=max(1, int(raw.get("row_span", 1))),
@@ -1725,7 +1726,7 @@ class TableCell:
             align=align if align in _H_ALIGN else "left",
             valign=valign if valign in ("top", "middle", "bottom") else "middle",
             fill=fill if fill in _FILL_BRUSH else "none",
-            color=str(raw.get("color", "black")),
+            color=color if color in ("black", "red") else "black",
         )
 
 
@@ -1974,6 +1975,8 @@ class TableItem(_ClampMixin, QGraphicsObject):
         return all(v == vals[0] for v in vals), vals[0]
 
     def set_selected(self, name: str, value: Any) -> None:
+        if name == "color":
+            value = value if value in ("black", "red") else "black"
         for r, c in self._anchors():
             setattr(self._cells[r][c], name, value)
         if self._editing_cell in self._anchors():
@@ -2497,7 +2500,8 @@ class TableItem(_ClampMixin, QGraphicsObject):
                 rect = self.cell_rect(r, c)
                 brush_style = _FILL_BRUSH.get(cell.fill, Qt.BrushStyle.NoBrush)
                 if brush_style != Qt.BrushStyle.NoBrush:
-                    painter.fillRect(rect, QBrush(QColor("black"), brush_style))
+                    fill_color = cell.color if cell.color in ("black", "red") else "black"
+                    painter.fillRect(rect, QBrush(QColor(fill_color), brush_style))
                 if widget is not None and (r, c) in self._selection:
                     painter.fillRect(rect, QColor(0, 120, 215, 36))
                 if self._editing_cell == (r, c) or not cell.text:

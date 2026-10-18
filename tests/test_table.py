@@ -5,9 +5,10 @@ from __future__ import annotations
 import pytest
 from PySide6.QtCore import QEvent, QPointF, Qt
 from PySide6.QtGui import QMouseEvent
+from PySide6.QtWidgets import QApplication, QPlainTextEdit
 
-from ql_editor.canvas import LabelCanvas
-from ql_editor.items import TableItem, item_from_dict
+from ql_editor.canvas import LabelCanvas, _TABLE_MOVE_THRESHOLD_PX
+from ql_editor.items import TableCell, TableItem, item_from_dict
 from ql_editor.media import get_label
 
 pytestmark = pytest.mark.usefixtures("qapp")
@@ -31,6 +32,16 @@ def test_roundtrip_keeps_cells_and_spans():
     assert restored._cells[0][1].skip is True
     assert restored.line_style == "solid"
     assert restored.fixed_size is True
+
+
+def test_table_cell_color_clamps_to_black_or_red():
+    assert TableCell.from_dict({"color": "lime"}).color == "black"
+    assert TableCell.from_dict({"color": "red"}).color == "red"
+    item = TableItem(1, 1, 80, 40)
+    item.set_selected("color", "purple")
+    assert item._cells[0][0].color == "black"
+    item.set_selected("color", "red")
+    assert item._cells[0][0].color == "red"
 
 
 def test_merge_unmerge_and_reject_a_gap():
@@ -146,11 +157,10 @@ def test_divider_hit_ignores_a_merged_line():
     assert item.divider_at(QPointF(100, 40), tol=6) is None
 
 
-def _mouse(kind, canvas, scene_pos, button, buttons):
+def _mouse(kind, canvas, scene_pos, button, buttons, mods=None):
     vp = canvas.mapFromScene(scene_pos)
-    return QMouseEvent(
-        kind, QPointF(vp), QPointF(vp), button, buttons, Qt.KeyboardModifier.NoModifier
-    )
+    mods = Qt.KeyboardModifier.NoModifier if mods is None else mods
+    return QMouseEvent(kind, QPointF(vp), QPointF(vp), button, buttons, mods)
 
 
 def test_canvas_drag_resizes_a_column_and_double_click_edits(qapp):
@@ -233,3 +243,187 @@ def test_main_window_inserts_a_table_like_ptouch(qapp):
     assert win._canvas.length_dots > before
     assert win._inspector._title.text() == "Tabelle"
     assert table.table_height > table.table_width
+    win.close()
+    qapp.processEvents()
+
+
+def test_shift_click_selects_cells_without_starting_move(qapp):
+    canvas = LabelCanvas()
+    canvas.resize(800, 700)
+    canvas.show()
+    qapp.processEvents()
+    canvas.set_label(get_label("50"), 600)
+    item = TableItem(2, 2, 240, 120, font_pixel_size=18)
+    canvas.add_item(item)
+    item.setPos(30, 20)
+    qapp.processEvents()
+
+    first = QPointF(item.pos().x() + 20, item.pos().y() + 20)
+    second = QPointF(item.pos().x() + item.col_widths[0] + 20, item.pos().y() + 20)
+    canvas.mousePressEvent(
+        _mouse(
+            QEvent.Type.MouseButtonPress,
+            canvas,
+            first,
+            Qt.MouseButton.LeftButton,
+            Qt.MouseButton.LeftButton,
+        )
+    )
+    assert canvas._op is None
+    assert canvas._pending_move_start is not None
+    canvas.mouseReleaseEvent(
+        _mouse(
+            QEvent.Type.MouseButtonRelease,
+            canvas,
+            first,
+            Qt.MouseButton.LeftButton,
+            Qt.MouseButton.NoButton,
+        )
+    )
+    assert canvas._pending_move_start is None
+
+    canvas.mousePressEvent(
+        _mouse(
+            QEvent.Type.MouseButtonPress,
+            canvas,
+            second,
+            Qt.MouseButton.LeftButton,
+            Qt.MouseButton.LeftButton,
+            Qt.KeyboardModifier.ShiftModifier,
+        )
+    )
+    assert canvas._op is None
+    assert canvas._pending_move_start is not None
+    assert (0, 0) in item._selection and (0, 1) in item._selection
+    # Kleiner Ruck unter der Schwelle: Tabelle bleibt stehen.
+    nudge = QPointF(second.x() + 1, second.y())
+    before = QPointF(item.pos())
+    canvas.mouseMoveEvent(
+        _mouse(
+            QEvent.Type.MouseMove,
+            canvas,
+            nudge,
+            Qt.MouseButton.NoButton,
+            Qt.MouseButton.LeftButton,
+            Qt.KeyboardModifier.ShiftModifier,
+        )
+    )
+    assert canvas._op is None
+    assert item.pos() == before
+    canvas.mouseReleaseEvent(
+        _mouse(
+            QEvent.Type.MouseButtonRelease,
+            canvas,
+            nudge,
+            Qt.MouseButton.LeftButton,
+            Qt.MouseButton.NoButton,
+        )
+    )
+
+    # Ohne Umschalt und mit genug Drag startet die Verschiebung.
+    canvas.mousePressEvent(
+        _mouse(
+            QEvent.Type.MouseButtonPress,
+            canvas,
+            first,
+            Qt.MouseButton.LeftButton,
+            Qt.MouseButton.LeftButton,
+        )
+    )
+    drag = QPointF(first.x() + _TABLE_MOVE_THRESHOLD_PX + 8, first.y())
+    canvas.mouseMoveEvent(
+        _mouse(
+            QEvent.Type.MouseMove,
+            canvas,
+            drag,
+            Qt.MouseButton.NoButton,
+            Qt.MouseButton.LeftButton,
+        )
+    )
+    assert canvas._op == "move"
+    canvas.mouseReleaseEvent(
+        _mouse(
+            QEvent.Type.MouseButtonRelease,
+            canvas,
+            drag,
+            Qt.MouseButton.LeftButton,
+            Qt.MouseButton.NoButton,
+        )
+    )
+
+
+def _live_table(win):
+    return next(it for it in win._canvas.scene().items() if getattr(it, "kind", None) == "table")
+
+
+def _select_table(win, table) -> None:
+    win._canvas.scene().clearSelection()
+    table.setSelected(True)
+    win._on_selection_changed()
+    qapp = QApplication.instance()
+    if qapp is not None:
+        qapp.processEvents()
+
+
+def test_main_window_undoes_table_merge_row_and_inspector_text(qapp):
+    """Struktur und Inspector-Text schliessen Undo (M1 / m4)."""
+    from ql_editor.app import MainWindow
+
+    win = MainWindow()
+    win.resize(1100, 760)
+    win.show()
+    qapp.processEvents()
+    win._act_add_table.trigger()
+    qapp.processEvents()
+    table = _live_table(win)
+    assert table.rows == 3 and table.cols == 2
+
+    table.select_cell_at(QPointF(10, 10))
+    table.select_cell_at(QPointF(table.table_width - 10, 10), extend=True)
+    assert table.can_merge()
+    # Inspector-_apply_now ist der gleiche Pfad wie die Struktur-Knoepfe.
+    win._inspector._apply_now(table.merge_selected)
+    qapp.processEvents()
+    assert table._cells[0][0].col_span == 2
+    win._act_undo.trigger()
+    qapp.processEvents()
+    table = _live_table(win)
+    assert table._cells[0][0].col_span == 1
+
+    _select_table(win, table)
+    rows_before = table.rows
+    win._inspector._apply_now(table.insert_row_above)
+    qapp.processEvents()
+    table = _live_table(win)
+    assert table.rows == rows_before + 1
+    win._act_undo.trigger()
+    qapp.processEvents()
+    table = _live_table(win)
+    assert table.rows == rows_before
+
+    _select_table(win, table)
+    original = table._cells[0][0].text
+    # deleteLater-Reste zuerst: das aktuelle Textfeld ist das letzte mit Parent.
+    edits = [
+        field
+        for field in win._inspector.findChildren(QPlainTextEdit)
+        if field.parent() is not None
+    ]
+    assert edits
+    edit = edits[-1]
+    edit.setFocus()
+    qapp.processEvents()
+    edit.setPlainText("Kabel")
+    qapp.processEvents()
+    assert win._inspector.edit_open is True
+    assert table._cells[0][0].text == "Kabel"
+    # FocusOut schliesst den Undo-Schritt (eventFilter / M1).
+    QApplication.sendEvent(edit, QEvent(QEvent.Type.FocusOut))
+    qapp.processEvents()
+    assert win._inspector.edit_open is False
+    win._act_undo.trigger()
+    qapp.processEvents()
+    table = _live_table(win)
+    assert table._cells[0][0].text == original
+    win.close()
+    qapp.processEvents()
