@@ -17,20 +17,25 @@ from __future__ import annotations
 from PySide6.QtCore import QEvent, Qt, QTimer, Signal
 from PySide6.QtGui import QFont
 from PySide6.QtWidgets import (
+    QButtonGroup,
     QCheckBox,
     QComboBox,
     QDoubleSpinBox,
     QFontComboBox,
     QFormLayout,
+    QFrame,
+    QHBoxLayout,
     QLabel,
     QLineEdit,
     QPlainTextEdit,
     QSpinBox,
+    QToolButton,
     QVBoxLayout,
     QWidget,
 )
 
 from .i18n import tr
+from .icons import icon
 from .media import dots_to_mm, mm_to_dots
 from .widgets import install_wheel_guard_recursive
 
@@ -142,26 +147,78 @@ class InspectorPanel(QWidget):
         self._wire_spin(size, lambda v: item.set_font_pixel_size(v))
         form.addRow(tr("Größe (px)"), size)
 
-        bold = QCheckBox(tr("Fett"))
-        bold.setChecked(item.bold)
-        bold.toggled.connect(lambda v: self._apply_now(lambda: item.set_bold(v)))
-        form.addRow("", bold)
+        form.addRow(self._rule())
+        form.addRow(
+            self._bar(
+                self._toggle("bold", tr("Fett"), item.bold, item.set_bold),
+                self._toggle("italic", tr("Kursiv"), item.italic, item.set_italic),
+                self._toggle("underline", tr("Unterstrichen"), item.underline, item.set_underline),
+                self._toggle("strike", tr("Durchgestrichen"), item.strike, item.set_strike),
+                self._divider(),
+                self._toggle("invert", tr("Invertiert"), item.inverted, item.set_inverted),
+            )
+        )
 
-        italic = QCheckBox(tr("Kursiv"))
-        italic.setChecked(item.italic)
-        italic.toggled.connect(lambda v: self._apply_now(lambda: item.set_italic(v)))
-        form.addRow("", italic)
+        color = QComboBox()
+        color.addItem(tr("schwarz"), "black")
+        color.addItem(tr("rot"), "red")
+        color.setCurrentIndex(0 if item.color == "black" else 1)
+        color.setEnabled(self._allow_red)
+        color.currentIndexChanged.connect(
+            lambda: self._apply_now(lambda: item.set_text_color(color.currentData()))
+        )
+        form.addRow(tr("Farbe"), color)
 
-        underline = QCheckBox(tr("Unterstrichen"))
-        underline.setChecked(item.underline)
-        underline.toggled.connect(lambda v: self._apply_now(lambda: item.set_underline(v)))
-        form.addRow("", underline)
+        form.addRow(self._rule())
+        form.addRow(
+            tr("Textausrichtung"),
+            self._choice(
+                [
+                    ("align_left", tr("Links"), "left"),
+                    ("align_hcenter", tr("Mitte"), "center"),
+                    ("align_right", tr("Rechts"), "right"),
+                ],
+                item.align,
+                item.set_align,
+            ),
+        )
+        form.addRow(
+            tr("Vertikal ausrichten"),
+            self._choice(
+                [
+                    ("align_top", tr("Oben"), "top"),
+                    ("align_vcenter", tr("Mitte"), "middle"),
+                    ("align_bottom", tr("Unten"), "bottom"),
+                ],
+                item.valign,
+                item.set_valign,
+            ),
+        )
+        form.addRow(
+            tr("Aufzählung"),
+            self._choice(
+                [
+                    ("list_none", tr("Keine"), "none"),
+                    ("list_bullet", tr("Punkte"), "bullet"),
+                    ("list_number", tr("Nummern"), "number"),
+                ],
+                item.list_style,
+                item.set_list,
+            ),
+        )
+        form.addRow(
+            tr("Textrichtung"),
+            self._choice(
+                [
+                    ("dir_horizontal", tr("Horizontal"), False),
+                    ("dir_vertical", tr("Vertikal"), True),
+                ],
+                item.vertical,
+                item.set_vertical,
+            ),
+        )
 
-        strike = QCheckBox(tr("Durchgestrichen"))
-        strike.setChecked(item.strike)
-        strike.toggled.connect(lambda v: self._apply_now(lambda: item.set_strike(v)))
-        form.addRow("", strike)
-
+        form.addRow(self._rule())
         letter = QDoubleSpinBox()
         letter.setRange(-20.0, 200.0)
         letter.setDecimals(1)
@@ -178,83 +235,75 @@ class InspectorPanel(QWidget):
         self._wire_spin(line, lambda v: item.set_line_spacing(v))
         form.addRow(tr("Zeilenabstand"), line)
 
-        color = QComboBox()
-        color.addItem(tr("schwarz"), "black")
-        color.addItem(tr("rot"), "red")
-        color.setCurrentIndex(0 if item.color == "black" else 1)
-        color.setEnabled(self._allow_red)
-        color.currentIndexChanged.connect(
-            lambda: self._apply_now(lambda: item.set_text_color(color.currentData()))
+        form.addRow(self._rule())
+        form.addRow(
+            self._bar(
+                self._check(tr("Breite automatisch"), item.auto_width, item.set_auto_width),
+                self._check(tr("Umbruch"), item.wrap, item.set_wrap),
+                self._check(tr("Höhe automatisch"), item.auto_height, item.set_auto_height),
+            )
         )
-        form.addRow(tr("Farbe"), color)
 
-        inverted = QCheckBox(tr("Invertiert (weiße Schrift auf Farbe)"))
-        inverted.setChecked(item.inverted)
-        inverted.toggled.connect(lambda v: self._apply_now(lambda: item.set_inverted(v)))
-        form.addRow("", inverted)
+    # -- Textleiste (Symbol-Knoepfe) -----------------------------------------
+    def _bar(self, *widgets: QWidget) -> QWidget:
+        row = QWidget()
+        layout = QHBoxLayout(row)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(2)
+        for widget in widgets:
+            layout.addWidget(widget)
+        layout.addStretch(1)
+        return row
 
-        listing = QComboBox()
-        for label, value in (
-            (tr("Keine"), "none"),
-            (tr("Punkte"), "bullet"),
-            (tr("Nummern"), "number"),
-        ):
-            listing.addItem(label, value)
-        listing.setCurrentIndex(max(0, listing.findData(item.list_style)))
-        listing.currentIndexChanged.connect(
-            lambda: self._apply_now(lambda: item.set_list(listing.currentData()))
-        )
-        form.addRow(tr("Aufzählung"), listing)
+    def _toggle(self, name: str, tip: str, checked: bool, apply_fn) -> QToolButton:
+        """Ein-/Aus-Knopf mit Symbol (Fett, Kursiv, Invertiert ...)."""
+        button = QToolButton()
+        button.setIcon(icon(name))
+        button.setToolTip(tip)
+        button.setCheckable(True)
+        button.setChecked(bool(checked))
+        button.setAutoRaise(True)
+        button.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        button.toggled.connect(lambda v: self._apply_now(lambda: apply_fn(v)))
+        return button
 
-        direction = QComboBox()
-        direction.addItem(tr("Horizontal"), False)
-        direction.addItem(tr("Vertikal"), True)
-        direction.setCurrentIndex(1 if item.vertical else 0)
-        direction.currentIndexChanged.connect(
-            lambda: self._apply_now(lambda: item.set_vertical(direction.currentData()))
-        )
-        form.addRow(tr("Textrichtung"), direction)
+    def _choice(self, options, current, apply_fn) -> QWidget:
+        """Gruppe von Symbol-Knoepfen, genau einer ist aktiv (Ausrichtung, Richtung ...)."""
+        group = QButtonGroup(self)
+        group.setExclusive(True)
+        buttons = []
+        for name, tip, value in options:
+            button = QToolButton()
+            button.setIcon(icon(name))
+            button.setToolTip(tip)
+            button.setCheckable(True)
+            button.setChecked(value == current)
+            button.setAutoRaise(True)
+            button.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+            button.toggled.connect(
+                lambda v, val=value: v and self._apply_now(lambda: apply_fn(val))
+            )
+            group.addButton(button)
+            buttons.append(button)
+        return self._bar(*buttons)
 
-        align = QComboBox()
-        for label, value in (
-            (tr("Links"), "left"),
-            (tr("Mitte"), "center"),
-            (tr("Rechts"), "right"),
-        ):
-            align.addItem(label, value)
-        align.setCurrentIndex(max(0, align.findData(item.align)))
-        align.currentIndexChanged.connect(
-            lambda: self._apply_now(lambda: item.set_align(align.currentData()))
-        )
-        form.addRow(tr("Textausrichtung"), align)
+    def _check(self, label: str, checked: bool, apply_fn) -> QCheckBox:
+        box = QCheckBox(label)
+        box.setChecked(bool(checked))
+        box.toggled.connect(lambda v: self._apply_now(lambda: apply_fn(v)))
+        return box
 
-        valign = QComboBox()
-        for label, value in (
-            (tr("Oben"), "top"),
-            (tr("Mitte"), "middle"),
-            (tr("Unten"), "bottom"),
-        ):
-            valign.addItem(label, value)
-        valign.setCurrentIndex(max(0, valign.findData(item.valign)))
-        valign.currentIndexChanged.connect(
-            lambda: self._apply_now(lambda: item.set_valign(valign.currentData()))
-        )
-        form.addRow(tr("Vertikal ausrichten"), valign)
+    def _divider(self) -> QFrame:
+        line = QFrame()
+        line.setFrameShape(QFrame.Shape.VLine)
+        line.setFrameShadow(QFrame.Shadow.Sunken)
+        return line
 
-        auto_width = QCheckBox(tr("Breite automatisch"))
-        auto_width.setChecked(item.auto_width)
-        auto_width.toggled.connect(lambda v: self._apply_now(lambda: item.set_auto_width(v)))
-        form.addRow("", auto_width)
-
-        wrap = QCheckBox(tr("Langen Text umbrechen"))
-        wrap.setChecked(item.wrap)
-        wrap.toggled.connect(lambda v: self._apply_now(lambda: item.set_wrap(v)))
-        form.addRow("", wrap)
-
-        auto_height = QCheckBox(tr("Höhe automatisch"))
-        auto_height.setChecked(item.auto_height)
-        auto_height.toggled.connect(lambda v: self._apply_now(lambda: item.set_auto_height(v)))
-        form.addRow("", auto_height)
+    def _rule(self) -> QFrame:
+        line = QFrame()
+        line.setFrameShape(QFrame.Shape.HLine)
+        line.setFrameShadow(QFrame.Shadow.Sunken)
+        return line
 
     def _build_qr(self, item, form: QFormLayout) -> None:
         data = QLineEdit(item._data)
