@@ -155,7 +155,26 @@ def test_main_window_inserts_a_current_stamp_and_undoes_the_format(qapp):
     stamp = next(it for it in win._canvas.scene().items() if getattr(it, "kind", None) == "datetime")
     assert stamp.date_format == "ymd_slash"
     assert "/" in stamp.toPlainText()
+    assert stamp.align == "left"
+    # Inspector bietet Textausrichtung wie bei Text (wirkt mit text_width).
+    from PySide6.QtWidgets import QToolButton
 
+    align_buttons = [
+        button
+        for button in win._inspector.findChildren(QToolButton)
+        if button.toolTip() in ("Links", "Mitte", "Rechts") and button.isCheckable()
+    ]
+    assert len(align_buttons) >= 3
+    center = next(button for button in align_buttons if button.toolTip() == "Mitte")
+    center.click()
+    qapp.processEvents()
+    stamp = next(it for it in win._canvas.scene().items() if getattr(it, "kind", None) == "datetime")
+    assert stamp.align == "center"
+
+    win._act_undo.trigger()
+    qapp.processEvents()
+    stamp = next(it for it in win._canvas.scene().items() if getattr(it, "kind", None) == "datetime")
+    assert stamp.align == "left"
     win._act_undo.trigger()
     qapp.processEvents()
     stamp = next(it for it in win._canvas.scene().items() if getattr(it, "kind", None) == "datetime")
