@@ -24,8 +24,8 @@ PROJECT_URL = "https://github.com/loeffelandi/QLInux"
 DEVELOPER = "Sustain – Andreas Schäfer"
 DEVELOPER_URL = "https://www.sustain-vt.de"
 
-#: Schriftfarbe der Nebenzeilen (wie die Hinweise im Panel).
-_HINT_STYLE = "color:#6b7280;"
+#: Nebenzeilen, gleiche Rolle wie die Hinweise im Panel.
+_HINT_STYLE = "color:palette(placeholderText);"
 
 
 def credits() -> tuple[tuple[str, str, str, str], ...]:

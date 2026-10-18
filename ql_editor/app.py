@@ -156,6 +156,7 @@ from .sheet import (
     show_widget,
 )
 from .symbols import SymbolPicker
+from .theme import apply_theme
 from .widgets import FeedIndicator, SmoothScrollArea, install_wheel_guard_recursive
 
 BARCODE_SYMBOLOGIES = ["code128", "code39", "ean13", "ean8", "upca", "itf", "codabar"]
@@ -4957,6 +4958,8 @@ def main(argv: list[str] | None = None) -> int:
     # Fenster nach vorn - auch ohne Datei. Dieser Start endet dann.
     if instance.forward(files):
         return 0
+    # Hell/dunkel kommt von der Arbeitsumgebung. Das Fenster erbt die Palette.
+    apply_theme(app)
     settings = AppSettings()
     set_language(settings.language or _system_language())
     # Zahlen (Dezimaltrennzeichen) folgen der Sprache - auch in Spinboxen.

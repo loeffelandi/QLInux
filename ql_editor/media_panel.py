@@ -78,8 +78,8 @@ PRINTER_LABELS = (
 CONNECTION_BUTTON_MIN_WIDTH = 88
 #: Hoehe der Anschluss-Knoepfe (Bildschirmpixel).
 CONNECTION_BUTTON_HEIGHT = 26
-#: Hinweiszeile im Drucker-Formular (zurueckgenommen grau).
-HINT_STYLE = "color:#6b7280;"
+#: Hinweiszeile im Drucker-Formular, folgt der Palette.
+HINT_STYLE = "color:palette(placeholderText);"
 #: Zeichen, die die USB-Liste mindestens zeigen soll. Laengere Geraetenamen
 #: werden abgeschnitten (der volle Text steht im Tooltip) - so bleibt die
 #: Feldspalte schmal und das Panel behaelt seine Breite.
@@ -335,7 +335,6 @@ class MediaPanel(QWidget):
         self._mode_combo.addItem(tr("Gesamtlänge (inkl. Rand)"), LengthMode.FINISHED.value)
         self._mode_combo.addItem(tr("nur Inhalt"), LengthMode.CONTENT.value)
         self._size_label = QLabel("-")
-        self._size_label.setStyleSheet("color:#444;")
         length_form.addRow(self._auto_check)
         length_form.addRow(tr("Länge"), self._length_spin)
         length_form.addRow(tr("Bedeutung"), self._mode_combo)

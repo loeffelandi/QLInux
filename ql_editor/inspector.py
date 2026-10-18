@@ -122,7 +122,7 @@ class InspectorPanel(QWidget):
         self._root.setContentsMargins(8, 8, 8, 8)
         self._root.setSpacing(6)
         self._title = QLabel(tr("Nichts ausgewählt"))
-        self._title.setStyleSheet("font-weight:600; color:#333;")
+        self._title.setStyleSheet("font-weight:600; color:palette(windowText);")
         self._root.addWidget(self._title)
         self._root.addStretch(1)
 
