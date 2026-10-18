@@ -508,8 +508,8 @@ EN: dict[str, str] = {
     "Höhe": "Height",
     "Größe (Dots)": "Size (dots)",
     "Höhe (Dots)": "Height (dots)",
-    "X (Dots)": "X (dots)",
-    "Y (Dots)": "Y (dots)",
+    "X": "X",
+    "Y": "Y",
     "Linienbreite": "Line width",
     "Gefüllt": "Filled",
     "Invertiert": "Inverted",
@@ -743,5 +743,21 @@ EN: dict[str, str] = {
     ),
     "Unbekannte Binding-Quelle: {source!r}.": (
         "Unknown binding source: {source!r}."
+    ),
+    # -- Datenbank-Merge (M2) -----------------------------------------------
+    "Datenbank": "Database",
+    "Keine CSV verbunden": "No CSV connected",
+    "CSV": "CSV",
+    "Zeile wählen = Live-Vorschau. Spaltenköpfe später per Drag auf Text/Barcode/QR binden.": (
+        "Select a row for live preview. Column headers can later be dragged onto "
+        "text/barcode/QR to bind."
+    ),
+    "Serien-Index darf nicht negativ sein.": "Serial index must not be negative.",
+    "Objekt {kind!r} unterstuetzt keinen Merge.": (
+        "Object {kind!r} does not support merge."
+    ),
+    "CSV nicht geladen: {error}": "CSV not loaded: {error}",
+    "CSV-Inhalt hat sich geändert (Hash weicht ab).": (
+        "CSV content has changed (hash mismatch)."
     ),
 }

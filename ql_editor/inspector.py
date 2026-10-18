@@ -1068,20 +1068,38 @@ class InspectorPanel(QWidget):
         x.setRange(-10000, 10000)
         x.setValue(int(pos.x()))
         self._wire_spin(x, lambda v: item.setPos(v, item.pos().y()))
-        form.addRow(tr("X (Dots)"), x)
 
         y = QSpinBox()
         y.setRange(-10000, 10000)
         y.setValue(int(pos.y()))
         self._wire_spin(y, lambda v: item.setPos(item.pos().x(), v))
-        form.addRow(tr("Y (Dots)"), y)
+
+        xy_row = QWidget()
+        xy_layout = QHBoxLayout(xy_row)
+        xy_layout.setContentsMargins(0, 0, 0, 0)
+        xy_layout.setSpacing(6)
+        xy_layout.addWidget(QLabel(tr("X")))
+        xy_layout.addWidget(x, 1)
+        xy_layout.addWidget(QLabel(tr("Y")))
+        xy_layout.addWidget(y, 1)
+        form.addRow(xy_row)
 
         rot = QSpinBox()
         rot.setRange(-180, 180)
         rot.setSuffix(" °")
         rot.setValue(int(item.rotation()))
         self._wire_spin(rot, lambda v: item.setRotation(v))
-        form.addRow(tr("Drehung"), rot)
+
+        # Eigene Zeile, linksbuendig: die Formularspalte schiebt das Feld
+        # sonst nach rechts und zieht es auf die Feldspalte auf.
+        rot_row = QWidget()
+        rot_layout = QHBoxLayout(rot_row)
+        rot_layout.setContentsMargins(0, 0, 0, 0)
+        rot_layout.setSpacing(6)
+        rot_layout.addWidget(QLabel(tr("Drehung")))
+        rot_layout.addWidget(rot)
+        rot_layout.addStretch(1)
+        form.addRow(rot_row)
 
     # -- Helpers ------------------------------------------------------------
     def _wire_spin(self, spin, apply_fn) -> None:

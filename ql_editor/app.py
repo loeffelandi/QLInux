@@ -73,12 +73,16 @@ from PySide6.QtWidgets import (
 
 from . import access
 from . import about
+from . import csv_source
 from . import document
 from . import instance, lbx
 from . import media
+from . import merge as merge_engine
 from . import resources
 from . import templates
 from .canvas import LabelCanvas
+from .csv_source import CsvTable
+from .database_panel import DatabasePanel
 from .discovery import discover_network_printers
 from .history import design_snapshot, push_if_changed
 from .i18n import (
@@ -279,6 +283,13 @@ class LabelTab:
         self.margin_prev: dict[str, float] = {}
         self.margin_base: tuple[float, float] = (0.0, 0.0)
         self.preview_view: tuple[float, QPointF] | None = None
+        #: Geladene CSV (nicht in ``.qlx`` eingebettet, D1).
+        self.csv_table: CsvTable | None = None
+        #: Persistenter ``data_source``-Block (Pfad, Hash, current_record).
+        self.data_source: dict[str, Any] | None = None
+        #: Serienparameter (Format 2); Vorschau nutzt Index 0 (D10).
+        self.serial: dict[str, Any] = document.merge_serial()
+        self.current_record: int = 0
 
     def is_dirty(self) -> bool:
         """Inhalt geändert - unabhängig von der Druckeradresse."""
@@ -287,6 +298,13 @@ class LabelTab:
         except RuntimeError:
             stack_dirty = False
         return self.document_dirty or stack_dirty
+
+    def clear_database(self) -> None:
+        """CSV und Merge-Zustand dieses Reiters verwerfen."""
+        self.csv_table = None
+        self.data_source = None
+        self.current_record = 0
+        self.serial = document.merge_serial()
 
 
 class MainWindow(QMainWindow):
@@ -325,17 +343,22 @@ class MainWindow(QMainWindow):
         #: Sprachwechsel übernimmt das Etikett - dabei nicht nach dem Speichern fragen.
         self._accept_close = False
         self._close_prompt = False
+        #: CSV-/Hash-Status nach Open zuletzt anzeigen (nicht von „geöffnet“ überdecken).
+        self._pending_database_status: str | None = None
 
         self._canvas_stack = QStackedWidget()
         self._canvas_stack.setMinimumSize(240, 180)
         self._host = PanelHost(self._canvas_stack, self)
         self._tab_chrome = self._build_tab_chrome()
+        self._database_panel = DatabasePanel(self)
+        self._database_panel.record_selected.connect(self._on_database_record_selected)
         shell = QWidget()
         shell_layout = QVBoxLayout(shell)
         shell_layout.setContentsMargins(0, 0, 0, 0)
         shell_layout.setSpacing(0)
         shell_layout.addWidget(self._tab_chrome)
         shell_layout.addWidget(self._host, 1)
+        shell_layout.addWidget(self._database_panel)
         self.setCentralWidget(shell)
 
         self._media_panel = MediaPanel(self)
@@ -1324,6 +1347,9 @@ class MainWindow(QMainWindow):
                 "path": tab.path,
                 "document_dirty": tab.is_dirty(),
                 "preview": tab.canvas.print_preview,
+                "data_source": deepcopy(tab.data_source),
+                "serial": deepcopy(tab.serial),
+                "current_record": tab.current_record,
             }
             for tab in self._ordered_tabs()
         ]
@@ -2833,6 +2859,7 @@ class MainWindow(QMainWindow):
             self._adjusting = False
             self._history_suppress = False
         self._sync_media_prev()
+        self._sync_database_panel()
         self._recompute_canvas()
         self._on_selection_changed()
         self._sync_preview_action()
@@ -2875,6 +2902,7 @@ class MainWindow(QMainWindow):
             self._wire_canvas_text(tab.canvas)
             if spec.get("preview"):
                 tab.canvas.set_print_preview(True)
+            self._restore_tab_database(tab, spec)
             created.append((tab, spec))
         if not created:
             self._create_tab()
@@ -2888,6 +2916,7 @@ class MainWindow(QMainWindow):
             else:
                 tab.document_dirty = False
                 tab.undo.setClean()
+        self._sync_database_panel()
         self._update_window_title()
 
     def _can_reuse_current(self) -> bool:
@@ -3004,6 +3033,7 @@ class MainWindow(QMainWindow):
             tab.document_dirty = False
             tab.history_before = None
             tab.preview_view = None
+            tab.clear_database()
             tab.undo.clear()
             tab.undo.setClean()
         finally:
@@ -3013,6 +3043,7 @@ class MainWindow(QMainWindow):
         self._sync_margin_base()
         self._sync_media_prev()
         self._stash_active()
+        self._sync_database_panel()
         self._recompute_canvas()
         self._on_selection_changed()
         self._sync_preview_action()
@@ -3040,19 +3071,237 @@ class MainWindow(QMainWindow):
 
     # ------------------------------------------------------------- Dateien --
     def _document_data(self) -> dict:
-        """Aktuelles Design als Dokumentdaten (Band/Design + Objekte)."""
+        """Aktuelles Design als Dokumentdaten (Band/Design + Objekte + Merge)."""
+        tab = self._require_tab()
+        data_source = self._data_source_for_save(tab)
         return document.build(
-            self._media_panel.media_state(), self._canvas.items_serialized()
+            self._media_panel.media_state(),
+            self._canvas.items_serialized(),
+            data_source=data_source,
+            serial=tab.serial,
         )
 
-    def _apply_document(self, data: dict) -> None:
-        """Dokumentdaten uebernehmen - Adresse und Anschluss bleiben stehen."""
+    def _data_source_for_save(self, tab: LabelTab) -> dict[str, Any] | None:
+        """``data_source`` fuer Speichern: Pfad relativ zur ``.qlx`` (D3)."""
+        if tab.csv_table is not None:
+            csv_path = tab.csv_table.path
+            if csv_path is None and tab.data_source:
+                raw = tab.data_source.get("path")
+                csv_path = Path(raw) if raw else None
+            if csv_path is None:
+                return None
+            try:
+                return csv_source.data_source_dict(
+                    tab.csv_table,
+                    path=csv_path,
+                    current_record=tab.current_record,
+                    relative_to=tab.path or None,
+                )
+            except csv_source.CsvSourceError:
+                pass
+        if tab.data_source is None:
+            return None
+        stored = dict(tab.data_source)
+        stored["current_record"] = int(tab.current_record)
+        return stored
+
+    def _queue_database_status(self, message: str) -> None:
+        """CSV-/Hash-Hinweis merken und anzeigen (Open darf spaeter erneut setzen)."""
+        self._pending_database_status = message
+        self.statusBar().showMessage(message, 8000)
+
+    def _flush_database_status(self) -> None:
+        """Ausstehenden Database-Status nachrangig nach „Etikett geöffnet“ setzen."""
+        message = self._pending_database_status
+        self._pending_database_status = None
+        if message:
+            self.statusBar().showMessage(message, 8000)
+
+    def _load_document_database(
+        self,
+        data: Mapping[str, Any],
+        *,
+        document_path: str | None = None,
+    ) -> None:
+        """``data_source``/``serial`` aus dem Dokument in den aktiven Reiter laden."""
+        tab = self._require_tab()
+        self._pending_database_status = None
+        raw_serial = data.get("serial")
+        tab.serial = document.merge_serial(
+            raw_serial if isinstance(raw_serial, Mapping) else None
+        )
+        raw_source = data.get("data_source")
+        if not isinstance(raw_source, Mapping) or raw_source.get("type") != "csv":
+            tab.csv_table = None
+            tab.data_source = None
+            tab.current_record = 0
+            return
+        tab.data_source = dict(raw_source)
+        stored_path = str(raw_source.get("path") or "")
+        current = int(raw_source.get("current_record") or 0)
+        tab.current_record = current
+        if not stored_path:
+            tab.csv_table = None
+            return
+        base = document_path if document_path is not None else (tab.path or None)
+        csv_path = merge_engine.resolve_csv_path(
+            stored_path, document_path=base
+        )
+        try:
+            table = csv_source.load(
+                csv_path,
+                delimiter=raw_source.get("delimiter"),
+            )
+        except csv_source.CsvSourceError as exc:
+            tab.csv_table = None
+            self._queue_database_status(
+                tr("CSV nicht geladen: {error}").format(error=exc)
+            )
+            return
+        stored_sha = str(raw_source.get("content_sha256") or "")
+        if stored_sha and stored_sha != table.content_sha256:
+            self._queue_database_status(
+                tr("CSV-Inhalt hat sich geändert (Hash weicht ab).")
+            )
+        tab.csv_table = table
+        tab.current_record = merge_engine.clamp_record_index(
+            current, len(table.records)
+        )
+        # SHA/Meta aus der geladenen Datei aktualisieren, Pfad beibehalten.
+        tab.data_source = csv_source.data_source_dict(
+            table,
+            path=stored_path,
+            current_record=tab.current_record,
+        )
+
+    def _restore_tab_database(
+        self, tab: LabelTab, spec: Mapping[str, Any]
+    ) -> None:
+        """Merge-Zustand eines Reiters aus ``_state``/``apply_state`` wiederherstellen."""
+        raw_serial = spec.get("serial")
+        tab.serial = document.merge_serial(
+            raw_serial if isinstance(raw_serial, Mapping) else None
+        )
+        raw_source = spec.get("data_source")
+        tab.current_record = int(spec.get("current_record") or 0)
+        if not isinstance(raw_source, Mapping):
+            tab.csv_table = None
+            tab.data_source = None
+            return
+        previous = self._active
+        self._active = tab
+        try:
+            self._load_document_database(
+                {"data_source": raw_source, "serial": tab.serial},
+                document_path=tab.path or None,
+            )
+        finally:
+            self._active = previous
+
+    def _sync_database_panel(self) -> None:
+        """Unteres Grid an den aktiven Reiter anbinden."""
+        tab = self._active
+        if tab is None or tab.csv_table is None:
+            self._database_panel.clear()
+            return
+        name = None
+        if tab.data_source and tab.data_source.get("path"):
+            name = Path(str(tab.data_source["path"])).name
+        self._database_panel.set_table(
+            tab.csv_table,
+            current_record=tab.current_record,
+            display_name=name,
+        )
+
+    def _on_database_record_selected(self, index: int) -> None:
+        """Tabellenzeile → ``current_record`` + Live-Merge (D15, ohne Undo)."""
+        self.set_current_record(index, mark_dirty=True)
+
+    def set_current_record(self, index: int, *, mark_dirty: bool = False) -> None:
+        """Record wechseln und gebundene Canvas-Objekte aktualisieren (D10/D15)."""
+        tab = self._require_tab()
+        count = len(tab.csv_table.records) if tab.csv_table is not None else 0
+        index = merge_engine.clamp_record_index(index, count)
+        changed = tab.current_record != index
+        tab.current_record = index
+        if tab.data_source is not None:
+            tab.data_source = dict(tab.data_source)
+            tab.data_source["current_record"] = index
+        self._apply_merge_to_canvas()
+        self._database_panel.set_current_record(index)
+        if mark_dirty and changed:
+            self._document_dirty = True
+            self._update_window_title()
+
+    def _apply_merge_to_canvas(self) -> None:
+        """Snapshots aus aktuellem Record (+ Serie Index 0) auf den Canvas."""
+        tab = self._require_tab()
+        record: Mapping[str, str] | None = None
+        if tab.csv_table is not None and tab.csv_table.records:
+            index = merge_engine.clamp_record_index(
+                tab.current_record, len(tab.csv_table.records)
+            )
+            record = tab.csv_table.record(index)
+        self._history_suppress = True
+        self._adjusting = True
+        try:
+            merge_engine.apply_record(
+                self._canvas.ordered_items(),
+                record=record,
+                serial=tab.serial,
+                serial_index=0,
+            )
+        finally:
+            self._adjusting = False
+            self._history_suppress = False
+        self._recompute_canvas()
+        self._schedule_refresh()
+        self._on_selection_changed()
+
+    def bind_csv_table(
+        self,
+        table: CsvTable,
+        *,
+        current_record: int = 0,
+        relative_path: str | None = None,
+    ) -> None:
+        """CSV an den aktiven Reiter binden und Live-Merge anwenden (Tests/API)."""
+        tab = self._require_tab()
+        tab.csv_table = table
+        path = relative_path
+        if path is None and table.path is not None:
+            path = str(table.path)
+        if path is None:
+            raise csv_source.CsvSourceError(tr("CSV-Pfad fehlt."))
+        tab.current_record = merge_engine.clamp_record_index(
+            current_record, len(table.records)
+        )
+        tab.data_source = csv_source.data_source_dict(
+            table,
+            path=path,
+            current_record=tab.current_record,
+            relative_to=tab.path or None,
+        )
+        self._apply_merge_to_canvas()
+        self._sync_database_panel()
+        self._document_dirty = True
+        self._update_window_title()
+
+    def _apply_document(
+        self, data: dict, *, document_path: str | None = None
+    ) -> None:
+        """Dokumentdaten uebernehmen - Adresse und Anschluss bleiben stehen.
+
+        ``document_path`` erlaubt die relative CSV-Aufloesung schon beim Laden,
+        bevor der Reiter-Pfad gesetzt ist.
+        """
         self._adjusting = True
         self._history_suppress = True
         try:
             self._media_panel.apply_media_state(data.get("media") or {})
             self._canvas.load_items(list(data.get("items") or []))
             self._sync_margin_base()
+            self._load_document_database(data, document_path=document_path)
         finally:
             self._adjusting = False
             self._history_suppress = False
@@ -3063,6 +3312,8 @@ class MainWindow(QMainWindow):
         self._document_dirty = False
         self._address_dirty = False
         self._history_before = None
+        self._apply_merge_to_canvas()
+        self._sync_database_panel()
         self._recompute_canvas()
         self._schedule_refresh()
         self._stash_active()
@@ -3163,7 +3414,9 @@ class MainWindow(QMainWindow):
                 return
         if new_tab or not self._can_reuse_current():
             self._create_tab()
-        self._apply_document(data)
+        self._apply_document(
+            data, document_path=None if imported else path
+        )
         if imported:
             # Nicht als .lbx-Pfad merken: „Speichern" würde JSON hineinschreiben.
             # Der Reiter bleibt „Unbenannt*", der nächste Speicherdialog fragt
@@ -3187,6 +3440,8 @@ class MainWindow(QMainWindow):
         self.statusBar().showMessage(
             tr("Etikett geöffnet: {name}").format(name=name), 8000
         )
+        # CSV-Warnung/Hash-Drift nachrangig, sonst verschwindet sie sofort.
+        self._flush_database_status()
 
     def _on_file_save(
         self,
