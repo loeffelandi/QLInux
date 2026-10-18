@@ -21,6 +21,7 @@ from ql_editor.printer import (
     PrinterError,
     PrinterStatus,
     build_raster,
+    build_raster_sequence,
     detect_label,
     print_image,
     probe_status,
@@ -842,3 +843,35 @@ def test_copies_are_one_job_with_form_feeds_between_pages():
     assert len(starts) == 3
     assert [data[s - 1] for s in starts[1:]] == [0x0C, 0x0C]
     assert data[-1] == 0x1A
+
+
+def test_build_raster_sequence_repeats_each_variant_then_the_next():
+    """Kopien haengen am einzelnen Etikett, nicht als Kreuzprodukt dazwischen."""
+    label = get_label("50")
+    first = Image.new("RGB", (label.width_dots, 200), "white")
+    second = Image.new("RGB", (label.width_dots, 240), "black")
+    single = build_raster(first, label, CONFIG, copies=2)
+    sequence = build_raster_sequence(
+        [first, second], label, CONFIG, copies=2, cut_mode=printer.CUT_AT_END
+    )
+    assert build_raster_sequence([first], label, CONFIG, copies=2) == single
+    assert sequence.count(_MEDIA_QUALITY) == 4
+    assert sequence != single
+
+    starts = []
+    cursor = sequence.find(b"\x1b\x69\x53")
+    while cursor >= 0:
+        starts.append(cursor)
+        cursor = sequence.find(b"\x1b\x69\x53", cursor + 1)
+    assert len(starts) == 4
+    assert [sequence[pos - 1] for pos in starts[1:]] == [0x0C, 0x0C, 0x0C]
+    assert sequence[-1] == 0x1A
+
+
+def test_build_raster_sequence_rejects_empty_and_oversized_jobs():
+    label = get_label("50")
+    img = Image.new("RGB", (label.width_dots, 80), "white")
+    with pytest.raises(PrinterError):
+        build_raster_sequence([], label, CONFIG)
+    with pytest.raises(PrinterError):
+        build_raster_sequence([img, img], label, CONFIG, copies=50)

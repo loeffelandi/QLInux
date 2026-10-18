@@ -13,6 +13,7 @@ Alle Fehler werden als :class:`PrinterError` (bzw.
 from __future__ import annotations
 
 from collections import Counter
+from collections.abc import Sequence
 from dataclasses import dataclass, field
 import glob
 import logging
@@ -647,9 +648,49 @@ def build_raster(
     schneidet: :data:`CUT_EACH` nach jedem Etikett, :data:`CUT_AT_END` erst
     nach dem letzten, :data:`CUT_NONE` gar nicht.
     """
-    validate_for_print(
-        image, label, red=red, scale=DPI_600_SCALE if dpi_600 else 1
+    return build_raster_sequence(
+        [image],
+        label,
+        config,
+        threshold=threshold,
+        dither=dither,
+        compress=compress,
+        red=red,
+        rotate=rotate,
+        cut_mode=cut_mode,
+        copies=copies,
+        dpi_600=dpi_600,
+        hq=hq,
     )
+
+
+def build_raster_sequence(
+    images: Sequence[Image.Image],
+    label: LabelSpec,
+    config: PrinterConfig,
+    *,
+    threshold: int = 70,
+    dither: bool = False,
+    compress: bool = True,
+    red: bool = False,
+    rotate: int | str = 0,
+    cut_mode: str = CUT_EACH,
+    copies: int = 1,
+    dpi_600: bool = False,
+    hq: bool = True,
+) -> bytes:
+    """Ein Auftrag aus mehreren Etiketten (D8).
+
+    Jedes Bild wird ``copies``-mal hintereinander wiederholt (identische
+    Kopien, die Serie steigt dabei nicht). ``cut_mode`` gilt fuer den ganzen
+    Job. Varianten × Kopien darf :data:`COPIES_MAX` nicht uebersteigen (D7).
+    """
+    pages_in = list(images)
+    if not pages_in:
+        raise PrinterError(tr("Keine Etiketten zum Drucken."))
+    scale = DPI_600_SCALE if dpi_600 else 1
+    for image in pages_in:
+        validate_for_print(image, label, red=red, scale=scale)
 
     model = get_model(config.model)
     if red and not model.two_color:
@@ -660,13 +701,22 @@ def build_raster(
         )
     _validate_copies(copies)
     _validate_cut_mode(cut_mode, model)
+    pages: list[Image.Image] = []
+    for image in pages_in:
+        pages.extend([image] * copies)
+    if len(pages) > COPIES_MAX:
+        raise PrinterError(
+            tr(
+                "Höchstens {max} Seiten pro Auftrag (Datensätze × Kopien)."
+            ).format(max=COPIES_MAX)
+        )
 
-    qlr = _JobRaster(model=config.model, pages=copies, cut_mode=cut_mode)
+    qlr = _JobRaster(model=config.model, pages=len(pages), cut_mode=cut_mode)
     qlr.exception_on_warning = True  # Warnungen als Fehler sichtbar machen
     try:
         convert(
             qlr=qlr,
-            images=[image] * copies,
+            images=pages,
             label=label.identifier,
             rotate=rotate,
             threshold=threshold,
@@ -789,6 +839,29 @@ def print_image(
     data = build_raster(image, label, config, **options)
     logger.info(
         "Sende Etikett: Band %s, Modell %s, %d Bytes an %s",
+        label.identifier,
+        config.model,
+        len(data),
+        config.address,
+    )
+    return send_instructions(data, config)
+
+
+def print_images(
+    images: Sequence[Image.Image],
+    label: LabelSpec,
+    config: PrinterConfig,
+    **options,
+) -> dict:
+    """Mehrere Etiketten als einen Auftrag senden (D8).
+
+    ``**options`` geht an :func:`build_raster_sequence` (``copies`` wiederholt
+    jedes Bild identisch).
+    """
+    data = build_raster_sequence(images, label, config, **options)
+    logger.info(
+        "Sende %d Etiketten: Band %s, Modell %s, %d Bytes an %s",
+        len(images),
         label.identifier,
         config.model,
         len(data),
@@ -933,8 +1006,10 @@ __all__ = [
     "usb_id_from_identifier",
     "validate_for_print",
     "build_raster",
+    "build_raster_sequence",
     "send_instructions",
     "print_image",
+    "print_images",
     "probe_status",
     "detect_label",
     "preferred_usb_address",

@@ -210,3 +210,61 @@ def test_serial_preview_uses_index_zero_like_d10():
         )
         == "5"
     )
+
+
+def _rows():
+    return (
+        {"Fixture": "Spot A"},
+        {"Fixture": "Spot B"},
+        {"Fixture": "Spot C"},
+    )
+
+
+def test_plan_print_variants_selected_all_and_range():
+    rows = _rows()
+    selected = merge.plan_print_variants(rows, scope="selected", selected=1)
+    assert [item.index for item in selected] == [1]
+    assert selected[0].record["Fixture"] == "Spot B"
+
+    everything = merge.plan_print_variants(rows, scope="all")
+    assert [item.index for item in everything] == [0, 1, 2]
+
+    span = merge.plan_print_variants(rows, scope="range", range_from=3, range_to=2)
+    assert [item.record["Fixture"] for item in span] == ["Spot B", "Spot C"]
+
+
+def test_plan_print_variants_without_records_is_one_virtual_label():
+    planned = merge.plan_print_variants(None, scope="all")
+    assert planned == [merge.PrintVariant(None, None)]
+    assert merge.plan_print_variants((), scope="range") == planned
+
+
+def test_plan_print_variants_keeps_selection_order_and_drops_gaps():
+    rows = _rows()
+    planned = merge.plan_print_variants(
+        rows, scope="selected", selected=[2, 0, 2, 9]
+    )
+    assert [item.index for item in planned] == [2, 0]
+    with pytest.raises(merge.MergeError):
+        merge.plan_print_variants(rows, scope="selected", selected=[])
+    with pytest.raises(merge.MergeError):
+        merge.plan_print_variants(rows, scope="nope")
+    with pytest.raises(merge.MergeError):
+        merge.plan_print_variants(rows, scope="range", range_from=8, range_to=9)
+
+
+def test_job_page_count_is_variants_times_copies():
+    assert merge.job_page_count(3, 2) == 6
+    with pytest.raises(merge.MergeError):
+        merge.job_page_count(3, 40)
+    with pytest.raises(merge.MergeError):
+        merge.job_page_count(0, 1)
+
+
+def test_apply_record_strict_rejects_bad_barcode():
+    code = _FakeBarcode("OK", {"source": "database", "field": "A"}, fail=True)
+    with pytest.raises(merge.MergeError):
+        merge.apply_record([code], record={"A": "bad"}, strict=True)
+    assert code.value == "OK"
+    assert merge.apply_record([code], record={"A": "bad"}) == 0
+    assert code.value == "OK"

@@ -14,6 +14,7 @@ gemeinsam nutzbar.
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from os import PathLike
 from pathlib import Path
 from typing import Any, Mapping, Sequence
@@ -23,6 +24,15 @@ from .i18n import tr
 
 #: Binding-Quellen, die ein Anzeigewert-Merge betreffen.
 _MERGE_KINDS = frozenset({"text", "qr", "barcode"})
+
+#: Druckbereich wie im Brother-Drucksheet (D16). Serie bleibt M6.
+PRINT_SELECTED = "selected"
+PRINT_ALL = "all"
+PRINT_RANGE = "range"
+PRINT_SCOPES = frozenset({PRINT_SELECTED, PRINT_ALL, PRINT_RANGE})
+
+#: Seitenobergrenze eines Auftrags (D7, gleich ``COPIES_MAX``).
+PRINT_PAGE_LIMIT = 99
 
 
 class MergeError(Exception):
@@ -155,11 +165,16 @@ def apply_record(
     record: Mapping[str, str] | None = None,
     serial: Mapping[str, Any] | None = None,
     serial_index: int = 0,
+    strict: bool = False,
 ) -> int:
     """Alle gebundenen Objekte mit Record/Serie aktualisieren.
 
     Liefert die Anzahl der geschriebenen Snapshots. Objekte ohne Binding
     und Database-Bindings ohne Record bleiben unveraendert.
+
+    ``strict=True`` (Druck): ein Barcode, den die Symbologie ablehnt, bricht
+    ab. Die Live-Vorschau bleibt bei ``strict=False`` und behaelt den
+    letzten gueltigen Snapshot.
     """
     serial_value = format_serial(serial, index=serial_index)
     updated = 0
@@ -177,7 +192,122 @@ def apply_record(
             continue
         if apply_display_value(item, value):
             updated += 1
+        elif strict:
+            raise MergeError(
+                tr("Barcode '{value}' lässt sich nicht drucken.").format(
+                    value=value
+                )
+            )
     return updated
+
+
+@dataclass(frozen=True)
+class PrintVariant:
+    """Ein Etikett im Auftrag: ein Record oder der virtuelle Einzeldruck.
+
+    ``record is None`` heisst: keine CSV (oder leer) - der Canvas bleibt,
+    wie er ist. ``index`` ist 0-basiert, analog ``current_record``.
+    """
+
+    record: Mapping[str, str] | None
+    index: int | None
+
+
+def plan_print_variants(
+    records: Sequence[Mapping[str, str]] | None,
+    *,
+    scope: str = PRINT_SELECTED,
+    selected: int | Sequence[int] | None = None,
+    range_from: int = 1,
+    range_to: int = 1,
+) -> list[PrintVariant]:
+    """Druckliste Selected / All / Record Range (D16).
+
+    Ohne Records ein virtueller Eintrag (ein Bild, der aktuelle Canvas).
+    Selected ist die Tabellenauswahl; eine einzelne Zahl wird geklemmt,
+    eine Liste behaelt die Reihenfolge und laesst ungueltige Indizes weg
+    (Mehrfachauswahl ist vorbereitet, die Oberflaeche waehlt eine Zeile).
+    Record Range ist 1-basiert und einschliesslich; vertauschte Grenzen
+    werden getauscht.
+
+    Serien-Count vervielfacht die Liste hier nicht (M6 / D5).
+    """
+    if not records:
+        return [PrintVariant(None, None)]
+    if scope not in PRINT_SCOPES:
+        raise MergeError(
+            tr("Unbekannter Druckbereich: {scope!r}.").format(scope=scope)
+        )
+    count = len(records)
+    if scope == PRINT_ALL:
+        indexes = list(range(count))
+    elif scope == PRINT_RANGE:
+        indexes = _range_indexes(count, range_from, range_to)
+    else:
+        indexes = _selected_indexes(count, selected)
+    return [PrintVariant(records[index], index) for index in indexes]
+
+
+def job_page_count(
+    variant_count: int, copies: int, *, limit: int = PRINT_PAGE_LIMIT
+) -> int:
+    """Seiten = Varianten × Kopien; ueber ``limit`` abbrechen (D7)."""
+    if (
+        isinstance(variant_count, bool)
+        or not isinstance(variant_count, int)
+        or variant_count < 1
+    ):
+        raise MergeError(tr("Keine Etiketten zum Drucken."))
+    if isinstance(copies, bool) or not isinstance(copies, int) or copies < 1:
+        raise MergeError(tr("Kopienzahl muss mindestens 1 sein."))
+    pages = variant_count * copies
+    if pages > limit:
+        raise MergeError(
+            tr(
+                "Höchstens {max} Seiten pro Auftrag (Datensätze × Kopien)."
+            ).format(max=limit)
+        )
+    return pages
+
+
+def _selected_indexes(
+    count: int, selected: int | Sequence[int] | None
+) -> list[int]:
+    if selected is None:
+        return [clamp_record_index(0, count)]
+    if isinstance(selected, bool):
+        raise MergeError(tr("Keine Datensätze im Druckbereich."))
+    if isinstance(selected, int):
+        return [clamp_record_index(selected, count)]
+    indexes: list[int] = []
+    seen: set[int] = set()
+    for raw in selected:
+        if isinstance(raw, bool) or not isinstance(raw, int):
+            raise MergeError(tr("Keine Datensätze im Druckbereich."))
+        if raw < 0 or raw >= count or raw in seen:
+            continue
+        seen.add(raw)
+        indexes.append(raw)
+    if not indexes:
+        raise MergeError(tr("Keine Datensätze im Druckbereich."))
+    return indexes
+
+
+def _range_indexes(count: int, start: int, end: int) -> list[int]:
+    if (
+        isinstance(start, bool)
+        or not isinstance(start, int)
+        or isinstance(end, bool)
+        or not isinstance(end, int)
+    ):
+        raise MergeError(tr("Datensatzbereich braucht ganze Zahlen."))
+    if start > end:
+        start, end = end, start
+    start = max(1, start)
+    end = min(count, end)
+    if start > end:
+        raise MergeError(tr("Keine Datensätze im Druckbereich."))
+    return list(range(start - 1, end))
 
 
 def clamp_record_index(index: int, record_count: int) -> int:
@@ -224,11 +354,19 @@ def resolve_csv_path(
 
 __all__ = [
     "MergeError",
+    "PRINT_ALL",
+    "PRINT_PAGE_LIMIT",
+    "PRINT_RANGE",
+    "PRINT_SCOPES",
+    "PRINT_SELECTED",
+    "PrintVariant",
     "apply_display_value",
     "apply_record",
     "clamp_record_index",
     "format_serial",
+    "job_page_count",
     "normalize_binding",
+    "plan_print_variants",
     "resolve_binding",
     "resolve_csv_path",
     "resolve_item_display",

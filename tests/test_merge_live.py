@@ -260,3 +260,140 @@ def test_sha_drift_shows_status_after_open(qapp, tmp_path):
     assert win._active.data_source["content_sha256"] == csv_source.load(
         csv_path
     ).content_sha256
+
+
+def _fake_print_worker(captured: dict):
+    from PySide6.QtCore import QObject, Signal
+
+    class FakeWorker(QObject):
+        succeeded = Signal(dict)
+        failed = Signal(str)
+        finished = Signal()
+
+        def __init__(self, image, label, config, options):
+            super().__init__()
+            captured["images"] = image
+            captured["options"] = dict(options)
+
+        def start(self) -> None:
+            self.finished.emit()
+
+    return FakeWorker
+
+
+def test_print_ranges_render_selected_all_and_record_range(
+    qapp, tmp_path, monkeypatch
+):
+    """Selected / All / Record Range gehen als Bildliste in einen Auftrag."""
+    from ql_editor import app as app_module
+    from ql_editor.printer import CUT_AT_END
+
+    qlx, _csv = _write_fixture(tmp_path)
+    win = MainWindow()
+    win.show()
+    win.open_path(str(qlx))
+    qapp.processEvents()
+    win._media_panel.set_network_host("192.168.178.62")
+
+    assert win._scope_selected.isEnabled()
+    assert win._scope_selected.isChecked()
+    assert not win._scope_all.isChecked()
+    cut_index = win._cut_combo.findData(CUT_AT_END)
+    assert win._cut_combo.model().item(cut_index).isEnabled() is False
+
+    captured: dict = {}
+    monkeypatch.setattr(app_module, "PrintWorker", _fake_print_worker(captured))
+
+    win.set_current_record(1)
+    qapp.processEvents()
+    undo_before = win._undo_stack.count()
+    win._on_print()
+    qapp.processEvents()
+    assert len(captured["images"]) == 1
+    texts = {item.binding["field"]: item.text_value for item in _bound_texts(win)}
+    assert texts["Fixture"] == "Spot B"
+    assert win._undo_stack.count() == undo_before
+
+    win._scope_all.setChecked(True)
+    qapp.processEvents()
+    assert win._cut_combo.model().item(cut_index).isEnabled() is True
+    win._on_print()
+    qapp.processEvents()
+    assert len(captured["images"]) == 3
+    assert captured["options"]["copies"] == 1
+    assert len({image.tobytes() for image in captured["images"]}) == 3
+    texts = {item.binding["field"]: item.text_value for item in _bound_texts(win)}
+    assert texts["Fixture"] == "Spot B"
+    assert "3 Etiketten" in win.statusBar().currentMessage()
+
+    win._scope_range.setChecked(True)
+    assert win._range_from.isEnabled()
+    win._range_from.setValue(2)
+    win._range_to.setValue(3)
+    win._copies_spin.setValue(2)
+    qapp.processEvents()
+    win._on_print()
+    qapp.processEvents()
+    assert len(captured["images"]) == 2
+    assert captured["options"]["copies"] == 2
+    assert "4 Etiketten" in win.statusBar().currentMessage()
+    texts = {item.binding["field"]: item.text_value for item in _bound_texts(win)}
+    assert texts["Fixture"] == "Spot B"
+    win.close()
+    qapp.processEvents()
+
+
+def test_print_range_over_page_limit_does_not_start(qapp, tmp_path, monkeypatch):
+    from ql_editor import app as app_module
+    from ql_editor.sheet import Sheet
+
+    qlx, _csv = _write_fixture(tmp_path)
+    win = MainWindow()
+    win.show()
+    win.open_path(str(qlx))
+    qapp.processEvents()
+    win._media_panel.set_network_host("192.168.178.62")
+    win._scope_all.setChecked(True)
+    win._copies_spin.setValue(40)
+    created: list = []
+
+    class FakeWorker:
+        def __init__(self, *args, **kwargs):
+            created.append(args)
+
+        def start(self) -> None:
+            return None
+
+    monkeypatch.setattr(app_module, "PrintWorker", FakeWorker)
+    win._on_print()
+    qapp.processEvents()
+    assert created == []
+    from PySide6.QtWidgets import QLabel
+
+    sheet = next(item for item in win.findChildren(Sheet) if item.isVisible())
+    message = " ".join(label.text() for label in sheet.findChildren(QLabel))
+    assert "99" in message
+    sheet.close_sheet()
+    texts = {item.binding["field"]: item.text_value for item in _bound_texts(win)}
+    assert texts["Fixture"] == "Spot A"
+    win.close()
+    qapp.processEvents()
+
+
+def test_print_scope_is_persisted(qapp):
+    win = MainWindow()
+    win._scope_range.setChecked(True)
+    win._range_from.setMaximum(10)
+    win._range_to.setMaximum(10)
+    win._range_from.setValue(2)
+    win._range_to.setValue(4)
+    win.close()
+    qapp.processEvents()
+
+    again = MainWindow()
+    assert again._scope_range.isChecked()
+    assert again._range_from.value() == 2
+    assert again._range_to.value() == 4
+    assert again._scope_selected.isEnabled() is False
+    again.close()
+    qapp.processEvents()

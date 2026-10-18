@@ -52,7 +52,15 @@ def _quiet_network_discovery(monkeypatch):
         worker = getattr(widget, "_network_worker", None)
         if cancel is not None:
             cancel.set()
-        if worker is not None and worker.isRunning():
+        if worker is None:
+            continue
+        try:
+            running = worker.isRunning()
+        except RuntimeError:
+            # close() trennt den Slot, der die Referenz leert; deleteLater
+            # kann die Huelle danach schon abgebaut haben.
+            continue
+        if running:
             worker.wait(2000)
     app.processEvents()
 

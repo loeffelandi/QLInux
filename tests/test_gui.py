@@ -4110,6 +4110,28 @@ def test_language_switch_does_not_search_again(qapp, tmp_path, monkeypatch):
         set_language("de")
 
 
+def test_close_drops_the_network_worker_before_delete_later(qapp, tmp_path):
+    """Schliessen leert den Such-Thread, bevor deleteLater die Huelle abbaut.
+
+    Ohne das bleibt ``_network_worker`` gesetzt, und die naechste Fixture
+    ruft ``isRunning()`` auf einem schon geloeschten C++-Objekt auf.
+    """
+    from PySide6.QtCore import QSettings
+
+    from ql_editor.app import MainWindow
+    from ql_editor.settings import AppSettings
+
+    settings = AppSettings(
+        QSettings(str(tmp_path / "settings.ini"), QSettings.Format.IniFormat)
+    )
+    settings.connection = "network"
+    win = MainWindow(settings=settings)
+    assert win._network_worker is not None
+    win.close()
+    qapp.processEvents()
+    assert win._network_worker is None
+
+
 def test_resolution_and_hq_are_forwarded_to_the_printer(qapp, tmp_path):
     """Auflösung und HQ sind zwei Schalter - beide landen im Druckauftrag."""
     from ql_editor.printer import build_raster

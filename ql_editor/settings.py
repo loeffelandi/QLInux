@@ -12,6 +12,7 @@ from PySide6.QtCore import QByteArray, QSettings
 
 from .media import DEFAULT_MODEL
 from .preview import DEFAULT_THRESHOLD
+from .merge import PRINT_SCOPES, PRINT_SELECTED
 from .printer import (
     COPIES_MAX,
     CUT_EACH,
@@ -210,6 +211,39 @@ class AppSettings:
     @cut_mode.setter
     def cut_mode(self, value: str) -> None:
         self.set_value("print/cut_mode", str(value))
+
+    @property
+    def print_scope(self) -> str:
+        """Datenbank-Druckbereich (Selected / All / Record Range, D16)."""
+        value = str(self.value("print/record_scope", PRINT_SELECTED) or "")
+        if value not in PRINT_SCOPES:
+            return PRINT_SELECTED
+        return value
+
+    @print_scope.setter
+    def print_scope(self, value: str) -> None:
+        scope = str(value)
+        if scope not in PRINT_SCOPES:
+            scope = PRINT_SELECTED
+        self.set_value("print/record_scope", scope)
+
+    @property
+    def record_from(self) -> int:
+        """Erster Datensatz im Bereich, 1-basiert."""
+        return max(1, self._as_int(self.value("print/record_from", None), 1))
+
+    @record_from.setter
+    def record_from(self, value: int) -> None:
+        self.set_value("print/record_from", max(1, int(value)))
+
+    @property
+    def record_to(self) -> int:
+        """Letzter Datensatz im Bereich, 1-basiert, einschliesslich."""
+        return max(1, self._as_int(self.value("print/record_to", None), 1))
+
+    @record_to.setter
+    def record_to(self, value: int) -> None:
+        self.set_value("print/record_to", max(1, int(value)))
 
     # -- Sprache ------------------------------------------------------------
     @property

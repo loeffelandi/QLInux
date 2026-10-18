@@ -60,6 +60,7 @@ from PySide6.QtWidgets import (
     QMainWindow,
     QMenu,
     QPushButton,
+    QRadioButton,
     QScrollArea,
     QSpinBox,
     QSplitter,
@@ -132,6 +133,7 @@ from .printer import (
     detect_label,
     maximum_resolution,
     print_image,
+    print_images,
     resolution_by_key,
     resolution_options,
 )
@@ -194,16 +196,26 @@ class PrintWorker(QThread):
     succeeded = Signal(dict)
     failed = Signal(str)
 
-    def __init__(self, image: Image.Image, label, config, options: dict):
+    def __init__(self, image, label, config, options: dict):
         super().__init__(None)
-        self._image = image
+        if isinstance(image, Image.Image):
+            self._images = [image]
+        else:
+            self._images = list(image)
         self._label = label
         self._config = config
         self._options = options
 
     def run(self) -> None:  # noqa: D401
         try:
-            status = print_image(self._image, self._label, self._config, **self._options)
+            if len(self._images) == 1:
+                status = print_image(
+                    self._images[0], self._label, self._config, **self._options
+                )
+            else:
+                status = print_images(
+                    self._images, self._label, self._config, **self._options
+                )
         except PrinterError as exc:
             self.failed.emit(str(exc))
         except Exception as exc:  # pragma: no cover - defensiv
@@ -632,7 +644,10 @@ class MainWindow(QMainWindow):
         self._copies_spin.setValue(1)
         self._copies_label.setBuddy(self._copies_spin)
         self._copies_spin.setToolTip(
-            tr("Wie oft dieses Etikett gedruckt wird - als ein Auftrag.")
+            tr(
+                "Wie oft jedes Etikett gedruckt wird - identische Kopien "
+                "in einem Auftrag."
+            )
         )
         self._copies_label.setToolTip(self._copies_spin.toolTip())
 
@@ -652,11 +667,70 @@ class MainWindow(QMainWindow):
         self._cut_combo.setCurrentIndex(self._cut_combo.findData(CUT_EACH))
         self._cut_combo.setToolTip(
             tr("Nach jeder Kopie: einzelne Etiketten.\n"
-               "Nur am Ende: die Kopien hängen zusammen und werden zuletzt "
-               "getrennt - nur bei mehreren Kopien.\n"
+               "Nur am Ende: die Etiketten hängen zusammen und werden zuletzt "
+               "getrennt - nur bei mehreren Etiketten.\n"
                "Nicht schneiden: der Streifen bleibt am Band.")
         )
         self._cut_label.setToolTip(self._cut_combo.toolTip())
+
+        # Datenbank-Druckbereich (D16). Serie bleibt im Inspector (M6).
+        # Eigener Block: ohne CSV ausgeblendet, damit der Druckreiter auf
+        # kleinen Bildschirmen ohne Scrollen auskommt.
+        self._db_print_label = QLabel(tr("Datenbank"))
+        self._db_print_label.setToolTip(
+            tr(
+                "Welche Datensätze gedruckt werden: die gewählte Zeile, "
+                "alle oder ein Bereich. Ohne CSV bleibt es ein Etikett."
+            )
+        )
+        self._scope_selected = QRadioButton(tr("Ausgewählte Datensätze"))
+        self._scope_selected.setObjectName("print_scope_selected")
+        self._scope_selected.setToolTip(
+            tr("Die in der Tabelle gewählte Zeile.")
+        )
+        self._scope_all = QRadioButton(tr("Alle Datensätze"))
+        self._scope_all.setObjectName("print_scope_all")
+        self._scope_all.setToolTip(tr("Jede Zeile der verbundenen CSV."))
+        self._scope_range = QRadioButton(tr("Datensatzbereich"))
+        self._scope_range.setObjectName("print_scope_range")
+        self._scope_range.setToolTip(
+            tr("Von–bis, 1 ist die erste Zeile, beide Grenzen zählen.")
+        )
+        self._scope_selected.setChecked(True)
+
+        self._range_from_label = QLabel(tr("Von"))
+        self._range_from = QSpinBox()
+        self._range_from.setObjectName("print_record_from")
+        self._range_from.setRange(1, 1)
+        self._range_from.setValue(1)
+        self._range_from_label.setBuddy(self._range_from)
+        self._range_from.setToolTip(tr("Erster Datensatz, 1 ist die erste Zeile."))
+        self._range_from_label.setToolTip(self._range_from.toolTip())
+        self._range_to_label = QLabel(tr("Bis"))
+        self._range_to = QSpinBox()
+        self._range_to.setObjectName("print_record_to")
+        self._range_to.setRange(1, 1)
+        self._range_to.setValue(1)
+        self._range_to_label.setBuddy(self._range_to)
+        self._range_to.setToolTip(tr("Letzter Datensatz, einschließlich."))
+        self._range_to_label.setToolTip(self._range_to.toolTip())
+        self._range_row = QWidget()
+        range_row = QHBoxLayout(self._range_row)
+        range_row.setContentsMargins(0, 0, 0, 0)
+        range_row.addWidget(self._range_from_label)
+        range_row.addWidget(self._range_from, 1)
+        range_row.addWidget(self._range_to_label)
+        range_row.addWidget(self._range_to, 1)
+
+        self._db_print_box = QWidget()
+        db_layout = QVBoxLayout(self._db_print_box)
+        db_layout.setContentsMargins(0, 8, 0, 0)
+        db_layout.setSpacing(4)
+        db_layout.addWidget(self._db_print_label)
+        db_layout.addWidget(self._scope_selected)
+        db_layout.addWidget(self._scope_all)
+        db_layout.addWidget(self._scope_range)
+        db_layout.addWidget(self._range_row)
 
         # Gemeinsame Beschriftungsspalte, damit beide Felder gleich anfangen.
         metrics = QFontMetrics(self.font())
@@ -709,6 +783,7 @@ class MainWindow(QMainWindow):
         layout.addSpacing(8)
         layout.addLayout(copies_row)
         layout.addLayout(cut_row)
+        layout.addWidget(self._db_print_box)
         layout.addStretch(1)
         layout.addWidget(self._status_stack)
         layout.addLayout(button_row)
@@ -718,19 +793,106 @@ class MainWindow(QMainWindow):
         self._dither_check.toggled.connect(self._on_dither_toggled)
         self._copies_spin.valueChanged.connect(self._sync_cut_options)
         self._hq_check.toggled.connect(self._on_hq_toggled)
+        for radio in (self._scope_selected, self._scope_all, self._scope_range):
+            radio.toggled.connect(self._on_print_scope_toggled)
+        self._range_from.valueChanged.connect(lambda _value: self._sync_cut_options())
+        self._range_to.valueChanged.connect(lambda _value: self._sync_cut_options())
         self._sync_resolution_options()
-        self._sync_cut_options()
+        self._sync_print_scope_ui()
         return widget
 
-    def _sync_cut_options(self) -> None:
-        """„Nur am Ende" gibt es nur bei mehreren Kopien.
+    def _on_print_scope_toggled(self, checked: bool) -> None:
+        if checked:
+            self._sync_print_scope_ui()
 
-        Bei einer Kopie ist der Schnitt am Ende der Schnitt nach der Kopie -
-        die Wahl waere eine Scheinoption. Der Eintrag wird deshalb ausgegraut
-        statt versteckt: die Zeile bleibt stehen und das Panel springt nicht,
-        aber man sieht, dass er mehr als eine Kopie braucht.
+    def _print_scope(self) -> str:
+        """Gewaehlter Datenbank-Druckbereich (D16)."""
+        if self._scope_all.isChecked():
+            return merge_engine.PRINT_ALL
+        if self._scope_range.isChecked():
+            return merge_engine.PRINT_RANGE
+        return merge_engine.PRINT_SELECTED
+
+    def _set_print_scope(self, scope: str) -> None:
+        if scope == merge_engine.PRINT_ALL:
+            self._scope_all.setChecked(True)
+        elif scope == merge_engine.PRINT_RANGE:
+            self._scope_range.setChecked(True)
+        else:
+            self._scope_selected.setChecked(True)
+        self._sync_print_scope_ui()
+
+    def _active_print_records(self):
+        """Records der verbundenen CSV, oder ``None`` ohne druckbare Zeilen."""
+        tab = self._active
+        if tab is None or tab.csv_table is None or not tab.csv_table.records:
+            return None
+        return tab.csv_table.records
+
+    def _print_variants(self) -> list[merge_engine.PrintVariant]:
+        records = self._active_print_records()
+        if records is None:
+            return merge_engine.plan_print_variants(None)
+        selected = self._active.current_record if self._active is not None else 0
+        return merge_engine.plan_print_variants(
+            records,
+            scope=self._print_scope(),
+            selected=selected,
+            range_from=self._range_from.value(),
+            range_to=self._range_to.value(),
+        )
+
+    def _planned_page_count(self) -> int:
+        """Seiten, die der naechste Auftrag haette (Varianten × Kopien)."""
+        copies = self._copies_spin.value()
+        try:
+            variants = self._print_variants()
+        except merge_engine.MergeError:
+            return copies
+        return len(variants) * copies
+
+    def _sync_print_scope_ui(self) -> None:
+        """Radios und Von/Bis an die CSV haengen; ohne Zeilen ausgrauen."""
+        count = 0
+        records = self._active_print_records()
+        if records is not None:
+            count = len(records)
+        enabled = count > 0
+        self._db_print_box.setVisible(enabled)
+        self._db_print_box.setEnabled(enabled)
+        if count > 0:
+            maximum = count
+        else:
+            # Ohne CSV die gemerkten Grenzen behalten (nicht auf 1 klemmen).
+            maximum = max(
+                1,
+                self._range_from.maximum(),
+                self._range_from.value(),
+                self._range_to.value(),
+            )
+        for spin in (self._range_from, self._range_to):
+            spin.blockSignals(True)
+            spin.setMaximum(maximum)
+            if spin.value() > maximum:
+                spin.setValue(maximum)
+            spin.blockSignals(False)
+        range_on = enabled and self._scope_range.isChecked()
+        self._range_row.setVisible(range_on)
+        self._range_from.setEnabled(range_on)
+        self._range_to.setEnabled(range_on)
+        self._range_from_label.setEnabled(range_on)
+        self._range_to_label.setEnabled(range_on)
+        self._sync_cut_options()
+
+    def _sync_cut_options(self) -> None:
+        """„Nur am Ende" gibt es nur bei mehreren Etiketten im Auftrag.
+
+        Eine einzelne Seite am Ende zu schneiden ist der Schnitt nach dem
+        Etikett - die Wahl waere eine Scheinoption. Der Eintrag wird deshalb
+        ausgegraut statt versteckt: die Zeile bleibt stehen und das Panel
+        springt nicht. Mehrere Datensaetze zaehlen mit, nicht nur Kopien.
         """
-        several = self._copies_spin.value() > 1
+        several = self._planned_page_count() > 1
         item = self._cut_combo.model().item(self._cut_combo.findData(CUT_AT_END))
         if item is not None:
             item.setEnabled(several)
@@ -1426,6 +1588,9 @@ class MainWindow(QMainWindow):
             "resolution": self._resolution().key,
             "copies": self._copies_spin.value(),
             "cut_mode": self._cut_combo.currentData(),
+            "print_scope": self._print_scope(),
+            "record_from": self._range_from.value(),
+            "record_to": self._range_to.value(),
             "document_path": self._document_path,
             "document_dirty": self._is_document_dirty(),
             "address_dirty": self._address_dirty,
@@ -1447,8 +1612,18 @@ class MainWindow(QMainWindow):
         cut_mode = self._cut_combo.findData(str(state.get("cut_mode") or CUT_EACH))
         if cut_mode >= 0:
             self._cut_combo.setCurrentIndex(cut_mode)
-        # Erst wenn beide Werte stehen: „Nur am Ende" haengt an der Kopienzahl.
-        self._sync_cut_options()
+        record_from = max(1, int(state.get("record_from", 1) or 1))
+        record_to = max(1, int(state.get("record_to", 1) or 1))
+        self._set_print_scope(str(state.get("print_scope") or ""))
+        ceiling = max(self._range_from.maximum(), record_from, record_to)
+        for spin, value in (
+            (self._range_from, record_from),
+            (self._range_to, record_to),
+        ):
+            spin.blockSignals(True)
+            spin.setMaximum(ceiling)
+            spin.setValue(value)
+            spin.blockSignals(False)
         specs = state.get("tabs")
         if not specs:
             specs = [
@@ -1469,6 +1644,7 @@ class MainWindow(QMainWindow):
         else:
             self._sync_preview_action()
         self._update_window_title()
+        self._sync_print_scope_ui()
         self._canvas.setFocus()
 
     # ------------------------------------------------------------- Settings --
@@ -1494,6 +1670,9 @@ class MainWindow(QMainWindow):
         resolution = self._settings.print_resolution
         copies = self._settings.copies
         cut_mode = self._settings.cut_mode
+        print_scope = self._settings.print_scope
+        record_from = self._settings.record_from
+        record_to = self._settings.record_to
 
         if geometry is not None:
             self.restoreGeometry(geometry)
@@ -1523,7 +1702,17 @@ class MainWindow(QMainWindow):
         index = self._cut_combo.findData(cut_mode)
         if index >= 0:
             self._cut_combo.setCurrentIndex(index)
-        self._sync_cut_options()
+        self._set_print_scope(print_scope)
+        ceiling = max(self._range_from.maximum(), record_from, record_to)
+        for spin, value in (
+            (self._range_from, record_from),
+            (self._range_to, record_to),
+        ):
+            spin.blockSignals(True)
+            spin.setMaximum(ceiling)
+            spin.setValue(value)
+            spin.blockSignals(False)
+        self._sync_print_scope_ui()
         self._schedule_refresh()
 
     # ---------------------------------------------------------- Media-Sync --
@@ -2579,7 +2768,10 @@ class MainWindow(QMainWindow):
             )
             return
         try:
-            image = self._for_print()
+            images = self._render_print_images()
+        except merge_engine.MergeError as exc:
+            show_message(self, "warning", tr("Drucken"), str(exc))
+            return
         except Exception as exc:
             show_message(
                 self,
@@ -2592,6 +2784,7 @@ class MainWindow(QMainWindow):
             return
         label = self._media_panel.label
         copies = self._copies_spin.value()
+        pages = len(images) * copies
         options = {
             "threshold": self._threshold_spin.value(),
             "dither": self._dither_check.isChecked(),
@@ -2601,24 +2794,68 @@ class MainWindow(QMainWindow):
             "copies": copies,
             "cut_mode": self._cut_combo.currentData(),
         }
-        self._pending_job = (datetime.now(), label.name, copies, config.model, config.address)
+        self._pending_job = (
+            datetime.now(),
+            label.name,
+            pages,
+            config.model,
+            config.address,
+        )
         self._print_button.setEnabled(False)
         self._status_stack.setCurrentWidget(self._feed_indicator)
         self._feed_indicator.start()
-        message = (
-            tr("Sende {count} Kopien an {address}…")
-            if copies > 1
-            else tr("Sende an {address}…")
-        )
+        if len(images) > 1:
+            message = tr("Sende {count} Etiketten an {address}…")
+            count = pages
+        elif copies > 1:
+            message = tr("Sende {count} Kopien an {address}…")
+            count = copies
+        else:
+            message = tr("Sende an {address}…")
+            count = 1
         self.statusBar().showMessage(
-            message.format(count=copies, address=config.address)
+            message.format(count=count, address=config.address)
         )
-        self._print_worker = PrintWorker(image, label, config, options)
+        self._print_worker = PrintWorker(images, label, config, options)
         self._print_worker.succeeded.connect(self._on_print_succeeded)
         self._print_worker.failed.connect(self._on_print_failed)
         self._print_worker.finished.connect(self._on_print_finished)
         self._print_worker.finished.connect(self._print_worker.deleteLater)
         self._print_worker.start()
+
+    def _render_print_images(self) -> list[Image.Image]:
+        """Varianten vor dem Worker rendern (D8/D10/D16).
+
+        Mehrere Records schreiben Snapshots nur fuer das Rendern. Danach
+        steht wieder der aktuelle Record auf dem Canvas (Vorschau = Auswahl).
+        Serien-Count bleibt bei Index 0; die Vervielfachung ist M6.
+        """
+        variants = self._print_variants()
+        merge_engine.job_page_count(len(variants), self._copies_spin.value())
+        current = self._active.current_record if self._active is not None else 0
+        if len(variants) == 1 and (
+            variants[0].record is None or variants[0].index == current
+        ):
+            return [self._for_print()]
+        tab = self._require_tab()
+        images: list[Image.Image] = []
+        self._history_suppress = True
+        try:
+            for variant in variants:
+                merge_engine.apply_record(
+                    self._canvas.ordered_items(),
+                    record=variant.record,
+                    serial=tab.serial,
+                    serial_index=0,
+                    strict=True,
+                )
+                images.append(self._for_print())
+            return images
+        finally:
+            try:
+                self._apply_merge_to_canvas()
+            finally:
+                self._history_suppress = False
 
     def _on_print_finished(self) -> None:
         self._print_worker = None
@@ -3537,6 +3774,7 @@ class MainWindow(QMainWindow):
         tab = self._active
         if tab is None:
             self._database_panel.clear()
+            self._sync_print_scope_ui()
             return
         notice = tab.database_notice
         if tab.csv_table is None:
@@ -3547,6 +3785,7 @@ class MainWindow(QMainWindow):
                 self._database_panel.show_unloaded(Path(path).name, notice)
             else:
                 self._database_panel.clear(notice=notice)
+            self._sync_print_scope_ui()
             return
         name = None
         if tab.data_source and tab.data_source.get("path"):
@@ -3557,6 +3796,7 @@ class MainWindow(QMainWindow):
             display_name=name,
             notice=notice,
         )
+        self._sync_print_scope_ui()
 
     def _on_database_record_selected(self, index: int) -> None:
         """Tabellenzeile → ``current_record`` + Live-Merge (D15, ohne Undo)."""
@@ -4006,6 +4246,9 @@ class MainWindow(QMainWindow):
             if network is not None
             else [],
         )
+        # Der finished-Slot, der die Referenz leert, ist jetzt getrennt.
+        # Sonst zeigt das Fenster nach deleteLater auf einen toten Thread.
+        self._network_worker = None
         detect = self._detect_worker
         self._disconnect_worker(
             detect,
@@ -4017,6 +4260,7 @@ class MainWindow(QMainWindow):
             if detect is not None
             else [],
         )
+        self._detect_worker = None
         printing = self._print_worker
         self._disconnect_worker(
             printing,
@@ -4028,6 +4272,7 @@ class MainWindow(QMainWindow):
             if printing is not None
             else [],
         )
+        self._print_worker = None
         self._settings.save_geometry(self.saveGeometry())
         self._settings.connection = self._media_panel.connection()
         self._settings.address = self._media_panel.address()
@@ -4041,6 +4286,9 @@ class MainWindow(QMainWindow):
         self._settings.hq = self._hq()
         self._settings.copies = self._copies_spin.value()
         self._settings.cut_mode = self._cut_combo.currentData()
+        self._settings.print_scope = self._print_scope()
+        self._settings.record_from = self._range_from.value()
+        self._settings.record_to = self._range_to.value()
         self._settings.sync()
         super().closeEvent(event)
 
