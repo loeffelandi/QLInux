@@ -2874,6 +2874,47 @@ def test_rotation_snaps_to_15_degrees(qapp):
     assert item.rotation() == pytest.approx(105, abs=0.01)
 
 
+def _rotate_to(canvas, item, degrees_from_start: float, *, snap: bool = False) -> float:
+    from PySide6.QtCore import QPointF
+
+    center = item.mapToScene(item.boundingRect().center())
+    canvas._op_item = item
+    canvas._op_rotate_center = center
+    canvas._op_rotate_start = 0.0
+    canvas._op_start_rotation = 0.0
+    rad = math.radians(degrees_from_start)
+    canvas._do_rotate(QPointF(center.x() + 100 * math.cos(rad), center.y() + 100 * math.sin(rad)), snap=snap)
+    return item.rotation()
+
+
+def test_rotation_is_free_except_sticky_90_degree_detent(qapp):
+    canvas = _prepared_canvas(qapp)
+    item = TextItem("sticky", font_pixel_size=40)
+    canvas.add_item(item)
+    canvas._rotate_detent = None
+    assert _rotate_to(canvas, item, 85.0) == pytest.approx(85, abs=0.01)
+    assert _rotate_to(canvas, item, 89.5) == pytest.approx(90)
+    # Haftet weiter, solange der Winkel nicht deutlich weggedreht wird ...
+    assert _rotate_to(canvas, item, 96.0) == pytest.approx(90)
+    # ... danach wieder frei.
+    assert _rotate_to(canvas, item, 99.0) == pytest.approx(99, abs=0.01)
+    assert _rotate_to(canvas, item, 45.0) == pytest.approx(45, abs=0.01)
+
+
+def test_rotate_hint_follows_rotate_handle_hover(qapp):
+    canvas = _prepared_canvas(qapp)
+    item = TextItem("hint", font_pixel_size=40)
+    canvas.add_item(item)
+    canvas._scene.clearSelection()
+    item.setSelected(True)
+    received: list[bool] = []
+    canvas.rotate_hint_changed.connect(received.append)
+    canvas._set_rotate_hint(True)
+    canvas._set_rotate_hint(True)
+    canvas.leaveEvent(None)
+    assert received == [True, False]
+
+
 def test_rotate_handle_distance_is_constant_for_scaled_items(qapp):
     canvas = _prepared_canvas(qapp)
     item = _wide_image(1000, 800)
