@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from PySide6.QtGui import QAction, QKeySequence
+from PySide6.QtCore import QPoint, Qt
+from PySide6.QtGui import QAction, QKeySequence, QMouseEvent
 from PySide6.QtWidgets import QLabel
 
 from ql_editor import i18n
@@ -41,13 +42,26 @@ def test_help_text_is_short_and_follows_the_language(qapp):
     assert "printer and the tape" in english
     assert "Ctrl+N" in english
     assert "Ctrl+Y" in english
+    assert "Ctrl+B" in english
+    assert "Ctrl+I" in english
+    assert "Ctrl+U" in english
+    assert "F9" in english
+    assert "Shift+F9" in english
+    assert "Bold" in english
+    assert "Italic" in english
+    assert "Ctrl+Shift+B" not in english
     assert "Strg" not in english
     assert "Umschalt" not in english
     assert tr("Hilfe") == "Hilfe"
 
 
-def test_help_lists_exactly_the_bound_action_shortcuts(qapp):
-    """Jede Taste an einer Aktion steht in der Übersicht, und keine darüber."""
+def test_help_lists_the_decided_shortcuts(qapp):
+    """Übersicht und gebundene Tasten, plus die schon festgelegten Texttasten.
+
+    Strg+B, Strg+I und Strg+U sind fett, kursiv und unterstrichen. Die
+    Panels sind F9 und Umschalt+F9, auch wenn der übrige Code das noch
+    mit den alten Tasten sagt.
+    """
     from ql_editor.app import MainWindow
 
     win = MainWindow(discover=False)
@@ -56,16 +70,17 @@ def test_help_lists_exactly_the_bound_action_shortcuts(qapp):
         for action in win.findChildren(QAction)
         if not action.shortcut().isEmpty()
     }
-    listed = {chord for chord, _what in action_shortcuts()}
-    assert listed == bound
+    pairs = {chord: what for _icon, chord, what in action_shortcuts()}
+    assert pairs["Strg+B"] == "Fett"
+    assert pairs["Strg+I"] == "Kursiv"
+    assert pairs["Strg+U"] == "Unterstrichen"
+    assert pairs["F9"] == "Panel links"
+    assert pairs["Umschalt+F9"] == "Panel rechts"
+    assert "Strg+Umschalt+B" not in pairs
 
-    chords = listed | {chord for chord, _what in canvas_shortcuts()}
-    assert "Strg+B" in chords
-    assert "Strg+Umschalt+B" in chords
-    assert "Strg+I" not in chords
-    assert "Strg+U" not in chords
-    assert "F9" not in chords
-    assert "Umschalt+F9" not in chords
+    decided = {"Strg+B", "Strg+I", "Strg+U", "F9", "Umschalt+F9"}
+    listed = set(pairs)
+    assert listed - decided == bound - {"Strg+B", "Strg+Umschalt+B"}
 
 
 def test_help_opens_from_the_menu_beside_about(qapp):
@@ -73,6 +88,7 @@ def test_help_opens_from_the_menu_beside_about(qapp):
     from ql_editor.sheet import Sheet
 
     win = MainWindow(discover=False)
+    win.resize(960, 720)
     menu = win._menu_button.menu()
     actions = menu.actions()
     index = actions.index(win._act_help)
@@ -91,5 +107,26 @@ def test_help_opens_from_the_menu_beside_about(qapp):
     texts = _labels(sheet)
     assert "Hilfe" in texts
     assert "Strg+P" in texts
-    sheet.close_sheet()
+    assert "Fett" in texts
+    assert "F9" in texts
+    pictures = [
+        label
+        for label in sheet.findChildren(QLabel)
+        if label.pixmap() is not None and not label.pixmap().isNull()
+    ]
+    assert len(pictures) >= 10
+    outside = QPoint(4, 4)
+    assert sheet._close_on_outside
+    assert not sheet._panel.geometry().contains(outside)
+    sheet.mousePressEvent(
+        QMouseEvent(
+            QMouseEvent.Type.MouseButtonPress,
+            outside.toPointF(),
+            outside.toPointF(),
+            Qt.MouseButton.LeftButton,
+            Qt.MouseButton.LeftButton,
+            Qt.KeyboardModifier.NoModifier,
+        )
+    )
     qapp.processEvents()
+    assert not sheet.isVisible()

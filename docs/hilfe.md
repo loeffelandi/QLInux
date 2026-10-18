@@ -9,4 +9,13 @@ Schritt mit geändert: beide Sprachen, und die Tastenübersicht. Eine neue
 Taste ist erst fertig, wenn sie in dieser Übersicht steht, deutsch und
 englisch.
 
-Die Übersicht nennt nur Tasten, die der Code wirklich bindet.
+Fett, kursiv und unterstrichen stehen als Strg+B, Strg+I und Strg+U.
+Das linke Panel ist F9, das rechte Umschalt+F9. Strg+B und
+Strg+Umschalt+B sind keine Panels.
+
+## Grundregel für Sheets
+
+Ein Sheet, das nur etwas zeigt, geht zu, wenn man neben die Karte auf
+die Abdunklung klickt. Esc macht dasselbe. Hilfe und Über QLInux sind so
+gebaut (`close_on_outside`). Ein Dialog, der eine Antwort braucht,
+bleibt offen, bis man ihn beantwortet.

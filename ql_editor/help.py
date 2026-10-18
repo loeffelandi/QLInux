@@ -1,62 +1,75 @@
 """Das Hilfe-Sheet.
 
-Gleiche Form wie „Über QLInux“: ein Sheet im Hauptfenster, kein eigenes
-Fenster. Der Text ist absichtlich kurz. Die Tastenübersicht nennt nur, was
-der Code wirklich bindet - neue Tasten gehören zuerst hierher, deutsch und
-englisch (siehe ``docs/hilfe.md``).
+Gleiche Form wie „Über QLInux": ein Sheet im Hauptfenster, kein eigenes
+Fenster. Der Text ist absichtlich kurz. Die Tastenübersicht steht auf
+Deutsch und Englisch (siehe ``docs/hilfe.md``). Ein Klick auf die
+Abdunklung schließt das Sheet, genau wie Esc.
 """
 
 from __future__ import annotations
 
 from PySide6.QtCore import Qt
-from PySide6.QtWidgets import QGridLayout, QLabel, QScrollArea, QVBoxLayout, QWidget
+from PySide6.QtWidgets import (
+    QGridLayout,
+    QHBoxLayout,
+    QLabel,
+    QScrollArea,
+    QVBoxLayout,
+    QWidget,
+)
 
 from .i18n import tr
+from .icons import icon
 from .sheet import Sheet, show_widget
 
 _HINT_STYLE = "color:#6b7280;"
+_ICON_PX = 20
 
 
-def action_shortcuts() -> tuple[tuple[str, str], ...]:
-    """Tasten an :class:`QAction`, so wie Qt sie auf Linux legt.
+def action_shortcuts() -> tuple[tuple[str | None, str, str], ...]:
+    """Tasten der Befehle, in der aktuellen Sprache.
 
-    ``(Taste, was sie tut)`` in der aktuellen Sprache. Die deutschen Texte
-    sind die Schlüssel, deshalb stehen sie hier als Literale.
+    ``(Icon oder None, Taste, was sie tut)``. Die deutschen Texte sind die
+    Schlüssel und stehen deshalb als Literale. Fett, kursiv und unterstrichen
+    sind Strg+B, Strg+I und Strg+U. Die Panels sind F9 und Umschalt+F9.
     """
     return (
-        (tr("Strg+N"), tr("Neues Etikett")),
-        (tr("Strg+O"), tr("Etikett öffnen")),
-        (tr("Strg+S"), tr("Etikett speichern")),
-        (tr("Strg+Umschalt+S"), tr("Speichern unter…")),
-        (tr("Strg+F4"), tr("Reiter schließen")),
-        (tr("Strg+Tab"), tr("Nächster Reiter")),
-        (tr("Strg+Umschalt+Tab"), tr("Vorheriger Reiter")),
-        (tr("Strg+Z"), tr("Rückgängig")),
-        (tr("Strg+Y"), tr("Wiederholen")),
-        (tr("Entf"), tr("Auswahl löschen")),
-        (tr("Strg+0"), tr("Einpassen")),
-        (tr("Strg++"), tr("Vergrößern")),
-        (tr("Strg+-"), tr("Verkleinern")),
-        (tr("Strg+1"), tr("Zoom 1:1")),
-        (tr("Strg+B"), tr("Panel links")),
-        (tr("Strg+Umschalt+B"), tr("Panel rechts")),
-        (tr("Strg+K"), tr("Befehl suchen")),
-        (tr("Strg+P"), tr("Drucken")),
-        (tr("Strg+Umschalt+P"), tr("Druckvorschau")),
+        ("new", tr("Strg+N"), tr("Neues Etikett")),
+        ("open", tr("Strg+O"), tr("Etikett öffnen")),
+        ("save", tr("Strg+S"), tr("Etikett speichern")),
+        ("save_as", tr("Strg+Umschalt+S"), tr("Speichern unter…")),
+        ("close", tr("Strg+F4"), tr("Reiter schließen")),
+        ("chevron_right", tr("Strg+Tab"), tr("Nächster Reiter")),
+        ("chevron_left", tr("Strg+Umschalt+Tab"), tr("Vorheriger Reiter")),
+        ("undo", tr("Strg+Z"), tr("Rückgängig")),
+        ("redo", tr("Strg+Y"), tr("Wiederholen")),
+        ("delete", tr("Entf"), tr("Auswahl löschen")),
+        ("bold", tr("Strg+B"), tr("Fett")),
+        ("italic", tr("Strg+I"), tr("Kursiv")),
+        ("underline", tr("Strg+U"), tr("Unterstrichen")),
+        ("zoom_fit", tr("Strg+0"), tr("Einpassen")),
+        ("zoom_in", tr("Strg++"), tr("Vergrößern")),
+        ("zoom_out", tr("Strg+-"), tr("Verkleinern")),
+        ("zoom_100", tr("Strg+1"), tr("Zoom 1:1")),
+        ("panel_left", tr("F9"), tr("Panel links")),
+        ("panel_right", tr("Umschalt+F9"), tr("Panel rechts")),
+        ("menu", tr("Strg+K"), tr("Befehl suchen")),
+        ("print", tr("Strg+P"), tr("Drucken")),
+        ("preview", tr("Strg+Umschalt+P"), tr("Druckvorschau")),
     )
 
 
-def canvas_shortcuts() -> tuple[tuple[str, str], ...]:
+def canvas_shortcuts() -> tuple[tuple[str | None, str, str], ...]:
     """Tasten, die der Canvas selbst auswertet, ohne eigene Aktion."""
     return (
-        (tr("Esc"), tr("Tippen beenden und die Auswahl aufheben")),
-        (tr("Pfeiltasten"), tr("Um einen Punkt verschieben")),
-        (tr("Umschalt+Pfeiltasten"), tr("Um zehn Punkte verschieben")),
-        (tr("Rücktaste"), tr("Auswahl löschen")),
-        (tr("Tab"), tr("Nächste Zelle")),
-        (tr("Umschalt+Tab"), tr("Vorherige Zelle")),
-        (tr("Eingabe"), tr("Zelle bearbeiten")),
-        (tr("F2"), tr("Zelle bearbeiten")),
+        (None, tr("Esc"), tr("Tippen beenden und die Auswahl aufheben")),
+        (None, tr("Pfeiltasten"), tr("Um einen Punkt verschieben")),
+        (None, tr("Umschalt+Pfeiltasten"), tr("Um zehn Punkte verschieben")),
+        ("delete", tr("Rücktaste"), tr("Auswahl löschen")),
+        (None, tr("Tab"), tr("Nächste Zelle")),
+        (None, tr("Umschalt+Tab"), tr("Vorherige Zelle")),
+        ("text", tr("Eingabe"), tr("Zelle bearbeiten")),
+        ("text", tr("F2"), tr("Zelle bearbeiten")),
     )
 
 
@@ -78,7 +91,7 @@ def build_help_content() -> QWidget:
         )
     )
 
-    layout.addWidget(_heading(tr("Auf dem Etikett")))
+    layout.addWidget(_heading(tr("Auf dem Etikett"), "label"))
     layout.addWidget(
         _body(
             tr(
@@ -90,7 +103,7 @@ def build_help_content() -> QWidget:
         )
     )
 
-    layout.addWidget(_heading(tr("Drucken")))
+    layout.addWidget(_heading(tr("Drucken"), "print"))
     layout.addWidget(
         _body(
             tr(
@@ -100,7 +113,7 @@ def build_help_content() -> QWidget:
         )
     )
 
-    layout.addWidget(_heading(tr("Mit der Maus")))
+    layout.addWidget(_heading(tr("Mit der Maus"), "zoom_in"))
     layout.addWidget(
         _body(
             tr(
@@ -122,38 +135,74 @@ def build_help_content() -> QWidget:
     scroll.setFrameShape(QScrollArea.Shape.NoFrame)
     scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
     scroll.setWidget(body)
-    scroll.setMinimumWidth(460)
+    scroll.setMinimumWidth(480)
+    scroll.setStyleSheet("QScrollArea { background: transparent; border: none; }")
+    scroll.viewport().setAutoFillBackground(False)
+    body.setAutoFillBackground(False)
     return scroll
 
 
 def show_help(parent: QWidget) -> Sheet:
-    """Das Hilfe-Sheet im Hauptfenster öffnen."""
-    return show_widget(parent, title=tr("Hilfe"), content=build_help_content())
+    """Das Hilfe-Sheet im Hauptfenster öffnen.
+
+    Esc und ein Klick auf die Abdunklung schließen es.
+    """
+    return show_widget(
+        parent,
+        title=tr("Hilfe"),
+        content=build_help_content(),
+        close_on_outside=True,
+    )
 
 
-def _shortcut_table(rows: tuple[tuple[str, str], ...]) -> QWidget:
+def _shortcut_table(
+    rows: tuple[tuple[str | None, str, str], ...],
+) -> QWidget:
     widget = QWidget()
     grid = QGridLayout(widget)
-    grid.setContentsMargins(0, 0, 0, 0)
-    grid.setHorizontalSpacing(16)
-    grid.setVerticalSpacing(2)
-    grid.setColumnStretch(1, 1)
-    for row, (chord, what) in enumerate(rows):
+    grid.setContentsMargins(0, 4, 0, 0)
+    grid.setHorizontalSpacing(12)
+    grid.setVerticalSpacing(5)
+    grid.setColumnStretch(2, 1)
+    sample = QLabel()
+    font = sample.font()
+    font.setBold(True)
+    sample.setFont(font)
+    width = max(sample.fontMetrics().horizontalAdvance(chord) for _, chord, _ in rows)
+    for row, (name, chord, what) in enumerate(rows):
+        grid.addWidget(_icon(name), row, 0, Qt.AlignmentFlag.AlignVCenter)
         key = QLabel(chord)
         font = key.font()
         font.setBold(True)
         key.setFont(font)
-        grid.addWidget(key, row, 0, Qt.AlignmentFlag.AlignTop)
-        grid.addWidget(_body(what), row, 1)
+        key.setMinimumWidth(width)
+        grid.addWidget(key, row, 1, Qt.AlignmentFlag.AlignVCenter)
+        grid.addWidget(_body(what), row, 2)
     return widget
 
 
-def _heading(text: str) -> QLabel:
+def _icon(name: str | None) -> QLabel:
+    label = QLabel()
+    label.setFixedSize(_ICON_PX, _ICON_PX)
+    if name:
+        label.setPixmap(icon(name).pixmap(_ICON_PX, _ICON_PX))
+    return label
+
+
+def _heading(text: str, name: str | None = None) -> QWidget:
+    row = QWidget()
+    layout = QHBoxLayout(row)
+    layout.setContentsMargins(0, 10, 0, 0)
+    layout.setSpacing(8)
+    if name:
+        layout.addWidget(_icon(name))
     label = QLabel(text)
     font = label.font()
     font.setBold(True)
     label.setFont(font)
-    return label
+    layout.addWidget(label)
+    layout.addStretch(1)
+    return row
 
 
 def _body(text: str) -> QLabel:
