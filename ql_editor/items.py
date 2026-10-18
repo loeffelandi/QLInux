@@ -18,7 +18,7 @@ wird in ein ``QPixmap`` umgewandelt.
 from __future__ import annotations
 
 import base64
-from typing import Any
+from typing import Any, Mapping
 
 from PIL import Image
 from PySide6.QtCore import QBuffer, QIODevice, QPointF, QRectF, Qt, Signal
@@ -49,6 +49,55 @@ from .i18n import tr
 # --------------------------------------------------------------------------- #
 # Hilfsfunktionen
 # --------------------------------------------------------------------------- #
+
+
+def normalize_binding(binding: Mapping[str, Any] | None) -> dict[str, Any] | None:
+    """Binding normalisieren: ``database``+Feld, ``serial``, oder ``None`` (D4)."""
+    if binding is None:
+        return None
+    source = binding.get("source")
+    if source in (None, "", "none"):
+        return None
+    if source == "database":
+        field = binding.get("field")
+        if not isinstance(field, str) or not field:
+            raise ValueError(tr("Datenbank-Binding braucht einen Spaltennamen."))
+        return {"source": "database", "field": field}
+    if source == "serial":
+        return {"source": "serial"}
+    raise ValueError(
+        tr("Unbekannte Binding-Quelle: {source!r}.").format(source=source)
+    )
+
+
+class _BindingMixin:
+    """Optionales Datenbank-/Serien-Binding an Text, Barcode und QR (D4).
+
+    Der Snapshot bleibt in ``text`` / ``value`` / ``data``; das Binding steuert
+    spaeter den Merge. Ohne Binding-Schluessel verhalten sich Format-1-Dateien
+    unveraendert.
+    """
+
+    _binding: dict[str, Any] | None = None
+
+    @property
+    def binding(self) -> dict[str, Any] | None:
+        return dict(self._binding) if self._binding else None
+
+    def set_binding(self, binding: Mapping[str, Any] | None) -> None:
+        self._binding = normalize_binding(binding)
+
+    def clear_binding(self) -> None:
+        self._binding = None
+
+    def _binding_to_dict(self, d: dict[str, Any]) -> None:
+        if self._binding is not None:
+            d["binding"] = dict(self._binding)
+
+    def _apply_binding(self, d: Mapping[str, Any]) -> None:
+        raw = d.get("binding")
+        self._binding = normalize_binding(raw if isinstance(raw, Mapping) else None)
+
 def pil_to_qpixmap(image: Image.Image) -> QPixmap:
     """Wandle ein ``PIL.Image`` in ein ``QPixmap`` (Alpha-sicher)."""
     image = image.convert("RGBA")
@@ -198,7 +247,7 @@ class LabelItem(_ClampMixin):
 # --------------------------------------------------------------------------- #
 # Text
 # --------------------------------------------------------------------------- #
-class TextItem(_ClampMixin, QGraphicsTextItem):
+class TextItem(_BindingMixin, _ClampMixin, QGraphicsTextItem):
     kind = "text"
 
     #: Bearbeitung begonnen (Doppelklick, neues Feld). Die App nimmt hier den
@@ -210,6 +259,7 @@ class TextItem(_ClampMixin, QGraphicsTextItem):
 
     def __init__(self, text: str = "", font_family: str = "Sans", font_pixel_size: int = 48):
         super().__init__(text)
+        self._binding = None
         self.setFlags(
             QGraphicsItem.GraphicsItemFlag.ItemIsMovable
             | QGraphicsItem.GraphicsItemFlag.ItemIsSelectable
@@ -402,6 +452,7 @@ class TextItem(_ClampMixin, QGraphicsTextItem):
             align=self._align,
             text_width=self.textWidth(),
         )
+        self._binding_to_dict(d)
         return d
 
     @classmethod
@@ -413,6 +464,7 @@ class TextItem(_ClampMixin, QGraphicsTextItem):
         item.set_align(d.get("align", "left"))
         item.set_text_width(float(d.get("text_width", -1)))
         item._apply_base(d)
+        item._apply_binding(d)
         return item
 
 
@@ -513,11 +565,12 @@ class ImageItem(_ClampMixin, QGraphicsPixmapItem):
 # --------------------------------------------------------------------------- #
 # QR-Code
 # --------------------------------------------------------------------------- #
-class QRItem(_ClampMixin, QGraphicsPixmapItem):
+class QRItem(_BindingMixin, _ClampMixin, QGraphicsPixmapItem):
     kind = "qr"
 
     def __init__(self, data: str = "https://example.org", size_dots: int = 200):
         super().__init__()
+        self._binding = None
         self.setFlags(
             QGraphicsItem.GraphicsItemFlag.ItemIsMovable
             | QGraphicsItem.GraphicsItemFlag.ItemIsSelectable
@@ -555,19 +608,21 @@ class QRItem(_ClampMixin, QGraphicsPixmapItem):
     def to_dict(self) -> dict[str, Any]:
         d = self._base_dict()
         d.update(data=self._data, size_dots=self._size_dots)
+        self._binding_to_dict(d)
         return d
 
     @classmethod
     def from_dict(cls, d: dict[str, Any]) -> "QRItem":
         item = cls(d.get("data", ""), int(d.get("size_dots", 200)))
         item._apply_base(d)
+        item._apply_binding(d)
         return item
 
 
 # --------------------------------------------------------------------------- #
 # Barcode
 # --------------------------------------------------------------------------- #
-class BarcodeItem(_ClampMixin, QGraphicsPixmapItem):
+class BarcodeItem(_BindingMixin, _ClampMixin, QGraphicsPixmapItem):
     kind = "barcode"
 
     def __init__(
@@ -579,6 +634,7 @@ class BarcodeItem(_ClampMixin, QGraphicsPixmapItem):
         height_dots: int = 120,
     ):
         super().__init__()
+        self._binding = None
         self.setFlags(
             QGraphicsItem.GraphicsItemFlag.ItemIsMovable
             | QGraphicsItem.GraphicsItemFlag.ItemIsSelectable
@@ -651,6 +707,7 @@ class BarcodeItem(_ClampMixin, QGraphicsPixmapItem):
     def to_dict(self) -> dict[str, Any]:
         d = self._base_dict()
         d.update(value=self._value, symbology=self._symbology, show_text=self._show_text, height_dots=self._height_dots)
+        self._binding_to_dict(d)
         return d
 
     @classmethod
@@ -660,6 +717,7 @@ class BarcodeItem(_ClampMixin, QGraphicsPixmapItem):
             show_text=bool(d.get("show_text", True)), height_dots=int(d.get("height_dots", 120)),
         )
         item._apply_base(d)
+        item._apply_binding(d)
         return item
 
 
@@ -785,6 +843,7 @@ __all__ = [
     "pil_to_qpixmap",
     "make_qr_image",
     "make_barcode_image",
+    "normalize_binding",
     "LabelItem",
     "TextItem",
     "ImageItem",
