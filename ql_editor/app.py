@@ -3126,9 +3126,13 @@ def main(argv: list[str] | None = None) -> int:
     QLocale.setDefault(QLocale(language()))
     window = MainWindow(settings)
     _remember_window(window)
-    window.show()
     # Der Server bleibt in ``server`` am Leben, solange die Schleife läuft.
+    # Kein removeServer bei belegtem Namen: nur die Owner-Instanz hält den Socket.
     server = instance.listen(partial(_open_from_outside, window))
+    # TOCTOU: zwei Starts mit Dateien — Verlierer reicht nach listen() nach.
+    if server is None and files and instance.forward(files, attempts=5, retry_ms=50):
+        return 0
+    window.show()
     for path in files:
         window.open_path(path)
     return app.exec()
