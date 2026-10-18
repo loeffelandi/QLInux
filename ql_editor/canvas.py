@@ -1246,16 +1246,17 @@ class LabelCanvas(QGraphicsView):
         item = self._editable_selection()
         if item is not None:
             size = self._handle_size()
-            band = self._edit_border_path(item)
-            if band is not None:
+            polygons = self._edit_border_polygons(item) if self._editing_text_selection() is item else None
+            if polygons is not None:
+                # Schraffur in Bildschirmpixeln, unabhaengig vom Zoom.
                 hatch = QBrush(QColor("#1f6feb"), Qt.BrushStyle.BDiagPattern)
                 hatch.setTransform(QTransform.fromScale(1.0 / self._scale(), 1.0 / self._scale()))
                 painter.setPen(Qt.PenStyle.NoPen)
                 painter.setBrush(hatch)
-                painter.drawPath(band)
+                painter.drawPath(self._edit_border_path(*polygons))
                 painter.setPen(outline)
                 painter.setBrush(Qt.BrushStyle.NoBrush)
-                painter.drawPolygon(self._edit_border_polygons(item)[0])
+                painter.drawPolygon(polygons[0])
             handle_pen = QPen(QColor("#1f6feb"))
             handle_pen.setWidthF(0)
             if getattr(item, "resizable", False):
@@ -1615,17 +1616,14 @@ class LabelCanvas(QGraphicsView):
         outer = br.adjusted(-wx, -wy, wx, wy)
         return item.mapToScene(outer), item.mapToScene(br)
 
-    def _edit_border_path(self, item) -> QPainterPath | None:
-        if self._editing_text_selection() is not item:
-            return None
-        polygons = self._edit_border_polygons(item)
-        if polygons is None:
-            return None
+    @staticmethod
+    def _edit_border_path(outer: QPolygonF, inner: QPolygonF) -> QPainterPath:
+        """Das Band zwischen Aussen- und Innenkante als Pfad."""
         path = QPainterPath()
         path.setFillRule(Qt.FillRule.OddEvenFill)
-        path.addPolygon(polygons[0])
+        path.addPolygon(outer)
         path.closeSubpath()
-        path.addPolygon(polygons[1])
+        path.addPolygon(inner)
         path.closeSubpath()
         return path
 
