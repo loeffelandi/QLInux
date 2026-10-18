@@ -719,6 +719,91 @@ def test_tape_band_spans_the_workspace(qapp):
     assert tape.height() == pytest.approx(label.width_dots + 2 * label.side_border_dots)
 
 
+def test_fitted_label_sits_at_the_top_left(qapp):
+    """Wie im P-touch Editor: Etikett und Bandstreifen oben links, nicht mittig."""
+    from ql_editor.canvas import FIT_MARGIN_MM
+    from ql_editor.media import mm_to_dots
+
+    canvas = LabelCanvas()
+    canvas.resize(900, 600)
+    canvas.show()
+    qapp.processEvents()
+    label = get_label("50")
+    margin = mm_to_dots(FIT_MARGIN_MM)
+
+    def origin_is_pinned():
+        tape = canvas.tape_rect()
+        corner = canvas.mapToScene(0, 0)
+        assert corner.x() == pytest.approx(tape.left() - margin, abs=2)
+        assert corner.y() == pytest.approx(tape.top() - margin, abs=2)
+        # Die Mitte des Fensters liegt rechts unter der Etikettenmitte.
+        view_center = canvas.mapToScene(canvas.viewport().rect().center())
+        assert view_center.x() > tape.center().x()
+        assert view_center.y() > tape.center().y()
+
+    canvas.set_label(label, 472)
+    canvas.fit_tape()
+    qapp.processEvents()
+    origin_is_pinned()
+
+    canvas.set_label(label, 472, orientation=media.Orientation.ALONG)
+    canvas.fit_tape()
+    qapp.processEvents()
+    origin_is_pinned()
+
+
+def test_unprintable_edge_is_hatched_band_beyond_label_is_plain(qapp):
+    """Kanten schraffiert; der graue Streifen hinter dem Etikett bleibt ohne Muster."""
+    from PySide6.QtCore import QPoint, QPointF
+    from PySide6.QtGui import QColor, QImage, QPainter
+
+    from ql_editor.canvas import TAPE_BAND_COLOR
+
+    canvas = LabelCanvas()
+    canvas.resize(900, 600)
+    canvas.show()
+    qapp.processEvents()
+    label = get_label("50")
+    assert label.side_border_dots > 0
+    canvas.set_label(label, 472, orientation=media.Orientation.ALONG)
+    canvas.fit_tape()
+    qapp.processEvents()
+
+    image = QImage(canvas.viewport().size(), QImage.Format.Format_RGB32)
+    painter = QPainter(image)
+    canvas.viewport().render(painter, QPoint())
+    painter.end()
+
+    tape = canvas.tape_rect()
+    printable = canvas.printable_rect()
+
+    def colors_at(scene_pt, radius):
+        view = canvas.mapFromScene(scene_pt)
+        found = set()
+        for dy in range(-radius, radius + 1):
+            for dx in range(-radius, radius + 1):
+                color = image.pixelColor(int(view.x()) + dx, int(view.y()) + dy)
+                found.add((color.red(), color.green(), color.blue()))
+        return found
+
+    hatch = colors_at(QPointF(printable.center().x(), (tape.top() + printable.top()) / 2.0), 4)
+    assert len(hatch) > 1
+    plain = QColor(TAPE_BAND_COLOR)
+    beyond = colors_at(QPointF(tape.right() + 30, tape.center().y()), 1)
+    assert beyond == {(plain.red(), plain.green(), plain.blue())}
+
+    # Eigene Labelraender liegen in der bedruckbaren Flaeche und bleiben weiss.
+    canvas.set_margins(4.0, 4.0, 4.0, 4.0)
+    qapp.processEvents()
+    painter = QPainter(image)
+    canvas.viewport().render(painter, QPoint())
+    painter.end()
+    inner = canvas.margin_rect()
+    printable = canvas.printable_rect()
+    margin_sample = QPointF(printable.center().x(), (printable.top() + inner.top()) / 2.0)
+    assert colors_at(margin_sample, 2) == {(255, 255, 255)}
+
+
 def test_canvas_has_ruler_corner_with_unit(qapp):
     """Die Ecke zwischen den Linealen traegt die Einheit (wie P-touch Editor)."""
     from ql_editor.canvas import RULER_WIDTH, RulerCorner

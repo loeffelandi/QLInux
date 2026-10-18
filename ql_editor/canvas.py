@@ -12,9 +12,11 @@ mm-Linealen und sichtbarer, nicht bedruckbarer Randzone.
 * **mm-Lineale** an Ober-/Unterkante.
 * **Randbegrenzung**: die volle Medienhoehe (Bandbreite inkl. Kanten) ist
   sichtbar. Ein durchgehender grauer Streifen in Bandrichtung zeigt, wohin
-  das Band laeuft (volle Arbeitsflaeche, ohne Pfeil). Eingestellte Raender
-  bleiben als gepunkteter Rahmen. Items bleiben auf der bedruckbaren
-  Flaeche geklemmt.
+  das Band laeuft (volle Arbeitsflaeche, ohne Pfeil). Das Etikett sitzt
+  oben links, wie im P-touch Editor. Schraffur markiert nur, was der
+  Druckkopf nicht erreicht. Eigene Labelraender beginnen erst in der
+  bedruckbaren Flaeche und bleiben ein gepunkteter Rahmen. Items bleiben
+  auf der bedruckbaren Flaeche geklemmt.
 
 Direkte Bearbeitung mit der Maus (modernes Editor-Gefuehl):
 
@@ -40,7 +42,7 @@ from contextlib import contextmanager
 from typing import Any, Iterator
 
 from PySide6.QtCore import QEvent, QLocale, QPoint, QPointF, QRectF, Qt, Signal
-from PySide6.QtGui import QColor, QFont, QFontMetricsF, QImage, QPainter, QPen
+from PySide6.QtGui import QBrush, QColor, QFont, QFontMetricsF, QImage, QPainter, QPen
 from PySide6.QtWidgets import QGraphicsItem, QGraphicsScene, QGraphicsView, QWidget
 from PIL import Image
 
@@ -410,7 +412,9 @@ class LabelCanvas(QGraphicsView):
         self.setBackgroundBrush(QColor(WORKSPACE_COLOR))
         self.setDragMode(QGraphicsView.DragMode.RubberBandDrag)
         self.setTransformationAnchor(QGraphicsView.ViewportAnchor.AnchorUnderMouse)
-        self.setResizeAnchor(QGraphicsView.ViewportAnchor.AnchorViewCenter)
+        self.setResizeAnchor(QGraphicsView.ViewportAnchor.NoAnchor)
+        # Wie im P-touch Editor: Etikett oben links, nicht in der Mitte.
+        self.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
         self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
         self.setAcceptDrops(True)
         # Hintergrund (Bandstreifen) cachen -> fluessigeres Scrollen.
@@ -526,7 +530,23 @@ class LabelCanvas(QGraphicsView):
         if not items.isNull():
             rect = rect.united(items)
         margin = mm_to_dots(PASTEBOARD_MARGIN_MM)
-        return rect.adjusted(-margin, -margin, margin, margin)
+        rect = rect.adjusted(-margin, -margin, margin, margin)
+        # Rechts und unten weit genug, damit das Etikett oben links stehen
+        # kann und der Rest der Arbeitsflaeche frei bleibt (P-touch).
+        scale = self._scale()
+        vp = self.viewport().rect()
+        if self._label is not None and scale > 0 and vp.width() > 2 and vp.height() > 2:
+            inset = mm_to_dots(FIT_MARGIN_MM)
+            tape = self.tape_rect()
+            rect = rect.united(
+                QRectF(
+                    tape.left() - inset,
+                    tape.top() - inset,
+                    vp.width() / scale,
+                    vp.height() / scale,
+                )
+            )
+        return rect
 
     def _update_pasteboard(self) -> None:
         """Scrollbereich des Views an den Inhalt anpassen (Scrollbalken!).
@@ -730,26 +750,52 @@ class LabelCanvas(QGraphicsView):
 
     # -- Zoom / Scrollen ----------------------------------------------------
     def fit_tape(self) -> None:
-        """Zoom so, dass das Band samt Platz fuer die Groessen-Angabe passt."""
+        """Zoom so, dass das Band passt, und lege es oben links an.
+
+        ``fitInView`` wuerde das Band in der Mitte lassen. Danach rueckt
+        :meth:`_pin_top_left` die Ecke an den Viewport - der graue Streifen
+        wandert mit.
+        """
         if self._fitting:
             return
         if self.viewport().width() <= 2 or self.viewport().height() <= 2:
             self._needs_fit = True
             return
         margin = mm_to_dots(FIT_MARGIN_MM)
+        target = self.tape_rect().adjusted(-margin, -margin, margin, margin)
         self._fitting = True
         try:
-            self.fitInView(
-                self.tape_rect().adjusted(-margin, -margin, margin, margin),
-                Qt.AspectRatioMode.KeepAspectRatio,
-            )
+            self.fitInView(target, Qt.AspectRatioMode.KeepAspectRatio)
             self._clamp_zoom()
+            self._update_pasteboard()
+            self._pin_top_left(target.topLeft())
         finally:
             self._fitting = False
         self._needs_fit = False
         self._auto_fit = True
         self._update_rulers()
         self._emit_zoom()
+
+    def _pin_top_left(self, scene_point: QPointF) -> None:
+        """Lege einen Szenenpunkt in die linke obere Ecke des Viewports.
+
+        Der Scrollbereich muss dafuer mindestens ein Viewport gross sein,
+        sonst klemmt Qt die Position und das Etikett bleibt mittig.
+        """
+        scale = self._scale()
+        if scale <= 0:
+            return
+        vp = self.viewport().rect()
+        needed = QRectF(
+            scene_point.x(),
+            scene_point.y(),
+            max(1.0, vp.width() / scale),
+            max(1.0, vp.height() / scale),
+        )
+        rect = self.sceneRect().united(needed)
+        if rect != self.sceneRect():
+            self.setSceneRect(rect)
+        self.centerOn(needed.center())
 
     def _emit_zoom(self) -> None:
         self.zoom_changed.emit(self.transform().m11() * 100.0)
@@ -823,14 +869,16 @@ class LabelCanvas(QGraphicsView):
         self._update_rulers()
 
     def zoom_100(self) -> None:
-        """Zoom auf 1:1 (100 %) und auf das Etikett zentrieren.
+        """Zoom auf 1:1 (100 %) und das Etikett oben links anlegen.
 
         Nur bei 1:1 (oder Vergroesserung) zeigt der Bildschirm die echten
         Druckpunkte: ein 1-bit-Bild verliert beim *Verkleinern* feine Linien.
         """
         self.zoom_by(1.0 / self._scale())
         if self._label is not None:
-            self.centerOn(self.printable_rect().center())
+            margin = mm_to_dots(FIT_MARGIN_MM)
+            origin = self.tape_rect().topLeft()
+            self._pin_top_left(QPointF(origin.x() - margin, origin.y() - margin))
         self._update_rulers()
         self._emit_zoom()
 
@@ -842,7 +890,11 @@ class LabelCanvas(QGraphicsView):
         return HANDLE_SIZE_PX / self._scale()
 
     def set_margins(self, left: float, right: float, top: float, bottom: float) -> None:
-        """Ränder in mm - werden als gepunkteter Rahmen im Etikett gezeigt."""
+        """Eigene Labelraender in mm, innerhalb der bedruckbaren Flaeche.
+
+        Sichtbar als gepunkteter Rahmen. Die Schraffur daneben ist etwas
+        anderes: die Kanten, die der Druckkopf nicht bedrucken kann.
+        """
         self._margins_mm = (float(left), float(right), float(top), float(bottom))
         # Der Hintergrund (Band, Rahmen) ist zwischengespeichert - ein normales
         # update() wuerde nur die Objekte neu zeichnen, der Rahmen bliebe stehen.
@@ -883,10 +935,12 @@ class LabelCanvas(QGraphicsView):
         super().drawBackground(painter, rect)
         if self._label is None:
             return
+        tape = self.tape_rect()
         printable = self.printable_rect()
         band = self.tape_band_rect(rect)
         painter.fillRect(band, QColor(TAPE_BAND_COLOR))
         painter.fillRect(printable, QColor("#ffffff"))
+        self._hatch_nonprintable(painter, tape, printable)
         pen = QPen(QColor("#9aa3ad"))
         pen.setWidthF(0)
         painter.setPen(pen)
@@ -902,8 +956,30 @@ class LabelCanvas(QGraphicsView):
             margin_pen.setStyle(Qt.PenStyle.DotLine)
             margin_pen.setWidthF(0)
             painter.setPen(margin_pen)
+            painter.setBrush(Qt.BrushStyle.NoBrush)
             painter.drawRect(self.margin_rect())
         painter.setPen(Qt.PenStyle.NoPen)
+
+    def _hatch_nonprintable(
+        self, painter: QPainter, tape: QRectF, printable: QRectF
+    ) -> None:
+        """Schraffur nur fuer Kanten, die der Druckkopf nicht erreicht.
+
+        Die eigenen Labelraender (Margin-Setting) liegen innerhalb der
+        bedruckbaren Flaeche und werden hier nicht schraffiert.
+        """
+        painter.save()
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.setBrush(QBrush(QColor("#8b949e"), Qt.BrushStyle.BDiagPattern))
+        side = float(self._label.side_border_dots) if self._label is not None else 0.0
+        if side > 0:
+            if self._orientation is Orientation.ALONG:
+                painter.drawRect(QRectF(tape.left(), tape.top(), tape.width(), side))
+                painter.drawRect(QRectF(tape.left(), printable.bottom(), tape.width(), side))
+            else:
+                painter.drawRect(QRectF(tape.left(), tape.top(), side, tape.height()))
+                painter.drawRect(QRectF(printable.right(), tape.top(), side, tape.height()))
+        painter.restore()
 
     def _draw_size_labels(self, painter: QPainter) -> None:
         """Bandbreite und Etikettenlaenge am Etikett anschreiben.
