@@ -5527,6 +5527,8 @@ def test_appearance_menu_switches_between_light_and_dark(qapp, tmp_path):
             if action.menu() is not None and action.menu().title() == "Erscheinungsbild"
         )
         choices = {action.text(): action for action in submenu.actions()}
+        assert all(not action.icon().isNull() for action in choices.values())
+        assert len({action.icon().cacheKey() for action in choices.values()}) == 3
         assert choices["Wie das System"].isChecked()
         choices["Dunkel"].trigger()
         qapp.processEvents()

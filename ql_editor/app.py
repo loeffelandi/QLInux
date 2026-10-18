@@ -1956,12 +1956,12 @@ class MainWindow(QMainWindow):
         self._appearance_group = QActionGroup(self)
         self._appearance_group.setExclusive(True)
         current = self._settings.appearance
-        for key, label in (
-            ("system", tr("Wie das System")),
-            ("light", tr("Hell")),
-            ("dark", tr("Dunkel")),
+        for key, label, glyph in (
+            ("system", tr("Wie das System"), "appearance_system"),
+            ("light", tr("Hell"), "appearance_light"),
+            ("dark", tr("Dunkel"), "appearance_dark"),
         ):
-            action = QAction(label, self)
+            action = QAction(icon(glyph), label, self)
             action.setCheckable(True)
             action.setChecked(key == current)
             action.triggered.connect(

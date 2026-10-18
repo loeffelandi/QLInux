@@ -745,6 +745,40 @@ def _draw_appearance(p: QPainter, color: QColor) -> None:
     p.restore()
 
 
+def _draw_appearance_system(p: QPainter, color: QColor) -> None:
+    """Bildschirm: das Farbschema der Arbeitsumgebung."""
+    _stroke_only(p, color, 1.7)
+    p.drawRoundedRect(QRectF(3.5, 4.0, 17.0, 12.0), _RADIUS, _RADIUS)
+    _line(p, 12.0, 16.0, 12.0, 18.6)
+    _line(p, 8.0, 18.6, 16.0, 18.6)
+
+
+def _draw_appearance_light(p: QPainter, color: QColor) -> None:
+    """Sonne."""
+    _stroke_only(p, color, 1.7)
+    p.drawEllipse(QPointF(12.0, 12.0), 4.0, 4.0)
+    for step in range(8):
+        angle = math.radians(step * 45.0)
+        inner, outer = 6.5, 9.6
+        _line(
+            p,
+            12.0 + math.cos(angle) * inner,
+            12.0 + math.sin(angle) * inner,
+            12.0 + math.cos(angle) * outer,
+            12.0 + math.sin(angle) * outer,
+        )
+
+
+def _draw_appearance_dark(p: QPainter, color: QColor) -> None:
+    """Mondsichel."""
+    moon = QPainterPath()
+    moon.addEllipse(QRectF(5.0, 3.5, 14.5, 17.0))
+    cut = QPainterPath()
+    cut.addEllipse(QRectF(9.5, 3.0, 13.0, 17.0))
+    _fill_only(p, color)
+    p.drawPath(moon.subtracted(cut))
+
+
 def _draw_language(p: QPainter, color: QColor) -> None:
     """Zwei Sprechblasen - das uebliche Symbol fuer Sprache/Sprachwahl."""
     _stroke_only(p, color, 1.6)
@@ -1061,6 +1095,9 @@ _DRAW = {
     "rotate": _draw_rotate,
     "language": _draw_language,
     "appearance": _draw_appearance,
+    "appearance_system": _draw_appearance_system,
+    "appearance_light": _draw_appearance_light,
+    "appearance_dark": _draw_appearance_dark,
     "flag_de": _draw_flag_de,
     "flag_en": _draw_flag_en,
     "new": _draw_new,
