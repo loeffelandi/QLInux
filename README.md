@@ -29,16 +29,9 @@ The model list even appears in the app: *menu → About QLInux*.
 
 ## Features
 
-- **Canvas**: text (double-click to edit; inverted white on black, underline,
-  strikethrough, character and line spacing, vertical text direction and
-  alignment, automatic size or wrapping, bullet and numbered lists), images,
-  barcodes, QR codes, lines, rectangles, shapes (arrows, ellipse, triangle,
-  star), tables (cells, merge, insert and resize rows and columns; cell text is
-  typed directly on the label), date/time stamps (current clock or a fixed value,
-  formats, offset) and clip art (a sheet of original symbols, black or red,
-  optional locked aspect); move, scale, rotate, align (to the margin frame, to
-  the selection or to the guides), change the stacking order (one step or to the
-  front or back), undo/redo.
+- **Canvas**: text, images, barcodes, QR codes, lines, shapes, tables,
+  date/time stamps and clip art. The usual editing: move, scale, rotate,
+  align, reorder, undo and redo.
 - **Database (CSV)**: connect a CSV file in the bottom database panel and drag a
   column onto a text, barcode or QR code (or onto an empty spot for a new bound
   text). The value comes from the current record; select another row in the grid
@@ -53,10 +46,10 @@ The model list even appears in the app: *menu → About QLInux*.
   (dithering), ink amount, **1–99 copies per job** and
   **cutting** — after each copy, only at the end, or not at all. A status area
   shows the print state and the job history of the session.
-- **Printer selection without knowing addresses**: switches for network/USB,
-  discovery of network printers (mDNS + SNMP) and USB devices; the printer you
-  used last is selected again on start when it is found; *Detect label*
-  reads the inserted tape (USB only — the network port has no read-back).
+- **Printer**: network or USB. Printers are found with mDNS and SNMP, USB
+  devices show up in the list, and the last one is selected again when it
+  is still there. *Detect label* reads the tape over USB. The network port
+  has no read-back.
 - **Preview** in real print dots, plus a print preview mode at 1:1 (Ctrl+Shift+P).
 - **Templates**: seven ready-made labels plus your own stored as `.qlx`
   files.
