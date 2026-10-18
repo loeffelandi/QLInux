@@ -1192,6 +1192,19 @@ class MainWindow(QMainWindow):
         self._left_panel.docked_changed.connect(self._act_panel_left.setChecked)
         self._right_panel.docked_changed.connect(self._act_panel_right.setChecked)
 
+        self._act_connect_csv = QAction(icon("database"), tr("CSV verbinden…"), self)
+        self._act_connect_csv.setToolTip(tr("CSV-Datei mit dem Etikett verbinden"))
+        self._act_connect_csv.triggered.connect(self._choose_csv)
+
+        # Erst sichtbar, wenn eine CSV haengt. Klick klappt das untere Grid auf.
+        self._act_database = QAction(icon("database"), tr("Datenbank"), self)
+        self._act_database.setObjectName("database_toolbar")
+        self._act_database.setCheckable(True)
+        self._act_database.setChecked(False)
+        self._act_database.setVisible(False)
+        self._act_database.setToolTip(tr("Datenbank ein- oder ausblenden"))
+        self._act_database.toggled.connect(self._on_database_toolbar_toggled)
+
         self._act_quit = QAction(icon("quit"), tr("Beenden"), self)
         self._act_quit.setToolTip(tr("Beenden (Strg+Q)"))
         self._act_quit.setShortcut(QKeySequence.StandardKey.Quit)
@@ -1294,6 +1307,8 @@ class MainWindow(QMainWindow):
         bar.addAction(self._act_print_preview)
         bar.addAction(self._act_print)
         bar.addAction(self._act_print_history)
+        self._act_database_separator = bar.addSeparator()
+        bar.addAction(self._act_database)
 
     def _build_template_button(self, parent: QWidget) -> QToolButton:
         """Toolbar-Knopf "Vorlage laden": Klick oeffnet die Vorlagenliste."""
@@ -1402,6 +1417,9 @@ class MainWindow(QMainWindow):
         menu.addSection(tr("Etikett"))
         for act in self._media_panel.orientation_actions():
             menu.addAction(act)
+        menu.addSection(tr("Datenbank"))
+        menu.addAction(self._act_connect_csv)
+        menu.addAction(self._act_database)
         menu.addSection(tr("Ansicht"))
         for act in (
             self._act_print_preview,
@@ -2157,8 +2175,8 @@ class MainWindow(QMainWindow):
         """Objekt einfuegen - als ein Undo-Schritt.
 
         ``commit=False`` laesst den Schnappschuss offen: ein neues Textfeld
-        wird erst mit dem Ende der Bearbeitung ein Schritt („Text"), und ein
-        leer gebliebenes verschwindet ohne Spur auf dem Stapel.
+        wird erst mit dem Ende der Bearbeitung ein Schritt („Text"), auch
+        wenn es leer geblieben ist.
         """
         self._seal_open_inspector_edit()
         self._capture_history()
@@ -2273,9 +2291,9 @@ class MainWindow(QMainWindow):
         """Neues Textfeld anlegen und direkt bearbeiten.
 
         Bewusst **ohne Platzhaltertext**: der Doppelklick setzt nur den Cursor,
-        getippt wird sofort der eigene Text. Bleibt das Feld leer, wird es beim
-        Beenden der Bearbeitung wieder verworfen (siehe
-        :meth:`_on_text_editing_finished`) - wie im P-touch Editor.
+        getippt wird sofort der eigene Text. Ein leer gebliebenes Feld bleibt
+        selektiert, damit Schriftgroesse oder Datenbankfeld danach gesetzt
+        werden koennen.
         """
         item = TextItem(text, font_pixel_size=self._default_font_size())
         # Einfuegen und Tippen sind *ein* Schritt; der Commit kommt mit dem
@@ -2291,72 +2309,42 @@ class MainWindow(QMainWindow):
         self._new_text(scene_pos)
 
     def _on_text_editing_finished(self) -> None:
-        """Leer gebliebene Textfelder verwerfen.
+        """Bearbeitung beenden, ohne ein leeres Textfeld zu loeschen.
 
-        Ein Doppelklick legt ein leeres Feld an; tippt man nichts und klickt
-        daneben, soll kein unsichtbares Objekt im Etikett zurueckbleiben.
-        Das Entfernen wird verzoegert, weil das Signal aus dem Fokus-Event des
-        Items kommt - dort darf es sich nicht selbst aus der Szene nehmen.
+        Wegklicken schliesst nur die Eingabe. Das Objekt bleibt, und solange
+        nichts anderes gewaehlt ist, bleibt es selektiert - Schriftgroesse
+        und Datenbankfeld lassen sich danach setzen. Die Auswahl kommt erst
+        nach dem Mausklick, weil die Szene sie im selben Druck noch loescht.
+        Esc setzt ``_skip_reselect`` und laesst die Auswahl aus. Der
+        Undo-Schritt entsteht sofort, damit die naechste Geste nicht in
+        denselben Befehl rutscht.
         """
         item = self.sender()
         if not isinstance(item, TextItem):
             return
-        if str(item.toPlainText()).strip():
-            self._commit_history(tr("Text"))
-            return
-        # Schnappschuss sofort freigeben: der Klick, der die Bearbeitung
-        # beendet, startet oft im selben Atemzug die naechste Geste. Das
-        # leere Feld zaehlt ab hier nicht mehr mit (``_pending_discard``),
-        # der Undo-Schritt entsteht aber schon jetzt - nicht erst im Timer,
-        # der sonst die Geste dazwischen in denselben Befehl ziehen wuerde.
-        before = self._history_before
-        self._history_before = None
-        item._pending_discard = True
-        pushed = push_if_changed(
-            self._undo_stack,
-            before,
-            self._design_snapshot(),
-            self._restore_design,
-            tr("Löschen"),
+        skip = bool(getattr(item, "_skip_reselect", False))
+        item._skip_reselect = False
+        keep = (
+            not skip
+            and item.scene() is not None
+            and not str(item.toPlainText()).strip()
+            and not any(it is not item for it in self._canvas.selected_items())
         )
-        if pushed:
-            self._update_window_title()
-        tab = self._active
-        QTimer.singleShot(
-            0, lambda: self._discard_text_if_empty(item, pushed, tab=tab)
-        )
+        if keep:
+            item.setSelected(True)
+        self._commit_history(tr("Text"))
+        if keep:
+            QTimer.singleShot(0, lambda item=item: self._reselect_empty_text(item))
 
-    def _discard_text_if_empty(
-        self,
-        item: TextItem,
-        pushed: bool = False,
-        *,
-        tab: LabelTab | None = None,
-    ) -> None:
-        if item.scene() is None:
+    def _reselect_empty_text(self, item: TextItem) -> None:
+        """Leeres Feld nach dem Mausklick wieder waehlen, falls noch nichts anderes gilt."""
+        if item.scene() is None or item.scene() is not self._canvas.scene():
             return
-        owner = tab if tab is not None else self._active
-        if owner is None:
+        if str(item.toPlainText()).strip():
             return
-        # Laeuft die Bearbeitung inzwischen wieder (z. B. nach einem Refresh,
-        # der die Textmarke ausblendet), bleibt das Feld stehen - verworfen
-        # wird nur, was wirklich nicht mehr in Bearbeitung ist.
-        if item.is_editing or str(item.toPlainText()).strip():
-            item._pending_discard = False
-            if (
-                pushed
-                and owner.undo.undoText() == tr("Löschen")
-                and owner.undo.index() == owner.undo.count()
-            ):
-                owner.undo.undo()
+        if any(it is not item for it in self._canvas.selected_items()):
             return
-        self._history_suppress = True
-        try:
-            owner.canvas.remove_item(item)
-        finally:
-            self._history_suppress = False
-        if owner is self._active:
-            self._on_items_changed()
+        item.setSelected(True)
 
     def _on_text_edited(self) -> None:
         self._capture_history()
@@ -3769,11 +3757,45 @@ class MainWindow(QMainWindow):
         finally:
             self._active = previous
 
+    def _database_is_linked(self) -> bool:
+        """True, wenn der aktive Reiter eine CSV geladen oder einen Pfad hat."""
+        tab = self._active
+        if tab is None:
+            return False
+        if tab.csv_table is not None:
+            return True
+        source = tab.data_source
+        if not isinstance(source, Mapping):
+            return False
+        return bool(str(source.get("path") or "").strip())
+
+    def _on_database_toolbar_toggled(self, checked: bool) -> None:
+        """Toolbar-Icon zeigt das Grid nur bei bestehender Verbindung."""
+        if checked and self._database_is_linked():
+            self._database_panel.set_expanded(True)
+            self._database_panel.show()
+            return
+        self._database_panel.hide()
+
+    def _apply_database_visibility(self) -> None:
+        """Ohne CSV weder Icon noch Panel; mit CSV nur das Icon, bis es geklickt wird."""
+        linked = self._database_is_linked()
+        self._act_database.setVisible(linked)
+        self._act_database_separator.setVisible(linked)
+        if not linked:
+            self._act_database.blockSignals(True)
+            self._act_database.setChecked(False)
+            self._act_database.blockSignals(False)
+            self._database_panel.hide()
+            return
+        self._database_panel.setVisible(self._act_database.isChecked())
+
     def _sync_database_panel(self) -> None:
         """Unteres Grid an den aktiven Reiter anbinden."""
         tab = self._active
         if tab is None:
             self._database_panel.clear()
+            self._apply_database_visibility()
             self._sync_print_scope_ui()
             return
         notice = tab.database_notice
@@ -3785,6 +3807,7 @@ class MainWindow(QMainWindow):
                 self._database_panel.show_unloaded(Path(path).name, notice)
             else:
                 self._database_panel.clear(notice=notice)
+            self._apply_database_visibility()
             self._sync_print_scope_ui()
             return
         name = None
@@ -3796,6 +3819,7 @@ class MainWindow(QMainWindow):
             display_name=name,
             notice=notice,
         )
+        self._apply_database_visibility()
         self._sync_print_scope_ui()
 
     def _on_database_record_selected(self, index: int) -> None:

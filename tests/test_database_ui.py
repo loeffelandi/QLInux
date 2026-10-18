@@ -8,7 +8,7 @@ from pathlib import Path
 import pytest
 from PySide6.QtCore import QMimeData, QPointF, Qt
 from PySide6.QtGui import QDropEvent
-from PySide6.QtWidgets import QComboBox, QLabel, QPushButton
+from PySide6.QtWidgets import QComboBox, QLabel, QPushButton, QToolBar
 
 from ql_editor.app import MainWindow
 from ql_editor.database_panel import field_from_mime, field_mime
@@ -56,9 +56,36 @@ def test_field_mime_round_trip():
     assert field_from_mime(plain) is None
 
 
+def _open_database(win: MainWindow) -> None:
+    assert win._act_database.isVisible()
+    win._act_database.setChecked(True)
+
+
+def test_database_ui_hidden_without_csv(qapp):
+    win = MainWindow()
+    win.resize(1100, 760)
+    win.show()
+    qapp.processEvents()
+    assert not win._act_database.isVisible()
+    assert not win._database_panel.isVisible()
+    assert win._act_connect_csv.isVisible()
+    bar = win.findChild(QToolBar, "main_toolbar")
+    assert win._act_database in bar.actions()
+    assert not win._act_database_separator.isVisible()
+    separator = bar.widgetForAction(win._act_database_separator)
+    assert separator is None or not separator.isVisible()
+    win.close()
+
+
 def test_connect_shows_grid_counter_and_headers(qapp, tmp_path):
     win = _window_with_csv(qapp, tmp_path)
     panel = win._database_panel
+    assert win._act_database.isVisible()
+    assert win._act_database_separator.isVisible()
+    assert not panel.isVisible()
+    _open_database(win)
+    qapp.processEvents()
+    assert panel.isVisible()
     assert panel.expanded
     assert panel._grid.rowCount() == 2
     assert panel._grid.columnCount() == 3
@@ -80,6 +107,8 @@ def test_disconnect_keeps_snapshots_and_serial(qapp, tmp_path):
     assert item.text_value == "Spot A"
     serial_before = dict(win._active.serial)
 
+    _open_database(win)
+    assert win._database_panel.isVisible()
     win.disconnect_csv()
     qapp.processEvents()
 
@@ -88,9 +117,10 @@ def test_disconnect_keeps_snapshots_and_serial(qapp, tmp_path):
     assert item.text_value == "Spot A"
     assert item.binding == {"source": "database", "field": "Fixture"}
     assert win._active.serial == serial_before
-    assert win._database_panel._file_label.text() == "Keine CSV verbunden"
-    assert win._database_panel._connect.isEnabled()
-    assert not win._database_panel._disconnect.isEnabled()
+    assert not win._act_database.isVisible()
+    assert not win._act_database_separator.isVisible()
+    assert not win._database_panel.isVisible()
+    assert win._act_connect_csv.isEnabled()
     assert win._document_dirty is True
     win.close()
 
@@ -104,6 +134,7 @@ def test_row_click_still_merges_without_undo(qapp, tmp_path):
     win._undo_stack.setClean()
     win._document_dirty = False
 
+    _open_database(win)
     win._database_panel._grid.selectRow(1)
     qapp.processEvents()
 
@@ -165,6 +196,28 @@ def test_drop_on_serial_barcode_replaces_serial(qapp, tmp_path):
 
     assert barcode.binding == {"source": "database", "field": "Channel"}
     assert barcode.value == "11"
+    win.close()
+
+
+def test_empty_text_accepts_database_field_after_click_away(qapp, tmp_path):
+    win = _window_with_csv(qapp, tmp_path)
+    item = win._new_text(QPointF(40, 40))
+    win._canvas.cancel_editing()
+    qapp.processEvents()
+    assert item.scene() is not None
+    assert item.isSelected()
+    assert item.toPlainText() == ""
+
+    combo = win._inspector.findChild(QComboBox, "inspector_database_field")
+    assert combo is not None
+    combo.setFocus()
+    qapp.processEvents()
+    combo.setCurrentIndex(combo.findData("Fixture"))
+    qapp.processEvents()
+
+    assert item.scene() is not None
+    assert item.binding == {"source": "database", "field": "Fixture"}
+    assert item.text_value == "Spot A"
     win.close()
 
 
@@ -254,6 +307,10 @@ def test_missing_csv_banner_and_hash_banner(qapp, tmp_path):
     win = MainWindow()
     win.open_path(str(qlx))
     qapp.processEvents()
+    assert win._act_database.isVisible()
+    assert not win._database_panel.isVisible()
+    _open_database(win)
+    qapp.processEvents()
     assert "Hash" in win._database_panel._banner.text()
     assert not win._database_panel._banner.isHidden()
     win.close()
@@ -269,6 +326,9 @@ def test_missing_csv_banner_and_hash_banner(qapp, tmp_path):
         if isinstance(item, TextItem)
     ]
     assert texts == ["Snapshot"]
+    assert win._act_database.isVisible()
+    _open_database(win)
+    qapp.processEvents()
     assert "CSV nicht geladen" in win._database_panel._banner.text()
     assert not win._database_panel._banner.isHidden()
     assert win._database_panel._disconnect.isEnabled()
@@ -280,12 +340,15 @@ def test_failed_connect_does_not_drop_loaded_table(qapp, tmp_path):
     assert win.connect_csv_path(str(tmp_path / "fehlt.csv")) is False
     assert win._active.csv_table is not None
     assert win._database_panel._grid.rowCount() == 2
+    _open_database(win)
+    qapp.processEvents()
     assert win._database_panel._banner.isVisible()
     win.close()
 
 
 def test_collapse_keeps_row_selection(qapp, tmp_path):
     win = _window_with_csv(qapp, tmp_path)
+    _open_database(win)
     win._database_panel.set_expanded(False)
     assert not win._database_panel._body.isVisible()
     assert win._database_panel._connect.isVisible()

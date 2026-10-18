@@ -2,6 +2,9 @@
 
 Grid, Dateiname, Verbinden/Andere/Trennen, Record-Zaehler und Banner.
 Spaltenkoepfe (○) lassen sich auf den Canvas ziehen.
+
+Sichtbar ist das Panel nur, wenn eine CSV verbunden ist und die Toolbar
+es aufklappt. Ohne Verbindung bleibt es verborgen.
 """
 
 from __future__ import annotations
@@ -201,6 +204,7 @@ class DatabasePanel(QWidget):
 
         self._apply_expanded(False)
         self.clear()
+        self.hide()
 
     @property
     def csv_table(self) -> CsvTable | None:
@@ -225,7 +229,6 @@ class DatabasePanel(QWidget):
         self._counter.setText("")
         self._set_notice(notice)
         self._set_actions(connected=False, linked=False)
-        self.setVisible(True)
         if notice:
             self.set_expanded(True)
 
@@ -244,7 +247,6 @@ class DatabasePanel(QWidget):
         self._counter.setText("")
         self._set_notice(notice)
         self._set_actions(connected=False, linked=True)
-        self.setVisible(True)
         self.set_expanded(True)
 
     def set_table(
@@ -298,7 +300,6 @@ class DatabasePanel(QWidget):
                     self._grid.scrollToItem(item)
         finally:
             self._updating = False
-        self.setVisible(True)
         self.set_expanded(True)
 
     def set_current_record(self, index: int) -> None:
