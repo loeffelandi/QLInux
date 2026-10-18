@@ -1,7 +1,7 @@
 """Etikett-Designs speichern und oeffnen.
 
 Ein Dokument ist JSON - lesbar, diffbar und ohne Ueberraschungen. Es enthaelt
-**nur** die Objekte des Canvas und die Band-/Designwerte
+**nur** die Objekte des Canvas, die Hilfslinien und die Band-/Designwerte
 (:meth:`ql_editor.media_panel.MediaPanel.media_state`) plus eine Formatnummer.
 Ab Format 2 zusaetzlich optional ``data_source`` (CSV-Pfad, kein Einbetten)
 und ``serial`` (Serienparameter, Default ausgeschaltet). Bewusst **nicht**
@@ -58,17 +58,44 @@ def merge_serial(serial: Mapping[str, Any] | None = None) -> dict[str, Any]:
     return merged
 
 
+def guide_entries(guides: Sequence[Mapping[str, Any]] | None) -> list[dict[str, Any]]:
+    """Hilfslinien als ``{"axis": "h"|"v", "pos": dots}``.
+
+    ``h`` ist eine waagerechte Linie (feste Szenen-Y), ``v`` eine senkrechte
+    (feste Szenen-X). Unbrauchbare Eintraege fallen weg. Die Position ist in
+    Szenendots, wie die Objektkoordinaten.
+    """
+    if not guides:
+        return []
+    cleaned: list[dict[str, Any]] = []
+    for entry in guides:
+        if not isinstance(entry, Mapping):
+            continue
+        axis = entry.get("axis")
+        if axis not in ("h", "v"):
+            continue
+        try:
+            pos = float(entry.get("pos"))
+        except (TypeError, ValueError):
+            continue
+        cleaned.append({"axis": axis, "pos": pos})
+    return cleaned
+
+
 def build(
     media: Mapping[str, Any],
     items: Sequence[Mapping[str, Any]],
     *,
     data_source: Mapping[str, Any] | None = None,
     serial: Mapping[str, Any] | None = None,
+    guides: Sequence[Mapping[str, Any]] | None = None,
 ) -> dict[str, Any]:
     """Dokumentdaten aus Band-/Designwerten und Canvas-Objekten bauen.
 
     Schreibt stets :data:`DOCUMENT_FORMAT` (aktuell 2). ``serial`` wird mit
     Defaults gemerged; ``data_source`` nur gesetzt, wenn eine CSV verbunden ist.
+    ``guides`` nur, wenn mindestens eine Hilfslinie liegt - alte Dateien ohne
+    den Schluessel bleiben gueltig.
     """
     data: dict[str, Any] = {
         "format": DOCUMENT_FORMAT,
@@ -80,6 +107,9 @@ def build(
     }
     if data_source is not None:
         data["data_source"] = dict(data_source)
+    placed = guide_entries(guides)
+    if placed:
+        data["guides"] = placed
     return data
 
 

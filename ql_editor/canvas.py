@@ -21,7 +21,11 @@ Direkte Bearbeitung mit der Maus (modernes Editor-Gefuehl):
 
 * **Verschieben**: Item mit der linken Maustaste ziehen (Mehrfachauswahl
   bewegt sich gemeinsam), mit **magnetischem Einrasten** an Bandkanten,
-  Bandmitte und anderen Objekten - Einrastlinien werden angezeigt.
+  Bandmitte, anderen Objekten und liegengelassenen Hilfslinien -
+  Einrastlinien werden angezeigt.
+* **Hilfslinien**: vom oberen Lineal nach unten ziehen (waagerecht) oder vom
+  linken Lineal nach rechts (senkrecht). Zurueck auf das Lineal ziehen
+  entfernt die Linie. Sie bleibt sichtbar und gehoert zum Etikett.
 * **Groesse**: 8 Anfasser (Ecken + Kanten) am ausgewaehlten Objekt; der
   gegenueberliegende Griff bleibt stehen (auch bei gedrehten Objekten), der
   Cursor dreht sich mit.
@@ -41,7 +45,7 @@ from __future__ import annotations
 
 import math
 from contextlib import contextmanager
-from typing import Any, Iterator
+from typing import Any, Iterator, Mapping, Sequence
 
 from PySide6.QtCore import QEvent, QLocale, QPoint, QPointF, QRectF, Qt, Signal
 from PySide6.QtGui import QBrush, QColor, QFont, QFontMetricsF, QImage, QPainter, QPen
@@ -50,6 +54,7 @@ from PIL import Image
 
 from . import items as items_mod
 from .database_panel import field_from_mime
+from .document import guide_entries
 from .i18n import tr
 from .icons import ROTATE_CURSOR_SIZE, cursor
 from .renderer import render_scene_to_image
@@ -106,6 +111,10 @@ MAX_ZOOM = 8.0
 HANDLE_SIZE_PX = 9
 ROTATE_OFFSET_PX = 24
 SNAP_TOLERANCE_PX = 6
+#: Wie nah der Zeiger einer Hilfslinie kommen muss, um sie zu greifen.
+GUIDE_HIT_PX = 5
+#: Liegende Hilfslinien (Cyan, wie im Zeichenprogramm). Einrastlinien bleiben pink.
+GUIDE_COLOR = "#00a7c7"
 #: Tabellen-Zellklick: erst ab dieser View-Distanz (Manhattan) verschieben.
 _TABLE_MOVE_THRESHOLD_PX = 4
 #: Drehrasten (alle 90 Grad), wirken ohne Modifier. Sticky: man fängt die Rast
@@ -244,9 +253,12 @@ class MmRuler(QWidget):
         self._origin_dots = 0.0
         if orientation == Qt.Orientation.Horizontal:
             self.setFixedHeight(RULER_WIDTH)
+            self.setCursor(Qt.CursorShape.SplitVCursor)
         else:
             self.setFixedWidth(RULER_WIDTH)
-        self.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
+            self.setCursor(Qt.CursorShape.SplitHCursor)
+        self._dragging = False
+        self.setMouseTracking(False)
 
     def set_total_mm(self, total_mm: float, origin_dots: float = 0.0) -> None:
         """Etikettenlaenge auf diesem Lineal in mm (fuer die graue Unterlegung).
@@ -387,6 +399,61 @@ class MmRuler(QWidget):
             painter.drawText(0, 0, label)
             painter.restore()
 
+    def _guide_axis(self) -> str:
+        """Achse der Linie, die dieses Lineal erzeugt: ``h`` oben, ``v`` links."""
+        if self._orientation == Qt.Orientation.Horizontal:
+            return "h"
+        return "v"
+
+    def _global_point(self, event) -> QPoint:
+        if hasattr(event, "globalPosition"):
+            return event.globalPosition().toPoint()
+        return event.globalPos()
+
+    def _scene_from_global(self, global_pt: QPoint) -> QPointF:
+        view_pt = self._view.mapFromGlobal(global_pt)
+        vp_pt = self._view.viewport().mapFrom(self._view, view_pt)
+        return self._view.mapToScene(vp_pt)
+
+    def _over_ruler(self, global_pt: QPoint) -> bool:
+        return self.rect().contains(self.mapFromGlobal(global_pt))
+
+    def mousePressEvent(self, event) -> None:  # noqa: N802
+        if event.button() != Qt.MouseButton.LeftButton or self._view._print_preview:
+            super().mousePressEvent(event)
+            return
+        self._dragging = True
+        self.grabMouse()
+        self._view.begin_ruler_guide(self._guide_axis())
+        event.accept()
+
+    def mouseMoveEvent(self, event) -> None:  # noqa: N802
+        if not self._dragging:
+            super().mouseMoveEvent(event)
+            return
+        global_pt = self._global_point(event)
+        self._view.drag_ruler_guide(
+            self._guide_axis(),
+            self._scene_from_global(global_pt),
+            over_ruler=self._over_ruler(global_pt),
+        )
+        event.accept()
+
+    def mouseReleaseEvent(self, event) -> None:  # noqa: N802
+        if not self._dragging or event.button() != Qt.MouseButton.LeftButton:
+            super().mouseReleaseEvent(event)
+            return
+        self._dragging = False
+        if QWidget.mouseGrabber() is self:
+            self.releaseMouse()
+        global_pt = self._global_point(event)
+        self._view.end_ruler_guide(
+            self._guide_axis(),
+            self._scene_from_global(global_pt),
+            over_ruler=self._over_ruler(global_pt),
+        )
+        event.accept()
+
 
 class LabelCanvas(QGraphicsView):
     """Editor-Canvas mit fester Pixelgroesse und direkter Mausbearbeitung."""
@@ -461,6 +528,10 @@ class LabelCanvas(QGraphicsView):
         self._op_start_heights: list[float] = []
         self._move_items: list[tuple[Any, QPointF]] = []
         self._guides: list[tuple[str, float]] = []
+        #: Liegende Hilfslinien: (``h``|``v``, Szenendots). Bleiben bis zum Wegziehen.
+        self._placed_guides: list[tuple[str, float]] = []
+        #: Laufendes Ziehen einer Hilfslinie (vom Lineal oder von der Linie selbst).
+        self._guide_drag: dict[str, Any] | None = None
         # Tabellen-Zellklick: Verschieben erst ab Drag-Schwelle (Auswahl ohne Move).
         self._pending_move_start: QPointF | None = None
 
@@ -956,6 +1027,14 @@ class LabelCanvas(QGraphicsView):
                 finally:
                     if not clamp:
                         item._clamp_suspended = False
+        shifted: list[tuple[str, float]] = []
+        for axis, pos in self._placed_guides:
+            if axis == "v":
+                pos += dx
+            else:
+                pos += dy
+            shifted.append((axis, pos))
+        self._placed_guides = shifted
         self.viewport().update()
 
     def margin_rect(self) -> QRectF:
@@ -1087,6 +1166,7 @@ class LabelCanvas(QGraphicsView):
             return
 
         painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+        self._draw_placed_guides(painter, rect)
 
         # Auswahlrahmen (rotationsfest) fuer alle ausgewaehlten Items.
         outline = QPen(QColor("#1f6feb"))
@@ -1133,6 +1213,28 @@ class LabelCanvas(QGraphicsView):
         painter.setBrush(Qt.BrushStyle.NoBrush)
 
         self._draw_size_labels(painter)
+
+    def _draw_placed_guides(self, painter: QPainter, rect: QRectF) -> None:
+        """Hilfslinien ueber die sichtbare Flaeche, kosmetisch einen Pixel dick."""
+        hidden = None
+        if self._guide_drag is not None and self._guide_drag.get("hidden"):
+            hidden = self._guide_drag.get("index")
+        guides = [
+            guide
+            for index, guide in enumerate(self._placed_guides)
+            if index != hidden
+        ]
+        if not guides:
+            return
+        pen = QPen(QColor(GUIDE_COLOR))
+        pen.setWidthF(0)
+        pen.setCosmetic(True)
+        painter.setPen(pen)
+        for axis, coord in guides:
+            if axis == "v":
+                painter.drawLine(QPointF(coord, rect.top()), QPointF(coord, rect.bottom()))
+            else:
+                painter.drawLine(QPointF(rect.left(), coord), QPointF(rect.right(), coord))
 
     # -- Griff-Geometrie ----------------------------------------------------
     def _editable_selection(self):
@@ -1212,6 +1314,146 @@ class LabelCanvas(QGraphicsView):
         """Oberstes serialisierbares Objekt unter ``scene_pos``."""
         return self._top_serializable_item_at(self.mapFromScene(scene_pos))
 
+    # -- Hilfslinien --------------------------------------------------------
+    def guides(self) -> list[dict[str, Any]]:
+        """Liegende Hilfslinien (Achse und Position in Szenendots)."""
+        return [{"axis": axis, "pos": pos} for axis, pos in self._placed_guides]
+
+    def set_guides(self, guides: Sequence[Mapping[str, Any]] | None) -> None:
+        """Hilfslinien ersetzen. Unbrauchbare Eintraege fallen weg."""
+        self._guide_drag = None
+        self._placed_guides = [
+            (entry["axis"], float(entry["pos"])) for entry in guide_entries(guides)
+        ]
+        self.viewport().update()
+
+    def _guide_at(self, scene_pos: QPointF) -> int | None:
+        """Index der Hilfslinie unter dem Zeiger, oder ``None``."""
+        if not self._placed_guides:
+            return None
+        tol = GUIDE_HIT_PX / self._scale()
+        best: int | None = None
+        best_dist = tol
+        for index, (axis, coord) in enumerate(self._placed_guides):
+            dist = abs((scene_pos.y() if axis == "h" else scene_pos.x()) - coord)
+            if dist <= best_dist:
+                best = index
+                best_dist = dist
+        return best
+
+    def _over_origin_ruler(self, axis: str, vp_pos: QPoint) -> bool:
+        """Zeiger zurueck auf dem Lineal, von dem die Linie dieser Achse kommt."""
+        if axis == "h":
+            return vp_pos.y() < 0
+        return vp_pos.x() < 0
+
+    def begin_ruler_guide(self, axis: str) -> None:
+        """Ziehen vom Lineal: die Linie entsteht erst ausserhalb des Lineals."""
+        if self._print_preview:
+            return
+        self._guide_drag = {
+            "source": "ruler",
+            "axis": axis,
+            "index": None,
+            "active": False,
+            "hidden": False,
+        }
+
+    def drag_ruler_guide(self, axis: str, scene_pos: QPointF, *, over_ruler: bool) -> None:
+        drag = self._guide_drag
+        if drag is None or drag.get("source") != "ruler" or drag.get("axis") != axis:
+            return
+        coord = scene_pos.y() if axis == "h" else scene_pos.x()
+        if not drag["active"]:
+            if over_ruler:
+                return
+            self.gesture_begun.emit()
+            self._placed_guides.append((axis, coord))
+            drag["index"] = len(self._placed_guides) - 1
+            drag["active"] = True
+            drag["hidden"] = False
+        else:
+            index = drag["index"]
+            drag["hidden"] = over_ruler
+            if not over_ruler and index is not None:
+                self._placed_guides[index] = (axis, coord)
+        self._guides = []
+        self.viewport().update()
+
+    def end_ruler_guide(self, axis: str, scene_pos: QPointF, *, over_ruler: bool) -> None:
+        drag = self._guide_drag
+        self._guide_drag = None
+        if drag is None or drag.get("source") != "ruler" or drag.get("axis") != axis:
+            self.viewport().update()
+            return
+        if not drag.get("active"):
+            if over_ruler:
+                self.viewport().update()
+                return
+            self.gesture_begun.emit()
+            coord = scene_pos.y() if axis == "h" else scene_pos.x()
+            self._placed_guides.append((axis, coord))
+            self.viewport().update()
+            self.items_changed.emit()
+            return
+        index = drag.get("index")
+        if isinstance(index, int) and 0 <= index < len(self._placed_guides):
+            if over_ruler:
+                del self._placed_guides[index]
+            else:
+                coord = scene_pos.y() if axis == "h" else scene_pos.x()
+                self._placed_guides[index] = (axis, coord)
+        self.viewport().update()
+        self.items_changed.emit()
+
+    def _begin_guide_move(self, index: int) -> None:
+        self.gesture_begun.emit()
+        axis, _coord = self._placed_guides[index]
+        self._guides = []
+        self._guide_drag = {
+            "source": "move",
+            "axis": axis,
+            "index": index,
+            "hidden": False,
+        }
+        self.viewport().grabMouse()
+        cursor = (
+            Qt.CursorShape.SizeVerCursor if axis == "h" else Qt.CursorShape.SizeHorCursor
+        )
+        self.viewport().setCursor(cursor)
+
+    def _drag_placed_guide(self, vp_pos: QPoint) -> None:
+        drag = self._guide_drag
+        if drag is None:
+            return
+        index = drag.get("index")
+        axis = drag["axis"]
+        if not isinstance(index, int) or not 0 <= index < len(self._placed_guides):
+            return
+        scene_pos = self.mapToScene(vp_pos)
+        over = self._over_origin_ruler(axis, vp_pos)
+        drag["hidden"] = over
+        if not over:
+            coord = scene_pos.y() if axis == "h" else scene_pos.x()
+            self._placed_guides[index] = (axis, coord)
+        self.viewport().update()
+
+    def _finish_guide_move(self, vp_pos: QPoint) -> None:
+        drag = self._guide_drag
+        self._guide_drag = None
+        if self.viewport().mouseGrabber() is self.viewport():
+            self.viewport().releaseMouse()
+        self.viewport().unsetCursor()
+        if drag is not None:
+            self._guide_drag = drag
+            self._drag_placed_guide(vp_pos)
+            self._guide_drag = None
+            index = drag.get("index")
+            if drag.get("hidden") and isinstance(index, int) and 0 <= index < len(self._placed_guides):
+                del self._placed_guides[index]
+        self.viewport().update()
+        self.items_changed.emit()
+
     # -- Einrasten ----------------------------------------------------------
     def _snap_targets(self, exclude) -> tuple[list[float], list[float]]:
         if exclude is None:
@@ -1231,6 +1473,11 @@ class LabelCanvas(QGraphicsView):
             br = it.sceneBoundingRect()
             targets_x += [br.left(), br.center().x(), br.right()]
             targets_y += [br.top(), br.center().y(), br.bottom()]
+        for axis, coord in self._placed_guides:
+            if axis == "v":
+                targets_x.append(coord)
+            else:
+                targets_y.append(coord)
         return targets_x, targets_y
 
     def _snap_value(self, values: list[float], targets: list[float], tol: float) -> tuple[float, float | None]:
@@ -1295,6 +1542,12 @@ class LabelCanvas(QGraphicsView):
             handle = self._handle_at(scene_pos)
             if handle is not None:
                 self._begin_handle_op(handle[0], handle[1], scene_pos)
+                event.accept()
+                return
+
+            guide_index = self._guide_at(scene_pos)
+            if guide_index is not None:
+                self._begin_guide_move(guide_index)
                 event.accept()
                 return
 
@@ -1397,6 +1650,11 @@ class LabelCanvas(QGraphicsView):
             event.accept()
             return
 
+        if self._guide_drag is not None and self._guide_drag.get("source") == "move":
+            self._drag_placed_guide(self._event_pos(event))
+            event.accept()
+            return
+
         scene_pos = self.mapToScene(self._event_pos(event))
         if (
             self._pending_move_start is not None
@@ -1432,7 +1690,16 @@ class LabelCanvas(QGraphicsView):
 
         # Cursor je nach Griff (mitgedreht wie das Item)
         handle = self._handle_at(scene_pos)
-        if handle is not None:
+        guide_index = None if handle is not None else self._guide_at(scene_pos)
+        if guide_index is not None:
+            axis = self._placed_guides[guide_index][0]
+            guide_cursor = (
+                Qt.CursorShape.SizeVerCursor
+                if axis == "h"
+                else Qt.CursorShape.SizeHorCursor
+            )
+            self.viewport().setCursor(guide_cursor)
+        elif handle is not None:
             if handle[0] == "rotate":
                 # Eigenes Rotations-Symbol: Qt hat keinen passenden Cursor,
                 # ein Fadenkreuz sagt hier nichts ueber "drehen".
@@ -1629,6 +1896,14 @@ class LabelCanvas(QGraphicsView):
             self.viewport().unsetCursor()
             event.accept()
             return
+        if (
+            self._guide_drag is not None
+            and self._guide_drag.get("source") == "move"
+            and event.button() == Qt.MouseButton.LeftButton
+        ):
+            self._finish_guide_move(self._event_pos(event))
+            event.accept()
+            return
         if event.button() == Qt.MouseButton.LeftButton and self._pending_move_start is not None:
             self._pending_move_start = None
             event.accept()
@@ -1659,6 +1934,9 @@ class LabelCanvas(QGraphicsView):
             return
         if event.button() != Qt.MouseButton.LeftButton:
             super().mouseDoubleClickEvent(event)
+            return
+        if self._guide_at(self.mapToScene(self._event_pos(event))) is not None:
+            event.accept()
             return
         item = self._top_serializable_item_at(self._event_pos(event))
         if item is None:
