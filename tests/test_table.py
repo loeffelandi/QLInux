@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 from PySide6.QtCore import QEvent, QPointF, Qt
-from PySide6.QtGui import QMouseEvent
+from PySide6.QtGui import QKeyEvent, QMouseEvent
 from PySide6.QtWidgets import QApplication, QPlainTextEdit
 
 from ql_editor.canvas import LabelCanvas, _TABLE_MOVE_THRESHOLD_PX
@@ -12,6 +12,18 @@ from ql_editor.items import TableCell, TableItem, item_from_dict
 from ql_editor.media import get_label
 
 pytestmark = pytest.mark.usefixtures("qapp")
+
+
+def test_cell_editor_yields_style_shortcuts():
+    item = TableItem(1, 1, 200, 80)
+    item.begin_edit_current()
+    editor = item.editor
+    assert editor is not None
+    event = QKeyEvent(
+        QEvent.Type.ShortcutOverride, Qt.Key.Key_U, Qt.KeyboardModifier.ControlModifier
+    )
+    assert editor.sceneEvent(event) is False
+    assert not event.isAccepted()
 
 
 def test_roundtrip_keeps_cells_and_spans():

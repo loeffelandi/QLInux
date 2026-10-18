@@ -1133,6 +1133,33 @@ class MainWindow(QMainWindow):
         )
         self._act_align_bottom.triggered.connect(lambda: self._align_selected("bottom"))
 
+        self._act_bold = QAction(icon("bold"), tr("Fett"), self)
+        self._act_bold.setCheckable(True)
+        self._act_bold.setEnabled(False)
+        self._act_bold.setToolTip(tr("Fett (Strg+B)"))
+        self._act_bold.setShortcut("Ctrl+B")
+        self._act_bold.triggered.connect(lambda _checked=False: self._toggle_text_style("bold"))
+
+        self._act_italic = QAction(icon("italic"), tr("Kursiv"), self)
+        self._act_italic.setCheckable(True)
+        self._act_italic.setEnabled(False)
+        self._act_italic.setToolTip(tr("Kursiv (Strg+I)"))
+        self._act_italic.setShortcut("Ctrl+I")
+        self._act_italic.triggered.connect(lambda _checked=False: self._toggle_text_style("italic"))
+
+        self._act_underline = QAction(icon("underline"), tr("Unterstrichen"), self)
+        self._act_underline.setCheckable(True)
+        self._act_underline.setEnabled(False)
+        self._act_underline.setToolTip(tr("Unterstrichen (Strg+U)"))
+        self._act_underline.setShortcut("Ctrl+U")
+        self._act_underline.triggered.connect(
+            lambda _checked=False: self._toggle_text_style("underline")
+        )
+        # Nicht im Burger: die Kuerzel haengen am Fenster und erscheinen unter Strg+K.
+        self.addAction(self._act_bold)
+        self.addAction(self._act_italic)
+        self.addAction(self._act_underline)
+
         self._act_forward = QAction(icon("forward"), tr("Eine Ebene nach vorn"), self)
         self._act_forward.setToolTip(tr("Eine Ebene nach vorn"))
         self._act_forward.triggered.connect(lambda: self._step_stack(+1))
@@ -1211,11 +1238,11 @@ class MainWindow(QMainWindow):
         self._act_panel_left.setCheckable(True)
         self._act_panel_left.setChecked(True)
         self._act_panel_left.setToolTip(
-            tr("Panel links ein-/ausklappen (Strg+B)\n"
+            tr("Panel links ein-/ausklappen (F9)\n"
             "Eingeklappt bleibt ein Streifen mit Pfeil; er klappt beim "
             "Überfahren über dem Canvas auf")
         )
-        self._act_panel_left.setShortcut("Ctrl+B")
+        self._act_panel_left.setShortcut("F9")
         self._act_panel_left.toggled.connect(self._left_panel.set_docked)
         self.addAction(self._act_panel_left)
 
@@ -1223,9 +1250,9 @@ class MainWindow(QMainWindow):
         self._act_panel_right.setCheckable(True)
         self._act_panel_right.setChecked(True)
         self._act_panel_right.setToolTip(
-            tr("Panel rechts ein-/ausklappen (Strg+Shift+B)\nEigenschaften und Druckoptionen")
+            tr("Panel rechts ein-/ausklappen (Umschalt+F9)\nEigenschaften und Druckoptionen")
         )
-        self._act_panel_right.setShortcut("Ctrl+Shift+B")
+        self._act_panel_right.setShortcut("Shift+F9")
         self._act_panel_right.toggled.connect(self._right_panel.set_docked)
         self.addAction(self._act_panel_right)
 
@@ -1550,6 +1577,9 @@ class MainWindow(QMainWindow):
                 [
                     self._act_undo,
                     self._act_redo,
+                    self._act_bold,
+                    self._act_italic,
+                    self._act_underline,
                     PaletteEntry(
                         tr("Ausrichten"),
                         icon=icon("align_left"),
@@ -2562,6 +2592,7 @@ class MainWindow(QMainWindow):
         )
         self._inspector.set_item(item, allow_red=allow_red)
         self._sync_arrange_actions()
+        self._sync_text_style_actions()
 
     def _on_inspector_edit_committed(self) -> None:
         """Undo-Schritt schliessen; Database Field baut den Inspector neu."""
@@ -2916,6 +2947,75 @@ class MainWindow(QMainWindow):
             QPointF(rect.left() + inset, rect.top() + inset),
             fit=False,
         )
+
+    def _text_style_targets(self) -> list:
+        """Ausgewaehlte Objekte, die Fett, Kursiv und Unterstrichen tragen."""
+        targets = []
+        for item in self._canvas.selected_items():
+            if getattr(item, "kind", None) == "table":
+                targets.append(item)
+            elif all(hasattr(item, f"set_{name}") for name in ("bold", "italic", "underline")):
+                targets.append(item)
+        return targets
+
+    def _text_style_value(self, item, name: str) -> bool:
+        if getattr(item, "kind", None) == "table":
+            same, value = item.selected_uniform(name)
+            return bool(value) if same else False
+        return bool(getattr(item, name))
+
+    def _apply_text_style(self, item, name: str, value: bool) -> None:
+        if getattr(item, "kind", None) == "table":
+            item.set_selected(name, value)
+            return
+        getattr(item, f"set_{name}")(value)
+
+    def _toggle_text_style(self, name: str) -> None:
+        """Stil an der Auswahl umschalten - dieselben Setter wie der Inspector.
+
+        Waehrend der Eingabe ist schon ein Schnappschuss offen. Der wird zuerst
+        als „Text" geschlossen, der Stil folgt als eigener Schritt, und weiteres
+        Tippen bekommt wieder einen neuen Schnappschuss.
+        """
+        targets = self._text_style_targets()
+        if not targets:
+            return
+        turn_on = not all(self._text_style_value(item, name) for item in targets)
+        labels = {"bold": tr("Fett"), "italic": tr("Kursiv"), "underline": tr("Unterstrichen")}
+        typing = (
+            self._canvas._focused_editor() is not None and not self._inspector.edit_open
+        )
+        if typing:
+            self._commit_history(tr("Text"))
+        own_step = self._history_before is None
+        if own_step:
+            self._capture_history()
+        for item in targets:
+            self._apply_text_style(item, name, turn_on)
+        if own_step:
+            self._commit_history(labels[name])
+        self._canvas.viewport().update()
+        self._recompute_canvas()
+        self._schedule_refresh()
+        self._on_selection_changed()
+        if typing and self._canvas._focused_editor() is not None:
+            self._capture_history()
+
+    def _sync_text_style_actions(self) -> None:
+        targets = self._text_style_targets()
+        actions = (
+            ("bold", self._act_bold),
+            ("italic", self._act_italic),
+            ("underline", self._act_underline),
+        )
+        for name, action in actions:
+            action.blockSignals(True)
+            action.setEnabled(bool(targets))
+            checked = bool(targets) and all(
+                self._text_style_value(item, name) for item in targets
+            )
+            action.setChecked(checked)
+            action.blockSignals(False)
 
     def _sync_arrange_actions(self) -> None:
         """Stapel-Befehle nur mit Auswahl und weiteren Objekten; Snap mit Auswahl."""

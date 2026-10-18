@@ -52,6 +52,18 @@ def test_shift_keeps_a_real_day_of_the_month():
     assert shift(WHEN, 0, "days") == WHEN
 
 
+def test_underline_roundtrip_matches_bold_and_italic(qapp):
+    item = DateTimeItem()
+    assert item.underline is False
+    item.set_bold(True)
+    item.set_italic(True)
+    item.set_underline(True)
+    assert item.font().bold() and item.font().italic() and item.font().underline()
+    restored = item_from_dict(item.to_dict())
+    assert restored.bold and restored.italic and restored.underline
+    assert restored.font().underline()
+
+
 def test_live_clock_is_not_stored_but_a_fixed_date_is(qapp):
     item = DateTimeItem()
     item.set_mode("date")
