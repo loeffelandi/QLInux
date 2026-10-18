@@ -1274,9 +1274,10 @@ def test_double_click_on_empty_canvas_requests_new_text(qapp):
 
 
 def test_apply_resize_for_all_types(qapp):
+    from PySide6.QtCore import QRectF
     from PySide6.QtGui import QPixmap
 
-    from ql_editor.items import BarcodeItem, ImageItem, LineItem, QRItem, RectItem
+    from ql_editor.items import BarcodeItem, ImageItem, LineItem, QRItem, RectItem, ShapeItem
 
     qr = QRItem("x", 100)
     qr.apply_resize(200, 180)
@@ -1302,6 +1303,12 @@ def test_apply_resize_for_all_types(qapp):
     text = TextItem("Hi", font_pixel_size=40)
     text.apply_resize(300, 80)
     assert text.boundingRect().height() == pytest.approx(80, abs=8)
+
+    shape = ShapeItem(QRectF(0, 0, 50, 50), "star")
+    shape.apply_resize(160, 90)
+    bounds = shape.path().boundingRect()
+    assert bounds.width() == pytest.approx(160)
+    assert bounds.height() == pytest.approx(90)
 
 
 def test_canvas_handle_only_for_single_resizable_item(qapp):
@@ -2161,6 +2168,40 @@ def test_toolbar_has_align_dropdown_before_front(qapp, tmp_path):
     actions = bar.actions()
     button_at = next(i for i, a in enumerate(actions) if bar.widgetForAction(a) is button)
     assert button_at < actions.index(win._act_front) < actions.index(win._act_back)
+    win.close()
+    qapp.processEvents()
+
+
+def test_shapes_menu_and_inspector_smoke(qapp, tmp_path):
+    """Formen-Menue legt ShapeItem an; Inspector zeigt Form-Felder."""
+    from PySide6.QtWidgets import QComboBox, QToolButton
+
+    from ql_editor.items import ShapeItem
+
+    win = _temp_window(qapp, tmp_path)
+    button = win.findChild(QToolButton, "shape_button")
+    assert button is not None
+    menu_labels = [action.text() for action in button.menu().actions() if action.text()]
+    assert "Linie" in menu_labels
+    assert "Rahmen" in menu_labels
+    assert "Stern" in menu_labels
+    assert "Ellipse" in menu_labels
+
+    win._add_shape("star")
+    shapes = [item for item in win._canvas.scene().items() if isinstance(item, ShapeItem)]
+    assert len(shapes) == 1
+    assert shapes[0].shape_name == "star"
+
+    win._inspector.set_item(shapes[0], allow_red=True)
+    qapp.processEvents()
+    assert win._inspector._title.text() == "Form"
+    shape_combos = [
+        combo
+        for combo in win._inspector.findChildren(QComboBox)
+        if combo.findData("star") >= 0 and combo.findData("ellipse") >= 0
+    ]
+    assert shape_combos
+    assert shape_combos[0].currentData() == "star"
     win.close()
     qapp.processEvents()
 

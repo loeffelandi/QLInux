@@ -18,6 +18,7 @@ wird in ein ``QPixmap`` umgewandelt.
 from __future__ import annotations
 
 import base64
+import math
 from typing import Any
 
 from PIL import Image
@@ -28,8 +29,10 @@ from PySide6.QtGui import (
     QFont,
     QImage,
     QPainter,
+    QPainterPath,
     QPen,
     QPixmap,
+    QPolygonF,
     QTextCursor,
     QTextOption,
     QTransform,
@@ -37,6 +40,7 @@ from PySide6.QtGui import (
 from PySide6.QtWidgets import (
     QGraphicsItem,
     QGraphicsLineItem,
+    QGraphicsPathItem,
     QGraphicsPixmapItem,
     QGraphicsRectItem,
     QGraphicsTextItem,
@@ -763,6 +767,140 @@ class RectItem(_ClampMixin, QGraphicsRectItem):
         return item
 
 
+# --------------------------------------------------------------------------- #
+# Formen (Pfeile, Ellipse, Dreieck, Stern)
+# --------------------------------------------------------------------------- #
+SHAPES: tuple[str, ...] = ("ellipse", "triangle", "star", "arrow_right", "arrow_left", "arrow_double")
+
+
+def _shape_path(shape: str, r: QRectF) -> QPainterPath:
+    """Umriss einer Form im Rechteck ``r``. Pfeile haben einen Schaft von halber Hoehe."""
+    path = QPainterPath()
+    x, y, w, h = r.x(), r.y(), r.width(), r.height()
+    cx, cy = x + w / 2, y + h / 2
+    if shape == "ellipse":
+        path.addEllipse(r)
+        return path
+    if shape == "triangle":
+        points = [QPointF(cx, y), QPointF(x + w, y + h), QPointF(x, y + h)]
+    elif shape == "star":
+        # Einheitstern um den Ursprung, dann so skalieren/verschieben, dass
+        # path.boundingRect() exakt ``r`` fuellt (sonst driftens die Handles).
+        unit: list[QPointF] = []
+        for i in range(10):
+            ratio = 1.0 if i % 2 == 0 else 0.45
+            angle = -math.pi / 2 + i * math.pi / 5
+            unit.append(QPointF(ratio * math.cos(angle), ratio * math.sin(angle)))
+        xs = [p.x() for p in unit]
+        ys = [p.y() for p in unit]
+        min_x, max_x = min(xs), max(xs)
+        min_y, max_y = min(ys), max(ys)
+        bw, bh = max_x - min_x, max_y - min_y
+        points = [
+            QPointF(x + (p.x() - min_x) / bw * w, y + (p.y() - min_y) / bh * h)
+            for p in unit
+        ]
+    else:
+        shaft = h / 4
+        head = min(w / 2, h / 2)
+        if shape == "arrow_right":
+            points = [
+                QPointF(x, cy - shaft), QPointF(x + w - head, cy - shaft), QPointF(x + w - head, y),
+                QPointF(x + w, cy), QPointF(x + w - head, y + h), QPointF(x + w - head, cy + shaft),
+                QPointF(x, cy + shaft),
+            ]
+        elif shape == "arrow_left":
+            points = [
+                QPointF(x + w, cy - shaft), QPointF(x + head, cy - shaft), QPointF(x + head, y),
+                QPointF(x, cy), QPointF(x + head, y + h), QPointF(x + head, cy + shaft),
+                QPointF(x + w, cy + shaft),
+            ]
+        else:
+            points = [
+                QPointF(x, cy), QPointF(x + head, y), QPointF(x + head, cy - shaft),
+                QPointF(x + w - head, cy - shaft), QPointF(x + w - head, y), QPointF(x + w, cy),
+                QPointF(x + w - head, y + h), QPointF(x + w - head, cy + shaft),
+                QPointF(x + head, cy + shaft), QPointF(x + head, y + h),
+            ]
+    path.addPolygon(QPolygonF(points))
+    path.closeSubpath()
+    return path
+
+
+class ShapeItem(_ClampMixin, QGraphicsPathItem):
+    kind = "shape"
+
+    def __init__(self, rect: QRectF | None = None, shape: str = "ellipse", width_px: float = 2, filled: bool = False):
+        super().__init__()
+        self.setFlags(
+            QGraphicsItem.GraphicsItemFlag.ItemIsMovable
+            | QGraphicsItem.GraphicsItemFlag.ItemIsSelectable
+            | QGraphicsItem.GraphicsItemFlag.ItemSendsGeometryChanges
+        )
+        self._rect = rect if rect is not None else QRectF(0, 0, 200, 100)
+        self._shape = shape if shape in SHAPES else "ellipse"
+        self._width_px = width_px
+        self._filled = bool(filled)
+        self._apply_path()
+
+    def _apply_path(self) -> None:
+        pen = QPen(QColor("black"))
+        pen.setWidthF(self._width_px)
+        pen.setJoinStyle(Qt.PenJoinStyle.MiterJoin)
+        self.setPen(pen)
+        self.setBrush(QBrush(QColor("black")) if self._filled else QBrush(Qt.BrushStyle.NoBrush))
+        self.setPath(_shape_path(self._shape, self._rect))
+
+    @property
+    def shape_name(self) -> str:
+        return self._shape
+
+    def set_shape(self, shape: str) -> None:
+        self._shape = shape if shape in SHAPES else "ellipse"
+        self._apply_path()
+
+    def set_line_width(self, width_px: float) -> None:
+        self._width_px = max(0.5, float(width_px))
+        self._apply_path()
+
+    def set_filled(self, filled: bool) -> None:
+        self._filled = bool(filled)
+        self._apply_path()
+
+    @property
+    def filled(self) -> bool:
+        return self._filled
+
+    @property
+    def width_px(self) -> float:
+        return self._width_px
+
+    # -- Groesse ------------------------------------------------------------
+    resizable = True
+
+    def apply_resize(self, width: float, height: float) -> None:
+        self._rect = QRectF(0.0, 0.0, max(1.0, width), max(1.0, height))
+        self._apply_path()
+
+    def to_dict(self) -> dict[str, Any]:
+        d = self._base_dict()
+        d.update(
+            w=self._rect.width(),
+            h=self._rect.height(),
+            shape=self._shape,
+            width_px=self._width_px,
+            filled=self._filled,
+        )
+        return d
+
+    @classmethod
+    def from_dict(cls, d: dict[str, Any]) -> "ShapeItem":
+        rect = QRectF(0.0, 0.0, d.get("w", 200), d.get("h", 100))
+        item = cls(rect, d.get("shape", "ellipse"), d.get("width_px", 2), bool(d.get("filled", False)))
+        item._apply_base(d)
+        return item
+
+
 ITEM_TYPES: dict[str, type] = {
     TextItem.kind: TextItem,
     ImageItem.kind: ImageItem,
@@ -770,6 +908,7 @@ ITEM_TYPES: dict[str, type] = {
     BarcodeItem.kind: BarcodeItem,
     LineItem.kind: LineItem,
     RectItem.kind: RectItem,
+    ShapeItem.kind: ShapeItem,
 }
 
 
@@ -792,6 +931,8 @@ __all__ = [
     "BarcodeItem",
     "LineItem",
     "RectItem",
+    "ShapeItem",
+    "SHAPES",
     "ITEM_TYPES",
     "item_from_dict",
 ]
