@@ -566,8 +566,6 @@ class LabelCanvas(QGraphicsView):
         self._pan_origin = (0, 0)
         #: Objekt unter dem Zeiger; seine Marken sind eingeblendet.
         self._hover_item = None
-        self._tick_opacity: dict[int, float] = {}
-        self._tick_anims: dict[int, QVariantAnimation] = {}
         self._tick_sync_pending = False
 
         self._h_ruler = MmRuler(self, Qt.Orientation.Horizontal)
@@ -1204,11 +1202,11 @@ class LabelCanvas(QGraphicsView):
         for item in self._scene.items():
             if not hasattr(item, "to_dict"):
                 continue
-            opacity = self._shown_tick_opacity(item)
-            if opacity <= 0.004:
+            alpha = self._tick_alpha(item)
+            if alpha <= 0.004:
                 continue
             color = QColor("#1f6feb")
-            color.setAlphaF(opacity)
+            color.setAlphaF(alpha)
             tick_pen = QPen(color)
             tick_pen.setWidthF(0)
             painter.setPen(tick_pen)
@@ -1291,47 +1289,48 @@ class LabelCanvas(QGraphicsView):
             if hasattr(item, "to_dict"):
                 self._update_item_chrome(item)
 
+    # -- Marken: Deckkraft und Blenden --------------------------------------
+    # Deckkraft (``_tick_alpha``) und laufende Animation (``_tick_anim``)
+    # haengen am Item selbst; so sterben sie mit ihm.
     def _ticks_pinned(self, item) -> bool:
         """Leeres Textfeld: die Marken bleiben, sonst findet man es nicht."""
         if getattr(item, "kind", None) != "text":
             return False
-        try:
-            text = item.toPlainText()
-        except RuntimeError:
-            return False
-        return not str(text).strip()
+        return not str(item.toPlainText()).strip()
 
     def _tick_target(self, item) -> float:
         if self._ticks_pinned(item) or item is self._hover_item:
             return 1.0
         return 0.0
 
-    def _shown_tick_opacity(self, item) -> float:
-        if self._ticks_pinned(item):
-            # Damit der Uebergang zu Text mit Inhalt von voll ausblendet.
-            self._tick_opacity[id(item)] = 1.0
-            return 1.0
-        return self._tick_opacity.get(id(item), 0.0)
+    def _tick_alpha(self, item) -> float:
+        alpha = getattr(item, "_tick_alpha", None)
+        if alpha is None:
+            # Erster Anstrich: ohne Blende im Zielzustand starten.
+            alpha = self._tick_target(item)
+            item._tick_alpha = alpha
+        return alpha
 
     def _set_hover_item(self, item) -> None:
         if item is self._hover_item:
             return
         previous = self._hover_item
         self._hover_item = item
-        if previous is not None:
-            self._animate_tick(previous, self._tick_target(previous))
-        if item is not None:
-            self._animate_tick(item, self._tick_target(item))
+        for changed in (previous, item):
+            if changed is not None:
+                self._animate_tick(changed)
 
     def _track_pointer_hover(self, view_pos: QPoint) -> None:
         if self._op in ("resize", "rotate", "table-divider") and self._op_item is not None:
             self._set_hover_item(self._op_item)
             return
-        if self._op == "move":
-            item = self._top_serializable_item_at(view_pos)
-            if item is None and self._move_items:
-                item = self._move_items[0][0]
-            self._set_hover_item(item)
+        if self._op == "move" and self._move_items:
+            moving = [item for item, _start in self._move_items]
+            under = self._top_serializable_item_at(view_pos)
+            self._set_hover_item(under if under in moving else moving[0])
+            return
+        if self._op is None and not self.viewport().rect().contains(view_pos):
+            self._set_hover_item(None)
             return
         handle = self._handle_at(self.mapToScene(view_pos))
         if handle is not None:
@@ -1340,86 +1339,66 @@ class LabelCanvas(QGraphicsView):
         self._set_hover_item(self._top_serializable_item_at(view_pos))
 
     def _note_tick_fade(self) -> None:
-        """Blendwechsel nach dem Malen anstossen, nicht aus ``drawForeground`` heraus."""
+        """Nach dem Malen pruefen, ob eine Marke ihr Ziel verfehlt.
+
+        Faengt Wechsel ohne Zeigerbewegung ab (Text wird leer oder bekommt
+        Inhalt). Die Blende startet aus dem Event-Loop, nicht aus
+        ``drawForeground`` heraus.
+        """
         if self._tick_sync_pending:
             return
         for item in self._scene.items():
-            if not hasattr(item, "to_dict") or self._ticks_pinned(item):
+            if not hasattr(item, "to_dict"):
                 continue
-            target = self._tick_target(item)
-            current = self._tick_opacity.get(id(item), 0.0)
-            anim = self._tick_anims.get(id(item))
-            running = (
-                anim is not None and anim.state() == QAbstractAnimation.State.Running
-            )
-            if not running and abs(current - target) > 0.01:
+            anim = getattr(item, "_tick_anim", None)
+            if anim is not None and anim.state() == QAbstractAnimation.State.Running:
+                continue
+            if abs(self._tick_alpha(item) - self._tick_target(item)) > 0.01:
                 self._tick_sync_pending = True
-                QTimer.singleShot(0, self._flush_tick_sync)
+                QTimer.singleShot(0, self, self._flush_tick_sync)
                 return
 
     def _flush_tick_sync(self) -> None:
         self._tick_sync_pending = False
-        for item in list(self._scene.items()):
+        for item in self._scene.items():
             if hasattr(item, "to_dict"):
-                self._animate_tick(item, self._tick_target(item))
+                self._animate_tick(item)
 
-    def _animate_tick(self, item, target: float) -> None:
+    def _animate_tick(self, item) -> None:
+        """Marken von ``item`` weich auf ihr aktuelles Ziel blenden."""
         try:
             if item.scene() is not self._scene:
                 return
         except RuntimeError:
             return
-        key = id(item)
-        if self._ticks_pinned(item):
-            self._stop_tick_anim(key)
-            self._tick_opacity[key] = 1.0
-            return
-        current = self._tick_opacity.get(key, 0.0)
-        anim = self._tick_anims.get(key)
+        target = self._tick_target(item)
+        current = self._tick_alpha(item)
+        anim = getattr(item, "_tick_anim", None)
         if anim is not None and anim.state() == QAbstractAnimation.State.Running:
             if abs(float(anim.endValue()) - target) < 0.001:
                 return
-            self._stop_tick_anim(key)
+            anim.stop()
         if abs(current - target) < 0.01:
-            self._tick_opacity[key] = target
+            item._tick_alpha = target
             return
         anim = QVariantAnimation(self)
         anim.setStartValue(current)
         anim.setEndValue(target)
         anim.setDuration(TICK_FADE_MS)
         anim.setEasingCurve(QEasingCurve.Type.InOutQuad)
-        anim.valueChanged.connect(
-            lambda value, key=key, item=item: self._on_tick_fade_value(key, item, value)
-        )
-        anim.finished.connect(
-            lambda key=key, target=target, anim=anim: self._on_tick_fade_done(
-                key, target, anim
-            )
-        )
-        self._tick_anims[key] = anim
+        anim.valueChanged.connect(lambda value, item=item: self._on_tick_fade(item, value))
+        anim.finished.connect(anim.deleteLater)
+        item._tick_anim = anim
         anim.start()
 
-    def _stop_tick_anim(self, key: int) -> None:
-        anim = self._tick_anims.pop(key, None)
-        if anim is not None:
-            anim.stop()
-            anim.deleteLater()
-
-    def _on_tick_fade_value(self, key: int, item, value) -> None:
-        self._tick_opacity[key] = float(value)
+    def _on_tick_fade(self, item, value) -> None:
         try:
             if item.scene() is not self._scene:
                 return
         except RuntimeError:
             return
+        item._tick_alpha = float(value)
         self._update_item_chrome(item)
-
-    def _on_tick_fade_done(self, key: int, target: float, anim: QVariantAnimation) -> None:
-        if self._tick_anims.get(key) is not anim:
-            return
-        self._tick_anims.pop(key, None)
-        self._tick_opacity[key] = target
-        anim.deleteLater()
 
     def _draw_placed_guides(self, painter: QPainter, rect: QRectF) -> None:
         """Hilfslinien ueber die sichtbare Flaeche, kosmetisch einen Pixel dick."""
@@ -2004,20 +1983,13 @@ class LabelCanvas(QGraphicsView):
         dy = scene_pos.y() - self._op_start_scene.y()
         moving = [item for item, _ in self._move_items]
         dx, dy, guides = self._snap_move(self._op_start_bbox, dx, dy, exclude=moving)
-        # Alte Marken liegen ausserhalb der Objektbox. Die muss das Update
-        # mitnehmen, sonst bleibt beim Ziehen eine Spur stehen.
-        for item, _start in self._move_items:
-            self._update_item_chrome(item)
         for item, start in self._move_items:
             item.setPos(start.x() + dx, start.y() + dy)
-        for item, _start in self._move_items:
-            self._update_item_chrome(item)
         self._guides = guides
         self.viewport().update()
 
     def _do_resize(self, scene_pos: QPointF) -> None:
         item = self._op_item
-        self._update_item_chrome(item)
         name = self._op_handle
         start_w, start_h = self._op_start_size
         bbox = self._op_start_bbox
@@ -2109,7 +2081,6 @@ class LabelCanvas(QGraphicsView):
         mit ``snap`` (Shift) rastet er auf 15 Grad.
         """
         item = self._op_item
-        self._update_item_chrome(item)
         center = self._op_rotate_center
         angle = math.degrees(
             math.atan2(scene_pos.y() - center.y(), scene_pos.x() - center.x()) - self._op_rotate_start
@@ -2183,6 +2154,7 @@ class LabelCanvas(QGraphicsView):
                 # Der Dreh-Pfad in mouseMove kehrt vor dem Hinweis zurueck.
                 view_pos = self._event_pos(event)
                 self._update_idle_hint(self.mapToScene(view_pos), view_pos)
+            self._track_pointer_hover(self._event_pos(event))
             event.accept()
             return
         super().mouseReleaseEvent(event)

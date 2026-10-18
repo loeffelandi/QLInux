@@ -1985,8 +1985,9 @@ def _hover(canvas, scene_pos):
 def _finish_tick_fades(canvas):
     from PySide6.QtCore import QAbstractAnimation
 
-    for anim in list(canvas._tick_anims.values()):
-        if anim.state() == QAbstractAnimation.State.Running:
+    for item in canvas.scene().items():
+        anim = getattr(item, "_tick_anim", None)
+        if anim is not None and anim.state() == QAbstractAnimation.State.Running:
             anim.setCurrentTime(anim.duration())
 
 
@@ -2095,9 +2096,9 @@ def test_handles_appear_on_first_click_and_ticks_follow_pointer(qapp):
     assert not _bluish(canvas, plain, rotate, 4)
 
     _hover(canvas, item.sceneBoundingRect().center())
-    assert canvas._tick_opacity.get(id(item), 0.0) < 0.2
+    assert canvas._tick_alpha(item) < 0.2
     _finish_tick_fades(canvas)
-    assert canvas._tick_opacity[id(item)] == pytest.approx(1.0)
+    assert canvas._tick_alpha(item) == pytest.approx(1.0)
     hovered = _render_view(canvas)
     assert _bluish(canvas, hovered, stub, 2)
     assert _bluish(canvas, hovered, corner_tick, 2)
@@ -2144,9 +2145,9 @@ def test_handles_appear_on_first_click_and_ticks_follow_pointer(qapp):
     assert not _bluish(canvas, cleared, rotate, 4)
 
     _hover(canvas, QPointF(12, 12))
-    assert canvas._tick_opacity[id(item)] > 0.8
+    assert canvas._tick_alpha(item) > 0.8
     _finish_tick_fades(canvas)
-    assert canvas._tick_opacity[id(item)] == pytest.approx(0.0)
+    assert canvas._tick_alpha(item) == pytest.approx(0.0)
     gone = _render_view(canvas)
     assert not _bluish(canvas, gone, stub, 2)
     assert not _bluish(canvas, gone, corner_tick, 2)
@@ -2181,11 +2182,22 @@ def test_empty_text_ticks_stay_fully_visible(qapp):
     canvas.viewport().update()
     qapp.processEvents()
     qapp.processEvents()
-    assert canvas._tick_opacity[id(item)] > 0.8
+    assert canvas._tick_alpha(item) > 0.8
     _finish_tick_fades(canvas)
     qapp.processEvents()
-    assert canvas._tick_opacity[id(item)] == pytest.approx(0.0)
+    assert canvas._tick_alpha(item) == pytest.approx(0.0)
     assert not _bluish(canvas, _render_view(canvas), _tick_points(canvas, item)[0], 2)
+
+    # Wieder leer: die Marken kommen weich zurueck, nicht schlagartig.
+    item.set_text_value("")
+    canvas.viewport().update()
+    qapp.processEvents()
+    qapp.processEvents()
+    assert canvas._tick_alpha(item) < 0.2
+    _finish_tick_fades(canvas)
+    qapp.processEvents()
+    assert canvas._tick_alpha(item) == pytest.approx(1.0)
+    assert _bluish(canvas, _render_view(canvas), _tick_points(canvas, item)[0], 2)
 
 
 def test_canvas_drag_moves_item(qapp):
