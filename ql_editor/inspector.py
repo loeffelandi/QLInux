@@ -14,7 +14,7 @@ sofort bei Schaltern).
 
 from __future__ import annotations
 
-from PySide6.QtCore import QDate, QEvent, QSize, QTime, Qt, QTimer, Signal
+from PySide6.QtCore import QDate, QSize, QTime, Qt, QTimer, Signal
 from PySide6.QtGui import QActionGroup, QFont
 from PySide6.QtWidgets import (
     QButtonGroup,
@@ -29,7 +29,6 @@ from PySide6.QtWidgets import (
     QLabel,
     QLineEdit,
     QMenu,
-    QPlainTextEdit,
     QPushButton,
     QSpinBox,
     QStackedWidget,
@@ -745,23 +744,12 @@ class InspectorPanel(QWidget):
             self._loading = False
 
     def _table_text_page(self, item) -> QWidget:
-        """Dieselbe Textleiste wie beim freien Textfeld, auf die gewaehlten Zellen."""
+        """Schrift, Stil und Ausrichtung. Der Zellentext wird auf der Flaeche bearbeitet."""
         page = QWidget()
         form = QFormLayout(page)
         form.setContentsMargins(0, 8, 0, 0)
         form.setLabelAlignment(Qt.AlignmentFlag.AlignRight)
         form.setRowWrapPolicy(QFormLayout.RowWrapPolicy.WrapLongRows)
-
-        same_text, text = item.selected_uniform("text")
-        edit = QPlainTextEdit("" if not same_text else str(text or ""))
-        edit.setFixedHeight(52)
-        if not same_text:
-            edit.setPlaceholderText(tr("Mehrere Zellen"))
-        edit.textChanged.connect(
-            lambda: self._apply_live(lambda: item.set_selected("text", edit.toPlainText()))
-        )
-        edit.installEventFilter(self)
-        form.addRow(edit)
 
         same_font, family = item.selected_uniform("font_family")
         font_box = QFontComboBox()
@@ -1127,12 +1115,6 @@ class InspectorPanel(QWidget):
         refresh = self._datetime_example_refresh
         if refresh is not None:
             refresh()
-
-    def eventFilter(self, watched, event):  # noqa: N802
-        # Tabellen-Textfeld: FocusOut schliesst den Undo-Schritt (kein editingFinished).
-        if event.type() == QEvent.Type.FocusOut:
-            self._finish_edit()
-        return super().eventFilter(watched, event)
 
     @property
     def edit_open(self) -> bool:
