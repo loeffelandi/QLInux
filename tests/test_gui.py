@@ -693,6 +693,25 @@ def test_canvas_tape_rect_includes_side_border(qapp):
     assert tape.width() == pytest.approx(554 + 2 * label.side_border_dots)
 
 
+def test_feed_tail_points_along_the_tape(qapp):
+    """Druckrichtung: Auslauf unter dem Etikett, bei Laengs rechts daneben."""
+    canvas = LabelCanvas()
+    label = get_label("50")
+    canvas.set_label(label, 472)
+    tape = canvas.tape_rect()
+    tail = canvas.feed_tail_rect()
+    assert tail.top() == pytest.approx(tape.bottom())
+    assert tail.width() == pytest.approx(tape.width())
+    assert tail.height() > 0
+
+    canvas.set_label(label, 472, orientation=media.Orientation.ALONG)
+    tape = canvas.tape_rect()
+    tail = canvas.feed_tail_rect()
+    assert tail.left() == pytest.approx(tape.right())
+    assert tail.height() == pytest.approx(tape.height())
+    assert tape.height() == pytest.approx(label.width_dots + 2 * label.side_border_dots)
+
+
 def test_canvas_has_ruler_corner_with_unit(qapp):
     """Die Ecke zwischen den Linealen traegt die Einheit (wie P-touch Editor)."""
     from ql_editor.canvas import RULER_WIDTH, RulerCorner
