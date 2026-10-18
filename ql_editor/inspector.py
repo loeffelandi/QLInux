@@ -1014,7 +1014,10 @@ class InspectorPanel(QWidget):
             host,
             title=tr("Clip Art"),
             content=picker,
-            max_size=QSize(560, 640),
+            sizing="fill",
+            max_size=QSize(560, 560),
+            margins=20,
+            close_on_outside=True,
         )
 
         def _picked(symbol_id: str) -> None:

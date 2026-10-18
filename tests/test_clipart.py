@@ -105,6 +105,45 @@ def test_render_has_ink_and_no_selection_chrome(qapp):
     assert blue == 0
 
 
+def test_clipart_sheet_fits_a_short_window_and_closes_on_scrim(qapp):
+    """Kleine Fenster: Karte schrumpft, Scroll bleibt sichtbar; Klick aussen zu."""
+    from PySide6.QtCore import QPoint, Qt
+    from PySide6.QtGui import QMouseEvent
+    from PySide6.QtWidgets import QScrollArea
+
+    from ql_editor.app import MainWindow
+    from ql_editor.sheet import Sheet
+
+    win = MainWindow()
+    win.resize(720, 420)
+    win.show()
+    qapp.processEvents()
+    win._act_add_clipart.trigger()
+    qapp.processEvents()
+    sheet = next(s for s in win.findChildren(Sheet) if s.isVisible())
+    panel = sheet._panel
+    assert panel.height() <= win.height() - 2 * 20
+    scroll = sheet.findChild(QScrollArea, "clipart_scroll")
+    assert scroll is not None
+    assert scroll.height() >= 72
+    assert panel.geometry().bottom() <= sheet.height()
+
+    outside = QPoint(8, 8)
+    assert not panel.geometry().contains(outside)
+    press = QMouseEvent(
+        QMouseEvent.Type.MouseButtonPress,
+        outside.toPointF(),
+        Qt.MouseButton.LeftButton,
+        Qt.MouseButton.LeftButton,
+        Qt.KeyboardModifier.NoModifier,
+    )
+    sheet.mousePressEvent(press)
+    qapp.processEvents()
+    assert not sheet.isVisible()
+    win.close()
+    qapp.processEvents()
+
+
 def test_main_window_inserts_from_the_sheet_and_undoes_a_swap(qapp):
     from ql_editor.app import MainWindow
 
