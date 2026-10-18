@@ -29,9 +29,11 @@ The model list even appears in the app: *menu → About QLInux*.
 
 ## Features
 
-- **Canvas**: text (double-click to edit), images, barcodes, QR codes, lines
-  and rectangles; move, scale, rotate, align (to the margin frame or to the
-  selection), undo/redo.
+- **Canvas**: text (double-click to edit), images, barcodes, QR codes, lines,
+  rectangles, shapes, tables (cells, merge, insert and resize rows and columns),
+  date/time stamps (current clock or a fixed value, formats, offset) and
+  clip art (a sheet of original symbols, black or red, optional locked aspect);
+  move, scale, rotate, align (to the margin frame or to the selection), undo/redo.
 - **Label media**: pick tape by model, fixed or automatic length, margins,
   orientation across/along the tape, red printing where supported.
 - **Print**: 300 × 300 or 300 × 600 dpi, high quality mode, grayscale
@@ -120,6 +122,7 @@ Settings (last printer, tape, print options, language) are stored in
 | Shift + mouse wheel | Scroll horizontally |
 | Ctrl + click | Add or remove an object from the selection |
 | Shift + arrow keys | Move the selected object in larger steps |
+| Shift + click in a table | Extend the cell selection |
 | Shift while rotating | Rotate in 15° steps (plain rotation snaps to 90°, sticky) |
 
 ## Margins
