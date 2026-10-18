@@ -14,8 +14,8 @@ sofort bei Schaltern).
 
 from __future__ import annotations
 
-from PySide6.QtCore import QEvent, Qt, QTimer, Signal
-from PySide6.QtGui import QFont
+from PySide6.QtCore import Qt, QTimer, Signal
+from PySide6.QtGui import QActionGroup, QFont
 from PySide6.QtWidgets import (
     QButtonGroup,
     QCheckBox,
@@ -27,7 +27,7 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QLineEdit,
-    QPlainTextEdit,
+    QMenu,
     QSpinBox,
     QToolButton,
     QVBoxLayout,
@@ -122,14 +122,6 @@ class InspectorPanel(QWidget):
 
     # -- Typ-spezifisch -----------------------------------------------------
     def _build_text(self, item, form: QFormLayout) -> None:
-        edit = QPlainTextEdit(item.text_value)
-        edit.setFixedHeight(64)
-        edit.textChanged.connect(
-            lambda: self._apply_live(lambda: item.set_text_value(edit.toPlainText()))
-        )
-        edit.installEventFilter(self)
-        form.addRow(tr("Text"), edit)
-
         family = QFontComboBox()
         family.setSizeAdjustPolicy(
             QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon
@@ -156,18 +148,9 @@ class InspectorPanel(QWidget):
                 self._toggle("strike", tr("Durchgestrichen"), item.strike, item.set_strike),
                 self._divider(),
                 self._toggle("invert", tr("Invertiert"), item.inverted, item.set_inverted),
+                *([self._divider(), self._color_button(item)] if self._allow_red else []),
             )
         )
-
-        color = QComboBox()
-        color.addItem(tr("schwarz"), "black")
-        color.addItem(tr("rot"), "red")
-        color.setCurrentIndex(0 if item.color == "black" else 1)
-        color.setEnabled(self._allow_red)
-        color.currentIndexChanged.connect(
-            lambda: self._apply_now(lambda: item.set_text_color(color.currentData()))
-        )
-        form.addRow(tr("Farbe"), color)
 
         form.addRow(self._rule())
         form.addRow(
@@ -265,6 +248,27 @@ class InspectorPanel(QWidget):
         button.setAutoRaise(True)
         button.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         button.toggled.connect(lambda v: self._apply_now(lambda: apply_fn(v)))
+        return button
+
+    def _color_button(self, item) -> QToolButton:
+        """„A“-Knopf wie in Textverarbeitungen: Menue mit Schwarz/Rot."""
+        button = QToolButton()
+        button.setText("A")
+        button.setToolTip(tr("Farbe"))
+        button.setAutoRaise(True)
+        button.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        button.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
+        menu = QMenu(button)
+        group = QActionGroup(menu)
+        for label, value in ((tr("schwarz"), "black"), (tr("rot"), "red")):
+            act = menu.addAction(label)
+            act.setCheckable(True)
+            act.setChecked(item.color == value)
+            group.addAction(act)
+            act.triggered.connect(
+                lambda _=False, v=value: self._apply_now(lambda: item.set_text_color(v))
+            )
+        button.setMenu(menu)
         return button
 
     def _choice(self, options, current, apply_fn) -> QWidget:
@@ -539,11 +543,6 @@ class InspectorPanel(QWidget):
                 self._rebuild()
 
         return rebuild
-
-    def eventFilter(self, obj, event):  # noqa: N802
-        if event.type() == QEvent.Type.FocusOut and isinstance(obj, QPlainTextEdit):
-            self._finish_edit()
-        return super().eventFilter(obj, event)
 
 
 _KIND_TITLES = {
