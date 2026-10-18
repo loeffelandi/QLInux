@@ -1983,12 +1983,16 @@ def _hover(canvas, scene_pos):
 
 
 def _finish_tick_fades(canvas):
-    from PySide6.QtCore import QAbstractAnimation
+    """Blenden zu Ende laufen lassen und die fertigen Animationen wirklich
+    loeschen, so wie es der Event-Loop der laufenden App tut."""
+    from PySide6.QtCore import QAbstractAnimation, QEvent
+    from PySide6.QtWidgets import QApplication
 
     for item in canvas.scene().items():
         anim = getattr(item, "_tick_anim", None)
         if anim is not None and anim.state() == QAbstractAnimation.State.Running:
             anim.setCurrentTime(anim.duration())
+    QApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete)
 
 
 def _drag_to(canvas, scene_pos, mods=None):

@@ -1350,8 +1350,7 @@ class LabelCanvas(QGraphicsView):
         for item in self._scene.items():
             if not hasattr(item, "to_dict"):
                 continue
-            anim = getattr(item, "_tick_anim", None)
-            if anim is not None and anim.state() == QAbstractAnimation.State.Running:
+            if self._running_tick_anim(item) is not None:
                 continue
             if abs(self._tick_alpha(item) - self._tick_target(item)) > 0.01:
                 self._tick_sync_pending = True
@@ -1373,11 +1372,12 @@ class LabelCanvas(QGraphicsView):
             return
         target = self._tick_target(item)
         current = self._tick_alpha(item)
-        anim = getattr(item, "_tick_anim", None)
-        if anim is not None and anim.state() == QAbstractAnimation.State.Running:
+        anim = self._running_tick_anim(item)
+        if anim is not None:
             if abs(float(anim.endValue()) - target) < 0.001:
                 return
             anim.stop()
+            self._drop_tick_anim(item)
         if abs(current - target) < 0.01:
             item._tick_alpha = target
             return
@@ -1387,9 +1387,37 @@ class LabelCanvas(QGraphicsView):
         anim.setDuration(TICK_FADE_MS)
         anim.setEasingCurve(QEasingCurve.Type.InOutQuad)
         anim.valueChanged.connect(lambda value, item=item: self._on_tick_fade(item, value))
-        anim.finished.connect(anim.deleteLater)
+        anim.finished.connect(lambda item=item: self._drop_tick_anim(item))
         item._tick_anim = anim
         anim.start()
+
+    def _running_tick_anim(self, item):
+        """Laufende Blende von ``item`` oder ``None``.
+
+        Das Attribut kann auf ein bereits per ``deleteLater`` geraeumtes
+        Qt-Objekt zeigen; der Zugriff darauf wirft und wuerde sonst
+        ``drawForeground`` mitten im Zeichnen abbrechen.
+        """
+        anim = getattr(item, "_tick_anim", None)
+        if anim is None:
+            return None
+        try:
+            running = anim.state() == QAbstractAnimation.State.Running
+        except RuntimeError:
+            running = False
+        if not running:
+            item._tick_anim = None
+            return None
+        return anim
+
+    def _drop_tick_anim(self, item) -> None:
+        anim = getattr(item, "_tick_anim", None)
+        item._tick_anim = None
+        if anim is not None:
+            try:
+                anim.deleteLater()
+            except RuntimeError:
+                pass
 
     def _on_tick_fade(self, item, value) -> None:
         try:
