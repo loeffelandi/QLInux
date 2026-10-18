@@ -128,7 +128,9 @@ def test_main_window_inserts_a_current_stamp_and_undoes_the_format(qapp):
     from ql_editor.app import MainWindow
 
     win = MainWindow()
-    win.resize(1100, 760)
+    # Schmaler als AUTO_COLLAPSE_RIGHT_PX klappt der Inspector zu. 1100 px
+    # liegt darunter; sichtbar ist der Inhalt dann nur mitten in der Animation.
+    win.resize(1400, 860)
     win.show()
     qapp.processEvents()
     win._act_add_datetime.trigger()

@@ -291,6 +291,8 @@ class LabelTab:
         #: Serienparameter (Format 2); Vorschau nutzt Index 0 (D10).
         self.serial: dict[str, Any] = document.merge_serial()
         self.current_record: int = 0
+        #: Pfad-/Hash-Hinweis fuer das Datenbank-Banner (nicht persistiert).
+        self.database_notice: str | None = None
 
     def is_dirty(self) -> bool:
         """Inhalt geändert - unabhängig von der Druckeradresse."""
@@ -305,6 +307,7 @@ class LabelTab:
         self.csv_table = None
         self.data_source = None
         self.current_record = 0
+        self.database_notice = None
         self.serial = document.merge_serial()
 
 
@@ -356,6 +359,9 @@ class MainWindow(QMainWindow):
         self._tab_chrome = self._build_tab_chrome()
         self._database_panel = DatabasePanel(self)
         self._database_panel.record_selected.connect(self._on_database_record_selected)
+        self._database_panel.connect_requested.connect(self._choose_csv)
+        self._database_panel.replace_requested.connect(self._choose_csv)
+        self._database_panel.disconnect_requested.connect(self.disconnect_csv)
         shell = QWidget()
         shell_layout = QVBoxLayout(shell)
         shell_layout.setContentsMargins(0, 0, 0, 0)
@@ -420,8 +426,9 @@ class MainWindow(QMainWindow):
         self._media_panel.usb_permission_requested.connect(self._on_usb_permission)
         self._inspector.changed.connect(self._on_inspector_changed)
         self._inspector.edit_begun.connect(self._capture_history)
-        self._inspector.edit_committed.connect(
-            lambda: self._commit_history(tr("Eigenschaften"))
+        self._inspector.edit_committed.connect(self._on_inspector_edit_committed)
+        self._inspector.database_binding_changed.connect(
+            self._on_database_binding_changed
         )
         self._inspector.rejected.connect(
             lambda message: self.statusBar().showMessage(message, 8000)
@@ -2126,7 +2133,22 @@ class MainWindow(QMainWindow):
         selection = self._canvas.selected_items()
         item = selection[0] if len(selection) == 1 else None
         allow_red = self._media_panel.model.two_color and self._media_panel.label.color.supports_red
+        fields: list[str] = []
+        tab = self._active
+        if tab is not None and tab.csv_table is not None:
+            fields = list(tab.csv_table.fields)
+        self._inspector.set_database_fields(fields)
         self._inspector.set_item(item, allow_red=allow_red)
+
+    def _on_inspector_edit_committed(self) -> None:
+        """Undo-Schritt schliessen; Database Field baut den Inspector neu."""
+        self._commit_history(tr("Eigenschaften"))
+        if self._inspector.take_binding_refresh():
+            self._on_selection_changed()
+
+    def _on_database_binding_changed(self) -> None:
+        """Neues Feld sofort in den Snapshot schreiben (D11), ohne den Aufbau."""
+        self._apply_merge_to_canvas(refresh_inspector=False)
 
     def _on_inspector_changed(self) -> None:
         self._canvas.viewport().update()
@@ -2830,6 +2852,7 @@ class MainWindow(QMainWindow):
         canvas.gesture_begun.connect(self._capture_history)
         canvas.image_dropped.connect(self._on_image_dropped)
         canvas.text_dropped.connect(self._on_text_dropped)
+        canvas.database_field_dropped.connect(self._on_database_field_dropped)
         canvas.print_preview_exit_requested.connect(self._exit_print_preview)
         canvas.zoom_changed.connect(self._on_zoom_changed)
         canvas.hint_changed.connect(self._on_canvas_hint)
@@ -2847,6 +2870,7 @@ class MainWindow(QMainWindow):
             (canvas.gesture_begun, self._capture_history),
             (canvas.image_dropped, self._on_image_dropped),
             (canvas.text_dropped, self._on_text_dropped),
+            (canvas.database_field_dropped, self._on_database_field_dropped),
             (canvas.print_preview_exit_requested, self._exit_print_preview),
             (canvas.zoom_changed, self._on_zoom_changed),
             (canvas.hint_changed, self._on_canvas_hint),
@@ -3207,6 +3231,7 @@ class MainWindow(QMainWindow):
             tab.csv_table = None
             tab.data_source = None
             tab.current_record = 0
+            tab.database_notice = None
             return
         tab.data_source = dict(raw_source)
         stored_path = str(raw_source.get("path") or "")
@@ -3214,6 +3239,8 @@ class MainWindow(QMainWindow):
         tab.current_record = current
         if not stored_path:
             tab.csv_table = None
+            tab.database_notice = tr("CSV-Pfad fehlt.")
+            self._queue_database_status(tab.database_notice)
             return
         base = document_path if document_path is not None else (tab.path or None)
         csv_path = merge_engine.resolve_csv_path(
@@ -3226,15 +3253,16 @@ class MainWindow(QMainWindow):
             )
         except csv_source.CsvSourceError as exc:
             tab.csv_table = None
-            self._queue_database_status(
-                tr("CSV nicht geladen: {error}").format(error=exc)
-            )
+            tab.database_notice = tr("CSV nicht geladen: {error}").format(error=exc)
+            self._queue_database_status(tab.database_notice)
             return
+        tab.database_notice = None
         stored_sha = str(raw_source.get("content_sha256") or "")
         if stored_sha and stored_sha != table.content_sha256:
-            self._queue_database_status(
-                tr("CSV-Inhalt hat sich geändert (Hash weicht ab).")
+            tab.database_notice = tr(
+                "CSV-Inhalt hat sich geändert (Hash weicht ab)."
             )
+            self._queue_database_status(tab.database_notice)
         tab.csv_table = table
         tab.current_record = merge_engine.clamp_record_index(
             current, len(table.records)
@@ -3263,6 +3291,7 @@ class MainWindow(QMainWindow):
         if not isinstance(raw_source, Mapping):
             tab.csv_table = None
             tab.data_source = None
+            tab.database_notice = None
             return
         previous = self._active
         self._active = tab
@@ -3277,8 +3306,18 @@ class MainWindow(QMainWindow):
     def _sync_database_panel(self) -> None:
         """Unteres Grid an den aktiven Reiter anbinden."""
         tab = self._active
-        if tab is None or tab.csv_table is None:
+        if tab is None:
             self._database_panel.clear()
+            return
+        notice = tab.database_notice
+        if tab.csv_table is None:
+            path = ""
+            if tab.data_source:
+                path = str(tab.data_source.get("path") or "")
+            if path:
+                self._database_panel.show_unloaded(Path(path).name, notice)
+            else:
+                self._database_panel.clear(notice=notice)
             return
         name = None
         if tab.data_source and tab.data_source.get("path"):
@@ -3287,6 +3326,7 @@ class MainWindow(QMainWindow):
             tab.csv_table,
             current_record=tab.current_record,
             display_name=name,
+            notice=notice,
         )
 
     def _on_database_record_selected(self, index: int) -> None:
@@ -3309,7 +3349,7 @@ class MainWindow(QMainWindow):
             self._document_dirty = True
             self._update_window_title()
 
-    def _apply_merge_to_canvas(self) -> None:
+    def _apply_merge_to_canvas(self, *, refresh_inspector: bool = True) -> None:
         """Snapshots aus aktuellem Record (+ Serie Index 0) auf den Canvas."""
         tab = self._require_tab()
         record: Mapping[str, str] | None = None
@@ -3332,7 +3372,8 @@ class MainWindow(QMainWindow):
             self._history_suppress = False
         self._recompute_canvas()
         self._schedule_refresh()
-        self._on_selection_changed()
+        if refresh_inspector:
+            self._on_selection_changed()
 
     def bind_csv_table(
         self,
@@ -3362,6 +3403,97 @@ class MainWindow(QMainWindow):
         self._sync_database_panel()
         self._document_dirty = True
         self._update_window_title()
+
+    def connect_csv_path(self, path: str) -> bool:
+        """CSV verbinden oder ersetzen und sofort mergen (D13)."""
+        tab = self._require_tab()
+        try:
+            table = csv_source.load(path)
+        except csv_source.CsvSourceError as exc:
+            tab.database_notice = str(exc)
+            self._sync_database_panel()
+            self.statusBar().showMessage(tab.database_notice, 8000)
+            return False
+        tab.database_notice = None
+        self.bind_csv_table(table)
+        return True
+
+    def disconnect_csv(self) -> None:
+        """Datenbankverbindung loesen. Snapshots und Serie bleiben (D11)."""
+        tab = self._require_tab()
+        if tab.csv_table is None and not tab.data_source:
+            return
+        tab.csv_table = None
+        tab.data_source = None
+        tab.current_record = 0
+        tab.database_notice = None
+        self._sync_database_panel()
+        self._on_selection_changed()
+        self._document_dirty = True
+        self._update_window_title()
+
+    def _choose_csv(self) -> None:
+        """Datei-Dialog fuer Verbinden / Andere."""
+        tab = self._active
+        start = ""
+        if tab is not None and tab.csv_table is not None and tab.csv_table.path:
+            start = str(tab.csv_table.path.parent)
+        elif tab is not None and tab.path:
+            start = str(Path(tab.path).parent)
+        elif self._settings.document_dir:
+            start = self._settings.document_dir
+        choose_file(
+            self,
+            caption=tr("CSV verbinden"),
+            name_filter=tr("CSV-Dateien (*.csv);;Alle Dateien (*)"),
+            on_selected=self._on_csv_file_chosen,
+            start_dir=start,
+        )
+
+    def _on_csv_file_chosen(self, path: str | None) -> None:
+        if path:
+            self.connect_csv_path(path)
+
+    def bind_database_field(self, item, field: str) -> None:
+        """Spalte an Text/Barcode/QR binden. Ersetzt eine Serie am Objekt (D4)."""
+        if getattr(item, "kind", None) not in ("text", "qr", "barcode"):
+            return
+        if not hasattr(item, "set_binding"):
+            return
+        self._seal_open_inspector_edit()
+        self._capture_history()
+        item.set_binding({"source": "database", "field": field})
+        self._apply_merge_to_canvas(refresh_inspector=False)
+        self._commit_history(tr("Datenbankfeld"))
+        self._canvas.scene().clearSelection()
+        item.setSelected(True)
+        self._on_selection_changed()
+
+    def _on_database_field_dropped(self, field: str, scene_pos: QPointF) -> None:
+        """Drop auf Text/Barcode/QR bindet; sonst neues Textfeld mit Binding (D14)."""
+        item = self._canvas.serializable_item_at_scene(scene_pos)
+        if item is not None and getattr(item, "kind", None) in (
+            "text",
+            "qr",
+            "barcode",
+        ):
+            self.bind_database_field(item, field)
+            return
+        text = TextItem(
+            self._database_snapshot(field),
+            font_pixel_size=self._default_font_size(),
+        )
+        text.set_binding({"source": "database", "field": field})
+        self._add_item(text, scene_pos)
+
+    def _database_snapshot(self, field: str) -> str:
+        """Aktueller Zellenwert, oder leer wenn keine CSV geladen ist."""
+        tab = self._require_tab()
+        table = tab.csv_table
+        if table is None or not table.records:
+            return ""
+        index = merge_engine.clamp_record_index(tab.current_record, len(table.records))
+        return str(table.record(index).get(field, ""))
 
     def _apply_document(
         self, data: dict, *, document_path: str | None = None
