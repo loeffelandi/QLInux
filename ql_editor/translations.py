@@ -234,6 +234,11 @@ EN: dict[str, str] = {
     "Unbekanntes Format ({number}) - bitte mit einer neueren QLInux-Fassung öffnen.": (
         "Unknown format ({number}) – please open it with a newer QLInux version."
     ),
+    "CSV ist nicht UTF-8: {error}": "CSV is not UTF-8: {error}",
+    "CSV ist leer.": "CSV is empty.",
+    "CSV hat keine Spaltennamen.": "CSV has no column names.",
+    "CSV hat doppelte Spaltennamen.": "CSV has duplicate column names.",
+    "CSV-Pfad fehlt.": "CSV path is missing.",
     # -- Vorlagen (Beispieltexte der eingebauten Vorlagen) -------------------
     "Adressetikett": "Address label",
     "Paketmarke": "Parcel label",
@@ -571,4 +576,10 @@ EN: dict[str, str] = {
         "Input '{value}' does not fit the symbology - '{full}' would be printed."
     ),
     "Unbekannter Item-Typ: {kind!r}": "Unknown item type: {kind!r}",
+    "Datenbank-Binding braucht einen Spaltennamen.": (
+        "Database binding needs a column name."
+    ),
+    "Unbekannte Binding-Quelle: {source!r}.": (
+        "Unknown binding source: {source!r}."
+    ),
 }
