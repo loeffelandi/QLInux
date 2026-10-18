@@ -24,6 +24,7 @@ from ql_editor.printer import (
     build_raster_sequence,
     detect_label,
     print_image,
+    print_images,
     probe_status,
     send_instructions,
     validate_for_print,
@@ -432,6 +433,21 @@ def test_validate_accepts_the_600dpi_scale():
 # --------------------------------------------------------------------------- #
 # Senden (gemockt)
 # --------------------------------------------------------------------------- #
+def test_print_images_logs_page_count_including_copies(monkeypatch, caplog):
+    """Das Log zaehlt Varianten × Kopien, nicht nur die Bildliste."""
+
+    def fake_send(*_args, **_kwargs):
+        return {"outcome": "sent", "did_print": False}
+
+    monkeypatch.setattr(printer, "send", fake_send)
+    label = get_label("50")
+    first = Image.new("RGB", (label.width_dots, 80), "white")
+    second = Image.new("RGB", (label.width_dots, 90), "white")
+    caplog.set_level(logging.INFO, logger="ql_editor.printer")
+    print_images([first, second], label, CONFIG, copies=2)
+    assert "Sende 4 Etiketten" in caplog.text
+
+
 def test_print_image_calls_send_with_config(monkeypatch):
     captured = {}
 

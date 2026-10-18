@@ -2797,7 +2797,7 @@ class MainWindow(QMainWindow):
         self._pending_job = (
             datetime.now(),
             label.name,
-            pages,
+            copies,
             config.model,
             config.address,
         )

@@ -254,7 +254,11 @@ def test_plan_print_variants_keeps_selection_order_and_drops_gaps():
 
 
 def test_job_page_count_is_variants_times_copies():
+    from ql_editor.printer import COPIES_MAX
+
+    assert not hasattr(merge, "PRINT_PAGE_LIMIT")
     assert merge.job_page_count(3, 2) == 6
+    assert merge.job_page_count(1, COPIES_MAX) == COPIES_MAX
     with pytest.raises(merge.MergeError):
         merge.job_page_count(3, 40)
     with pytest.raises(merge.MergeError):
