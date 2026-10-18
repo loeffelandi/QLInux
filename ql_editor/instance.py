@@ -2,8 +2,8 @@
 
 Doppelklickt man im Dateimanager eine zweite ``.qlx``, startet ein neuer
 Prozess. Der prueft zuerst, ob schon eine Instanz lauscht. Ist das der Fall,
-schickt er die Pfade dorthin und beendet sich - die laufende Instanz oeffnet
-die Dateien als neue Reiter.
+schickt er die Pfade dorthin (eine leere Liste nur zum Fokussieren) und
+beendet sich - die laufende Instanz oeffnet die Dateien als neue Reiter.
 
 Der Kanal ist ein lokaler Socket (QLocalServer/QLocalSocket). Eine Nachricht
 ist eine JSON-Liste von Pfaden, abgeschlossen mit einem Zeilenende.
@@ -143,12 +143,12 @@ def listen(
             if not newline:
                 return
             done = True
+            conn.disconnectFromServer()
             try:
                 paths = json.loads(line.decode("utf-8"))
             except (UnicodeDecodeError, json.JSONDecodeError):
-                paths = []
-            conn.disconnectFromServer()
-            if isinstance(paths, list) and paths:
+                return
+            if isinstance(paths, list):
                 on_paths([str(p) for p in paths])
 
         conn.readyRead.connect(read)

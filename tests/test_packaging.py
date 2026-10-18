@@ -25,6 +25,7 @@ def test_mime_types_are_declared_and_installed_by_the_appimage_build():
     build = (ROOT / "packaging" / "build_appimage.sh").read_text(encoding="utf-8")
     assert "ql-editor-mime.xml" in build
     assert "assets/mimetypes" in build
+    assert "128x128/mimetypes" in build
 
 
 def test_desktop_file_opens_files_and_claims_both_types():
@@ -38,12 +39,17 @@ def test_desktop_file_opens_files_and_claims_both_types():
 
 
 def test_mime_icons_exist_for_both_types():
+    from PIL import Image
+
     icons = ROOT / "assets" / "mimetypes"
     for name in (
         "application-x-qlinux-label.png",
         "application-x-brother-lbx.png",
     ):
-        assert (icons / name).is_file()
+        large = Image.open(icons / name)
+        small = Image.open(icons / "128" / name)
+        assert large.size == (256, 256)
+        assert small.size == (128, 128)
 
 
 def test_metainfo_lists_the_mediatypes():

@@ -2338,6 +2338,8 @@ def test_icons_render_for_all_names(qapp):
         ic = icons.icon(name)
         assert not ic.isNull()
         assert not ic.pixmap(24, 24).isNull()
+        if name.startswith("shape_"):
+            assert name in icons.ICON_COLORS
 
 
 def test_icon_unknown_name_raises(qapp):
@@ -2376,6 +2378,109 @@ def test_toolbar_has_undo_and_redo(qapp):
     assert not win._act_redo.icon().isNull()
 
 
+def _visual_bottom_to_top(canvas):
+    items = [item for item in canvas.scene().items() if hasattr(item, "to_dict")]
+    items.reverse()
+    return items
+
+
+def _icon_bytes(action):
+    from PySide6.QtGui import QImage
+
+    image = action.icon().pixmap(24, 24).toImage()
+    image = image.convertToFormat(QImage.Format.Format_ARGB32)
+    return bytes(image.bits())
+
+
+def test_stack_steps_one_place_and_extremes_keep_order(qapp, tmp_path):
+    """Eine Ebene tauscht mit dem Nachbarn; Extrem legt die Gruppe ganz nach vorn oder hinten."""
+    from PySide6.QtCore import QRectF
+
+    from ql_editor.items import RectItem
+
+    win = _temp_window(qapp, tmp_path)
+    bottom = RectItem(QRectF(0, 0, 40, 20))
+    win._canvas.add_item(bottom)
+    assert not win._act_forward.isEnabled()
+    mid = RectItem(QRectF(10, 8, 40, 20))
+    top = RectItem(QRectF(20, 16, 40, 20))
+    win._canvas.add_item(mid)
+    win._canvas.add_item(top)
+    qapp.processEvents()
+    assert _visual_bottom_to_top(win._canvas) == [bottom, mid, top]
+    assert win._act_forward.icon().cacheKey() != win._act_front.icon().cacheKey()
+    assert win._act_backward.icon().cacheKey() != win._act_back.icon().cacheKey()
+    assert _icon_bytes(win._act_forward) != _icon_bytes(win._act_front)
+
+    win._canvas.scene().clearSelection()
+    bottom.setSelected(True)
+    qapp.processEvents()
+    assert win._act_forward.isEnabled() and win._act_back.isEnabled()
+    win._act_forward.trigger()
+    assert _visual_bottom_to_top(win._canvas) == [mid, bottom, top]
+    assert bottom.zValue() < top.zValue()
+
+    win._act_front.trigger()
+    assert _visual_bottom_to_top(win._canvas) == [mid, top, bottom]
+    assert win._undo_stack.undoText() == "Reihenfolge"
+
+    win._act_back.trigger()
+    assert _visual_bottom_to_top(win._canvas) == [bottom, mid, top]
+    assert bottom.zValue() < mid.zValue() < top.zValue()
+
+    win._canvas.scene().clearSelection()
+    top.setSelected(True)
+    qapp.processEvents()
+    win._act_backward.trigger()
+    assert _visual_bottom_to_top(win._canvas) == [bottom, top, mid]
+
+    win._canvas.scene().clearSelection()
+    bottom.setSelected(True)
+    mid.setSelected(True)
+    qapp.processEvents()
+    win._act_front.trigger()
+    assert _visual_bottom_to_top(win._canvas) == [top, bottom, mid]
+    win.close()
+    qapp.processEvents()
+
+
+def test_snap_to_guides_applies_drag_snap_once(qapp, tmp_path):
+    from ql_editor.canvas import SNAP_TOLERANCE_PX
+
+    win = _temp_window(qapp, tmp_path)
+    canvas = win._canvas
+    item = TextItem("snap", font_pixel_size=40)
+    canvas.add_item(item)
+    left = canvas.printable_rect().left()
+    tol = SNAP_TOLERANCE_PX / canvas._scale()
+    box = item.sceneBoundingRect()
+    item.moveBy((left + tol * 0.4) - box.left(), 80 - box.top())
+    qapp.processEvents()
+    before = item.sceneBoundingRect().left()
+    assert before == pytest.approx(left + tol * 0.4, abs=0.6)
+    win._act_snap_guides.trigger()
+    qapp.processEvents()
+    assert item.sceneBoundingRect().left() == pytest.approx(left, abs=0.6)
+    assert win._undo_stack.undoText() == "An Hilfslinien ausrichten"
+    assert canvas._guides
+    assert any(axis == "v" and coord == pytest.approx(left, abs=0.6) for axis, coord in canvas._guides)
+    win.close()
+    qapp.processEvents()
+
+
+def test_tab_switch_clears_the_rotate_hint(qapp, tmp_path):
+    win = _temp_window(qapp, tmp_path)
+    win._on_canvas_hint("Shift: 15°-Schritte")
+    assert win._hint_label.isVisible()
+    assert win._hint_label.text() == "Shift: 15°-Schritte"
+    win._on_file_new()
+    qapp.processEvents()
+    assert win._hint_label.text() == ""
+    assert not win._hint_label.isVisible()
+    win.close()
+    qapp.processEvents()
+
+
 def test_toolbar_has_align_dropdown_before_front(qapp, tmp_path):
     """Ausrichten liegt als Dropdown in der Toolbar, vor Vordergrund und Hintergrund."""
     from PySide6.QtWidgets import QToolButton, QToolBar
@@ -2401,6 +2506,7 @@ def test_toolbar_has_align_dropdown_before_front(qapp, tmp_path):
 
 def test_shapes_menu_and_inspector_smoke(qapp, tmp_path):
     """Formen-Menue legt ShapeItem an; Inspector zeigt Form-Felder."""
+    from PySide6.QtCore import QPointF
     from PySide6.QtWidgets import QComboBox, QToolButton
 
     from ql_editor.items import ShapeItem
@@ -2413,6 +2519,20 @@ def test_shapes_menu_and_inspector_smoke(qapp, tmp_path):
     assert "Rahmen" in menu_labels
     assert "Stern" in menu_labels
     assert "Ellipse" in menu_labels
+    context_labels = [
+        action.text()
+        for action in win._build_context_menu(QPointF(10, 10)).actions()
+        if action.text()
+    ]
+    for label in menu_labels:
+        assert label in context_labels
+    insert_labels = [
+        action.text()
+        for action in win._menu_button.menu().actions()
+        if action.text()
+    ]
+    for label in ("Ellipse", "Dreieck", "Stern", "Pfeil rechts", "Pfeil links", "Doppelpfeil"):
+        assert label in insert_labels
 
     win._add_shape("star")
     shapes = [item for item in win._canvas.scene().items() if isinstance(item, ShapeItem)]
@@ -3170,18 +3290,40 @@ def test_rotation_is_free_except_sticky_90_degree_detent(qapp):
     assert _rotate_to(canvas, item, 45.0) == pytest.approx(45, abs=0.01)
 
 
+def _hover(canvas, scene_pos):
+    from PySide6.QtCore import QEvent, Qt
+
+    canvas.mouseMoveEvent(
+        _mouse_event(
+            QEvent.Type.MouseMove,
+            canvas,
+            scene_pos,
+            Qt.MouseButton.NoButton,
+            Qt.MouseButton.NoButton,
+            Qt.KeyboardModifier.NoModifier,
+        )
+    )
+
+
 def test_rotate_hint_follows_rotate_handle_hover(qapp):
+    """Idle-Hover ueber dem Drehgriff, und nach der Geste weg vom Griff."""
+    from PySide6.QtCore import QPointF
+
     canvas = _prepared_canvas(qapp)
     item = TextItem("hint", font_pixel_size=40)
     canvas.add_item(item)
     canvas._scene.clearSelection()
     item.setSelected(True)
-    received: list[bool] = []
+    received: list[str] = []
     canvas.hint_changed.connect(received.append)
-    canvas._set_hint("Shift: 15°-Schritte")
-    canvas._set_hint("Shift: 15°-Schritte")
-    canvas.leaveEvent(None)
-    assert received == ["Shift: 15°-Schritte", ""]
+    handle = canvas._rotate_handle_point(item)
+    _hover(canvas, handle)
+    assert canvas._hint == "Shift: 15°-Schritte"
+    assert received == ["Shift: 15°-Schritte"]
+    _press(canvas, handle)
+    away = QPointF(handle.x() + 400, handle.y() + 400)
+    _release(canvas, away)
+    assert "15°" not in canvas._hint
 
 
 def test_rotate_handle_distance_is_constant_for_scaled_items(qapp):
