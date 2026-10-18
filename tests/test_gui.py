@@ -3457,6 +3457,517 @@ def test_startup_keeps_the_stored_printer_address(qapp, tmp_path, monkeypatch):
     assert settings.address == "/dev/usb/lp1"
 
 
+def _wait_startup_discovery(win, qapp):
+    """Startsuche zu Ende laufen lassen (der Netzwerk-Thread ist asynchron)."""
+    worker = win._network_worker
+    if worker is not None and worker.isRunning():
+        worker.wait(3000)
+    qapp.processEvents()
+
+
+def _hold_network_discovery(monkeypatch, printers):
+    """Suche anhalten, bis der Test den Fensterstand geaendert hat.
+
+    Liefert ``(entered, release)``. ``release.set()`` laesst die Treffer zu.
+    """
+    import threading
+
+    from ql_editor import app as app_module
+
+    entered = threading.Event()
+    release = threading.Event()
+
+    def _discover(*_args, **_kwargs):
+        entered.set()
+        release.wait(5)
+        return printers
+
+    monkeypatch.setattr(app_module, "discover_network_printers", _discover)
+    return entered, release
+
+
+def test_fresh_start_leaves_the_network_field_empty(qapp, tmp_path):
+    """Ohne gespeicherte Adresse bleibt das Netzwerkfeld leer.
+
+    ``192.168.178.62`` war frueher die fest eingebaute Adresse. Sie darf weder
+    als Default noch als Platzhalter im Feld stehen.
+    """
+    from ql_editor.media_panel import CONNECTION_NETWORK
+    from ql_editor.printer import DEFAULT_ADDRESS
+
+    assert DEFAULT_ADDRESS == ""
+    win = _temp_window(qapp, tmp_path)
+    _wait_startup_discovery(win, qapp)
+
+    assert win._media_panel.connection() == CONNECTION_NETWORK
+    assert win._media_panel.address() == ""
+    assert win._media_panel._network_host == ""
+    assert "192.168.178.62" not in win._media_panel._net_combo.currentText()
+    assert "*" not in win.windowTitle()
+    win.close()
+    qapp.processEvents()
+
+
+def test_startup_selects_the_saved_network_printer(qapp, tmp_path, monkeypatch):
+    """Der letzte Netzwerkdrucker wird gewaehlt, wenn die Suche ihn findet."""
+    from PySide6.QtCore import QSettings
+
+    from ql_editor import app as app_module
+    from ql_editor import discovery
+    from ql_editor.app import MainWindow
+    from ql_editor.settings import AppSettings
+
+    printers = [
+        discovery.NetworkPrinter(host="192.0.2.10", model_id="QL-700"),
+        discovery.NetworkPrinter(host="192.0.2.20", model_id="QL-820NWB"),
+    ]
+    monkeypatch.setattr(
+        app_module, "discover_network_printers", lambda *args, **kwargs: printers
+    )
+    settings = AppSettings(
+        QSettings(str(tmp_path / "settings.ini"), QSettings.Format.IniFormat)
+    )
+    settings.connection = "network"
+    settings.address = "tcp://192.0.2.20:9100"
+
+    win = MainWindow(settings=settings)
+    _wait_startup_discovery(win, qapp)
+
+    assert win._media_panel.address() == "tcp://192.0.2.20:9100"
+    assert win._media_panel.model_id() == "QL-820NWB"
+    assert settings.address == "tcp://192.0.2.20:9100"
+    assert "*" not in win.windowTitle()
+    win.close()
+    qapp.processEvents()
+
+
+def test_startup_falls_back_to_the_first_network_printer(qapp, tmp_path, monkeypatch):
+    """Fehlt der letzte Drucker in den Treffern, gilt der erste."""
+    from PySide6.QtCore import QSettings
+
+    from ql_editor import app as app_module
+    from ql_editor import discovery
+    from ql_editor.app import MainWindow
+    from ql_editor.settings import AppSettings
+
+    printers = [
+        discovery.NetworkPrinter(host="192.0.2.10", model_id="QL-700"),
+        discovery.NetworkPrinter(host="192.0.2.20", model_id="QL-820NWB"),
+    ]
+    monkeypatch.setattr(
+        app_module, "discover_network_printers", lambda *args, **kwargs: printers
+    )
+    settings = AppSettings(
+        QSettings(str(tmp_path / "settings.ini"), QSettings.Format.IniFormat)
+    )
+    settings.connection = "network"
+    settings.address = "tcp://192.0.2.99:9100"
+
+    win = MainWindow(settings=settings)
+    _wait_startup_discovery(win, qapp)
+
+    assert win._media_panel.address() == "tcp://192.0.2.10:9100"
+    assert win._media_panel.model_id() == "QL-700"
+    assert settings.address == "tcp://192.0.2.10:9100"
+    # Der Wechsel steht im Panel, nicht in der Statuszeile: die bleibt frei
+    # fuer „Etikett geöffnet“.
+    assert win._media_panel._net_hint.text() == (
+        "Gespeicherten Drucker nicht gefunden, 192.0.2.10 gewählt."
+    )
+    assert "nicht gefunden" not in win.statusBar().currentMessage()
+    win.close()
+    qapp.processEvents()
+
+
+def test_startup_picks_the_first_network_printer_without_a_saved_one(
+    qapp, tmp_path, monkeypatch
+):
+    from PySide6.QtCore import QSettings
+
+    from ql_editor import app as app_module
+    from ql_editor import discovery
+    from ql_editor.app import MainWindow
+    from ql_editor.settings import AppSettings
+
+    printers = [
+        discovery.NetworkPrinter(host="192.0.2.10", model_id="QL-800"),
+        discovery.NetworkPrinter(host="192.0.2.20", model_id="QL-700"),
+    ]
+    monkeypatch.setattr(
+        app_module, "discover_network_printers", lambda *args, **kwargs: printers
+    )
+    settings = AppSettings(
+        QSettings(str(tmp_path / "settings.ini"), QSettings.Format.IniFormat)
+    )
+
+    win = MainWindow(settings=settings)
+    _wait_startup_discovery(win, qapp)
+
+    assert win._media_panel.address() == "tcp://192.0.2.10:9100"
+    assert settings.connection == "network"
+    win.close()
+    qapp.processEvents()
+
+
+def test_startup_keeps_a_saved_address_when_the_network_is_empty(qapp, tmp_path):
+    """Ohne Treffer bleibt die letzte Adresse stehen - sie ist nicht erfunden."""
+    from ql_editor.media_panel import CONNECTION_NETWORK
+
+    win = _temp_window(qapp, tmp_path)
+    win._media_panel.set_network_host("192.0.2.20")
+    win.close()
+    qapp.processEvents()
+
+    again = _temp_window(qapp, tmp_path)
+    _wait_startup_discovery(again, qapp)
+
+    assert again._media_panel.connection() == CONNECTION_NETWORK
+    assert again._media_panel.address() == "tcp://192.0.2.20:9100"
+    again.close()
+    qapp.processEvents()
+
+
+def test_startup_selects_the_saved_usb_printer(qapp, tmp_path, monkeypatch):
+    from PySide6.QtCore import QSettings
+
+    from ql_editor import media_panel as media_panel_module
+    from ql_editor.app import MainWindow
+    from ql_editor.media_panel import CONNECTION_USB
+    from ql_editor.settings import AppSettings
+
+    monkeypatch.setattr(
+        media_panel_module,
+        "usb_printers",
+        lambda devices=None: ["/dev/usb/lp0", "/dev/usb/lp1"],
+    )
+    settings = AppSettings(
+        QSettings(str(tmp_path / "settings.ini"), QSettings.Format.IniFormat)
+    )
+    settings.connection = CONNECTION_USB
+    settings.address = "/dev/usb/lp1"
+
+    win = MainWindow(settings=settings)
+    qapp.processEvents()
+
+    assert win._media_panel.connection() == CONNECTION_USB
+    assert win._media_panel.address() == "/dev/usb/lp1"
+    assert settings.connection == CONNECTION_USB
+    win.close()
+    qapp.processEvents()
+
+
+def test_startup_falls_back_to_the_first_usb_printer(qapp, tmp_path, monkeypatch):
+    from PySide6.QtCore import QSettings
+
+    from ql_editor import media_panel as media_panel_module
+    from ql_editor.app import MainWindow
+    from ql_editor.media_panel import CONNECTION_USB
+    from ql_editor.settings import AppSettings
+
+    monkeypatch.setattr(
+        media_panel_module,
+        "usb_printers",
+        lambda devices=None: ["/dev/usb/lp0", "/dev/usb/lp2"],
+    )
+    settings = AppSettings(
+        QSettings(str(tmp_path / "settings.ini"), QSettings.Format.IniFormat)
+    )
+    settings.connection = CONNECTION_USB
+    settings.address = "/dev/usb/lp1"
+
+    win = MainWindow(settings=settings)
+    qapp.processEvents()
+
+    assert win._media_panel.connection() == CONNECTION_USB
+    assert win._media_panel.address() == "/dev/usb/lp0"
+    assert settings.address == "/dev/usb/lp0"
+    win.close()
+    qapp.processEvents()
+
+
+def test_usb_connection_is_restored_when_nothing_is_plugged_in(
+    qapp, tmp_path, monkeypatch
+):
+    """Der letzte Anschluss bleibt USB, auch wenn gerade kein Geraet da ist."""
+    from ql_editor import media_panel as media_panel_module
+    from ql_editor.media_panel import CONNECTION_USB
+
+    monkeypatch.setattr(media_panel_module, "usb_printers", lambda devices=None: [])
+    win = _temp_window(qapp, tmp_path)
+    win._media_panel.set_connection(CONNECTION_USB)
+    win._on_media_changed()
+    win.close()
+    qapp.processEvents()
+
+    again = _temp_window(qapp, tmp_path)
+    qapp.processEvents()
+
+    assert again._media_panel.connection() == CONNECTION_USB
+    assert again._media_panel.address() == ""
+    assert again._settings.connection == CONNECTION_USB
+    again.close()
+    qapp.processEvents()
+
+
+def test_startup_keeps_a_loaded_label_until_the_user_adapts(
+    qapp, tmp_path, monkeypatch
+):
+    """Ein geoeffnetes Etikett behaelt Modell und Raender, bis man zustimmt."""
+    from PySide6.QtCore import QSettings
+
+    from ql_editor import app as app_module
+    from ql_editor import discovery, document
+    from ql_editor.app import MainWindow
+    from ql_editor.settings import AppSettings
+
+    printers = [discovery.NetworkPrinter(host="192.0.2.20", model_id="QL-820NWB")]
+    entered, release = _hold_network_discovery(monkeypatch, printers)
+    choices = []
+
+    def _ask(_parent, *, title, text, on_choice):
+        choices.append((title, text))
+        on_choice("keep")
+
+    monkeypatch.setattr(app_module, "ask_label_printer", _ask)
+    settings = AppSettings(
+        QSettings(str(tmp_path / "settings.ini"), QSettings.Format.IniFormat)
+    )
+    settings.connection = "network"
+    settings.model = "QL-700"
+    settings.address = "tcp://192.0.2.20:9100"
+
+    win = MainWindow(settings=settings)
+    assert entered.wait(3)
+    win._media_panel._margin_spins["top"].setValue(9.0)
+    path = tmp_path / "etikett.qlx"
+    document.save(path, document.build(win._media_panel.media_state(), []))
+    win.open_path(str(path))
+    release.set()
+    _wait_startup_discovery(win, qapp)
+
+    assert choices
+    assert "QL-700" in choices[0][1]
+    assert "QL-820NWB" in choices[0][1]
+    assert win._media_panel.model_id() == "QL-700"
+    assert win._media_panel.margins().top == pytest.approx(9.0)
+    assert "*" not in win.windowTitle()
+    win.close()
+    qapp.processEvents()
+
+
+def test_startup_adapt_label_is_an_undo_step(qapp, tmp_path, monkeypatch):
+    """Wer anpasst, bekommt einen Undo-Schritt und den Stern."""
+    from PySide6.QtCore import QSettings
+
+    from ql_editor import app as app_module
+    from ql_editor import discovery, document
+    from ql_editor.app import MainWindow
+    from ql_editor.settings import AppSettings
+
+    printers = [discovery.NetworkPrinter(host="192.0.2.20", model_id="QL-820NWB")]
+    entered, release = _hold_network_discovery(monkeypatch, printers)
+    monkeypatch.setattr(
+        app_module,
+        "ask_label_printer",
+        lambda *_args, on_choice, **_kwargs: on_choice("adapt"),
+    )
+    settings = AppSettings(
+        QSettings(str(tmp_path / "settings.ini"), QSettings.Format.IniFormat)
+    )
+    settings.connection = "network"
+    settings.model = "QL-700"
+    settings.address = "tcp://192.0.2.20:9100"
+
+    win = MainWindow(settings=settings)
+    assert entered.wait(3)
+    win._media_panel._margin_spins["top"].setValue(9.0)
+    path = tmp_path / "etikett.qlx"
+    document.save(path, document.build(win._media_panel.media_state(), []))
+    win.open_path(str(path))
+    release.set()
+    _wait_startup_discovery(win, qapp)
+    qapp.processEvents()
+
+    assert win._media_panel.model_id() == "QL-820NWB"
+    assert win._media_panel.margins().top != pytest.approx(9.0)
+    assert "*" in win.windowTitle()
+    win._undo_stack.undo()
+    qapp.processEvents()
+    assert win._media_panel.model_id() == "QL-700"
+    assert win._media_panel.margins().top == pytest.approx(9.0)
+    win.close()
+    qapp.processEvents()
+
+
+def test_startup_does_not_ask_when_the_model_already_matches(
+    qapp, tmp_path, monkeypatch
+):
+    from PySide6.QtCore import QSettings
+
+    from ql_editor import app as app_module
+    from ql_editor import discovery, document
+    from ql_editor.app import MainWindow
+    from ql_editor.settings import AppSettings
+
+    printers = [discovery.NetworkPrinter(host="192.0.2.20", model_id="QL-820NWB")]
+    entered, release = _hold_network_discovery(monkeypatch, printers)
+    asked = []
+    monkeypatch.setattr(
+        app_module,
+        "ask_label_printer",
+        lambda *_args, **_kwargs: asked.append(True),
+    )
+    settings = AppSettings(
+        QSettings(str(tmp_path / "settings.ini"), QSettings.Format.IniFormat)
+    )
+    settings.connection = "network"
+    settings.model = "QL-820NWB"
+    settings.address = "tcp://192.0.2.20:9100"
+
+    win = MainWindow(settings=settings)
+    assert entered.wait(3)
+    path = tmp_path / "etikett.qlx"
+    document.save(path, document.build(win._media_panel.media_state(), []))
+    win.open_path(str(path))
+    release.set()
+    _wait_startup_discovery(win, qapp)
+
+    assert asked == []
+    assert win._media_panel.model_id() == "QL-820NWB"
+    assert "*" not in win.windowTitle()
+    win.close()
+    qapp.processEvents()
+
+
+def test_startup_ignores_an_address_typed_while_searching(
+    qapp, tmp_path, monkeypatch
+):
+    """Eine IP aus der Suchsekunde wird nicht durch den ersten Treffer ersetzt."""
+    from PySide6.QtCore import QSettings
+
+    from ql_editor import discovery
+    from ql_editor.app import MainWindow
+    from ql_editor.settings import AppSettings
+
+    printers = [
+        discovery.NetworkPrinter(host="192.0.2.10", model_id="QL-820NWB"),
+        discovery.NetworkPrinter(host="192.0.2.20", model_id="QL-700"),
+    ]
+    entered, release = _hold_network_discovery(monkeypatch, printers)
+    settings = AppSettings(
+        QSettings(str(tmp_path / "settings.ini"), QSettings.Format.IniFormat)
+    )
+    settings.connection = "network"
+    settings.model = "QL-700"
+    settings.address = "tcp://192.0.2.20:9100"
+
+    win = MainWindow(settings=settings)
+    assert entered.wait(3)
+    win._media_panel.set_network_host("192.0.2.77")
+    release.set()
+    _wait_startup_discovery(win, qapp)
+
+    assert win._media_panel.address() == "tcp://192.0.2.77:9100"
+    assert win._media_panel.model_id() == "QL-700"
+    win.close()
+    qapp.processEvents()
+
+
+def test_startup_ignores_a_usb_switch_while_searching(qapp, tmp_path, monkeypatch):
+    """Wer waehrend der Suche auf USB geht, behaelt Anschluss und Modell."""
+    from PySide6.QtCore import QSettings
+
+    from ql_editor import discovery
+    from ql_editor import media_panel as media_panel_module
+    from ql_editor.app import MainWindow
+    from ql_editor.media_panel import CONNECTION_USB
+    from ql_editor.settings import AppSettings
+
+    printers = [discovery.NetworkPrinter(host="192.0.2.20", model_id="QL-820NWB")]
+    entered, release = _hold_network_discovery(monkeypatch, printers)
+    monkeypatch.setattr(media_panel_module, "usb_printers", lambda devices=None: [])
+    settings = AppSettings(
+        QSettings(str(tmp_path / "settings.ini"), QSettings.Format.IniFormat)
+    )
+    settings.connection = "network"
+    settings.model = "QL-700"
+    settings.address = "tcp://192.0.2.20:9100"
+
+    win = MainWindow(settings=settings)
+    assert entered.wait(3)
+    win._media_panel._conn_buttons[CONNECTION_USB].setChecked(True)
+    release.set()
+    _wait_startup_discovery(win, qapp)
+
+    assert win._media_panel.connection() == CONNECTION_USB
+    assert win._media_panel.model_id() == "QL-700"
+    win.close()
+    qapp.processEvents()
+
+
+def test_startup_matches_the_same_host_on_another_port(qapp, tmp_path, monkeypatch):
+    """Gleicher Host, anderer Port: dieser Drucker, nicht der erste Treffer."""
+    from PySide6.QtCore import QSettings
+
+    from ql_editor import app as app_module
+    from ql_editor import discovery
+    from ql_editor.app import MainWindow
+    from ql_editor.settings import AppSettings
+
+    printers = [
+        discovery.NetworkPrinter(host="192.0.2.10", model_id="QL-700"),
+        discovery.NetworkPrinter(host="192.0.2.20", model_id="QL-820NWB"),
+    ]
+    monkeypatch.setattr(
+        app_module, "discover_network_printers", lambda *args, **kwargs: printers
+    )
+    settings = AppSettings(
+        QSettings(str(tmp_path / "settings.ini"), QSettings.Format.IniFormat)
+    )
+    settings.connection = "network"
+    settings.model = "QL-820NWB"
+    settings.address = "tcp://192.0.2.20:9101"
+
+    win = MainWindow(settings=settings)
+    _wait_startup_discovery(win, qapp)
+
+    assert win._media_panel.address() == "tcp://192.0.2.20:9100"
+    assert win._media_panel.model_id() == "QL-820NWB"
+    assert win._media_panel._net_hint.text() == "Gleicher Drucker, Port 9100."
+    assert "Port" not in win.statusBar().currentMessage()
+    win.close()
+    qapp.processEvents()
+
+
+def test_language_switch_does_not_search_again(qapp, tmp_path, monkeypatch):
+    """Der Neuaufbau uebernimmt die Auswahl und sucht nicht noch einmal."""
+    from ql_editor import app as app_module
+    from ql_editor.i18n import set_language
+
+    calls = {"n": 0}
+
+    def _discover(*_args, **_kwargs):
+        calls["n"] += 1
+        return []
+
+    monkeypatch.setattr(app_module, "discover_network_printers", _discover)
+    win = _temp_window(qapp, tmp_path)
+    _wait_startup_discovery(win, qapp)
+    assert calls["n"] == 1
+
+    try:
+        win.switch_language("en")
+        qapp.processEvents()
+        new = app_module._current_window
+        _wait_startup_discovery(new, qapp)
+        assert calls["n"] == 1
+        assert new._network_worker is None
+        new.close()
+        qapp.processEvents()
+    finally:
+        set_language("de")
+
+
 def test_resolution_and_hq_are_forwarded_to_the_printer(qapp, tmp_path):
     """Auflösung und HQ sind zwei Schalter - beide landen im Druckauftrag."""
     from ql_editor.printer import build_raster

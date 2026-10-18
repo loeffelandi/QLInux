@@ -1,8 +1,9 @@
 """Persistente Einstellungen via ``QSettings``.
 
-Gespeichert werden nur Nutzerpraeferenzen (Druckeradresse, Modell, zuletzt
-gewaehltes Band, Fenstergeometrie). Der Drucker wird **nie** hartcodiert -
-der Default steht als Konstante in :mod:`ql_editor.printer`.
+Gespeichert werden nur Nutzerpraeferenzen (Anschluss, Druckeradresse, Modell,
+zuletzt gewaehltes Band, Fenstergeometrie). Der Drucker wird **nie**
+hartcodiert - der Default steht als Konstante in :mod:`ql_editor.printer`
+und ist leer.
 """
 
 from __future__ import annotations
@@ -19,10 +20,14 @@ from .printer import (
     DEFAULT_ADDRESS,
     RESOLUTION_HIGH,
     RESOLUTION_STANDARD,
+    backend_for_address,
 )
 
 _ORG = "QLInux"
 _APP = "QLInux"
+#: Anschlussarten, die die Oberflaeche kennt (siehe ``media_panel``).
+_CONNECTION_NETWORK = "network"
+_CONNECTION_USB = "usb"
 
 
 class AppSettings:
@@ -53,6 +58,27 @@ class AppSettings:
     @address.setter
     def address(self, value: str) -> None:
         self.set_value("printer/address", value)
+
+    @property
+    def connection(self) -> str:
+        """Zuletzt gewaehlter Anschluss (``network`` oder ``usb``).
+
+        Fehlt der Schluessel (aeltere Einstellungen), folgt der Anschluss der
+        gespeicherten Adresse. Ohne Adresse bleibt es Netzwerk - das Feld
+        selbst bleibt leer (:data:`DEFAULT_ADDRESS`).
+        """
+        value = str(self.value("printer/connection", "") or "")
+        if value in {_CONNECTION_NETWORK, _CONNECTION_USB}:
+            return value
+        if self.address and backend_for_address(self.address) != "network":
+            return _CONNECTION_USB
+        return _CONNECTION_NETWORK
+
+    @connection.setter
+    def connection(self, value: str) -> None:
+        if value not in {_CONNECTION_NETWORK, _CONNECTION_USB}:
+            value = _CONNECTION_NETWORK
+        self.set_value("printer/connection", value)
 
     @property
     def model(self) -> str:

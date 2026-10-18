@@ -108,7 +108,7 @@ from .items import (
     TableItem,
     TextItem,
 )
-from .media_panel import MediaPanel
+from .media_panel import CONNECTION_USB, MediaPanel
 from .panels import OverlayPanel, PanelHost
 from .preview import (
     DEFAULT_THRESHOLD,
@@ -129,6 +129,7 @@ from .printer import (
     PrinterError,
     RESOLUTION_HIGH,
     RESOLUTION_STANDARD,
+    backend_for_address,
     detect_label,
     maximum_resolution,
     print_image,
@@ -137,7 +138,16 @@ from .printer import (
 )
 from .settings import AppSettings
 from .adaptive import AdaptivePages
-from .sheet import ask_choice, ask_save, ask_text, choose_file, save_file, show_message, show_widget
+from .sheet import (
+    ask_choice,
+    ask_label_printer,
+    ask_save,
+    ask_text,
+    choose_file,
+    save_file,
+    show_message,
+    show_widget,
+)
 from .symbols import SymbolPicker
 from .widgets import FeedIndicator, SmoothScrollArea, install_wheel_guard_recursive
 
@@ -311,7 +321,7 @@ class LabelTab:
 
 
 class MainWindow(QMainWindow):
-    def __init__(self, settings: AppSettings | None = None):
+    def __init__(self, settings: AppSettings | None = None, *, discover: bool = True):
         super().__init__()
         self._settings = settings or AppSettings()
         self.setWindowTitle(tr("QLInux - P-touch Editor"))
@@ -325,6 +335,13 @@ class MainWindow(QMainWindow):
         # bricht sie beim Schliessen des Fensters ab.
         self._network_worker: NetworkSearchWorker | None = None
         self._network_cancel = threading.Event()
+        # True, solange die Startsuche laeuft: ihr Ergebnis stellt den letzten
+        # Drucker wieder her und zaehlt nicht als Bearbeitung.
+        self._startup_discovery = False
+        # Anschluss und Adresse beim Start der Suche. Weicht der Stand beim
+        # Ergebnis davon ab, hat der Nutzer schon selbst gewaehlt.
+        self._startup_connection = ""
+        self._startup_address = ""
         # Passwort-Dialog des Systems (pkexec + Helfer), siehe _on_usb_permission.
         self._permission_process = QProcess(self)
         self._permission_process.finished.connect(self._on_permission_finished)
@@ -452,6 +469,10 @@ class MainWindow(QMainWindow):
         # Fokus auf dem Canvas: kein Formularfeld ist anfangs "aktiv", damit das
         # Mausrad über den Panels scrollt statt Werte zu veraendern.
         self._canvas.setFocus()
+        # Sprachwechsel baut das Fenster neu und uebergibt den Zustand selbst -
+        # dort nicht noch einmal suchen und die laufende Auswahl ersetzen.
+        if discover:
+            self._discover_startup_printer()
 
     # --------------------------------------------------------------- Aufbau --
     @staticmethod
@@ -1334,7 +1355,7 @@ class MainWindow(QMainWindow):
         self._settings.language = code
         self._settings.sync()
 
-        window = MainWindow(self._settings)
+        window = MainWindow(self._settings, discover=False)
         window.apply_state(state)
         window.setGeometry(self.geometry())
         window.setWindowState(self.windowState())
@@ -1429,6 +1450,7 @@ class MainWindow(QMainWindow):
         naechsten Start verloren.
         """
         geometry = self._settings.restore_geometry()
+        connection = self._settings.connection
         address = self._settings.address
         model = self._settings.model
         last_label = self._settings.last_label
@@ -1448,7 +1470,11 @@ class MainWindow(QMainWindow):
         index = self._media_panel._model_combo.findData(model)
         if index >= 0:
             self._media_panel._model_combo.setCurrentIndex(index)
-        self._media_panel.set_address(address)
+        # Erst der Anschluss, dann die Adresse - aber nur, wenn sie zu diesem
+        # Anschluss gehoert. Eine leere Adresse laesst das Netzwerkfeld leer.
+        self._media_panel.set_connection(connection)
+        if address and _address_matches_connection(address, connection):
+            self._media_panel.set_address(address)
         if last_label:
             self._media_panel.select_label(last_label)
         # Zuletzt gewaehlte Panel-Sichtbarkeit wiederherstellen (kleine Screens).
@@ -1480,6 +1506,7 @@ class MainWindow(QMainWindow):
         self._media_prev = deepcopy(dict(self._media_panel.media_state()))
         self._recompute_canvas()
         self._settings.last_label = self._media_panel.label_id()
+        self._settings.connection = self._media_panel.connection()
         self._settings.address = self._media_panel.address()
         self._settings.model = self._media_panel.model_id()
         # Ein anderes Modell hat andere Aufloesungen.
@@ -2572,16 +2599,123 @@ class MainWindow(QMainWindow):
             return
         self._network_cancel.clear()
         self._media_panel.set_network_searching(True)
-        self.statusBar().showMessage(tr("Netzwerk wird durchsucht …"), 4000)
+        # Die Startsuche soll keine spaetere Statusmeldung ueberschreiben
+        # (z. B. den Hinweis nach dem Oeffnen einer Datei).
+        if not self._startup_discovery:
+            self.statusBar().showMessage(tr("Netzwerk wird durchsucht …"), 4000)
         self._network_worker = NetworkSearchWorker(self._network_cancel)
         self._network_worker.succeeded.connect(self._on_network_found)
         self._network_worker.finished.connect(self._on_network_search_done)
         self._network_worker.finished.connect(self._network_worker.deleteLater)
         self._network_worker.start()
 
+    def _discover_startup_printer(self) -> None:
+        """Gespeicherten Anschluss suchen und den letzten Drucker waehlen.
+
+        Steht er in den Treffern, wird er ausgewaehlt, sonst der erste Treffer.
+        Findet die Suche nichts, bleibt eine gespeicherte Adresse stehen; eine
+        fehlende Einstellung laesst das Feld leer.
+        """
+        self._history_suppress = True
+        try:
+            if self._media_panel.connection() == CONNECTION_USB:
+                self._media_panel.refresh_usb_devices(select_fallback=True)
+            else:
+                self._startup_connection = self._media_panel.connection()
+                self._startup_address = self._media_panel.address()
+                self._startup_discovery = True
+                self._on_network_search()
+        finally:
+            self._history_suppress = False
+        # Die Startauswahl ist der Ausgangszustand, keine Bearbeitung.
+        self._sync_media_prev()
+        self._address_dirty = False
+        self._undo_stack.clear()
+        self._undo_stack.setClean()
+        self._update_window_title()
+
+    def _startup_search_is_stale(self) -> bool:
+        """Nutzer hat Anschluss oder Adresse geaendert, waehrend gesucht wurde."""
+        return (
+            self._media_panel.connection() != self._startup_connection
+            or self._media_panel.address() != self._startup_address
+        )
+
+    def _label_loaded(self) -> bool:
+        """Ein Etikett ist offen oder schon bearbeitet.
+
+        Ohne Datei und ohne Aenderung bleibt der Startabgleich still: ein
+        leeres Fenster hat noch nichts, das die Suche bewahren muesste.
+        """
+        return (
+            bool(self._document_path)
+            or self._document_dirty
+            or not self._undo_stack.isClean()
+        )
+
+    def _finish_startup_discovery(self, *, clear_address_dirty: bool) -> None:
+        self._history_suppress = False
+        self._startup_discovery = False
+        self._sync_media_prev()
+        if (
+            clear_address_dirty
+            and self._undo_stack.isClean()
+            and not self._document_dirty
+        ):
+            self._address_dirty = False
+            self._update_window_title()
+
+    def _offer_label_adaption(self) -> None:
+        """Fragen, bevor das gefundene Modell Band und Raender umbaut."""
+        discovered = self._media_panel.network_model_id()
+        current = self._media_panel.model_id()
+        if not discovered or discovered == current:
+            return
+        ask_label_printer(
+            self,
+            title=tr("Drucker gefunden"),
+            text=tr(
+                "Das Etikett ist für {label_model} ausgelegt, gefunden wurde "
+                "{printer_model}. Band und Ränder bleiben, wenn du das "
+                "Etikett behältst."
+            ).format(label_model=current, printer_model=discovered),
+            on_choice=self._on_label_printer_choice,
+        )
+
+    def _on_label_printer_choice(self, choice: str) -> None:
+        """„Anpassen" zieht das Modell nach und wird ein Undo-Schritt."""
+        if choice != "adapt":
+            return
+        self._media_panel._apply_network_model()
+
     def _on_network_found(self, printers: list) -> None:
         """Gefundene Drucker in die Liste uebernehmen und kurz melden."""
-        found = self._media_panel.refresh_network_devices(printers)
+        startup = self._startup_discovery
+        if startup and self._startup_search_is_stale():
+            self._history_suppress = True
+            try:
+                self._media_panel.remember_network_printers(printers)
+            finally:
+                # Die Zwischenwahl des Nutzers bleibt eine Aenderung.
+                self._finish_startup_discovery(clear_address_dirty=False)
+            return
+        defer_model = startup and self._label_loaded()
+        if startup:
+            self._history_suppress = True
+        try:
+            found = self._media_panel.refresh_network_devices(
+                printers,
+                select_fallback=startup,
+                apply_model=not defer_model,
+            )
+        finally:
+            if startup:
+                self._finish_startup_discovery(clear_address_dirty=True)
+        if startup and defer_model:
+            self._offer_label_adaption()
+            return
+        if startup:
+            return
         if not found:
             self.statusBar().showMessage(
                 tr("Keine Netzwerk-Drucker gefunden."), 8000
@@ -3744,6 +3878,7 @@ class MainWindow(QMainWindow):
             else [],
         )
         self._settings.save_geometry(self.saveGeometry())
+        self._settings.connection = self._media_panel.connection()
         self._settings.address = self._media_panel.address()
         self._settings.model = self._media_panel.model_id()
         self._settings.last_label = self._media_panel.label_id()
@@ -3757,6 +3892,12 @@ class MainWindow(QMainWindow):
         self._settings.cut_mode = self._cut_combo.currentData()
         self._settings.sync()
         super().closeEvent(event)
+
+
+def _address_matches_connection(address: str, connection: str) -> bool:
+    """Gehoert ``address`` zum Anschluss ``network`` oder ``usb``?"""
+    kind = "network" if backend_for_address(address) == "network" else CONNECTION_USB
+    return kind == connection
 
 
 def _system_language() -> str:
