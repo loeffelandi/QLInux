@@ -388,19 +388,18 @@ class _PrintPreview(QLabel):
         self._rescaling = False
         self.setObjectName("print_preview_image")
         self.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.setMinimumHeight(72)
-        self.setMaximumHeight(96)
-        self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+        self.setMinimumHeight(160)
+        self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
         self.setStyleSheet(
             "background: palette(base); border: 1px solid palette(mid);"
             " border-radius: 6px;"
         )
 
     def sizeHint(self) -> QSize:  # noqa: N802
-        return QSize(360, 88)
+        return QSize(360, 240)
 
     def minimumSizeHint(self) -> QSize:  # noqa: N802
-        return QSize(120, 72)
+        return QSize(120, 160)
 
     def set_image(self, image: QImage | None) -> None:
         self._image = None if image is None or image.isNull() else image
@@ -738,10 +737,13 @@ class MainWindow(QMainWindow):
         layout.setSpacing(6)
 
         preview_box = title_box(tr("Druckvorschau"))
+        preview_box.setSizePolicy(
+            QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding
+        )
         preview_layout = QVBoxLayout(preview_box)
         self._print_preview = _PrintPreview()
         preview_layout.addWidget(self._print_preview)
-        layout.addWidget(preview_box)
+        layout.addWidget(preview_box, 1)
 
         # Aufloesung: nur was das gewaehlte Modell kann (die Liste kommt aus den
         # Datenblaettern, siehe printer.resolution_options). Der High-Resolution-
@@ -910,6 +912,8 @@ class MainWindow(QMainWindow):
         history_layout = QVBoxLayout(history)
         self._history_table = make_history_table()
         self._history_table.setObjectName("print_history_table")
+        # Ein paar Zeilen reichen. Der Rest des Sheets gehoert der Vorschau.
+        self._history_table.setFixedHeight(120)
         history_layout.addWidget(self._history_table)
 
         options = QWidget()
@@ -927,7 +931,11 @@ class MainWindow(QMainWindow):
         form_layout.addWidget(self._db_print_box)
         form_layout.addWidget(history)
 
-        layout.addWidget(self._scroll_wrap(form), 3)
+        options_scroll = self._scroll_wrap(form)
+        options_scroll.setSizePolicy(
+            QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred
+        )
+        layout.addWidget(options_scroll)
 
         self._resolution_combo.currentIndexChanged.connect(self._on_resolution_changed)
         self._threshold_spin.valueChanged.connect(self._schedule_refresh)
@@ -1555,9 +1563,7 @@ class MainWindow(QMainWindow):
         self._act_database_separator = bar.addSeparator()
         bar.addAction(self._act_database)
         bar.addSeparator()
-        bar.addAction(self._act_print_preview)
         bar.addAction(self._act_print)
-        bar.addAction(self._act_print_history)
 
     def _build_template_button(self, parent: QWidget) -> QToolButton:
         """Toolbar-Knopf "Vorlage laden": Klick oeffnet die Vorlagenliste."""

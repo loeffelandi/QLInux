@@ -2882,14 +2882,14 @@ def test_toolbar_has_align_dropdown_before_front(qapp, tmp_path):
     ]
     csv_at = actions.index(win._act_connect_csv)
     database_at = actions.index(win._act_database)
-    preview_at = actions.index(win._act_print_preview)
     print_at = actions.index(win._act_print)
-    history_at = actions.index(win._act_print_history)
+    assert win._act_print_preview not in actions
+    assert win._act_print_history not in actions
     assert actions[csv_at - 1].isSeparator()
     assert actions[csv_at + 1] is win._act_database_separator
-    assert csv_at < database_at < preview_at < print_at < history_at
+    assert csv_at < database_at < print_at
     assert actions[database_at + 1].isSeparator()
-    assert actions[database_at + 2] is win._act_print_preview
+    assert actions[database_at + 2] is win._act_print
     win.close()
     qapp.processEvents()
 
@@ -3081,10 +3081,12 @@ def test_no_menu_bar_but_hamburger_menu(qapp):
         win._act_zoom_fit,
         win._act_zoom_in,
         win._act_zoom_100,
-        win._act_print_history,
+        win._act_print,
     ):
         assert act in bar.actions()
         assert act in leaves
+    assert win._act_print_preview not in bar.actions()
+    assert win._act_print_history not in bar.actions()
     assert win._act_commands in win.actions()
     assert win._act_commands.shortcut().toString() == "Ctrl+K"
     assert [
@@ -5257,6 +5259,8 @@ def test_print_button_opens_sheet_with_preview_settings_and_history(qapp, tmp_pa
     assert win._print_button.toolTip() == "Drucken"
     assert win._print_preview.pixmap() is not None
     assert not win._print_preview.pixmap().isNull()
+    assert win._print_preview.height() >= 160
+    assert win._print_preview.height() > win._history_table.height()
     button_bottom = win._print_button.mapToGlobal(
         win._print_button.rect().bottomLeft()
     ).y()
