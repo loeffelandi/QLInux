@@ -14,6 +14,10 @@
     <p xml:lang="de">QLInux entwirft Etiketten auf einer echten Arbeitsfläche (Text, Bilder, Barcodes, QR-Codes), zeigt eine exakte einfarbige Druckvorschau und druckt direkt auf den Drucker, über das Netzwerk oder USB.</p>
   </description>
   <launchable type="desktop-id">ql-editor.desktop</launchable>
+  <provides>
+    <mediatype>application/x-qlinux-label</mediatype>
+    <mediatype>application/x-brother-lbx</mediatype>
+  </provides>
   <url type="homepage">https://github.com/loeffelandi/QLInux</url>
   <url type="bugtracker">https://github.com/loeffelandi/QLInux/issues</url>
   <categories>

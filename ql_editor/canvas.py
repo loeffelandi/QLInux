@@ -93,6 +93,11 @@ MAX_ZOOM = 8.0
 HANDLE_SIZE_PX = 9
 ROTATE_OFFSET_PX = 24
 SNAP_TOLERANCE_PX = 6
+#: Drehrasten (alle 90 Grad), wirken ohne Modifier. Sticky: man fängt die Rast
+#: nur knapp ein, hält sie dann bis zum Weg-Drehen über ROTATE_DETENT_RELEASE_DEG.
+ROTATE_DETENT_DEG = 90.0
+ROTATE_DETENT_CAPTURE_DEG = 2.0
+ROTATE_DETENT_RELEASE_DEG = 8.0
 MIN_ITEM_SIZE = 4.0
 # Arbeitsflaeche ("Pasteboard") um die Designflaeche herum: genug Platz, um
 # Objekte zu greifen, die ueber die bedruckbare Flaeche hinausragen.
@@ -371,6 +376,8 @@ class LabelCanvas(QGraphicsView):
     image_dropped = Signal(str, QPointF)
     text_dropped = Signal(str, QPointF)
     print_preview_exit_requested = Signal()
+    #: Drehgriff unter dem Mauszeiger (oder gerade am Drehen) - fuer den Hinweis in der Statusleiste.
+    rotate_hint_changed = Signal(bool)
 
     def __init__(self, parent: QWidget | None = None):
         super().__init__(parent)
@@ -418,6 +425,8 @@ class LabelCanvas(QGraphicsView):
         self._op_start_rotation = 0.0
         self._op_rotate_center = QPointF()
         self._op_rotate_start = 0.0
+        self._rotate_hint_active = False
+        self._rotate_detent: float | None = None
         self._move_items: list[tuple[Any, QPointF]] = []
         self._guides: list[tuple[str, float]] = []
 
@@ -1161,6 +1170,7 @@ class LabelCanvas(QGraphicsView):
         self._op_start_rotation = item.rotation()
         if handle == "rotate":
             self._op = "rotate"
+            self._rotate_detent = None
             self._op_rotate_center = item.mapToScene(item.boundingRect().center())
             self._op_rotate_start = math.atan2(
                 scene_pos.y() - self._op_rotate_center.y(),
@@ -1219,7 +1229,17 @@ class LabelCanvas(QGraphicsView):
                 self.viewport().setCursor(self._cursor_for_handle(handle[1], handle[0]))
         else:
             self.viewport().unsetCursor()
+        self._set_rotate_hint(handle is not None and handle[0] == "rotate")
         super().mouseMoveEvent(event)
+
+    def leaveEvent(self, event) -> None:  # noqa: N802
+        self._set_rotate_hint(False)
+        super().leaveEvent(event)
+
+    def _set_rotate_hint(self, active: bool) -> None:
+        if active != self._rotate_hint_active:
+            self._rotate_hint_active = active
+            self.rotate_hint_changed.emit(active)
 
     def _do_move(self, scene_pos: QPointF) -> None:
         dx = scene_pos.x() - self._op_start_scene.x()
@@ -1299,7 +1319,8 @@ class LabelCanvas(QGraphicsView):
 
         Der Drehpunkt des Items liegt in Qt links oben; damit sich das Objekt
         natuerlich um seine Mitte dreht, wird die Position entsprechend
-        nachgefuehrt. Mit ``snap`` (Shift) rastet der Winkel auf 15 Grad.
+        nachgefuehrt. Ohne Modifier magnetet der Winkel nahe an 90-Grad-Rasten,
+        mit ``snap`` (Shift) rastet er auf 15 Grad.
         """
         item = self._op_item
         center = self._op_rotate_center
@@ -1308,6 +1329,15 @@ class LabelCanvas(QGraphicsView):
         ) + self._op_start_rotation
         if snap:
             angle = round(angle / 15.0) * 15.0
+            self._rotate_detent = None
+        elif self._rotate_detent is not None and abs(angle - self._rotate_detent) <= ROTATE_DETENT_RELEASE_DEG:
+            angle = self._rotate_detent
+        else:
+            self._rotate_detent = None
+            detent = round(angle / ROTATE_DETENT_DEG) * ROTATE_DETENT_DEG
+            if abs(angle - detent) <= ROTATE_DETENT_CAPTURE_DEG:
+                self._rotate_detent = detent
+                angle = detent
         angle = round(angle, 1)
 
         was_inside = self._inside_printable(item)

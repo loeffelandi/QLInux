@@ -28,6 +28,7 @@ from PySide6.QtCore import QPoint, QPointF, QRectF, Qt
 from PySide6.QtGui import (
     QColor,
     QCursor,
+    QFont,
     QIcon,
     QPainter,
     QPainterPath,
@@ -67,6 +68,7 @@ ICON_COLORS: dict[str, str] = {
     "qr": "#995E85",         # Zusatzfarbe pink
     "line": "#597697",       # Zusatzfarbe indigo
     "rect": "#597697",
+    "shape": "#597697",
     # Datei und Vorlagen
     "open": "#5D5553",       # Zusatzfarbe warmgrau
     "new": "#5D5553",
@@ -228,6 +230,12 @@ def _draw_text(p: QPainter, color: QColor) -> None:
     _stroke_only(p, color, 1.9)
     _line(p, 5.5, 6.5, 18.5, 6.5)
     _line(p, 12.0, 6.5, 12.0, 18.5)
+
+
+def _draw_shape(p: QPainter, color: QColor) -> None:
+    _stroke_only(p, color, 1.7)
+    p.drawEllipse(QRectF(3.5, 4.5, 10.0, 10.0))
+    _poly(p, ((12.5, 19.5), (20.5, 19.5), (16.5, 12.5), (12.5, 19.5)))
 
 
 def _draw_image(p: QPainter, color: QColor) -> None:
@@ -628,7 +636,135 @@ def _draw_rotate(p: QPainter, color: QColor) -> None:
     )
 
 
+def _glyph(
+    p: QPainter,
+    color: QColor,
+    text: str,
+    rect: QRectF,
+    size: int,
+    *,
+    bold: bool = False,
+    italic: bool = False,
+    underline: bool = False,
+    strike: bool = False,
+    pen: QColor | None = None,
+) -> None:
+    """Buchstaben mit Schriftauszeichnung (fett, kursiv, unterstrichen, durchgestrichen)."""
+    font = QFont()
+    font.setPixelSize(size)
+    font.setBold(bold)
+    font.setItalic(italic)
+    font.setUnderline(underline)
+    font.setStrikeOut(strike)
+    p.setFont(font)
+    p.setPen(QPen(pen or color))
+    p.setBrush(Qt.BrushStyle.NoBrush)
+    p.drawText(rect, Qt.AlignmentFlag.AlignCenter, text)
+
+
+def _draw_bold(p: QPainter, color: QColor) -> None:
+    _glyph(p, color, "B", QRectF(0, 0, 24, 24), 18, bold=True)
+
+
+def _draw_italic(p: QPainter, color: QColor) -> None:
+    _glyph(p, color, "I", QRectF(0, 0, 24, 24), 18, italic=True)
+
+
+def _draw_underline(p: QPainter, color: QColor) -> None:
+    _glyph(p, color, "U", QRectF(0, 0, 24, 22), 18, underline=True)
+
+
+def _draw_strike(p: QPainter, color: QColor) -> None:
+    _glyph(p, color, "S", QRectF(0, 0, 24, 24), 18, strike=True)
+
+
+def _draw_invert(p: QPainter, color: QColor) -> None:
+    _fill_only(p, color)
+    p.drawRoundedRect(QRectF(2.5, 2.5, 19.0, 19.0), _RADIUS, _RADIUS)
+    _glyph(p, color, "A", QRectF(0, 0, 24, 24), 15, bold=True, pen=QColor("white"))
+
+
+def _draw_list_none(p: QPainter, color: QColor) -> None:
+    _stroke_only(p, color, 1.7)
+    for y in (6.5, 12.0, 17.5):
+        _line(p, 4.5, y, 19.5, y)
+
+
+def _draw_list_bullet(p: QPainter, color: QColor) -> None:
+    for y in (6.5, 12.0, 17.5):
+        _fill_only(p, color)
+        p.drawEllipse(QPointF(5.5, y), 1.5, 1.5)
+        _stroke_only(p, color, 1.7)
+        _line(p, 9.5, y, 19.5, y)
+
+
+def _draw_list_number(p: QPainter, color: QColor) -> None:
+    for number, y in (("1", 6.5), ("2", 12.0), ("3", 17.5)):
+        _glyph(p, color, number, QRectF(2, y - 5, 6, 10), 9)
+        _stroke_only(p, color, 1.7)
+        _line(p, 9.5, y, 19.5, y)
+
+
+def _draw_dir_horizontal(p: QPainter, color: QColor) -> None:
+    _glyph(p, color, "AB", QRectF(0, 0, 24, 24), 13)
+
+
+def _draw_dir_vertical(p: QPainter, color: QColor) -> None:
+    _glyph(p, color, "A", QRectF(0, 0, 24, 12), 11)
+    _glyph(p, color, "B", QRectF(0, 11, 24, 13), 11)
+
+
+def _outline(p: QPainter, color: QColor, points: tuple[tuple[float, float], ...]) -> None:
+    _stroke_only(p, color, 1.6)
+    _poly(p, points + (points[0],))
+
+
+def _draw_shape_ellipse(p: QPainter, color: QColor) -> None:
+    _stroke_only(p, color, 1.6)
+    p.drawEllipse(QRectF(3.0, 6.0, 18.0, 12.0))
+
+
+def _draw_shape_triangle(p: QPainter, color: QColor) -> None:
+    _outline(p, color, ((12.0, 4.0), (21.0, 20.0), (3.0, 20.0)))
+
+
+def _draw_shape_star(p: QPainter, color: QColor) -> None:
+    _outline(p, color, ((12.0, 3.5), (14.35, 9.26), (20.56, 9.72), (15.8, 13.74), (17.29, 19.78), (12.0, 16.5), (6.71, 19.78), (8.2, 13.74), (3.44, 9.72), (9.65, 9.26)))
+
+
+_ARROW_RIGHT = ((3.0, 8.5), (14.0, 8.5), (14.0, 4.5), (21.0, 12.0), (14.0, 19.5), (14.0, 15.5), (3.0, 15.5))
+
+
+def _draw_shape_arrow_right(p: QPainter, color: QColor) -> None:
+    _outline(p, color, _ARROW_RIGHT)
+
+
+def _draw_shape_arrow_left(p: QPainter, color: QColor) -> None:
+    _outline(p, color, tuple((24.0 - x, y) for x, y in _ARROW_RIGHT))
+
+
+def _draw_shape_arrow_double(p: QPainter, color: QColor) -> None:
+    _outline(p, color, ((3.0, 12.0), (8.0, 4.5), (8.0, 8.5), (16.0, 8.5), (16.0, 4.5), (21.0, 12.0),
+                        (16.0, 19.5), (16.0, 15.5), (8.0, 15.5), (8.0, 19.5)))
+
+
 _DRAW = {
+    "bold": _draw_bold,
+    "italic": _draw_italic,
+    "underline": _draw_underline,
+    "strike": _draw_strike,
+    "invert": _draw_invert,
+    "list_none": _draw_list_none,
+    "list_bullet": _draw_list_bullet,
+    "list_number": _draw_list_number,
+    "dir_horizontal": _draw_dir_horizontal,
+    "dir_vertical": _draw_dir_vertical,
+    "shape_ellipse": _draw_shape_ellipse,
+    "shape_triangle": _draw_shape_triangle,
+    "shape_star": _draw_shape_star,
+    "shape_arrow_right": _draw_shape_arrow_right,
+    "shape_arrow_left": _draw_shape_arrow_left,
+    "shape_arrow_double": _draw_shape_arrow_double,
     "menu": _draw_menu,
     "text": _draw_text,
     "image": _draw_image,
@@ -636,6 +772,7 @@ _DRAW = {
     "qr": _draw_qr,
     "line": _draw_line,
     "rect": _draw_rect,
+    "shape": _draw_shape,
     "panel_left": _draw_panel_left,
     "panel_right": _draw_panel_right,
     "orient_across": _draw_orient_across,

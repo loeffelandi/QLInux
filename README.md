@@ -112,6 +112,16 @@ AppImage and a source checkout share them.
 Settings (last printer, tape, print options, language) are stored in
 `~/.config/QLInux/QLInux.conf`.
 
+### Modifier keys on the canvas
+
+| Keys | Effect |
+| --- | --- |
+| Ctrl + mouse wheel (Cmd on macOS), pinch | Zoom |
+| Shift + mouse wheel | Scroll horizontally |
+| Ctrl + click | Add or remove an object from the selection |
+| Shift + arrow keys | Move the selected object in larger steps |
+| Shift while rotating | Rotate in 15° steps (plain rotation snaps to 90°, sticky) |
+
 ## Margins
 
 Margins start at 0 mm. The printer's feed and the non-printable strip at each
@@ -138,6 +148,23 @@ your printer address, print options or window size: those belong to the
 machine, so opening a label from somebody else never changes your printer.
 The window title shows the file name, with a `*` while there are unsaved
 changes.
+
+### Double-clicking label files
+
+The AppImage declares both `.qlx` (QLInux label, own icon) and `.lbx` (Brother
+P-touch label) as its file types. Double-clicking such a file starts QLInux and
+opens it. To make QLInux the default app, pick it under *Open with* in your file
+manager, or from a terminal:
+
+```
+xdg-mime default ql-editor.desktop application/x-qlinux-label
+xdg-mime default ql-editor.desktop application/x-brother-lbx
+```
+
+A file opened from the file manager always gets its own tab. If QLInux is
+already running, the file opens as a new tab in that window and the window comes
+to the front. Only when QLInux is not running yet does a new window start; the
+empty starting label is then replaced by the file, unless you already changed it.
 
 ### Opening a Brother `.lbx` file
 

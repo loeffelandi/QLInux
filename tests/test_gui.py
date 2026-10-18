@@ -1274,9 +1274,10 @@ def test_double_click_on_empty_canvas_requests_new_text(qapp):
 
 
 def test_apply_resize_for_all_types(qapp):
+    from PySide6.QtCore import QRectF
     from PySide6.QtGui import QPixmap
 
-    from ql_editor.items import BarcodeItem, ImageItem, LineItem, QRItem, RectItem
+    from ql_editor.items import BarcodeItem, ImageItem, LineItem, QRItem, RectItem, ShapeItem
 
     qr = QRItem("x", 100)
     qr.apply_resize(200, 180)
@@ -1302,6 +1303,12 @@ def test_apply_resize_for_all_types(qapp):
     text = TextItem("Hi", font_pixel_size=40)
     text.apply_resize(300, 80)
     assert text.boundingRect().height() == pytest.approx(80, abs=8)
+
+    shape = ShapeItem(QRectF(0, 0, 50, 50), "star")
+    shape.apply_resize(160, 90)
+    bounds = shape.path().boundingRect()
+    assert bounds.width() == pytest.approx(160)
+    assert bounds.height() == pytest.approx(90)
 
 
 def test_canvas_handle_only_for_single_resizable_item(qapp):
@@ -2165,6 +2172,40 @@ def test_toolbar_has_align_dropdown_before_front(qapp, tmp_path):
     qapp.processEvents()
 
 
+def test_shapes_menu_and_inspector_smoke(qapp, tmp_path):
+    """Formen-Menue legt ShapeItem an; Inspector zeigt Form-Felder."""
+    from PySide6.QtWidgets import QComboBox, QToolButton
+
+    from ql_editor.items import ShapeItem
+
+    win = _temp_window(qapp, tmp_path)
+    button = win.findChild(QToolButton, "shape_button")
+    assert button is not None
+    menu_labels = [action.text() for action in button.menu().actions() if action.text()]
+    assert "Linie" in menu_labels
+    assert "Rahmen" in menu_labels
+    assert "Stern" in menu_labels
+    assert "Ellipse" in menu_labels
+
+    win._add_shape("star")
+    shapes = [item for item in win._canvas.scene().items() if isinstance(item, ShapeItem)]
+    assert len(shapes) == 1
+    assert shapes[0].shape_name == "star"
+
+    win._inspector.set_item(shapes[0], allow_red=True)
+    qapp.processEvents()
+    assert win._inspector._title.text() == "Form"
+    shape_combos = [
+        combo
+        for combo in win._inspector.findChildren(QComboBox)
+        if combo.findData("star") >= 0 and combo.findData("ellipse") >= 0
+    ]
+    assert shape_combos
+    assert shape_combos[0].currentData() == "star"
+    win.close()
+    qapp.processEvents()
+
+
 def test_toolbar_is_icon_only(qapp):
     from PySide6.QtCore import Qt
     from PySide6.QtWidgets import QToolBar, QWidgetAction
@@ -2872,6 +2913,47 @@ def test_rotation_snaps_to_15_degrees(qapp):
     # atan2(17, 100) = 9.65 Grad, plus 90 Grad Startversatz -> auf 105 Grad gerastet.
     assert item.rotation() % 15 == pytest.approx(0, abs=0.01)
     assert item.rotation() == pytest.approx(105, abs=0.01)
+
+
+def _rotate_to(canvas, item, degrees_from_start: float, *, snap: bool = False) -> float:
+    from PySide6.QtCore import QPointF
+
+    center = item.mapToScene(item.boundingRect().center())
+    canvas._op_item = item
+    canvas._op_rotate_center = center
+    canvas._op_rotate_start = 0.0
+    canvas._op_start_rotation = 0.0
+    rad = math.radians(degrees_from_start)
+    canvas._do_rotate(QPointF(center.x() + 100 * math.cos(rad), center.y() + 100 * math.sin(rad)), snap=snap)
+    return item.rotation()
+
+
+def test_rotation_is_free_except_sticky_90_degree_detent(qapp):
+    canvas = _prepared_canvas(qapp)
+    item = TextItem("sticky", font_pixel_size=40)
+    canvas.add_item(item)
+    canvas._rotate_detent = None
+    assert _rotate_to(canvas, item, 85.0) == pytest.approx(85, abs=0.01)
+    assert _rotate_to(canvas, item, 89.5) == pytest.approx(90)
+    # Haftet weiter, solange der Winkel nicht deutlich weggedreht wird ...
+    assert _rotate_to(canvas, item, 96.0) == pytest.approx(90)
+    # ... danach wieder frei.
+    assert _rotate_to(canvas, item, 99.0) == pytest.approx(99, abs=0.01)
+    assert _rotate_to(canvas, item, 45.0) == pytest.approx(45, abs=0.01)
+
+
+def test_rotate_hint_follows_rotate_handle_hover(qapp):
+    canvas = _prepared_canvas(qapp)
+    item = TextItem("hint", font_pixel_size=40)
+    canvas.add_item(item)
+    canvas._scene.clearSelection()
+    item.setSelected(True)
+    received: list[bool] = []
+    canvas.rotate_hint_changed.connect(received.append)
+    canvas._set_rotate_hint(True)
+    canvas._set_rotate_hint(True)
+    canvas.leaveEvent(None)
+    assert received == [True, False]
 
 
 def test_rotate_handle_distance_is_constant_for_scaled_items(qapp):
@@ -3994,6 +4076,57 @@ def test_opening_an_lbx_imports_without_keeping_that_path(qapp, tmp_path):
     assert win.windowTitle().startswith("Unbenannt*")
     assert win._media_panel.label_id() == "62"
     assert win._media_panel.orientation().value == "along"
+
+    win.close()
+    qapp.processEvents()
+
+
+def test_files_given_on_the_command_line_are_opened(qapp, tmp_path):
+    """Doppelklick im Dateimanager: ``ql-editor datei.qlx`` oeffnet die Datei.
+
+    Optionen und fremde Argumente werden ignoriert.
+    """
+    from ql_editor.app import _document_args
+
+    design = tmp_path / "design.qlx"
+    brother = tmp_path / "logo.lbx"
+    args = ["ql-editor", "--foo", "xcb", str(design), str(brother), "notiz.txt"]
+
+    assert _document_args(args) == [str(design), str(brother)]
+
+    win = _temp_window(qapp, tmp_path)
+    win._canvas.add_item(TextItem("Datei", font_pixel_size=30))
+    win._save_document_to(str(design))
+    win.close()
+    qapp.processEvents()
+
+    win = _temp_window(qapp, tmp_path)
+    for path in _document_args(["ql-editor", str(design)]):
+        win.open_path(path)
+    qapp.processEvents()
+
+    # Das leere Ausgangs-Etikett ist weg, nur die Datei bleibt.
+    assert len(win._tab_ids) == 1
+    assert win._document_path == str(design)
+    assert win.windowTitle().startswith("design")
+
+    win.close()
+    qapp.processEvents()
+
+
+def test_an_untouched_tab_is_kept_when_a_file_opens(qapp, tmp_path):
+    """Hat das Etikett Inhalt, bleibt es offen - die Datei kommt als eigener Reiter."""
+    design = tmp_path / "design.qlx"
+    from ql_editor import document
+
+    document.save(design, document.build({}, []))
+    win = _temp_window(qapp, tmp_path)
+    win._canvas.add_item(TextItem("Entwurf", font_pixel_size=30))
+    win.open_path(str(design))
+    qapp.processEvents()
+
+    assert len(win._tab_ids) == 2
+    assert win._document_path == str(design)
 
     win.close()
     qapp.processEvents()
