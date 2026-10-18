@@ -3212,7 +3212,7 @@ def test_menu_actions_have_icons(qapp):
     menu = win._menu_button.menu()
     assert menu is not None
     items = [a for a in menu.actions() if not a.isSeparator()]
-    assert len(items) == 5
+    assert len(items) == 6
     assert all(not a.icon().isNull() for a in items)
 
 

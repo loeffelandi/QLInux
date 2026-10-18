@@ -91,11 +91,12 @@ def test_help_opens_from_the_menu_beside_about(qapp):
     menu = win._menu_button.menu()
     actions = menu.actions()
     index = actions.index(win._act_help)
-    assert actions[index - 1].text() == "Sprache"
+    assert actions[index - 1].text() == "Erscheinungsbild"
     assert actions[index + 1] is win._act_about
     assert actions[index + 2] is win._act_quit
     titles = [entry.title for entry in win._palette_entries()]
-    assert titles[titles.index("Sprache") + 1] == "Hilfe"
+    assert titles[titles.index("Sprache") + 1] == "Erscheinungsbild"
+    assert titles[titles.index("Erscheinungsbild") + 1] == "Hilfe"
     assert titles[titles.index("Hilfe") + 1] == "Über QLInux"
     assert not win._act_help.icon().isNull()
 
