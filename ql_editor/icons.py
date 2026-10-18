@@ -67,6 +67,7 @@ ICON_COLORS: dict[str, str] = {
     "qr": "#995E85",         # Zusatzfarbe pink
     "line": "#597697",       # Zusatzfarbe indigo
     "rect": "#597697",
+    "shape": "#597697",
     # Datei und Vorlagen
     "open": "#5D5553",       # Zusatzfarbe warmgrau
     "new": "#5D5553",
@@ -228,6 +229,12 @@ def _draw_text(p: QPainter, color: QColor) -> None:
     _stroke_only(p, color, 1.9)
     _line(p, 5.5, 6.5, 18.5, 6.5)
     _line(p, 12.0, 6.5, 12.0, 18.5)
+
+
+def _draw_shape(p: QPainter, color: QColor) -> None:
+    _stroke_only(p, color, 1.7)
+    p.drawEllipse(QRectF(3.5, 4.5, 10.0, 10.0))
+    _poly(p, ((12.5, 19.5), (20.5, 19.5), (16.5, 12.5), (12.5, 19.5)))
 
 
 def _draw_image(p: QPainter, color: QColor) -> None:
@@ -636,6 +643,7 @@ _DRAW = {
     "qr": _draw_qr,
     "line": _draw_line,
     "rect": _draw_rect,
+    "shape": _draw_shape,
     "panel_left": _draw_panel_left,
     "panel_right": _draw_panel_right,
     "orient_across": _draw_orient_across,
