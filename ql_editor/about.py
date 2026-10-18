@@ -156,9 +156,15 @@ def build_about_content() -> QWidget:
 
 
 def show_about(parent: QWidget) -> Sheet:
-    """Das Über-Sheet im Hauptfenster öffnen."""
+    """Das Über-Sheet im Hauptfenster öffnen.
+
+    Esc und ein Klick auf die Abdunklung schliessen es.
+    """
     return show_widget(
-        parent, title=tr("Über QLInux"), content=build_about_content()
+        parent,
+        title=tr("Über QLInux"),
+        content=build_about_content(),
+        close_on_outside=True,
     )
 
 

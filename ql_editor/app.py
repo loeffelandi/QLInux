@@ -1720,7 +1720,7 @@ class MainWindow(QMainWindow):
         self._language_group = QActionGroup(self)
         self._language_group.setExclusive(True)
         for code in LANGUAGES:
-            action = QAction(language_name(code), self)
+            action = QAction(icon(f"flag_{code}"), language_name(code), self)
             action.setCheckable(True)
             action.setChecked(code == language())
             action.triggered.connect(

@@ -5072,6 +5072,9 @@ def test_language_switch_is_offered_in_the_menu(qapp, tmp_path):
     assert submenu.title() == "Sprache"
     labels = {action.text(): action.isChecked() for action in submenu.actions()}
     assert labels == {"Deutsch": True, "English": False}
+    flags = [action.icon() for action in submenu.actions()]
+    assert all(not flag.isNull() for flag in flags)
+    assert flags[0].cacheKey() != flags[1].cacheKey()
     win.close()
 
 
@@ -5235,6 +5238,25 @@ def test_about_lists_models_licence_dank_and_developer(qapp, tmp_path):
     assert DEVELOPER in joined
     assert DEVELOPER_URL in joined
     assert PROJECT_URL in joined
+
+    from PySide6.QtCore import QEvent, QPoint, Qt
+    from PySide6.QtGui import QMouseEvent
+
+    outside = QPoint(4, 4)
+    assert not sheet._panel.geometry().contains(outside)
+    local = outside.toPointF()
+    sheet.mousePressEvent(
+        QMouseEvent(
+            QEvent.Type.MouseButtonPress,
+            local,
+            local,
+            Qt.MouseButton.LeftButton,
+            Qt.MouseButton.LeftButton,
+            Qt.KeyboardModifier.NoModifier,
+        )
+    )
+    qapp.processEvents()
+    assert not sheet.isVisible()
 
     sheet.close_sheet()
     qapp.processEvents()
