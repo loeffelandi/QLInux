@@ -2242,16 +2242,28 @@ class LabelCanvas(QGraphicsView):
                 paths.append(path)
         return paths
 
-    def _accepts_external_drop(self, mime) -> bool:
+    def _accepts_external_drop(self, event) -> bool:
+        if self._is_own_drag(event):
+            return False
+        mime = event.mimeData()
         return bool(
             self._drop_paths(mime) or field_from_mime(mime) or mime.hasText()
         )
+
+    def _is_own_drag(self, event) -> bool:
+        """Zieht ein Textfeld in Bearbeitung seinen markierten Text?
+
+        Qt startet dafuer einen Drag mit dem Viewport als Quelle. Der geht an
+        die Szene (Text im Feld verschieben) statt ein neues Feld anzulegen.
+        """
+        source = event.source()
+        return source is not None and (source is self or self.isAncestorOf(source))
 
     def dragEnterEvent(self, event) -> None:  # noqa: N802
         if self._print_preview:
             event.ignore()
             return
-        if self._accepts_external_drop(event.mimeData()):
+        if self._accepts_external_drop(event):
             event.acceptProposedAction()
         else:
             super().dragEnterEvent(event)
@@ -2260,7 +2272,7 @@ class LabelCanvas(QGraphicsView):
         if self._print_preview:
             event.ignore()
             return
-        if self._accepts_external_drop(event.mimeData()):
+        if self._accepts_external_drop(event):
             event.acceptProposedAction()
         else:
             super().dragMoveEvent(event)
@@ -2268,6 +2280,9 @@ class LabelCanvas(QGraphicsView):
     def dropEvent(self, event) -> None:  # noqa: N802
         if self._print_preview:
             event.ignore()
+            return
+        if self._is_own_drag(event):
+            super().dropEvent(event)
             return
         scene_pos = self.mapToScene(event.position().toPoint())
         paths = self._drop_paths(event.mimeData())

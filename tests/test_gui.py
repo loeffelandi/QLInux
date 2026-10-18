@@ -2438,6 +2438,44 @@ def test_mainwindow_drop_image_and_text(qapp, tmp_path):
     assert "Hallo Welt" in texts
 
 
+def test_canvas_ignores_text_dragged_out_of_its_own_text_field(qapp):
+    """Markierter Text aus einem Feld in Bearbeitung legt kein neues Feld an."""
+    from PySide6.QtCore import QMimeData, QPointF, Qt
+    from PySide6.QtGui import QDragMoveEvent, QDropEvent
+
+    canvas = _prepared_canvas(qapp)
+    dropped: list[str] = []
+    canvas.text_dropped.connect(lambda text, _pos: dropped.append(text))
+    mime = QMimeData()
+    mime.setText("asdf")
+    pos = QPointF(150, 120)
+    args = (Qt.DropAction.MoveAction, mime, Qt.MouseButton.LeftButton, Qt.KeyboardModifier.NoModifier)
+
+    # Qt haengt die Quelle an den laufenden Drag, nicht an den Event-Konstruktor.
+    class _OwnMove(QDragMoveEvent):
+        def source(self):
+            return canvas.viewport()
+
+    class _OwnDrop(QDropEvent):
+        def source(self):
+            return canvas.viewport()
+
+    foreign = QDragMoveEvent(pos, *args)
+    canvas.dragMoveEvent(foreign)
+    assert foreign.isAccepted()
+
+    # Ueber leerer Flaeche nimmt die Szene den eigenen Drag nicht an.
+    own = _OwnMove(pos, *args)
+    canvas.dragMoveEvent(own)
+    assert not own.isAccepted()
+
+    canvas.dropEvent(_OwnDrop(pos, *args))
+    assert dropped == []
+
+    canvas.dropEvent(QDropEvent(pos, *args))
+    assert dropped == ["asdf"]
+
+
 def test_image_item_serialization_roundtrip(qapp):
     """Regression: Pixmap-Serialisierung muss ohne BytesIO funktionieren."""
     from PySide6.QtGui import QPixmap
