@@ -44,7 +44,9 @@ The model list even appears in the app: *menu → About QLInux*.
   text). The value comes from the current record; select another row in the grid
   to change it. The inspector's *Database field* changes the bound column. The
   merged values stay on the label if the CSV is later disconnected or missing.
-  Not yet: one label per record or several labels in one print job.
+  With a CSV connected, print can use the selected row, every row, or a
+  from–to range. Copies repeat each of those labels. A counter on a single
+  object (numbering) is not in yet.
 - **Label media**: pick tape by model, fixed or automatic length, margins,
   orientation across/along the tape, red printing where supported.
 - **Print**: 300 × 300 or 300 × 600 dpi, high quality mode, grayscale
@@ -58,8 +60,8 @@ The model list even appears in the app: *menu → About QLInux*.
 - **Preview** in real print dots, plus a print preview mode at 1:1 (Ctrl+Shift+P).
 - **Templates**: seven ready-made labels plus your own stored as `.qlx`
   files.
-- **German and English UI** (switch at runtime), macOS-like sheets instead of
-  extra windows.
+- **German and English UI** (switch at runtime), with dialogs as sheets in
+  the main window.
 
 ![Print preview](assets/screenshot-preview-en.png)
 
@@ -198,9 +200,10 @@ What comes across: text (one font per box; horizontal alignment; rotation in
 down to the label size), lines and frames. Text inside a cable template comes
 across too; the template itself does not. Text is not shrunk to fit the way
 P-touch does it. Rotation in the file is counter-clockwise (checked against
-P-touch Editor on a vertical logo). Database text fields come across as bound text: the CSV is
-looked up next to the `.lbx`, and if it cannot be found the last merged text stays
-on the label. What does not: barcodes, tables, date/time fields, image cropping,
+P-touch Editor on a vertical logo). Database text fields come across as bound
+text. QLInux opens the CSV at the path stored in the `.lbx` when that path
+points at a file, and otherwise looks for a CSV next to the `.lbx`. If neither
+can be read, the last merged text stays on the label. What does not: barcodes, tables, date/time fields, image cropping,
 and red ink on two-colour tapes. Those are listed in a note after import. Mixed-style runs inside one text box
 keep the box's base font, and Brother's monochrome image settings (threshold,
 dither) are not copied — the print dialog has its own.
@@ -264,7 +267,8 @@ Your own templates then appear in the same menu.
 | M4.4 | Open Brother P-touch files (`.lbx`, import only) | ✅ |
 | Database | CSV source, field bindings, record preview, LBX database import | ✅ |
 | Database | Database panel, drag-and-drop binding, database field in the inspector | ✅ |
-| Database | One label per record and multi-label print (serial numbering) | 🚧 |
+| Database | Print the selected row, all rows, or a record range | ✅ |
+| Database | Numbering (a counter on one object) | 🚧 |
 
 ## License
 
