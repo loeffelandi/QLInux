@@ -16,4 +16,7 @@
 - Match the style and structure of the surrounding code.
 - Keep comments sparse and only where the behaviour is not obvious.
 - Put tests next to related tests in `tests/test_*.py`.
+- Every keyboard modifier (Ctrl, Shift, Alt, Cmd) a user can use for a
+  mouse or key action must be listed in the "Modifier keys on the canvas"
+  table in `README.md`. Add it there in the same change.
 - The AppImage is built with `packaging/build_appimage.sh`.

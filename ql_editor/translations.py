@@ -129,6 +129,9 @@ EN: dict[str, str] = {
     ),
     "· Vorschau: 1:1 für Details (Strg+1)": "· Preview: 1:1 for detail (Ctrl+1)",
     "Einpassen": "Fit",
+    "Drehgriff: rastet auf 90° · Shift halten für 15°-Schritte": (
+        "Rotate handle: snaps to 90° · hold Shift for 15° steps"
+    ),
     "Zoom: Einpassen (Ctrl+0)": "Zoom: fit (Ctrl+0)",
     "Vergrößern": "Zoom in",
     "Vergrößern (Strg ++)": "Zoom in (Ctrl ++)",

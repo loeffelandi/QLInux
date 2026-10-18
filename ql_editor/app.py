@@ -345,6 +345,11 @@ class MainWindow(QMainWindow):
             tr("Mausrad scrollt – Strg + Mausrad (oder Zoomgeste) zoomt")
         )
         self.statusBar().addPermanentWidget(self._zoom_label)
+        self._rotate_hint_label = QLabel(
+            tr("Drehgriff: rastet auf 90° · Shift halten für 15°-Schritte")
+        )
+        self._rotate_hint_label.setVisible(False)
+        self.statusBar().addWidget(self._rotate_hint_label)
 
         # Erstes Etikett, bevor Medien-Signale den Undo-Stapel anfassen.
         self._create_tab()
@@ -1956,6 +1961,9 @@ class MainWindow(QMainWindow):
     def _on_zoom_changed(self, percent: float) -> None:
         self._update_zoom_label(percent)
 
+    def _on_rotate_hint_changed(self, active: bool) -> None:
+        self._rotate_hint_label.setVisible(active)
+
     def _update_zoom_label(self, percent: float | None = None) -> None:
         """Zoomanzeige - mit Hinweis, wenn die Vorschau nicht 1:1 ist.
 
@@ -2510,6 +2518,7 @@ class MainWindow(QMainWindow):
         canvas.text_dropped.connect(self._on_text_dropped)
         canvas.print_preview_exit_requested.connect(self._exit_print_preview)
         canvas.zoom_changed.connect(self._on_zoom_changed)
+        canvas.rotate_hint_changed.connect(self._on_rotate_hint_changed)
         canvas.scene().selectionChanged.connect(self._on_selection_changed)
         canvas.scene().changed.connect(self._on_scene_changed)
         tab.undo.cleanChanged.connect(self._on_undo_clean_changed)
@@ -2526,6 +2535,7 @@ class MainWindow(QMainWindow):
             (canvas.text_dropped, self._on_text_dropped),
             (canvas.print_preview_exit_requested, self._exit_print_preview),
             (canvas.zoom_changed, self._on_zoom_changed),
+            (canvas.rotate_hint_changed, self._on_rotate_hint_changed),
             (canvas.scene().selectionChanged, self._on_selection_changed),
             (canvas.scene().changed, self._on_scene_changed),
             (tab.undo.cleanChanged, self._on_undo_clean_changed),

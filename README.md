@@ -112,6 +112,16 @@ AppImage and a source checkout share them.
 Settings (last printer, tape, print options, language) are stored in
 `~/.config/QLInux/QLInux.conf`.
 
+### Modifier keys on the canvas
+
+| Keys | Effect |
+| --- | --- |
+| Ctrl + mouse wheel (Cmd on macOS), pinch | Zoom |
+| Shift + mouse wheel | Scroll horizontally |
+| Ctrl + click | Add or remove an object from the selection |
+| Shift + arrow keys | Move the selected object in larger steps |
+| Shift while rotating | Rotate in 15° steps (plain rotation snaps to 90°, sticky) |
+
 ## Margins
 
 Margins start at 0 mm. The printer's feed and the non-printable strip at each
