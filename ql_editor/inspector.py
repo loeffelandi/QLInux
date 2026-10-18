@@ -82,6 +82,8 @@ class InspectorPanel(QWidget):
         self._allow_red = False
         self._loading = False
         self._edit_open = False
+        self._datetime_example_item = None
+        self._datetime_example_refresh = None
 
         self._root = QVBoxLayout(self)
         self._root.setContentsMargins(8, 8, 8, 8)
@@ -94,6 +96,7 @@ class InspectorPanel(QWidget):
     # --------------------------------------------------------------- API --
     def set_item(self, item, allow_red: bool = False) -> None:
         self._finish_edit()
+        self._detach_datetime_examples()
         self._item = item
         self._allow_red = allow_red
         self._rebuild()
@@ -455,6 +458,7 @@ class InspectorPanel(QWidget):
                     return
                 self._apply_now(lambda: item.set_mode(mode.currentData()))
                 sync_enabled()
+                refresh_examples()
 
             def apply_offset(*, commit: bool) -> None:
                 if self._loading:
@@ -501,13 +505,21 @@ class InspectorPanel(QWidget):
                 self._apply_now(apply)
                 refresh_examples()
 
+            def apply_date_format() -> None:
+                if self._loading:
+                    return
+                self._apply_now(lambda: item.set_date_format(date_format.currentData()))
+                refresh_examples()
+
+            def apply_time_format() -> None:
+                if self._loading:
+                    return
+                self._apply_now(lambda: item.set_time_format(time_format.currentData()))
+                refresh_examples()
+
             mode.currentIndexChanged.connect(apply_mode)
-            date_format.currentIndexChanged.connect(
-                lambda: self._apply_now(lambda: item.set_date_format(date_format.currentData()))
-            )
-            time_format.currentIndexChanged.connect(
-                lambda: self._apply_now(lambda: item.set_time_format(time_format.currentData()))
-            )
+            date_format.currentIndexChanged.connect(apply_date_format)
+            time_format.currentIndexChanged.connect(apply_time_format)
             live.toggled.connect(apply_live)
             date_edit.dateChanged.connect(apply_date)
             time_edit.timeChanged.connect(apply_time)
@@ -515,6 +527,7 @@ class InspectorPanel(QWidget):
             amount.editingFinished.connect(self._finish_edit)
             direction.currentIndexChanged.connect(lambda: apply_offset(commit=True))
             unit.currentIndexChanged.connect(lambda: apply_offset(commit=True))
+            self._attach_datetime_examples(item, refresh_examples)
 
             form.addRow(tr("Anzeige"), mode)
             form.addRow(tr("Datumsformat"), date_format)
@@ -569,6 +582,19 @@ class InspectorPanel(QWidget):
             lambda: self._apply_now(lambda: item.set_text_color(color.currentData()))
         )
         form.addRow(tr("Farbe"), color)
+
+        form.addRow(
+            tr("Textausrichtung"),
+            self._choice(
+                [
+                    ("align_left", tr("Links"), "left"),
+                    ("align_hcenter", tr("Mitte"), "center"),
+                    ("align_right", tr("Rechts"), "right"),
+                ],
+                item.align,
+                item.set_align,
+            ),
+        )
 
     def _build_qr(self, item, form: QFormLayout) -> None:
         data = QLineEdit(item._data)
@@ -941,6 +967,34 @@ class InspectorPanel(QWidget):
     def _wire_spin(self, spin, apply_fn) -> None:
         spin.valueChanged.connect(lambda v: self._apply_live(lambda: apply_fn(v)))
         spin.editingFinished.connect(self._finish_edit)
+
+    def _attach_datetime_examples(self, item, refresh) -> None:
+        """Format-Beispiele bei Live-Ticks aktualisieren, solange das Panel sichtbar ist."""
+        self._detach_datetime_examples()
+        self._datetime_example_item = item
+        self._datetime_example_refresh = refresh
+        item.display_changed.connect(self._on_datetime_examples_tick)
+
+    def _detach_datetime_examples(self) -> None:
+        item = self._datetime_example_item
+        if item is not None:
+            try:
+                item.display_changed.disconnect(self._on_datetime_examples_tick)
+            except (RuntimeError, TypeError):
+                pass
+        self._datetime_example_item = None
+        self._datetime_example_refresh = None
+
+    def _on_datetime_examples_tick(self) -> None:
+        refresh = self._datetime_example_refresh
+        if refresh is not None:
+            refresh()
+
+    def eventFilter(self, watched, event):  # noqa: N802
+        # Tabellen-Textfeld: FocusOut schliesst den Undo-Schritt (kein editingFinished).
+        if event.type() == QEvent.Type.FocusOut:
+            self._finish_edit()
+        return super().eventFilter(watched, event)
 
     @property
     def edit_open(self) -> bool:

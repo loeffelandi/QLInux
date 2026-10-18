@@ -1896,6 +1896,15 @@ class MainWindow(QMainWindow):
         item.display_changed.connect(self._on_datetime_displayed)
 
     def _on_datetime_displayed(self) -> None:
+        # Sekunden-Ticks aendern oft nur den Text, nicht die Bounding-Breite.
+        sender = self.sender()
+        if isinstance(sender, DateTimeItem):
+            width = sender.boundingRect().width()
+            prev = getattr(sender, "_last_display_width", None)
+            sender._last_display_width = width
+            if prev is not None and abs(prev - width) < 0.5:
+                self._schedule_refresh()
+                return
         self._recompute_canvas()
         self._schedule_refresh()
 

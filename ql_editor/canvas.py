@@ -95,6 +95,8 @@ MAX_ZOOM = 8.0
 HANDLE_SIZE_PX = 9
 ROTATE_OFFSET_PX = 24
 SNAP_TOLERANCE_PX = 6
+#: Tabellen-Zellklick: erst ab dieser View-Distanz (Manhattan) verschieben.
+_TABLE_MOVE_THRESHOLD_PX = 4
 #: Drehrasten (alle 90 Grad), wirken ohne Modifier. Sticky: man fängt die Rast
 #: nur knapp ein, hält sie dann bis zum Weg-Drehen über ROTATE_DETENT_RELEASE_DEG.
 ROTATE_DETENT_DEG = 90.0
@@ -434,6 +436,8 @@ class LabelCanvas(QGraphicsView):
         self._op_start_heights: list[float] = []
         self._move_items: list[tuple[Any, QPointF]] = []
         self._guides: list[tuple[str, float]] = []
+        # Tabellen-Zellklick: Verschieben erst ab Drag-Schwelle (Auswahl ohne Move).
+        self._pending_move_start: QPointF | None = None
 
         self._pan_active = False
         self._pan_start = QPoint()
@@ -1170,6 +1174,7 @@ class LabelCanvas(QGraphicsView):
                     event.accept()
                     return
             if item is not None and not getattr(item, "is_editing", False):
+                table_cell_click = False
                 if getattr(item, "kind", None) == "table" and not ctrl:
                     local = item.mapFromScene(scene_pos)
                     divider = item.divider_at(local, 5.0 / self._scale())
@@ -1181,13 +1186,19 @@ class LabelCanvas(QGraphicsView):
                         event.accept()
                         return
                     item.select_cell_at(local, extend=shift)
+                    table_cell_click = True
                 if ctrl:
                     item.setSelected(not item.isSelected())
                 else:
                     if not item.isSelected():
                         self._scene.clearSelection()
                         item.setSelected(True)
-                    self._begin_move(scene_pos)
+                    if table_cell_click:
+                        # Zellauswahl (auch Umschalt) ohne sofortiges Verschieben;
+                        # Move startet erst nach Drag-Schwelle in mouseMoveEvent.
+                        self._pending_move_start = QPointF(scene_pos)
+                    else:
+                        self._begin_move(scene_pos)
                 event.accept()
                 return
         super().mousePressEvent(event)
@@ -1247,6 +1258,19 @@ class LabelCanvas(QGraphicsView):
             return
 
         scene_pos = self.mapToScene(self._event_pos(event))
+        if (
+            self._pending_move_start is not None
+            and event.buttons() & Qt.MouseButton.LeftButton
+        ):
+            start = self._pending_move_start
+            p0 = self.mapFromScene(start)
+            p1 = self.mapFromScene(scene_pos)
+            if (p1 - p0).manhattanLength() >= _TABLE_MOVE_THRESHOLD_PX:
+                self._pending_move_start = None
+                self._begin_move(start)
+                self._do_move(scene_pos)
+                event.accept()
+                return
         if self._op == "move":
             self._do_move(scene_pos)
             event.accept()
@@ -1447,6 +1471,10 @@ class LabelCanvas(QGraphicsView):
             self.viewport().unsetCursor()
             event.accept()
             return
+        if event.button() == Qt.MouseButton.LeftButton and self._pending_move_start is not None:
+            self._pending_move_start = None
+            event.accept()
+            return
         if self._op is not None and event.button() == Qt.MouseButton.LeftButton:
             finished = self._op
             self._op = None
@@ -1477,9 +1505,10 @@ class LabelCanvas(QGraphicsView):
             # Oeffnet das Feld und markiert den Text (im offenen Feld ebenso).
             item.start_editing()
         elif getattr(item, "kind", None) == "table":
-            # Der zweite Klick hat schon eine Verschiebung aufgemacht. Die
-            # Bearbeitung ersetzt sie; sonst wuerde das Loslassen einen leeren
-            # Schritt „Bearbeiten" aus dem noch offenen Schnappschuss machen.
+            # Der zweite Klick kann eine (schwebende) Verschiebung aufgemacht
+            # haben. Die Bearbeitung ersetzt sie; sonst wuerde das Loslassen
+            # einen leeren Schritt „Bearbeiten" aus dem Schnappschuss machen.
+            self._pending_move_start = None
             self._op = None
             self._op_item = None
             self._move_items = []
