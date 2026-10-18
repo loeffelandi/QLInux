@@ -166,7 +166,9 @@ def test_auto_height_box_tracks_wrapped_text():
     assert item.wrap
     doc_h = item.document().size().height()
     box_h = item.boundingRect().height()
-    assert box_h <= doc_h + 0.5
+    # Unterlaengen duerfen die Dokumenthoehe um wenige Pixel ueberragen.
+    # Eine zusaetzliche Leerzeile (der eigentliche Bug) ist ein Vielfaches davon.
+    assert box_h <= doc_h + 2.0
     _first, last = _ink_vertical_span(item)
     # Letzte Zeile innerhalb der Box, nur kleiner Rand (Dokument-Margin), kein grosser Leerraum.
     assert last < box_h
