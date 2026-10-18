@@ -1967,6 +1967,29 @@ def _press(canvas, scene_pos, mods=None):
     )
 
 
+def _hover(canvas, scene_pos):
+    from PySide6.QtCore import QEvent, Qt
+
+    canvas.mouseMoveEvent(
+        _mouse_event(
+            QEvent.Type.MouseMove,
+            canvas,
+            scene_pos,
+            Qt.MouseButton.NoButton,
+            Qt.MouseButton.NoButton,
+            Qt.KeyboardModifier.NoModifier,
+        )
+    )
+
+
+def _finish_tick_fades(canvas):
+    from PySide6.QtCore import QAbstractAnimation
+
+    for anim in list(canvas._tick_anims.values()):
+        if anim.state() == QAbstractAnimation.State.Running:
+            anim.setCurrentTime(anim.duration())
+
+
 def _drag_to(canvas, scene_pos, mods=None):
     from PySide6.QtCore import QEvent, Qt
 
@@ -2005,39 +2028,11 @@ def test_canvas_has_eight_handles_and_rotate(qapp):
     assert rotate is not None and rotate[0] == "rotate"
 
 
-def test_handles_appear_on_first_click_and_ticks_stay(qapp):
-    """Anfasser schon beim ersten Klick; nach dem Abwaehlen bleiben die Marken."""
-    from PySide6.QtCore import QEvent, QObject, QPoint, QPointF, QRect
-    from PySide6.QtGui import QImage, QPainter
+def _tick_points(canvas, item):
+    """Stub, Eckstrich, Luecke und Drehgriff in Szenenkoordinaten."""
+    from PySide6.QtCore import QPointF
 
     from ql_editor.canvas import FRAME_TICK_PX
-    from ql_editor.items import RectItem
-
-    canvas = _prepared_canvas(qapp)
-    canvas.zoom_100()
-    qapp.processEvents()
-    item = RectItem()
-    canvas.add_item(item)
-    item.setPos(80, 90)
-    canvas._scene.clearSelection()
-    qapp.processEvents()
-
-    def render():
-        image = QImage(canvas.viewport().size(), QImage.Format.Format_RGB32)
-        painter = QPainter(image)
-        canvas.viewport().render(painter, QPoint())
-        painter.end()
-        return image
-
-    def bluish(image, scene_pt, radius):
-        view = canvas.mapFromScene(scene_pt)
-        x, y = int(view.x()), int(view.y())
-        for dy in range(-radius, radius + 1):
-            for dx in range(-radius, radius + 1):
-                color = image.pixelColor(x + dx, y + dy)
-                if color.blue() > 150 and color.blue() > color.red() + 40:
-                    return True
-        return False
 
     top = canvas._handle_points(item)["n"]
     up = item.mapToScene(QPointF(0.0, -1.0)) - item.mapToScene(QPointF(0.0, 0.0))
@@ -2050,15 +2045,64 @@ def test_handles_appear_on_first_click_and_ticks_stay(qapp):
     edge_len = math.hypot(edge.x(), edge.y())
     edge_dir = QPointF(edge.x() / edge_len, edge.y() / edge_len)
     corner_tick = along + edge_dir * (FRAME_TICK_PX * 0.5 / scale)
-    # Zwischen Eckstrich und Kantenmitte liegt keine durchgehende Linie.
     gap = along + edge_dir * (FRAME_TICK_PX * 3.0 / scale) + outward * (2.0 / scale)
-    rotate = canvas._rotate_handle_point(item)
+    return stub, corner_tick, gap, canvas._rotate_handle_point(item)
 
-    plain = render()
-    assert bluish(plain, stub, 2)
-    assert bluish(plain, corner_tick, 2)
-    assert not bluish(plain, gap, 1)
-    assert not bluish(plain, rotate, 4)
+
+def _render_view(canvas):
+    from PySide6.QtCore import QPoint
+    from PySide6.QtGui import QImage, QPainter
+
+    image = QImage(canvas.viewport().size(), QImage.Format.Format_RGB32)
+    painter = QPainter(image)
+    canvas.viewport().render(painter, QPoint())
+    painter.end()
+    return image
+
+
+def _bluish(canvas, image, scene_pt, radius):
+    view = canvas.mapFromScene(scene_pt)
+    x, y = int(view.x()), int(view.y())
+    for dy in range(-radius, radius + 1):
+        for dx in range(-radius, radius + 1):
+            color = image.pixelColor(x + dx, y + dy)
+            if color.blue() > 150 and color.blue() > color.red() + 40:
+                return True
+    return False
+
+
+def test_handles_appear_on_first_click_and_ticks_follow_pointer(qapp):
+    """Erster Klick zeigt die Anfasser; Marken blenden mit dem Zeiger."""
+    from PySide6.QtCore import QEvent, QObject, QPointF, QRect
+
+    from ql_editor.items import RectItem
+
+    canvas = _prepared_canvas(qapp)
+    canvas.zoom_100()
+    qapp.processEvents()
+    # Wie das Hauptfenster: ``changed`` haengt, direkte Szenen-Updates entfallen.
+    canvas.scene().changed.connect(lambda *_args: None)
+    item = RectItem()
+    canvas.add_item(item)
+    item.setPos(80, 90)
+    canvas._scene.clearSelection()
+    qapp.processEvents()
+
+    stub, corner_tick, gap, rotate = _tick_points(canvas, item)
+    plain = _render_view(canvas)
+    assert not _bluish(canvas, plain, stub, 2)
+    assert not _bluish(canvas, plain, corner_tick, 2)
+    assert not _bluish(canvas, plain, rotate, 4)
+
+    _hover(canvas, item.sceneBoundingRect().center())
+    assert canvas._tick_opacity.get(id(item), 0.0) < 0.2
+    _finish_tick_fades(canvas)
+    assert canvas._tick_opacity[id(item)] == pytest.approx(1.0)
+    hovered = _render_view(canvas)
+    assert _bluish(canvas, hovered, stub, 2)
+    assert _bluish(canvas, hovered, corner_tick, 2)
+    assert not _bluish(canvas, hovered, gap, 1)
+    assert not _bluish(canvas, hovered, rotate, 4)
 
     class _Paints(QObject):
         def __init__(self):
@@ -2075,20 +2119,73 @@ def test_handles_appear_on_first_click_and_ticks_stay(qapp):
     _press(canvas, item.sceneBoundingRect().center())
     qapp.processEvents()
     rotate_view = canvas.mapFromScene(rotate)
-    assert any(rect.contains(rotate_view) for rect in paints.rects)
     assert item.isSelected()
-    selected = render()
-    assert bluish(selected, rotate, 6)
-    assert bluish(selected, stub, 2)
+    assert any(rect.contains(rotate_view) for rect in paints.rects)
+    selected = _render_view(canvas)
+    square = canvas._handle_points(item)["se"]
+    assert _bluish(canvas, selected, rotate, 6)
+    assert _bluish(canvas, selected, square, 6)
+    assert _bluish(canvas, selected, stub, 2)
+
+    old_stub_view = canvas.mapFromScene(stub)
+    paints.rects.clear()
+    center = item.sceneBoundingRect().center()
+    _drag_to(canvas, QPointF(center.x() + 36, center.y() + 14))
+    qapp.processEvents()
+    assert any(rect.contains(old_stub_view) for rect in paints.rects)
+    _release(canvas, QPointF(center.x() + 36, center.y() + 14))
 
     canvas._scene.clearSelection()
     qapp.processEvents()
-    cleared = render()
+    stub, corner_tick, _gap, rotate = _tick_points(canvas, item)
+    cleared = _render_view(canvas)
     assert not item.isSelected()
-    assert bluish(cleared, stub, 2)
-    assert bluish(cleared, corner_tick, 2)
-    assert not bluish(cleared, rotate, 4)
+    assert _bluish(canvas, cleared, stub, 2)
+    assert not _bluish(canvas, cleared, rotate, 4)
+
+    _hover(canvas, QPointF(12, 12))
+    assert canvas._tick_opacity[id(item)] > 0.8
+    _finish_tick_fades(canvas)
+    assert canvas._tick_opacity[id(item)] == pytest.approx(0.0)
+    gone = _render_view(canvas)
+    assert not _bluish(canvas, gone, stub, 2)
+    assert not _bluish(canvas, gone, corner_tick, 2)
     canvas.viewport().removeEventFilter(paints)
+
+
+def test_empty_text_ticks_stay_fully_visible(qapp):
+    """Leeres Textfeld bleibt markiert; Text mit Inhalt blendet aus."""
+    from PySide6.QtCore import QPointF
+
+    canvas = _prepared_canvas(qapp)
+    canvas.zoom_100()
+    qapp.processEvents()
+    item = TextItem("", font_pixel_size=28)
+    item.set_text_width(140)
+    item.set_box_height(40)
+    canvas.add_item(item)
+    item.setPos(90, 100)
+    # add_item waehlt das Feld; der Drehstrich laege sonst auf der Marke.
+    canvas._scene.clearSelection()
+    qapp.processEvents()
+
+    stub, _corner, _gap, _rotate = _tick_points(canvas, item)
+    assert _bluish(canvas, _render_view(canvas), stub, 2)
+
+    _hover(canvas, QPointF(12, 12))
+    _finish_tick_fades(canvas)
+    qapp.processEvents()
+    assert _bluish(canvas, _render_view(canvas), stub, 2)
+
+    item.set_text_value("abc")
+    canvas.viewport().update()
+    qapp.processEvents()
+    qapp.processEvents()
+    assert canvas._tick_opacity[id(item)] > 0.8
+    _finish_tick_fades(canvas)
+    qapp.processEvents()
+    assert canvas._tick_opacity[id(item)] == pytest.approx(0.0)
+    assert not _bluish(canvas, _render_view(canvas), _tick_points(canvas, item)[0], 2)
 
 
 def test_canvas_drag_moves_item(qapp):

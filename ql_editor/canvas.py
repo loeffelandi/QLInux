@@ -33,8 +33,10 @@ Direkte Bearbeitung mit der Maus (modernes Editor-Gefuehl):
   Objektmitte. Ohne Modifier haftet der Winkel an der naechsten 90-Grad-Raste
   (sticky), bis der Zeiger deutlich weggezogen wird. Shift rastet stattdessen
   auf 15 Grad.
-* **Marken**: Jedes Objekt behaelt leichte Eck- und Kantenstriche, auch ohne
-  Auswahl. Die Anfasser liegen darueber, solange das Objekt gewaehlt ist.
+* **Marken**: Leichte Eck- und Kantenstriche. Ohne Zeiger auf dem Objekt
+  blenden sie aus und beim Darueberfahren wieder ein; ein leeres Textfeld
+  bleibt voll sichtbar, damit man es wiederfindet. Die Anfasser liegen
+  darueber, sobald das Objekt gewaehlt ist - schon beim ersten Klick.
 * **Mehrfachauswahl**: Gummiband auf freier Flaeche; **Ctrl+Klick** schaltet
   einzelne Objekte zur Auswahl hinzu/ab.
 * **Drag & Drop**: Bilddateien aus dem Dateimanager auf den Canvas ziehen.
@@ -49,7 +51,19 @@ import math
 from contextlib import contextmanager
 from typing import Any, Iterator, Mapping, Sequence
 
-from PySide6.QtCore import QEvent, QLocale, QPoint, QPointF, QRectF, Qt, Signal
+from PySide6.QtCore import (
+    QAbstractAnimation,
+    QEasingCurve,
+    QEvent,
+    QLocale,
+    QPoint,
+    QPointF,
+    QRectF,
+    Qt,
+    QTimer,
+    QVariantAnimation,
+    Signal,
+)
 from PySide6.QtGui import QBrush, QColor, QFont, QFontMetricsF, QImage, QPainter, QPen
 from PySide6.QtWidgets import QGraphicsItem, QGraphicsScene, QGraphicsView, QWidget
 from PIL import Image
@@ -112,8 +126,10 @@ MIN_ZOOM = 0.05
 MAX_ZOOM = 8.0
 HANDLE_SIZE_PX = 9
 ROTATE_OFFSET_PX = 24
-#: Eck- und Kantenstriche, die an jedem Objekt stehen bleiben (Bildschirmpixel).
+#: Eck- und Kantenstriche an jedem Objekt (Bildschirmpixel).
 FRAME_TICK_PX = 8
+#: Wie lange die Striche ein- und ausblenden, statt hart zu wechseln.
+TICK_FADE_MS = 180
 SNAP_TOLERANCE_PX = 6
 #: Wie nah der Zeiger einer Hilfslinie kommen muss, um sie zu greifen.
 GUIDE_HIT_PX = 5
@@ -483,10 +499,12 @@ class LabelCanvas(QGraphicsView):
         self._scene.setSceneRect(QRectF(0, 0, 554, 472))
         self.setScene(self._scene)
         self.setSceneRect(QRectF(0, 0, 554, 472))
-        # Die Anfasser liegen ausserhalb der Objektbox. Die Szene wuerde sonst
-        # nur die Box neu zeichnen, und die Griffe fehlen bis zum naechsten
-        # vollstaendigen Anstrich.
+        # Marken und Anfasser liegen ausserhalb der Objektbox. Das minimale
+        # Update schneidet dort ab (Griffe fehlen beim ersten Klick) und
+        # laesst beim Ziehen die alten Striche stehen.
+        self.setViewportUpdateMode(QGraphicsView.ViewportUpdateMode.FullViewportUpdate)
         self._scene.selectionChanged.connect(self._invalidate_object_chrome)
+        self.viewport().setMouseTracking(True)
         self.setRenderHint(QPainter.RenderHint.Antialiasing, True)
         self.setRenderHint(QPainter.RenderHint.TextAntialiasing, True)
         self.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform, True)
@@ -546,6 +564,11 @@ class LabelCanvas(QGraphicsView):
         self._pan_active = False
         self._pan_start = QPoint()
         self._pan_origin = (0, 0)
+        #: Objekt unter dem Zeiger; seine Marken sind eingeblendet.
+        self._hover_item = None
+        self._tick_opacity: dict[int, float] = {}
+        self._tick_anims: dict[int, QVariantAnimation] = {}
+        self._tick_sync_pending = False
 
         self._h_ruler = MmRuler(self, Qt.Orientation.Horizontal)
         self._v_ruler = MmRuler(self, Qt.Orientation.Vertical)
@@ -1176,16 +1199,22 @@ class LabelCanvas(QGraphicsView):
         painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
         self._draw_placed_guides(painter, rect)
 
-        # Leichte Marken an jedem Objekt, auch ohne Auswahl.
-        tick_pen = QPen(QColor("#1f6feb"))
-        tick_pen.setWidthF(0)
-        painter.setPen(tick_pen)
+        # Leichte Marken. Deckkraft haengt am Zeiger (leerer Text bleibt an).
         painter.setBrush(Qt.BrushStyle.NoBrush)
         for item in self._scene.items():
             if not hasattr(item, "to_dict"):
                 continue
+            opacity = self._shown_tick_opacity(item)
+            if opacity <= 0.004:
+                continue
+            color = QColor("#1f6feb")
+            color.setAlphaF(opacity)
+            tick_pen = QPen(color)
+            tick_pen.setWidthF(0)
+            painter.setPen(tick_pen)
             for start, end in self._tick_segments(item):
                 painter.drawLine(start, end)
+        self._note_tick_fade()
 
         # Auswahlrahmen (rotationsfest) fuer alle ausgewaehlten Items.
         outline = QPen(QColor("#1f6feb"))
@@ -1233,6 +1262,165 @@ class LabelCanvas(QGraphicsView):
 
         self._draw_size_labels(painter)
 
+    def _chrome_view_rect(self, item):
+        """View-Rechteck von Box, Marken und Anfassern.
+
+        In View-Pixeln, nicht ueber ``scene.update``: sobald ``changed``
+        verbunden ist, wuerde die Szene die Erweiterung auf die Objektbox
+        zurueckschneiden.
+        """
+        bounds = item.mapToScene(item.boundingRect()).boundingRect()
+        if bounds.isEmpty():
+            return None
+        rect = self.mapFromScene(bounds).boundingRect()
+        pad = ROTATE_OFFSET_PX + HANDLE_SIZE_PX + 4
+        return rect.adjusted(-pad, -pad, pad, pad)
+
+    def _update_item_chrome(self, item) -> None:
+        rect = self._chrome_view_rect(item)
+        if rect is not None and not rect.isEmpty():
+            self.viewport().update(rect)
+
+    def _invalidate_object_chrome(self) -> None:
+        """Objektbox plus Anfasser neu zeichnen.
+
+        Griffe und der kurze Drehstrich liegen ausserhalb von ``boundingRect``.
+        Ein Update nur ueber die Szene wuerde sie abschneiden.
+        """
+        for item in self._scene.items():
+            if hasattr(item, "to_dict"):
+                self._update_item_chrome(item)
+
+    def _ticks_pinned(self, item) -> bool:
+        """Leeres Textfeld: die Marken bleiben, sonst findet man es nicht."""
+        if getattr(item, "kind", None) != "text":
+            return False
+        try:
+            text = item.toPlainText()
+        except RuntimeError:
+            return False
+        return not str(text).strip()
+
+    def _tick_target(self, item) -> float:
+        if self._ticks_pinned(item) or item is self._hover_item:
+            return 1.0
+        return 0.0
+
+    def _shown_tick_opacity(self, item) -> float:
+        if self._ticks_pinned(item):
+            # Damit der Uebergang zu Text mit Inhalt von voll ausblendet.
+            self._tick_opacity[id(item)] = 1.0
+            return 1.0
+        return self._tick_opacity.get(id(item), 0.0)
+
+    def _set_hover_item(self, item) -> None:
+        if item is self._hover_item:
+            return
+        previous = self._hover_item
+        self._hover_item = item
+        if previous is not None:
+            self._animate_tick(previous, self._tick_target(previous))
+        if item is not None:
+            self._animate_tick(item, self._tick_target(item))
+
+    def _track_pointer_hover(self, view_pos: QPoint) -> None:
+        if self._op in ("resize", "rotate", "table-divider") and self._op_item is not None:
+            self._set_hover_item(self._op_item)
+            return
+        if self._op == "move":
+            item = self._top_serializable_item_at(view_pos)
+            if item is None and self._move_items:
+                item = self._move_items[0][0]
+            self._set_hover_item(item)
+            return
+        handle = self._handle_at(self.mapToScene(view_pos))
+        if handle is not None:
+            self._set_hover_item(handle[1])
+            return
+        self._set_hover_item(self._top_serializable_item_at(view_pos))
+
+    def _note_tick_fade(self) -> None:
+        """Blendwechsel nach dem Malen anstossen, nicht aus ``drawForeground`` heraus."""
+        if self._tick_sync_pending:
+            return
+        for item in self._scene.items():
+            if not hasattr(item, "to_dict") or self._ticks_pinned(item):
+                continue
+            target = self._tick_target(item)
+            current = self._tick_opacity.get(id(item), 0.0)
+            anim = self._tick_anims.get(id(item))
+            running = (
+                anim is not None and anim.state() == QAbstractAnimation.State.Running
+            )
+            if not running and abs(current - target) > 0.01:
+                self._tick_sync_pending = True
+                QTimer.singleShot(0, self._flush_tick_sync)
+                return
+
+    def _flush_tick_sync(self) -> None:
+        self._tick_sync_pending = False
+        for item in list(self._scene.items()):
+            if hasattr(item, "to_dict"):
+                self._animate_tick(item, self._tick_target(item))
+
+    def _animate_tick(self, item, target: float) -> None:
+        try:
+            if item.scene() is not self._scene:
+                return
+        except RuntimeError:
+            return
+        key = id(item)
+        if self._ticks_pinned(item):
+            self._stop_tick_anim(key)
+            self._tick_opacity[key] = 1.0
+            return
+        current = self._tick_opacity.get(key, 0.0)
+        anim = self._tick_anims.get(key)
+        if anim is not None and anim.state() == QAbstractAnimation.State.Running:
+            if abs(float(anim.endValue()) - target) < 0.001:
+                return
+            self._stop_tick_anim(key)
+        if abs(current - target) < 0.01:
+            self._tick_opacity[key] = target
+            return
+        anim = QVariantAnimation(self)
+        anim.setStartValue(current)
+        anim.setEndValue(target)
+        anim.setDuration(TICK_FADE_MS)
+        anim.setEasingCurve(QEasingCurve.Type.InOutQuad)
+        anim.valueChanged.connect(
+            lambda value, key=key, item=item: self._on_tick_fade_value(key, item, value)
+        )
+        anim.finished.connect(
+            lambda key=key, target=target, anim=anim: self._on_tick_fade_done(
+                key, target, anim
+            )
+        )
+        self._tick_anims[key] = anim
+        anim.start()
+
+    def _stop_tick_anim(self, key: int) -> None:
+        anim = self._tick_anims.pop(key, None)
+        if anim is not None:
+            anim.stop()
+            anim.deleteLater()
+
+    def _on_tick_fade_value(self, key: int, item, value) -> None:
+        self._tick_opacity[key] = float(value)
+        try:
+            if item.scene() is not self._scene:
+                return
+        except RuntimeError:
+            return
+        self._update_item_chrome(item)
+
+    def _on_tick_fade_done(self, key: int, target: float, anim: QVariantAnimation) -> None:
+        if self._tick_anims.get(key) is not anim:
+            return
+        self._tick_anims.pop(key, None)
+        self._tick_opacity[key] = target
+        anim.deleteLater()
+
     def _draw_placed_guides(self, painter: QPainter, rect: QRectF) -> None:
         """Hilfslinien ueber die sichtbare Flaeche, kosmetisch einen Pixel dick."""
         hidden = None
@@ -1254,19 +1442,6 @@ class LabelCanvas(QGraphicsView):
                 painter.drawLine(QPointF(coord, rect.top()), QPointF(coord, rect.bottom()))
             else:
                 painter.drawLine(QPointF(rect.left(), coord), QPointF(rect.right(), coord))
-
-    def _invalidate_object_chrome(self) -> None:
-        """Objektbox plus Anfasser neu zeichnen.
-
-        Griffe und der kurze Drehstrich liegen ausserhalb von ``boundingRect``.
-        Ein normales Auswahl-Update wuerde sie abschneiden.
-        """
-        margin = (ROTATE_OFFSET_PX + HANDLE_SIZE_PX) / self._scale()
-        for item in self._scene.items():
-            if not hasattr(item, "to_dict"):
-                continue
-            bounds = item.mapToScene(item.boundingRect()).boundingRect()
-            self._scene.update(bounds.adjusted(-margin, -margin, margin, margin))
 
     def _screen_lengths(self, item, px: float) -> tuple[float, float]:
         """``px`` Bildschirmpixel als Laenge in den lokalen Achsen von ``item``."""
@@ -1610,6 +1785,7 @@ class LabelCanvas(QGraphicsView):
             return
 
         if event.button() == Qt.MouseButton.LeftButton:
+            self._track_pointer_hover(self._event_pos(event))
             scene_pos = self.mapToScene(self._event_pos(event))
             handle = self._handle_at(scene_pos)
             if handle is not None:
@@ -1728,6 +1904,7 @@ class LabelCanvas(QGraphicsView):
             return
 
         scene_pos = self.mapToScene(self._event_pos(event))
+        self._track_pointer_hover(self._event_pos(event))
         if (
             self._pending_move_start is not None
             and event.buttons() & Qt.MouseButton.LeftButton
@@ -1794,6 +1971,8 @@ class LabelCanvas(QGraphicsView):
         super().mouseMoveEvent(event)
 
     def leaveEvent(self, event) -> None:  # noqa: N802
+        if self._op is None:
+            self._set_hover_item(None)
         self._set_hint("")
         super().leaveEvent(event)
 
@@ -1825,13 +2004,20 @@ class LabelCanvas(QGraphicsView):
         dy = scene_pos.y() - self._op_start_scene.y()
         moving = [item for item, _ in self._move_items]
         dx, dy, guides = self._snap_move(self._op_start_bbox, dx, dy, exclude=moving)
+        # Alte Marken liegen ausserhalb der Objektbox. Die muss das Update
+        # mitnehmen, sonst bleibt beim Ziehen eine Spur stehen.
+        for item, _start in self._move_items:
+            self._update_item_chrome(item)
         for item, start in self._move_items:
             item.setPos(start.x() + dx, start.y() + dy)
+        for item, _start in self._move_items:
+            self._update_item_chrome(item)
         self._guides = guides
         self.viewport().update()
 
     def _do_resize(self, scene_pos: QPointF) -> None:
         item = self._op_item
+        self._update_item_chrome(item)
         name = self._op_handle
         start_w, start_h = self._op_start_size
         bbox = self._op_start_bbox
@@ -1923,6 +2109,7 @@ class LabelCanvas(QGraphicsView):
         mit ``snap`` (Shift) rastet er auf 15 Grad.
         """
         item = self._op_item
+        self._update_item_chrome(item)
         center = self._op_rotate_center
         angle = math.degrees(
             math.atan2(scene_pos.y() - center.y(), scene_pos.x() - center.x()) - self._op_rotate_start
