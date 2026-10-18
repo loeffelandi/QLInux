@@ -69,6 +69,12 @@ ICON_COLORS: dict[str, str] = {
     "line": "#597697",       # Zusatzfarbe indigo
     "rect": "#597697",
     "shape": "#597697",
+    "shape_ellipse": "#597697",
+    "shape_triangle": "#597697",
+    "shape_star": "#597697",
+    "shape_arrow_right": "#597697",
+    "shape_arrow_left": "#597697",
+    "shape_arrow_double": "#597697",
     "table": "#3f6f54",
     "datetime": "#3d6d8c",
     "clipart": "#7a4e2d",
@@ -404,11 +410,29 @@ def _draw_orient_along(p: QPainter, color: QColor) -> None:
     p.drawRect(QRectF(9.8, 11.0, 4.4, 2.0))
 
 
+def _draw_forward(p: QPainter, color: QColor) -> None:
+    """Eine Stufe: zwei Blaetter, kurzer Pfeil."""
+    _stroke_only(p, color, 1.7)
+    p.drawRoundedRect(QRectF(3.0, 13.0, 8.5, 7.5), 1.8, 1.8)
+    p.drawRoundedRect(QRectF(6.2, 9.2, 8.5, 7.5), 1.8, 1.8)
+    _line(p, 19.2, 17.2, 19.2, 12.4)
+    _poly(p, ((16.6, 14.2), (19.2, 11.2), (21.8, 14.2)))
+
+
 def _draw_front(p: QPainter, color: QColor) -> None:
     _stroke_only(p, color, 1.7)
     p.drawRoundedRect(QRectF(3.5, 11.0, 9.5, 9.5), 2.0, 2.0)
     _line(p, 17.5, 19.5, 17.5, 5.5)
     _poly(p, ((14.0, 9.0), (17.5, 5.5), (21.0, 9.0)))
+
+
+def _draw_backward(p: QPainter, color: QColor) -> None:
+    """Eine Stufe nach hinten: zwei Blaetter, kurzer Pfeil."""
+    _stroke_only(p, color, 1.7)
+    p.drawRoundedRect(QRectF(3.0, 3.5, 8.5, 7.5), 1.8, 1.8)
+    p.drawRoundedRect(QRectF(6.2, 7.3, 8.5, 7.5), 1.8, 1.8)
+    _line(p, 19.2, 6.8, 19.2, 11.6)
+    _poly(p, ((16.6, 9.8), (19.2, 12.8), (21.8, 9.8)))
 
 
 def _draw_back(p: QPainter, color: QColor) -> None:
@@ -908,7 +932,9 @@ _DRAW = {
     "panel_right": _draw_panel_right,
     "orient_across": _draw_orient_across,
     "orient_along": _draw_orient_along,
+    "forward": _draw_forward,
     "front": _draw_front,
+    "backward": _draw_backward,
     "back": _draw_back,
     "delete": _draw_delete,
     "undo": _draw_undo,

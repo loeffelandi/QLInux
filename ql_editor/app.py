@@ -21,7 +21,6 @@ gedruckt ueber :mod:`ql_editor.printer` (in einem Worker-Thread).
 from __future__ import annotations
 
 import math
-import os
 import sys
 import threading
 from datetime import datetime
@@ -109,7 +108,7 @@ from .items import (
     TableItem,
     TextItem,
 )
-from .media_panel import MediaPanel
+from .media_panel import CONNECTION_USB, MediaPanel
 from .panels import OverlayPanel, PanelHost
 from .preview import (
     DEFAULT_THRESHOLD,
@@ -130,6 +129,7 @@ from .printer import (
     PrinterError,
     RESOLUTION_HIGH,
     RESOLUTION_STANDARD,
+    backend_for_address,
     detect_label,
     maximum_resolution,
     print_image,
@@ -139,7 +139,16 @@ from .printer import (
 )
 from .settings import AppSettings
 from .adaptive import AdaptivePages
-from .sheet import ask_choice, ask_save, ask_text, choose_file, save_file, show_message, show_widget
+from .sheet import (
+    ask_choice,
+    ask_label_printer,
+    ask_save,
+    ask_text,
+    choose_file,
+    save_file,
+    show_message,
+    show_widget,
+)
 from .symbols import SymbolPicker
 from .widgets import FeedIndicator, SmoothScrollArea, install_wheel_guard_recursive
 
@@ -323,7 +332,7 @@ class LabelTab:
 
 
 class MainWindow(QMainWindow):
-    def __init__(self, settings: AppSettings | None = None):
+    def __init__(self, settings: AppSettings | None = None, *, discover: bool = True):
         super().__init__()
         self._settings = settings or AppSettings()
         self.setWindowTitle(tr("QLInux - P-touch Editor"))
@@ -337,6 +346,13 @@ class MainWindow(QMainWindow):
         # bricht sie beim Schliessen des Fensters ab.
         self._network_worker: NetworkSearchWorker | None = None
         self._network_cancel = threading.Event()
+        # True, solange die Startsuche laeuft: ihr Ergebnis stellt den letzten
+        # Drucker wieder her und zaehlt nicht als Bearbeitung.
+        self._startup_discovery = False
+        # Anschluss und Adresse beim Start der Suche. Weicht der Stand beim
+        # Ergebnis davon ab, hat der Nutzer schon selbst gewaehlt.
+        self._startup_connection = ""
+        self._startup_address = ""
         # Passwort-Dialog des Systems (pkexec + Helfer), siehe _on_usb_permission.
         self._permission_process = QProcess(self)
         self._permission_process.finished.connect(self._on_permission_finished)
@@ -464,6 +480,10 @@ class MainWindow(QMainWindow):
         # Fokus auf dem Canvas: kein Formularfeld ist anfangs "aktiv", damit das
         # Mausrad über den Panels scrollt statt Werte zu veraendern.
         self._canvas.setFocus()
+        # Sprachwechsel baut das Fenster neu und uebergibt den Zustand selbst -
+        # dort nicht noch einmal suchen und die laufende Auswahl ersetzen.
+        if discover:
+            self._discover_startup_printer()
 
     # --------------------------------------------------------------- Aufbau --
     @staticmethod
@@ -1016,6 +1036,20 @@ class MainWindow(QMainWindow):
         self._act_add_rect.setToolTip(tr("Rahmen einfügen"))
         self._act_add_rect.triggered.connect(self._add_rect)
 
+        self._act_add_shapes = []
+        for shape, label in (
+            ("ellipse", tr("Ellipse")),
+            ("triangle", tr("Dreieck")),
+            ("star", tr("Stern")),
+            ("arrow_right", tr("Pfeil rechts")),
+            ("arrow_left", tr("Pfeil links")),
+            ("arrow_double", tr("Doppelpfeil")),
+        ):
+            act = QAction(icon(f"shape_{shape}"), label, self)
+            act.setToolTip(label)
+            act.triggered.connect(lambda _=False, s=shape: self._add_shape(s))
+            self._act_add_shapes.append(act)
+
         self._act_add_table = QAction(icon("table"), tr("Tabelle"), self)
         self._act_add_table.setToolTip(tr("Tabelle einfügen"))
         self._act_add_table.triggered.connect(self._add_table)
@@ -1058,13 +1092,33 @@ class MainWindow(QMainWindow):
         )
         self._act_align_bottom.triggered.connect(lambda: self._align_selected("bottom"))
 
+        self._act_forward = QAction(icon("forward"), tr("Eine Ebene nach vorn"), self)
+        self._act_forward.setToolTip(tr("Eine Ebene nach vorn"))
+        self._act_forward.triggered.connect(lambda: self._step_stack(+1))
+
+        self._act_backward = QAction(icon("backward"), tr("Eine Ebene nach hinten"), self)
+        self._act_backward.setToolTip(tr("Eine Ebene nach hinten"))
+        self._act_backward.triggered.connect(lambda: self._step_stack(-1))
+
         self._act_front = QAction(icon("front"), tr("In den Vordergrund"), self)
         self._act_front.setToolTip(tr("In den Vordergrund"))
-        self._act_front.triggered.connect(lambda: self._bump_z(+1))
+        self._act_front.triggered.connect(lambda: self._stack_extreme(front=True))
 
         self._act_back = QAction(icon("back"), tr("In den Hintergrund"), self)
         self._act_back.setToolTip(tr("In den Hintergrund"))
-        self._act_back.triggered.connect(lambda: self._bump_z(-1))
+        self._act_back.triggered.connect(lambda: self._stack_extreme(front=False))
+
+        self._act_snap_guides = QAction(icon("align_left"), tr("An Hilfslinien ausrichten"), self)
+        self._act_snap_guides.setToolTip(tr("An Hilfslinien ausrichten"))
+        self._act_snap_guides.triggered.connect(self._snap_selection_to_guides)
+        for act in (
+            self._act_forward,
+            self._act_backward,
+            self._act_front,
+            self._act_back,
+            self._act_snap_guides,
+        ):
+            act.setEnabled(False)
 
         self._act_delete = QAction(icon("delete"), tr("Löschen"), self)
         self._act_delete.setToolTip(tr("Löschen (Entf)"))
@@ -1226,6 +1280,8 @@ class MainWindow(QMainWindow):
         bar.addSeparator()
         bar.addWidget(self._build_shape_button(bar))
         bar.addWidget(self._build_align_button(bar))
+        bar.addAction(self._act_forward)
+        bar.addAction(self._act_backward)
         bar.addAction(self._act_front)
         bar.addAction(self._act_back)
         bar.addAction(self._act_delete)
@@ -1263,18 +1319,7 @@ class MainWindow(QMainWindow):
         button.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         button.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
         menu = QMenu(button)
-        menu.addAction(icon("line"), tr("Linie"), self._add_line)
-        menu.addAction(icon("rect"), tr("Rahmen"), self._add_rect)
-        menu.addSeparator()
-        for shape, label in (
-            ("ellipse", tr("Ellipse")),
-            ("triangle", tr("Dreieck")),
-            ("star", tr("Stern")),
-            ("arrow_right", tr("Pfeil rechts")),
-            ("arrow_left", tr("Pfeil links")),
-            ("arrow_double", tr("Doppelpfeil")),
-        ):
-            menu.addAction(icon(f"shape_{shape}"), label, lambda _=False, s=shape: self._add_shape(s))
+        self._add_shape_actions(menu)
         button.setMenu(menu)
         return button
 
@@ -1327,6 +1372,7 @@ class MainWindow(QMainWindow):
             self._act_add_qr,
             self._act_add_line,
             self._act_add_rect,
+            *self._act_add_shapes,
             self._act_add_table,
             self._act_add_datetime,
         ):
@@ -1341,9 +1387,16 @@ class MainWindow(QMainWindow):
             self._act_align_top,
             self._act_align_vcenter,
             self._act_align_bottom,
-            self._act_front,
-            self._act_back,
             self._act_delete,
+        ):
+            menu.addAction(act)
+        menu.addSection(tr("Layout"))
+        for act in (
+            self._act_forward,
+            self._act_front,
+            self._act_backward,
+            self._act_back,
+            self._act_snap_guides,
         ):
             menu.addAction(act)
         menu.addSection(tr("Etikett"))
@@ -1496,7 +1549,7 @@ class MainWindow(QMainWindow):
         self._settings.language = code
         self._settings.sync()
 
-        window = MainWindow(self._settings)
+        window = MainWindow(self._settings, discover=False)
         window.apply_state(state)
         window.setGeometry(self.geometry())
         window.setWindowState(self.windowState())
@@ -1605,6 +1658,7 @@ class MainWindow(QMainWindow):
         naechsten Start verloren.
         """
         geometry = self._settings.restore_geometry()
+        connection = self._settings.connection
         address = self._settings.address
         model = self._settings.model
         last_label = self._settings.last_label
@@ -1627,7 +1681,11 @@ class MainWindow(QMainWindow):
         index = self._media_panel._model_combo.findData(model)
         if index >= 0:
             self._media_panel._model_combo.setCurrentIndex(index)
-        self._media_panel.set_address(address)
+        # Erst der Anschluss, dann die Adresse - aber nur, wenn sie zu diesem
+        # Anschluss gehoert. Eine leere Adresse laesst das Netzwerkfeld leer.
+        self._media_panel.set_connection(connection)
+        if address and _address_matches_connection(address, connection):
+            self._media_panel.set_address(address)
         if last_label:
             self._media_panel.select_label(last_label)
         # Zuletzt gewaehlte Panel-Sichtbarkeit wiederherstellen (kleine Screens).
@@ -1669,6 +1727,7 @@ class MainWindow(QMainWindow):
         self._media_prev = deepcopy(dict(self._media_panel.media_state()))
         self._recompute_canvas()
         self._settings.last_label = self._media_panel.label_id()
+        self._settings.connection = self._media_panel.connection()
         self._settings.address = self._media_panel.address()
         self._settings.model = self._media_panel.model_id()
         # Ein anderes Modell hat andere Aufloesungen.
@@ -2314,6 +2373,7 @@ class MainWindow(QMainWindow):
             fields = list(tab.csv_table.fields)
         self._inspector.set_database_fields(fields)
         self._inspector.set_item(item, allow_red=allow_red)
+        self._sync_arrange_actions()
 
     def _on_inspector_edit_committed(self) -> None:
         """Undo-Schritt schliessen; Database Field baut den Inspector neu."""
@@ -2414,8 +2474,7 @@ class MainWindow(QMainWindow):
         menu.addAction(self._act_add_clipart)
         menu.addAction(icon("barcode"), tr("Barcode…"), self._add_barcode)
         menu.addAction(icon("qr"), tr("QR-Code…"), self._add_qr)
-        menu.addAction(icon("line"), tr("Linie"), self._add_line)
-        menu.addAction(icon("rect"), tr("Rahmen"), self._add_rect)
+        self._add_shape_actions(menu)
         menu.addAction(self._act_add_table)
         menu.addAction(self._act_add_datetime)
         if self._canvas.selected_items():
@@ -2430,8 +2489,11 @@ class MainWindow(QMainWindow):
             ):
                 menu.addAction(act)
             menu.addSeparator()
+            menu.addAction(self._act_forward)
             menu.addAction(self._act_front)
+            menu.addAction(self._act_backward)
             menu.addAction(self._act_back)
+            menu.addAction(self._act_snap_guides)
             menu.addAction(self._act_delete)
         return menu
 
@@ -2513,6 +2575,14 @@ class MainWindow(QMainWindow):
         )
         self._add_item(item)
 
+    def _add_shape_actions(self, menu: QMenu) -> None:
+        """Dieselben Formen wie der Toolbar-Knopf und das Menue „Einfügen"."""
+        menu.addAction(self._act_add_line)
+        menu.addAction(self._act_add_rect)
+        menu.addSeparator()
+        for act in self._act_add_shapes:
+            menu.addAction(act)
+
     def _add_shape(self, shape: str) -> None:
         width = self._canvas.printable_rect().width()
         size = max(40, int(self._canvas.height_dots * 0.4))
@@ -2571,14 +2641,118 @@ class MainWindow(QMainWindow):
             fit=False,
         )
 
-    def _bump_z(self, direction: int) -> None:
-        if not self._canvas.selected_items():
+    def _sync_arrange_actions(self) -> None:
+        """Stapel-Befehle nur mit Auswahl und weiteren Objekten; Snap mit Auswahl."""
+        selected = [
+            item
+            for item in self._canvas.selected_items()
+            if hasattr(item, "to_dict")
+        ]
+        others = [
+            item for item in self._canvas.ordered_items() if item not in selected
+        ]
+        can_stack = bool(selected and others)
+        for act in (
+            self._act_forward,
+            self._act_backward,
+            self._act_front,
+            self._act_back,
+        ):
+            act.setEnabled(can_stack)
+        self._act_snap_guides.setEnabled(bool(selected))
+
+    def _stack_bottom_to_top(self) -> list:
+        """Sichtbare Stapelreihenfolge, unten zuerst.
+
+        ``scene.items()`` ist oben zuerst und kennt z zusammen mit der
+        Einfuegereihenfolge. Nur nach z zu sortieren dreht den Gleichstand um.
+        """
+        items = [
+            item
+            for item in self._canvas.scene().items()
+            if hasattr(item, "to_dict") and not getattr(item, "_pending_discard", False)
+        ]
+        items.reverse()
+        return items
+
+    def _apply_stack(self, order: list) -> None:
+        current = [id(item) for item in self._stack_bottom_to_top()]
+        if current == [id(item) for item in order]:
             return
         self._capture_history()
-        for item in self._canvas.selected_items():
-            item.setZValue(item.zValue() + direction)
+        for index, item in enumerate(order):
+            item.setZValue(float(index))
         self._commit_history(tr("Reihenfolge"))
         self._canvas.viewport().update()
+
+    def _step_stack(self, direction: int) -> None:
+        """Eine sichtbare Stufe, an den nicht ausgewaehlten Nachbarn vorbei."""
+        selected = {
+            id(item)
+            for item in self._canvas.selected_items()
+            if hasattr(item, "to_dict")
+        }
+        order = self._stack_bottom_to_top()
+        if not selected or len(order) < 2:
+            return
+        if direction > 0:
+            index = len(order) - 1
+            while index >= 0:
+                if (
+                    id(order[index]) in selected
+                    and index + 1 < len(order)
+                    and id(order[index + 1]) not in selected
+                ):
+                    order[index], order[index + 1] = order[index + 1], order[index]
+                index -= 1
+        else:
+            index = 0
+            while index < len(order):
+                if (
+                    id(order[index]) in selected
+                    and index > 0
+                    and id(order[index - 1]) not in selected
+                ):
+                    order[index], order[index - 1] = order[index - 1], order[index]
+                index += 1
+        self._apply_stack(order)
+
+    def _stack_extreme(self, *, front: bool) -> None:
+        """Auswahl in einem Schritt ganz nach vorn oder ganz nach hinten."""
+        selected = {
+            id(item)
+            for item in self._canvas.selected_items()
+            if hasattr(item, "to_dict")
+        }
+        order = self._stack_bottom_to_top()
+        picked = [item for item in order if id(item) in selected]
+        others = [item for item in order if id(item) not in selected]
+        if not picked or not others:
+            return
+        self._apply_stack(others + picked if front else picked + others)
+
+    def _snap_selection_to_guides(self) -> None:
+        """Dieselbe Snap-Distanz wie beim Ziehen, einmal auf die Auswahl."""
+        items = [
+            item
+            for item in self._canvas.selected_items()
+            if hasattr(item, "to_dict")
+        ]
+        if not items:
+            return
+        bbox = QRectF()
+        for item in items:
+            box = item.sceneBoundingRect()
+            bbox = box if bbox.isNull() else bbox.united(box)
+        dx, dy, guides = self._canvas._snap_move(bbox, 0.0, 0.0, exclude=items)
+        if not dx and not dy:
+            return
+        self._capture_history()
+        for item in items:
+            item.moveBy(dx, dy)
+        self._canvas._guides = guides
+        self._commit_history(tr("An Hilfslinien ausrichten"))
+        self._on_items_changed()
 
     # -------------------------------------------------------------- Print ---
     def _on_print(self) -> None:
@@ -2809,16 +2983,123 @@ class MainWindow(QMainWindow):
             return
         self._network_cancel.clear()
         self._media_panel.set_network_searching(True)
-        self.statusBar().showMessage(tr("Netzwerk wird durchsucht …"), 4000)
+        # Die Startsuche soll keine spaetere Statusmeldung ueberschreiben
+        # (z. B. den Hinweis nach dem Oeffnen einer Datei).
+        if not self._startup_discovery:
+            self.statusBar().showMessage(tr("Netzwerk wird durchsucht …"), 4000)
         self._network_worker = NetworkSearchWorker(self._network_cancel)
         self._network_worker.succeeded.connect(self._on_network_found)
         self._network_worker.finished.connect(self._on_network_search_done)
         self._network_worker.finished.connect(self._network_worker.deleteLater)
         self._network_worker.start()
 
+    def _discover_startup_printer(self) -> None:
+        """Gespeicherten Anschluss suchen und den letzten Drucker waehlen.
+
+        Steht er in den Treffern, wird er ausgewaehlt, sonst der erste Treffer.
+        Findet die Suche nichts, bleibt eine gespeicherte Adresse stehen; eine
+        fehlende Einstellung laesst das Feld leer.
+        """
+        self._history_suppress = True
+        try:
+            if self._media_panel.connection() == CONNECTION_USB:
+                self._media_panel.refresh_usb_devices(select_fallback=True)
+            else:
+                self._startup_connection = self._media_panel.connection()
+                self._startup_address = self._media_panel.address()
+                self._startup_discovery = True
+                self._on_network_search()
+        finally:
+            self._history_suppress = False
+        # Die Startauswahl ist der Ausgangszustand, keine Bearbeitung.
+        self._sync_media_prev()
+        self._address_dirty = False
+        self._undo_stack.clear()
+        self._undo_stack.setClean()
+        self._update_window_title()
+
+    def _startup_search_is_stale(self) -> bool:
+        """Nutzer hat Anschluss oder Adresse geaendert, waehrend gesucht wurde."""
+        return (
+            self._media_panel.connection() != self._startup_connection
+            or self._media_panel.address() != self._startup_address
+        )
+
+    def _label_loaded(self) -> bool:
+        """Ein Etikett ist offen oder schon bearbeitet.
+
+        Ohne Datei und ohne Aenderung bleibt der Startabgleich still: ein
+        leeres Fenster hat noch nichts, das die Suche bewahren muesste.
+        """
+        return (
+            bool(self._document_path)
+            or self._document_dirty
+            or not self._undo_stack.isClean()
+        )
+
+    def _finish_startup_discovery(self, *, clear_address_dirty: bool) -> None:
+        self._history_suppress = False
+        self._startup_discovery = False
+        self._sync_media_prev()
+        if (
+            clear_address_dirty
+            and self._undo_stack.isClean()
+            and not self._document_dirty
+        ):
+            self._address_dirty = False
+            self._update_window_title()
+
+    def _offer_label_adaption(self) -> None:
+        """Fragen, bevor das gefundene Modell Band und Raender umbaut."""
+        discovered = self._media_panel.network_model_id()
+        current = self._media_panel.model_id()
+        if not discovered or discovered == current:
+            return
+        ask_label_printer(
+            self,
+            title=tr("Drucker gefunden"),
+            text=tr(
+                "Das Etikett ist für {label_model} ausgelegt, gefunden wurde "
+                "{printer_model}. Band und Ränder bleiben, wenn du das "
+                "Etikett behältst."
+            ).format(label_model=current, printer_model=discovered),
+            on_choice=self._on_label_printer_choice,
+        )
+
+    def _on_label_printer_choice(self, choice: str) -> None:
+        """„Anpassen" zieht das Modell nach und wird ein Undo-Schritt."""
+        if choice != "adapt":
+            return
+        self._media_panel._apply_network_model()
+
     def _on_network_found(self, printers: list) -> None:
         """Gefundene Drucker in die Liste uebernehmen und kurz melden."""
-        found = self._media_panel.refresh_network_devices(printers)
+        startup = self._startup_discovery
+        if startup and self._startup_search_is_stale():
+            self._history_suppress = True
+            try:
+                self._media_panel.remember_network_printers(printers)
+            finally:
+                # Die Zwischenwahl des Nutzers bleibt eine Aenderung.
+                self._finish_startup_discovery(clear_address_dirty=False)
+            return
+        defer_model = startup and self._label_loaded()
+        if startup:
+            self._history_suppress = True
+        try:
+            found = self._media_panel.refresh_network_devices(
+                printers,
+                select_fallback=startup,
+                apply_model=not defer_model,
+            )
+        finally:
+            if startup:
+                self._finish_startup_discovery(clear_address_dirty=True)
+        if startup and defer_model:
+            self._offer_label_adaption()
+            return
+        if startup:
+            return
         if not found:
             self.statusBar().showMessage(
                 tr("Keine Netzwerk-Drucker gefunden."), 8000
@@ -3042,6 +3323,10 @@ class MainWindow(QMainWindow):
         tab.undo.cleanChanged.connect(self._on_undo_clean_changed)
 
     def _unbind_tab(self, tab: LabelTab) -> None:
+        # Der Hinweis gehoert zum Reiter. Sonst bleibt er stehen, weil nur
+        # das Signal getrennt wird und der Canvas ihn nicht neu setzt.
+        tab.canvas._set_hint("")
+        self._on_canvas_hint("")
         canvas = tab.canvas
         pairs = (
             (canvas.text_requested, self._on_text_requested),
@@ -3984,6 +4269,7 @@ class MainWindow(QMainWindow):
             else [],
         )
         self._settings.save_geometry(self.saveGeometry())
+        self._settings.connection = self._media_panel.connection()
         self._settings.address = self._media_panel.address()
         self._settings.model = self._media_panel.model_id()
         self._settings.last_label = self._media_panel.label_id()
@@ -4002,17 +4288,31 @@ class MainWindow(QMainWindow):
         super().closeEvent(event)
 
 
+def _address_matches_connection(address: str, connection: str) -> bool:
+    """Gehoert ``address`` zum Anschluss ``network`` oder ``usb``?"""
+    kind = "network" if backend_for_address(address) == "network" else CONNECTION_USB
+    return kind == connection
+
+
 def _system_language() -> str:
     """Erststart: die Systemsprache, wenn wir sie anbieten - sonst Deutsch."""
     code = QLocale.system().name().split("_")[0].lower()
     return code if code in LANGUAGES else DEFAULT_LANGUAGE
 
 
+def _canonical_path(path: str) -> str:
+    """Wie ``_tab_with_path``: Symlinks aufloesen, bei OSError den Pfad lassen."""
+    try:
+        return str(Path(path).resolve())
+    except OSError:
+        return path
+
+
 def _label_paths(paths: Iterable[str]) -> list[str]:
     """Nur Etikettendateien (``.qlx``, ``.lbx``) - alles andere fällt weg."""
     suffixes = (document.DOCUMENT_SUFFIX, lbx.LBX_SUFFIX)
     return [
-        os.path.abspath(path)
+        _canonical_path(path)
         for path in paths
         if not path.startswith("-") and path.lower().endswith(suffixes)
     ]
@@ -4039,8 +4339,9 @@ def main(argv: list[str] | None = None) -> int:
     app = QApplication.instance() or QApplication(argv)
     app.setApplicationName("QLInux")
     files = _document_args(argv)
-    # Läuft schon eine Instanz, öffnet sie die Dateien als Reiter - dieser Start endet.
-    if files and instance.forward(files):
+    # Läuft schon eine Instanz, öffnet sie die Dateien als Reiter bzw. holt das
+    # Fenster nach vorn - auch ohne Datei. Dieser Start endet dann.
+    if instance.forward(files):
         return 0
     settings = AppSettings()
     set_language(settings.language or _system_language())
@@ -4052,7 +4353,7 @@ def main(argv: list[str] | None = None) -> int:
     # Kein removeServer bei belegtem Namen: nur die Owner-Instanz hält den Socket.
     server = instance.listen(partial(_open_from_outside, window))
     # TOCTOU: zwei Starts mit Dateien — Verlierer reicht nach listen() nach.
-    if server is None and files and instance.forward(files, attempts=5, retry_ms=50):
+    if server is None and instance.forward(files, attempts=5, retry_ms=50):
         return 0
     window.show()
     for path in files:

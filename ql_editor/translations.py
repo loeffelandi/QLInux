@@ -160,6 +160,10 @@ EN: dict[str, str] = {
     "Symbologie": "Symbology",
     "In den Vordergrund": "Bring to front",
     "In den Hintergrund": "Send to back",
+    "Eine Ebene nach vorn": "Bring forward",
+    "Eine Ebene nach hinten": "Send backward",
+    "An Hilfslinien ausrichten": "Align to guides",
+    "Layout": "Layout",
     "Löschen": "Delete",
     "Löschen (Entf)": "Delete (Del)",
     # -- Zoom und Vorschau --------------------------------------------------
@@ -211,6 +215,17 @@ EN: dict[str, str] = {
     "Netzwerk wird durchsucht …": "Searching the network …",
     "Kein Drucker gefunden.": "No printer found.",
     "Kein Drucker gewählt.": "No printer selected.",
+    "Gespeicherten Drucker nicht gefunden, {host} gewählt.": (
+        "Saved printer not found, selected {host}."
+    ),
+    "Gleicher Drucker, Port {port}.": "Same printer, port {port}.",
+    "Drucker gefunden": "Printer found",
+    "Das Etikett ist für {label_model} ausgelegt, gefunden wurde {printer_model}. Band und Ränder bleiben, wenn du das Etikett behältst.": (
+        "This label is laid out for {label_model}; the printer that was found is a {printer_model}. "
+        "Tape and margins stay as they are if you keep the label."
+    ),
+    "Etikett behalten": "Keep label",
+    "An den Drucker anpassen": "Match the printer",
     "Abbrechen": "Cancel",
     "Öffnen": "Open",
     "Speichern": "Save",

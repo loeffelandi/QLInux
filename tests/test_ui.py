@@ -138,6 +138,43 @@ def test_modellwechsel_laesst_gueltiges_band(window):
 # --------------------------------------------------------------------------- #
 
 
+def test_inspector_formatting_buttons_have_tooltips(window):
+    """Stil, Liste, Richtung und Farbmenue sind ueber Tooltips erreichbar."""
+    text = _add_text(window)
+    inspector = window._inspector
+    inspector.set_item(text, allow_red=True)
+    QApplication.processEvents()
+
+    for tip in (
+        "Unterstrichen",
+        "Durchgestrichen",
+        "Keine",
+        "Punkte",
+        "Nummern",
+        "Horizontal",
+        "Vertikal",
+        "Farbe",
+    ):
+        _tool_button(inspector, tip)
+
+    color = _tool_button(inspector, "Farbe")
+    assert color.text() == ""
+    assert not color.icon().isNull()
+    assert [action.text() for action in color.menu().actions()] == ["schwarz", "rot"]
+
+    _tool_button(inspector, "Unterstrichen").click()
+    _tool_button(inspector, "Punkte").click()
+    _tool_button(inspector, "Vertikal").click()
+    color.menu().actions()[1].trigger()
+    QApplication.processEvents()
+
+    assert text.underline is True
+    assert text.list_style == "bullet"
+    assert text.vertical is True
+    assert text.color == "red"
+    assert color.text() == ""
+
+
 def test_inspector_fett_und_kursiv_fuer_text(window):
     text = _add_text(window)
     inspector = window._inspector

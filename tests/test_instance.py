@@ -53,6 +53,45 @@ def test_only_label_files_are_forwarded_or_opened(qapp):
     ]
 
 
+def test_label_paths_resolve_symlinks(tmp_path):
+    from ql_editor.app import _label_paths
+
+    target = tmp_path / "design.qlx"
+    target.write_text("{}", encoding="utf-8")
+    link = tmp_path / "link.qlx"
+    link.symlink_to(target)
+    resolved = str(target.resolve())
+    assert _label_paths([str(link), str(target)]) == [resolved, resolved]
+
+
+def test_empty_forward_reaches_the_running_instance(qapp):
+    """Zweiter Start ohne Datei: leere Liste, die Instanz fokussiert."""
+    name = _unique_name()
+    received: list[list[str]] = []
+    server = instance.listen(received.append, name)
+    assert server is not None
+    try:
+        assert instance.forward([], name) is True
+        assert _wait_for(qapp, lambda: received)
+        assert received == [[]]
+    finally:
+        server.close()
+
+
+def test_second_start_without_files_exits_after_focus(qapp, monkeypatch):
+    from ql_editor import app as app_module
+
+    forwarded: list[list[str]] = []
+
+    def forward(paths, **_kwargs):
+        forwarded.append(list(paths))
+        return True
+
+    monkeypatch.setattr(app_module.instance, "forward", forward)
+    assert app_module.main(["ql-editor"]) == 0
+    assert forwarded == [[]]
+
+
 def test_a_broken_message_is_ignored(qapp):
     name = _unique_name()
     received: list[list[str]] = []
