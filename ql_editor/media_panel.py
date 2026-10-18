@@ -100,6 +100,17 @@ def usb_placeholder() -> str:
 logger = logging.getLogger(__name__)
 
 
+def _network_host_only(address: str) -> str:
+    """Host ohne Port. ``network_host`` laesst einen abweichenden Port stehen."""
+    shown = network_host(address)
+    if not shown:
+        return ""
+    if shown.startswith("["):
+        end = shown.find("]")
+        return shown[: end + 1] if end >= 0 else shown
+    return shown.split(":", 1)[0]
+
+
 class MediaPanel(QWidget):
     """Bedienfeld fuer Band, Laenge, Margins, Farbe und Drucker."""
 
@@ -131,6 +142,9 @@ class MediaPanel(QWidget):
         # Ob ueberhaupt schon einmal gesucht wurde - nur dann heisst eine leere
         # Liste "nichts gefunden" statt "noch nicht gesucht".
         self._network_searched = False
+        # Hinweis, wenn die Startsuche eine andere Adresse als die gespeicherte
+        # gewaehlt hat. Leer, sobald der Nutzer selbst waehlt.
+        self._network_fallback_note = ""
         # IP/Name des Netzwerkdruckers. Normalerweise kommt er aus der Suche;
         # von Hand eingetragen wird er nur ueber den Listeneintrag "Per
         # IP-Adresse hinzufügen…" (siehe _ask_network_host).
@@ -874,6 +888,7 @@ class MediaPanel(QWidget):
         printers: list[NetworkPrinter] | None = None,
         *,
         select_fallback: bool = False,
+        apply_model: bool = True,
     ) -> list[NetworkPrinter]:
         """Gefundene Netzwerk-Drucker uebernehmen und die Liste fuellen.
 
@@ -883,13 +898,18 @@ class MediaPanel(QWidget):
         Hintergrund. Die aktuelle Adresse bleibt erhalten; wurde sie nicht
         gefunden, steht sie als „Handeingabe“ in der Liste. Ist noch gar keine
         Adresse gesetzt und wird genau ein Drucker gefunden, wird er
-        gleich uebernommen (wie am USB). Das **Modell** zieht in jedem Fall
-        nach: die Discovery meldet, welches Geraet dort wirklich steht.
+        gleich uebernommen (wie am USB). Das **Modell** zieht nach, solange
+        ``apply_model`` gesetzt ist: die Discovery meldet, welches Geraet
+        dort wirklich steht.
 
         Mit ``select_fallback`` (Programmstart) gilt zusaetzlich: steht die
         aktuelle Adresse nicht in den Treffern, wird der erste Treffer
-        gewaehlt. Ohne jeden Treffer bleibt eine gespeicherte Adresse stehen;
-        ganz ohne Adresse bleibt das Feld leer.
+        gewaehlt. Derselbe Host mit einem anderen Port zaehlt als dieser
+        Drucker, nicht als Fehltreffer. Ohne jeden Treffer bleibt eine
+        gespeicherte Adresse stehen; ganz ohne Adresse bleibt das Feld leer.
+
+        ``apply_model=False`` uebernimmt nur die Adresse. Das Modell (und damit
+        Band und Raender) bleibt stehen, bis der Aufrufer es selbst setzt.
         """
         if printers is None:
             try:
@@ -899,20 +919,36 @@ class MediaPanel(QWidget):
                 printers = []
         self._network_found = list(printers)
         self._network_searched = True
-        if (
-            select_fallback
-            and self._network_found
-            and not any(printer.address == self.address() for printer in self._network_found)
+        self._network_fallback_note = ""
+        on_network = self.connection() == CONNECTION_NETWORK
+        current = self.address() if on_network else ""
+        match = self._matching_network_printer(current) if current else None
+        adopt: NetworkPrinter | None = None
+        if on_network and select_fallback and self._network_found and match is None:
+            adopt = self._network_found[0]
+            if current:
+                self._network_fallback_note = tr(
+                    "Gespeicherten Drucker nicht gefunden, {host} gewählt."
+                ).format(host=adopt.host)
+        elif (
+            on_network
+            and select_fallback
+            and match is not None
+            and match.address != current
         ):
-            self.set_network_host(self._network_found[0].host)
-            self._sync_network_hint()
-            return list(self._network_found)
-        self._rebuild_network_list()
-        if not self._network_host and len(self._network_found) == 1:
+            adopt = match
+            self._network_fallback_note = tr(
+                "Gleicher Drucker, Port {port}."
+            ).format(port=match.port)
+        elif on_network and not self._network_host and len(self._network_found) == 1:
             # Genau ein Treffer: die Wahl ist klar. Ueber die Adresse gehen -
             # in der Liste steht bewusst nichts vorausgewaehlt.
-            self.set_network_host(self._network_found[0].host)
-        else:
+            adopt = self._network_found[0]
+        if adopt is not None:
+            self._adopt_network_printer(adopt, apply_model=apply_model)
+            return list(self._network_found)
+        self._rebuild_network_list()
+        if apply_model and on_network:
             # Auch ohne neue Auswahl zieht das Modell nach: es stand beim Start
             # eventuell falsch in den Einstellungen, und die Discovery weiss es
             # jetzt besser (am USB ist es umgekehrt, dort verraet es die
@@ -920,6 +956,50 @@ class MediaPanel(QWidget):
             self._apply_network_model()
         self._sync_network_hint()
         return list(self._network_found)
+
+    def remember_network_printers(self, printers: list[NetworkPrinter]) -> None:
+        """Treffer nur in die Liste schreiben.
+
+        Adresse, Anschluss und Modell bleiben. Die Startsuche nutzt das, wenn
+        der Nutzer in der Zwischenzeit schon selbst gewaehlt hat.
+        """
+        self._network_found = list(printers)
+        self._network_searched = True
+        self._network_fallback_note = ""
+        self._rebuild_network_list()
+        self._sync_network_hint()
+
+    def _matching_network_printer(self, address: str) -> NetworkPrinter | None:
+        """Treffer zur Adresse: exakt, sonst derselbe Host (Port darf abweichen)."""
+        if not address:
+            return None
+        for printer in self._network_found:
+            if printer.address == address:
+                return printer
+        host = _network_host_only(address)
+        if not host:
+            return None
+        for printer in self._network_found:
+            if printer.host == host:
+                return printer
+        return None
+
+    def _adopt_network_printer(
+        self, printer: NetworkPrinter, *, apply_model: bool
+    ) -> None:
+        """Diesen Treffer als Adresse uebernehmen."""
+        self._network_host = network_host(printer.address)
+        self._rebuild_network_list()
+        if apply_model:
+            self._apply_network_model()
+        self._sync_connection_rows()
+        self._sync_network_hint()
+        self.changed.emit()
+
+    def network_model_id(self) -> str:
+        """Modell des gewaehlten Netzwerk-Eintrags, sonst leer."""
+        model = self._net_combo.itemData(self._net_combo.currentIndex(), MODEL_ROLE)
+        return str(model or "")
 
     def set_network_searching(self, searching: bool) -> None:
         """Suche laeuft: Knopf sperren und es in der Statuszeile zeigen."""
@@ -937,6 +1017,8 @@ class MediaPanel(QWidget):
             text = tr("Suche läuft …")
         elif self._network_searched and not self._network_found:
             text = tr("Kein Drucker gefunden.")
+        elif self._network_fallback_note:
+            text = self._network_fallback_note
         elif not self._network_host:
             # Erster Start (keine Adresse gespeichert): der Weg steht daneben -
             # das Suchsymbol fuellt die Liste.
@@ -944,6 +1026,17 @@ class MediaPanel(QWidget):
         else:
             text = ""
         self._net_hint.setText(text)
+
+    def _network_list_address(self) -> str:
+        """Adresse, die in der Netzwerkliste ausgewaehlt sein soll.
+
+        Am USB ist ``address()`` der Geraeteknoten. Die Liste gehoert trotzdem
+        zum gespeicherten Netzwerknamen, sonst landet ``/dev/usb/lp0`` als
+        Handeingabe darin.
+        """
+        if self.connection() == CONNECTION_NETWORK:
+            return self.address()
+        return parse_network_address(self._network_host)
 
     def _rebuild_network_list(self) -> None:
         """Liste aus den zuletzt gefundenen Druckern neu aufbauen.
@@ -953,7 +1046,7 @@ class MediaPanel(QWidget):
         gesucht oder von Hand eingetragen wurde. Als letzter Eintrag steht der
         Befehl „Per IP-Adresse hinzufügen…“; er ist nie der aktuelle Eintrag.
         """
-        current = self.address()
+        current = self._network_list_address()
         self._net_combo.blockSignals(True)
         try:
             self._net_combo.clear()
@@ -997,6 +1090,7 @@ class MediaPanel(QWidget):
 
     def _apply_network_selection(self) -> None:
         """Gewaehlten Netzwerk-Drucker uebernehmen - Modell zieht nach."""
+        self._network_fallback_note = ""
         address = self._net_combo.currentData() or ""
         if address:
             self._network_host = network_host(address)
@@ -1035,6 +1129,7 @@ class MediaPanel(QWidget):
         address = parse_network_address(host)
         if not address:
             return
+        self._network_fallback_note = ""
         self._network_host = network_host(address)
         self._rebuild_network_list()
         self._apply_network_model()

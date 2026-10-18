@@ -411,6 +411,49 @@ def ask_save(
     return sheet
 
 
+def ask_label_printer(
+    parent: QWidget,
+    *,
+    title: str,
+    text: str,
+    on_choice: Callable[[str], None],
+) -> Sheet:
+    """Etikett behalten oder an den gefundenen Drucker anpassen.
+
+    ``on_choice`` bekommt ``"keep"`` oder ``"adapt"``. Escape und das
+    Schließen des Sheets zählen als Behalten: das Etikett bleibt, wie es ist.
+    """
+    box = QMessageBox()
+    box.setWindowFlags(Qt.WindowType.Widget)
+    box.setIcon(QMessageBox.Icon.Question)
+    box.setText(text)
+    keep = box.addButton(tr("Etikett behalten"), QMessageBox.ButtonRole.AcceptRole)
+    adapt = box.addButton(
+        tr("An den Drucker anpassen"), QMessageBox.ButtonRole.ActionRole
+    )
+    box.setDefaultButton(keep)
+    sheet = _open_sheet(parent, box, title=title, sizing="hint")
+    chosen: dict[str, str | None] = {"value": None}
+
+    def _finish(choice: str) -> None:
+        if chosen["value"] is not None:
+            return
+        chosen["value"] = choice
+        sheet.close_sheet()
+        on_choice(choice)
+
+    def _clicked(_result: int) -> None:
+        button = box.clickedButton()
+        if button is adapt:
+            _finish("adapt")
+        else:
+            _finish("keep")
+
+    box.finished.connect(_clicked)
+    sheet.closed.connect(lambda: _finish("keep"))
+    return sheet
+
+
 def choose_file(
     parent: QWidget,
     *,
@@ -554,4 +597,12 @@ def ask_choice(
     return sheet
 
 
-__all__ = ["Sheet", "show_message", "choose_file", "ask_text", "ask_choice", "ask_save"]
+__all__ = [
+    "Sheet",
+    "show_message",
+    "choose_file",
+    "ask_text",
+    "ask_choice",
+    "ask_save",
+    "ask_label_printer",
+]

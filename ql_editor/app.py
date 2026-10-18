@@ -138,7 +138,16 @@ from .printer import (
 )
 from .settings import AppSettings
 from .adaptive import AdaptivePages
-from .sheet import ask_choice, ask_save, ask_text, choose_file, save_file, show_message, show_widget
+from .sheet import (
+    ask_choice,
+    ask_label_printer,
+    ask_save,
+    ask_text,
+    choose_file,
+    save_file,
+    show_message,
+    show_widget,
+)
 from .symbols import SymbolPicker
 from .widgets import FeedIndicator, SmoothScrollArea, install_wheel_guard_recursive
 
@@ -329,6 +338,10 @@ class MainWindow(QMainWindow):
         # True, solange die Startsuche laeuft: ihr Ergebnis stellt den letzten
         # Drucker wieder her und zaehlt nicht als Bearbeitung.
         self._startup_discovery = False
+        # Anschluss und Adresse beim Start der Suche. Weicht der Stand beim
+        # Ergebnis davon ab, hat der Nutzer schon selbst gewaehlt.
+        self._startup_connection = ""
+        self._startup_address = ""
         # Passwort-Dialog des Systems (pkexec + Helfer), siehe _on_usb_permission.
         self._permission_process = QProcess(self)
         self._permission_process.finished.connect(self._on_permission_finished)
@@ -2608,6 +2621,8 @@ class MainWindow(QMainWindow):
             if self._media_panel.connection() == CONNECTION_USB:
                 self._media_panel.refresh_usb_devices(select_fallback=True)
             else:
+                self._startup_connection = self._media_panel.connection()
+                self._startup_address = self._media_panel.address()
                 self._startup_discovery = True
                 self._on_network_search()
         finally:
@@ -2619,23 +2634,86 @@ class MainWindow(QMainWindow):
         self._undo_stack.setClean()
         self._update_window_title()
 
+    def _startup_search_is_stale(self) -> bool:
+        """Nutzer hat Anschluss oder Adresse geaendert, waehrend gesucht wurde."""
+        return (
+            self._media_panel.connection() != self._startup_connection
+            or self._media_panel.address() != self._startup_address
+        )
+
+    def _label_loaded(self) -> bool:
+        """Ein Etikett ist offen oder schon bearbeitet.
+
+        Ohne Datei und ohne Aenderung bleibt der Startabgleich still: ein
+        leeres Fenster hat noch nichts, das die Suche bewahren muesste.
+        """
+        return (
+            bool(self._document_path)
+            or self._document_dirty
+            or not self._undo_stack.isClean()
+        )
+
+    def _finish_startup_discovery(self, *, clear_address_dirty: bool) -> None:
+        self._history_suppress = False
+        self._startup_discovery = False
+        self._sync_media_prev()
+        if (
+            clear_address_dirty
+            and self._undo_stack.isClean()
+            and not self._document_dirty
+        ):
+            self._address_dirty = False
+            self._update_window_title()
+
+    def _offer_label_adaption(self) -> None:
+        """Fragen, bevor das gefundene Modell Band und Raender umbaut."""
+        discovered = self._media_panel.network_model_id()
+        current = self._media_panel.model_id()
+        if not discovered or discovered == current:
+            return
+        ask_label_printer(
+            self,
+            title=tr("Drucker gefunden"),
+            text=tr(
+                "Das Etikett ist für {label_model} ausgelegt, gefunden wurde "
+                "{printer_model}. Band und Ränder bleiben, wenn du das "
+                "Etikett behältst."
+            ).format(label_model=current, printer_model=discovered),
+            on_choice=self._on_label_printer_choice,
+        )
+
+    def _on_label_printer_choice(self, choice: str) -> None:
+        """„Anpassen" zieht das Modell nach und wird ein Undo-Schritt."""
+        if choice != "adapt":
+            return
+        self._media_panel._apply_network_model()
+
     def _on_network_found(self, printers: list) -> None:
         """Gefundene Drucker in die Liste uebernehmen und kurz melden."""
         startup = self._startup_discovery
+        if startup and self._startup_search_is_stale():
+            self._history_suppress = True
+            try:
+                self._media_panel.remember_network_printers(printers)
+            finally:
+                # Die Zwischenwahl des Nutzers bleibt eine Aenderung.
+                self._finish_startup_discovery(clear_address_dirty=False)
+            return
+        defer_model = startup and self._label_loaded()
         if startup:
             self._history_suppress = True
         try:
             found = self._media_panel.refresh_network_devices(
-                printers, select_fallback=startup
+                printers,
+                select_fallback=startup,
+                apply_model=not defer_model,
             )
         finally:
             if startup:
-                self._history_suppress = False
-                self._startup_discovery = False
-                self._sync_media_prev()
-                if self._undo_stack.isClean() and not self._document_dirty:
-                    self._address_dirty = False
-                    self._update_window_title()
+                self._finish_startup_discovery(clear_address_dirty=True)
+        if startup and defer_model:
+            self._offer_label_adaption()
+            return
         if startup:
             return
         if not found:
