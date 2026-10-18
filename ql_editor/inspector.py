@@ -14,28 +14,53 @@ sofort bei Schaltern).
 
 from __future__ import annotations
 
-from PySide6.QtCore import Qt, QTimer, Signal
+from PySide6.QtCore import QDate, QEvent, QSize, QTime, Qt, QTimer, Signal
 from PySide6.QtGui import QActionGroup, QFont
 from PySide6.QtWidgets import (
     QButtonGroup,
     QCheckBox,
     QComboBox,
+    QDateEdit,
     QDoubleSpinBox,
     QFontComboBox,
     QFormLayout,
     QFrame,
+    QGridLayout,
     QHBoxLayout,
     QLabel,
     QLineEdit,
     QMenu,
+    QPlainTextEdit,
+    QPushButton,
     QSpinBox,
+    QTimeEdit,
     QToolButton,
     QVBoxLayout,
     QWidget,
 )
 
+from .datetime_text import (
+    DATE_FORMATS,
+    OFFSET_UNITS,
+    TIME_FORMATS,
+    format_date,
+    format_time,
+    unit_label,
+)
 from .i18n import tr
 from .icons import icon
+from .items import (
+    ALIGN_CHOICES,
+    FILL_CHOICES,
+    LINE_STYLE_CHOICES,
+    VALIGN_CHOICES,
+    align_label,
+    fill_label,
+    line_style_label,
+    valign_label,
+)
+from .sheet import show_widget
+from .symbols import SymbolPicker, symbol_label
 from .media import dots_to_mm, mm_to_dots
 from .widgets import install_wheel_guard_recursive
 
@@ -112,6 +137,9 @@ class InspectorPanel(QWidget):
             "line": self._build_line,
             "rect": self._build_rect,
             "shape": self._build_shape,
+            "table": self._build_table,
+            "datetime": self._build_datetime,
+            "clipart": self._build_clipart,
         }.get(kind)
         if builder is not None:
             builder(item, form)
@@ -339,6 +367,209 @@ class InspectorPanel(QWidget):
         filled.toggled.connect(lambda v: self._apply_now(lambda: item.set_filled(v)))
         form.addRow("", filled)
 
+    def _build_datetime(self, item, form: QFormLayout) -> None:
+        """Format, aktuelle oder feste Zeit, Versatz. Die Liste zeigt Beispiele."""
+        self._loading = True
+        try:
+            mode = QComboBox()
+            mode.addItem(tr("Datum"), "date")
+            mode.addItem(tr("Uhrzeit"), "time")
+            mode.addItem(tr("Beides"), "both")
+            mode.setCurrentIndex(max(0, mode.findData(item.mode)))
+
+            date_format = QComboBox()
+            time_format = QComboBox()
+            unit = QComboBox()
+            for key in OFFSET_UNITS:
+                unit.addItem(unit_label(key), key)
+            unit.setCurrentIndex(max(0, unit.findData(item.offset_unit)))
+
+            direction = QComboBox()
+            direction.addItem(tr("Nach"), "after")
+            direction.addItem(tr("Vor"), "before")
+            direction.setCurrentIndex(1 if item.offset < 0 else 0)
+
+            amount = QSpinBox()
+            amount.setRange(0, 9999)
+            amount.setValue(abs(item.offset))
+
+            live = QCheckBox(tr("Aktuell"))
+            live.setToolTip(
+                tr("Zeigt die jetzige Zeit und übernimmt sie auch beim Drucken.")
+            )
+            live.setChecked(item.live)
+
+            fixed = item.fixed
+            date_edit = QDateEdit(QDate(fixed.year, fixed.month, fixed.day))
+            date_edit.setCalendarPopup(True)
+            date_edit.setDisplayFormat("dd.MM.yyyy")
+            time_edit = QTimeEdit(QTime(fixed.hour, fixed.minute, fixed.second))
+            time_edit.setDisplayFormat("HH:mm")
+
+            def refresh_examples() -> None:
+                if self._loading:
+                    return
+                moment = item.moment()
+                self._loading = True
+                try:
+                    for index, key in enumerate(DATE_FORMATS):
+                        date_format.setItemText(index, format_date(moment, key))
+                    for index, key in enumerate(TIME_FORMATS):
+                        time_format.setItemText(index, format_time(moment, key))
+                finally:
+                    self._loading = False
+
+            def fill_formats() -> None:
+                moment = item.moment()
+                for key in DATE_FORMATS:
+                    date_format.addItem(format_date(moment, key), key)
+                for key in TIME_FORMATS:
+                    time_format.addItem(format_time(moment, key), key)
+                date_format.setCurrentIndex(max(0, date_format.findData(item.date_format)))
+                time_format.setCurrentIndex(max(0, time_format.findData(item.time_format)))
+
+            def sync_enabled() -> None:
+                has_date = item.mode in ("date", "both")
+                has_time = item.mode in ("time", "both")
+                date_format.setEnabled(has_date)
+                time_format.setEnabled(has_time)
+                date_edit.setEnabled(has_date and not item.live)
+                time_edit.setEnabled(has_time and not item.live)
+
+            def sync_fixed_editors() -> None:
+                current = item.fixed
+                self._loading = True
+                try:
+                    date_edit.setDate(QDate(current.year, current.month, current.day))
+                    time_edit.setTime(QTime(current.hour, current.minute, current.second))
+                    direction.setCurrentIndex(1 if item.offset < 0 else 0)
+                    amount.setValue(abs(item.offset))
+                finally:
+                    self._loading = False
+
+            fill_formats()
+            sync_enabled()
+
+            def apply_mode() -> None:
+                if self._loading:
+                    return
+                self._apply_now(lambda: item.set_mode(mode.currentData()))
+                sync_enabled()
+
+            def apply_offset(*, commit: bool) -> None:
+                if self._loading:
+                    return
+                sign = -1 if direction.currentData() == "before" else 1
+                chosen = sign * amount.value()
+                action = self._apply_now if commit else self._apply_live
+                action(lambda: item.set_offset(chosen, unit.currentData()))
+                refresh_examples()
+
+            def apply_live(checked: bool) -> None:
+                if self._loading:
+                    return
+                self._apply_now(lambda: item.set_live(checked))
+                sync_fixed_editors()
+                sync_enabled()
+                refresh_examples()
+
+            def apply_date(qdate: QDate) -> None:
+                if self._loading:
+                    return
+
+                def apply() -> None:
+                    current = item.fixed
+                    item.set_fixed(
+                        current.replace(year=qdate.year(), month=qdate.month(), day=qdate.day())
+                    )
+
+                self._apply_now(apply)
+                refresh_examples()
+
+            def apply_time(qtime: QTime) -> None:
+                if self._loading:
+                    return
+
+                def apply() -> None:
+                    current = item.fixed
+                    item.set_fixed(
+                        current.replace(
+                            hour=qtime.hour(), minute=qtime.minute(), second=qtime.second()
+                        )
+                    )
+
+                self._apply_now(apply)
+                refresh_examples()
+
+            mode.currentIndexChanged.connect(apply_mode)
+            date_format.currentIndexChanged.connect(
+                lambda: self._apply_now(lambda: item.set_date_format(date_format.currentData()))
+            )
+            time_format.currentIndexChanged.connect(
+                lambda: self._apply_now(lambda: item.set_time_format(time_format.currentData()))
+            )
+            live.toggled.connect(apply_live)
+            date_edit.dateChanged.connect(apply_date)
+            time_edit.timeChanged.connect(apply_time)
+            amount.valueChanged.connect(lambda: apply_offset(commit=False))
+            amount.editingFinished.connect(self._finish_edit)
+            direction.currentIndexChanged.connect(lambda: apply_offset(commit=True))
+            unit.currentIndexChanged.connect(lambda: apply_offset(commit=True))
+
+            form.addRow(tr("Anzeige"), mode)
+            form.addRow(tr("Datumsformat"), date_format)
+            form.addRow(tr("Uhrzeitformat"), time_format)
+            form.addRow("", live)
+            form.addRow(tr("Datum"), date_edit)
+            form.addRow(tr("Uhrzeit"), time_edit)
+
+            offset_row = QWidget()
+            offset_layout = QHBoxLayout(offset_row)
+            offset_layout.setContentsMargins(0, 0, 0, 0)
+            offset_layout.addWidget(amount)
+            offset_layout.addWidget(direction)
+            offset_layout.addWidget(unit)
+            form.addRow(tr("Versatz"), offset_row)
+        finally:
+            self._loading = False
+
+        family = QFontComboBox()
+        family.setSizeAdjustPolicy(
+            QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon
+        )
+        family.setMinimumContentsLength(8)
+        family.setCurrentFont(QFont(item.font_family))
+        family.currentFontChanged.connect(
+            lambda f: self._apply_now(lambda: item.set_font_family(f.family()))
+        )
+        form.addRow(tr("Schrift"), family)
+
+        size = QSpinBox()
+        size.setRange(4, 2000)
+        size.setValue(item.font_pixel_size)
+        self._wire_spin(size, lambda v: item.set_font_pixel_size(v))
+        form.addRow(tr("Größe (px)"), size)
+
+        bold = QCheckBox(tr("Fett"))
+        bold.setChecked(item.bold)
+        bold.toggled.connect(lambda v: self._apply_now(lambda: item.set_bold(v)))
+        form.addRow("", bold)
+
+        italic = QCheckBox(tr("Kursiv"))
+        italic.setChecked(item.italic)
+        italic.toggled.connect(lambda v: self._apply_now(lambda: item.set_italic(v)))
+        form.addRow("", italic)
+
+        color = QComboBox()
+        color.addItem(tr("schwarz"), "black")
+        color.addItem(tr("rot"), "red")
+        color.setCurrentIndex(0 if item.color == "black" else 1)
+        color.setEnabled(self._allow_red)
+        color.currentIndexChanged.connect(
+            lambda: self._apply_now(lambda: item.set_text_color(color.currentData()))
+        )
+        form.addRow(tr("Farbe"), color)
+
     def _build_qr(self, item, form: QFormLayout) -> None:
         data = QLineEdit(item._data)
         data.editingFinished.connect(
@@ -444,6 +675,224 @@ class InspectorPanel(QWidget):
         """Angezeigte Groesse eines Bild-Items in Dots (ohne Drehung)."""
         rect = item.transform().mapRect(item.boundingRect())
         return (rect.width(), rect.height())
+
+    def _build_table(self, item, form: QFormLayout) -> None:
+        """Zellen und Gitter. Steuerelemente gelten fuer die gewaehlten Zellen."""
+        self._loading = True
+        try:
+            self._build_table_fields(item, form)
+        finally:
+            self._loading = False
+
+    def _build_table_fields(self, item, form: QFormLayout) -> None:
+        same_text, text = item.selected_uniform("text")
+        edit = QPlainTextEdit("" if not same_text else str(text or ""))
+        edit.setFixedHeight(64)
+        if not same_text:
+            edit.setPlaceholderText(tr("Mehrere Zellen"))
+        edit.textChanged.connect(
+            lambda: self._apply_live(lambda: item.set_selected("text", edit.toPlainText()))
+        )
+        edit.installEventFilter(self)
+        form.addRow(tr("Text"), edit)
+
+        same_font, family = item.selected_uniform("font_family")
+        font_box = QFontComboBox()
+        font_box.setSizeAdjustPolicy(
+            QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon
+        )
+        font_box.setMinimumContentsLength(8)
+        if same_font and family:
+            font_box.setCurrentFont(QFont(family))
+        font_box.currentFontChanged.connect(
+            lambda f: self._apply_now(lambda: item.set_selected("font_family", f.family()))
+        )
+        form.addRow(tr("Schrift"), font_box)
+
+        _same_size, size_px = item.selected_uniform("font_pixel_size")
+        size = QSpinBox()
+        size.setRange(4, 2000)
+        size.setValue(int(size_px or 28))
+        self._wire_spin(size, lambda v: item.set_selected("font_pixel_size", v))
+        form.addRow(tr("Größe (px)"), size)
+
+        self._table_check(form, item, "bold", tr("Fett"))
+        self._table_check(form, item, "italic", tr("Kursiv"))
+        self._table_check(form, item, "underline", tr("Unterstrichen"))
+
+        self._table_choice(form, item, "align", tr("Textausrichtung"), ALIGN_CHOICES, align_label)
+        self._table_choice(
+            form, item, "valign", tr("Vertikale Ausrichtung"), VALIGN_CHOICES, valign_label
+        )
+
+        color = QComboBox()
+        color.addItem(tr("schwarz"), "black")
+        color.addItem(tr("rot"), "red")
+        same_color, color_value = item.selected_uniform("color")
+        color.setCurrentIndex(1 if same_color and color_value == "red" else 0)
+        color.setEnabled(self._allow_red)
+        color.currentIndexChanged.connect(
+            lambda: self._apply_now(lambda: item.set_selected("color", color.currentData()))
+        )
+        form.addRow(tr("Farbe"), color)
+
+        form.addRow(self._section(tr("Zeilen und Spalten")))
+        grid = QGridLayout()
+        grid.setContentsMargins(0, 0, 0, 0)
+        grid.setSpacing(4)
+        actions = (
+            (0, 0, tr("Zeile darüber"), item.insert_row_above, True, ""),
+            (0, 1, tr("Spalte links"), item.insert_column_left, True, ""),
+            (1, 0, tr("Zeile löschen"), item.delete_selected_rows, item.can_delete_row(), ""),
+            (1, 1, tr("Spalte löschen"), item.delete_selected_columns, item.can_delete_column(), ""),
+            (
+                2, 0, tr("Zellen verbinden"), item.merge_selected, item.can_merge(),
+                tr("Umschalt-Klick markiert mehrere Zellen"),
+            ),
+            (2, 1, tr("Verbindung aufheben"), item.unmerge_selected, item.can_unmerge(), ""),
+            (3, 0, tr("Höhen verteilen"), item.distribute_selected_heights, item.can_distribute_heights(), ""),
+            (3, 1, tr("Breiten verteilen"), item.distribute_selected_widths, item.can_distribute_widths(), ""),
+        )
+        for row, col, label, fn, enabled, tip in actions:
+            button = QPushButton(label)
+            button.setEnabled(enabled)
+            if tip:
+                button.setToolTip(tip)
+            button.clicked.connect(lambda _checked=False, call=fn: self._apply_now(call))
+            grid.addWidget(button, row, col)
+        holder = QWidget()
+        holder.setLayout(grid)
+        form.addRow(holder)
+
+        _same_h, row_h = item.selected_row_height()
+        height = QDoubleSpinBox()
+        height.setRange(1.0, 500.0)
+        height.setDecimals(1)
+        height.setSuffix(" mm")
+        height.setValue(dots_to_mm(row_h))
+        self._wire_spin(height, lambda v: item.set_selected_row_height(mm_to_dots(v)))
+        form.addRow(tr("Zeilenhöhe"), height)
+
+        _same_w, col_w = item.selected_col_width()
+        width = QDoubleSpinBox()
+        width.setRange(1.0, 500.0)
+        width.setDecimals(1)
+        width.setSuffix(" mm")
+        width.setValue(dots_to_mm(col_w))
+        self._wire_spin(width, lambda v: item.set_selected_col_width(mm_to_dots(v)))
+        form.addRow(tr("Spaltenbreite"), width)
+
+        fixed = QCheckBox(tr("Feste Tabellengröße"))
+        fixed.setToolTip(
+            tr("Feste Größe: eine Spalte oder Zeile wächst auf Kosten der Nachbarn")
+        )
+        fixed.setChecked(item.fixed_size)
+        fixed.toggled.connect(lambda v: self._apply_now(lambda: item.set_fixed_size(v)))
+        form.addRow("", fixed)
+
+        self._table_choice(form, item, "fill", tr("Füllung"), FILL_CHOICES, fill_label)
+        form.addRow(self._section(tr("Linie")))
+
+        line = QDoubleSpinBox()
+        line.setRange(0.5, 40.0)
+        line.setSuffix(" px")
+        line.setValue(item.line_width)
+        self._wire_spin(line, lambda v: item.set_line_width(v))
+        form.addRow(tr("Linienbreite"), line)
+
+        style = QComboBox()
+        for key in LINE_STYLE_CHOICES:
+            style.addItem(line_style_label(key), key)
+        idx = style.findData(item.line_style)
+        style.setCurrentIndex(idx if idx >= 0 else 0)
+        style.currentIndexChanged.connect(
+            lambda: self._apply_now(lambda: item.set_line_style(style.currentData()))
+        )
+        form.addRow(tr("Linienart"), style)
+
+    def _table_check(self, form: QFormLayout, item, name: str, label: str) -> None:
+        same, value = item.selected_uniform(name)
+        box = QCheckBox(label)
+        box.setChecked(bool(value) if same else False)
+        if not same:
+            box.setToolTip(tr("Mehrere Zellen"))
+        box.toggled.connect(
+            lambda v: self._apply_now(lambda: item.set_selected(name, v))
+        )
+        form.addRow("", box)
+
+    def _table_choice(self, form, item, name: str, label: str, choices, label_of) -> None:
+        same, value = item.selected_uniform(name)
+        box = QComboBox()
+        for key in choices:
+            box.addItem(label_of(key), key)
+        if same:
+            idx = box.findData(value)
+            box.setCurrentIndex(idx if idx >= 0 else 0)
+        else:
+            box.setCurrentIndex(-1)
+        box.currentIndexChanged.connect(
+            lambda: self._apply_now(lambda: item.set_selected(name, box.currentData()))
+            if box.currentIndex() >= 0
+            else None
+        )
+        form.addRow(label, box)
+
+    @staticmethod
+    def _section(text: str) -> QLabel:
+        label = QLabel(text)
+        label.setStyleSheet("font-weight:600; margin-top:6px;")
+        return label
+
+    def _build_clipart(self, item, form: QFormLayout) -> None:
+        name = QLabel(symbol_label(item.symbol))
+        swap = QPushButton(tr("Austauschen…"))
+        swap.clicked.connect(lambda: self._pick_clipart(item, name))
+        row = QWidget()
+        row_layout = QHBoxLayout(row)
+        row_layout.setContentsMargins(0, 0, 0, 0)
+        row_layout.addWidget(name, 1)
+        row_layout.addWidget(swap)
+        form.addRow(tr("Symbol"), row)
+
+        color = QComboBox()
+        color.addItem(tr("schwarz"), "black")
+        color.addItem(tr("rot"), "red")
+        color.setCurrentIndex(0 if item.color == "black" else 1)
+        color.setEnabled(self._allow_red)
+        color.currentIndexChanged.connect(
+            lambda: self._apply_now(lambda: item.set_color(color.currentData()))
+        )
+        form.addRow(tr("Farbe"), color)
+
+        aspect = QCheckBox(tr("Seitenverhältnis festhalten"))
+        aspect.setChecked(item.keep_aspect)
+        aspect.toggled.connect(lambda value: self._apply_now(lambda: item.set_keep_aspect(value)))
+        form.addRow("", aspect)
+
+    def _pick_clipart(self, item, name: QLabel) -> None:
+        """Anderes Symbol aus demselben Raster wie beim Einfügen."""
+        host = self.window()
+        if host is None:
+            return
+        picker = SymbolPicker()
+        sheet = show_widget(
+            host,
+            title=tr("Clip Art"),
+            content=picker,
+            max_size=QSize(560, 640),
+        )
+
+        def _picked(symbol_id: str) -> None:
+            sheet.close_sheet()
+
+            def _apply() -> None:
+                item.set_symbol(symbol_id)
+                name.setText(symbol_label(item.symbol))
+
+            self._apply_now(_apply)
+
+        picker.chosen.connect(_picked)
 
     def _build_line(self, item, form: QFormLayout) -> None:
         width = QDoubleSpinBox()
@@ -583,6 +1032,9 @@ _KIND_TITLES = {
     "line": "Linie",
     "rect": "Rahmen",
     "shape": "Form",
+    "table": "Tabelle",
+    "datetime": "Datum/Uhrzeit",
+    "clipart": "Clip Art",
 }
 
 
