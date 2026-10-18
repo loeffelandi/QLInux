@@ -33,8 +33,13 @@ Direkte Bearbeitung mit der Maus (modernes Editor-Gefuehl):
   Objektmitte. Ohne Modifier haftet der Winkel an der naechsten 90-Grad-Raste
   (sticky), bis der Zeiger deutlich weggezogen wird. Shift rastet stattdessen
   auf 15 Grad.
-* **Marken**: Jedes Objekt behaelt leichte Eck- und Kantenstriche, auch ohne
-  Auswahl. Die Anfasser liegen darueber, solange das Objekt gewaehlt ist.
+* **Textfeld in Bearbeitung**: Griffe bleiben; um das Feld liegt ein
+  schraffierter Rand, an dem es sich verschieben laesst, ohne die Eingabe zu
+  beenden. Ein Klick innen setzt die Textmarke.
+* **Marken**: Leichte Eck- und Kantenstriche. Ohne Zeiger auf dem Objekt
+  blenden sie aus und beim Darueberfahren wieder ein; ein leeres Textfeld
+  bleibt voll sichtbar, damit man es wiederfindet. Die Anfasser liegen
+  darueber, sobald das Objekt gewaehlt ist - schon beim ersten Klick.
 * **Mehrfachauswahl**: Gummiband auf freier Flaeche; **Ctrl+Klick** schaltet
   einzelne Objekte zur Auswahl hinzu/ab.
 * **Drag & Drop**: Bilddateien aus dem Dateimanager auf den Canvas ziehen.
@@ -49,8 +54,31 @@ import math
 from contextlib import contextmanager
 from typing import Any, Iterator, Mapping, Sequence
 
-from PySide6.QtCore import QEvent, QLocale, QPoint, QPointF, QRectF, Qt, Signal
-from PySide6.QtGui import QBrush, QColor, QFont, QFontMetricsF, QImage, QPainter, QPen
+from PySide6.QtCore import (
+    QAbstractAnimation,
+    QEasingCurve,
+    QEvent,
+    QLocale,
+    QPoint,
+    QPointF,
+    QRectF,
+    Qt,
+    QTimer,
+    QVariantAnimation,
+    Signal,
+)
+from PySide6.QtGui import (
+    QBrush,
+    QColor,
+    QFont,
+    QFontMetricsF,
+    QImage,
+    QPainter,
+    QPainterPath,
+    QPen,
+    QPolygonF,
+    QTransform,
+)
 from PySide6.QtWidgets import QGraphicsItem, QGraphicsScene, QGraphicsView, QWidget
 from PIL import Image
 
@@ -112,8 +140,13 @@ MIN_ZOOM = 0.05
 MAX_ZOOM = 8.0
 HANDLE_SIZE_PX = 9
 ROTATE_OFFSET_PX = 24
-#: Eck- und Kantenstriche, die an jedem Objekt stehen bleiben (Bildschirmpixel).
+#: Schraffierter Rand um ein Textfeld in Bearbeitung (Bildschirmpixel); daran
+#: laesst sich das Feld verschieben, waehrend ein Klick innen die Textmarke setzt.
+EDIT_BORDER_PX = 8
+#: Eck- und Kantenstriche an jedem Objekt (Bildschirmpixel).
 FRAME_TICK_PX = 8
+#: Wie lange die Striche ein- und ausblenden, statt hart zu wechseln.
+TICK_FADE_MS = 180
 SNAP_TOLERANCE_PX = 6
 #: Wie nah der Zeiger einer Hilfslinie kommen muss, um sie zu greifen.
 GUIDE_HIT_PX = 5
@@ -483,10 +516,12 @@ class LabelCanvas(QGraphicsView):
         self._scene.setSceneRect(QRectF(0, 0, 554, 472))
         self.setScene(self._scene)
         self.setSceneRect(QRectF(0, 0, 554, 472))
-        # Die Anfasser liegen ausserhalb der Objektbox. Die Szene wuerde sonst
-        # nur die Box neu zeichnen, und die Griffe fehlen bis zum naechsten
-        # vollstaendigen Anstrich.
+        # Marken und Anfasser liegen ausserhalb der Objektbox. Das minimale
+        # Update schneidet dort ab (Griffe fehlen beim ersten Klick) und
+        # laesst beim Ziehen die alten Striche stehen.
+        self.setViewportUpdateMode(QGraphicsView.ViewportUpdateMode.FullViewportUpdate)
         self._scene.selectionChanged.connect(self._invalidate_object_chrome)
+        self.viewport().setMouseTracking(True)
         self.setRenderHint(QPainter.RenderHint.Antialiasing, True)
         self.setRenderHint(QPainter.RenderHint.TextAntialiasing, True)
         self.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform, True)
@@ -546,6 +581,9 @@ class LabelCanvas(QGraphicsView):
         self._pan_active = False
         self._pan_start = QPoint()
         self._pan_origin = (0, 0)
+        #: Objekt unter dem Zeiger; seine Marken sind eingeblendet.
+        self._hover_item = None
+        self._tick_sync_pending = False
 
         self._h_ruler = MmRuler(self, Qt.Orientation.Horizontal)
         self._v_ruler = MmRuler(self, Qt.Orientation.Vertical)
@@ -1176,16 +1214,22 @@ class LabelCanvas(QGraphicsView):
         painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
         self._draw_placed_guides(painter, rect)
 
-        # Leichte Marken an jedem Objekt, auch ohne Auswahl.
-        tick_pen = QPen(QColor("#1f6feb"))
-        tick_pen.setWidthF(0)
-        painter.setPen(tick_pen)
+        # Leichte Marken. Deckkraft haengt am Zeiger (leerer Text bleibt an).
         painter.setBrush(Qt.BrushStyle.NoBrush)
         for item in self._scene.items():
             if not hasattr(item, "to_dict"):
                 continue
+            alpha = self._tick_alpha(item)
+            if alpha <= 0.004:
+                continue
+            color = QColor("#1f6feb")
+            color.setAlphaF(alpha)
+            tick_pen = QPen(color)
+            tick_pen.setWidthF(0)
+            painter.setPen(tick_pen)
             for start, end in self._tick_segments(item):
                 painter.drawLine(start, end)
+        self._note_tick_fade()
 
         # Auswahlrahmen (rotationsfest) fuer alle ausgewaehlten Items.
         outline = QPen(QColor("#1f6feb"))
@@ -1197,10 +1241,22 @@ class LabelCanvas(QGraphicsView):
             painter.setBrush(Qt.BrushStyle.NoBrush)
             painter.drawPolygon(item.mapToScene(item.boundingRect()))
 
-        # Griffe nur bei genau einem, nicht in Bearbeitung befindlichen Item.
+        # Griffe nur bei genau einem Item; ein Textfeld in Bearbeitung bekommt
+        # zusaetzlich den schraffierten Rand zum Verschieben.
         item = self._editable_selection()
         if item is not None:
             size = self._handle_size()
+            polygons = self._edit_border_polygons(item) if self._editing_text_selection() is item else None
+            if polygons is not None:
+                # Schraffur in Bildschirmpixeln, unabhaengig vom Zoom.
+                hatch = QBrush(QColor("#1f6feb"), Qt.BrushStyle.BDiagPattern)
+                hatch.setTransform(QTransform.fromScale(1.0 / self._scale(), 1.0 / self._scale()))
+                painter.setPen(Qt.PenStyle.NoPen)
+                painter.setBrush(hatch)
+                painter.drawPath(self._edit_border_path(*polygons))
+                painter.setPen(outline)
+                painter.setBrush(Qt.BrushStyle.NoBrush)
+                painter.drawPolygon(polygons[0])
             handle_pen = QPen(QColor("#1f6feb"))
             handle_pen.setWidthF(0)
             if getattr(item, "resizable", False):
@@ -1233,6 +1289,179 @@ class LabelCanvas(QGraphicsView):
 
         self._draw_size_labels(painter)
 
+    def _chrome_view_rect(self, item):
+        """View-Rechteck von Box, Marken und Anfassern.
+
+        In View-Pixeln, nicht ueber ``scene.update``: sobald ``changed``
+        verbunden ist, wuerde die Szene die Erweiterung auf die Objektbox
+        zurueckschneiden.
+        """
+        bounds = item.mapToScene(item.boundingRect()).boundingRect()
+        if bounds.isEmpty():
+            return None
+        rect = self.mapFromScene(bounds).boundingRect()
+        pad = ROTATE_OFFSET_PX + HANDLE_SIZE_PX + 4
+        return rect.adjusted(-pad, -pad, pad, pad)
+
+    def _update_item_chrome(self, item) -> None:
+        rect = self._chrome_view_rect(item)
+        if rect is not None and not rect.isEmpty():
+            self.viewport().update(rect)
+
+    def _invalidate_object_chrome(self) -> None:
+        """Objektbox plus Anfasser neu zeichnen.
+
+        Griffe und der kurze Drehstrich liegen ausserhalb von ``boundingRect``.
+        Ein Update nur ueber die Szene wuerde sie abschneiden.
+        """
+        for item in self._scene.items():
+            if hasattr(item, "to_dict"):
+                self._update_item_chrome(item)
+
+    # -- Marken: Deckkraft und Blenden --------------------------------------
+    # Deckkraft (``_tick_alpha``) und laufende Animation (``_tick_anim``)
+    # haengen am Item selbst; so sterben sie mit ihm.
+    def _ticks_pinned(self, item) -> bool:
+        """Leeres Textfeld: die Marken bleiben, sonst findet man es nicht."""
+        if getattr(item, "kind", None) != "text":
+            return False
+        return not str(item.toPlainText()).strip()
+
+    def _tick_target(self, item) -> float:
+        if self._ticks_pinned(item) or item is self._hover_item:
+            return 1.0
+        return 0.0
+
+    def _tick_alpha(self, item) -> float:
+        alpha = getattr(item, "_tick_alpha", None)
+        if alpha is None:
+            # Erster Anstrich: ohne Blende im Zielzustand starten.
+            alpha = self._tick_target(item)
+            item._tick_alpha = alpha
+        return alpha
+
+    def _set_hover_item(self, item) -> None:
+        if item is self._hover_item:
+            return
+        previous = self._hover_item
+        self._hover_item = item
+        for changed in (previous, item):
+            if changed is not None:
+                self._animate_tick(changed)
+
+    def _track_pointer_hover(self, view_pos: QPoint) -> None:
+        if self._op in ("resize", "rotate", "table-divider") and self._op_item is not None:
+            self._set_hover_item(self._op_item)
+            return
+        if self._op == "move" and self._move_items:
+            moving = [item for item, _start in self._move_items]
+            under = self._top_serializable_item_at(view_pos)
+            self._set_hover_item(under if under in moving else moving[0])
+            return
+        if self._op is None and not self.viewport().rect().contains(view_pos):
+            self._set_hover_item(None)
+            return
+        scene_pos = self.mapToScene(view_pos)
+        handle = self._handle_at(scene_pos)
+        if handle is not None:
+            self._set_hover_item(handle[1])
+            return
+        border = self._edit_border_at(scene_pos)
+        if border is not None:
+            self._set_hover_item(border)
+            return
+        self._set_hover_item(self._top_serializable_item_at(view_pos))
+
+    def _note_tick_fade(self) -> None:
+        """Nach dem Malen pruefen, ob eine Marke ihr Ziel verfehlt.
+
+        Faengt Wechsel ohne Zeigerbewegung ab (Text wird leer oder bekommt
+        Inhalt). Die Blende startet aus dem Event-Loop, nicht aus
+        ``drawForeground`` heraus.
+        """
+        if self._tick_sync_pending:
+            return
+        for item in self._scene.items():
+            if not hasattr(item, "to_dict"):
+                continue
+            if self._running_tick_anim(item) is not None:
+                continue
+            if abs(self._tick_alpha(item) - self._tick_target(item)) > 0.01:
+                self._tick_sync_pending = True
+                QTimer.singleShot(0, self, self._flush_tick_sync)
+                return
+
+    def _flush_tick_sync(self) -> None:
+        self._tick_sync_pending = False
+        for item in self._scene.items():
+            if hasattr(item, "to_dict"):
+                self._animate_tick(item)
+
+    def _animate_tick(self, item) -> None:
+        """Marken von ``item`` weich auf ihr aktuelles Ziel blenden."""
+        try:
+            if item.scene() is not self._scene:
+                return
+        except RuntimeError:
+            return
+        target = self._tick_target(item)
+        current = self._tick_alpha(item)
+        anim = self._running_tick_anim(item)
+        if anim is not None:
+            if abs(float(anim.endValue()) - target) < 0.001:
+                return
+            anim.stop()
+            self._drop_tick_anim(item)
+        if abs(current - target) < 0.01:
+            item._tick_alpha = target
+            return
+        anim = QVariantAnimation(self)
+        anim.setStartValue(current)
+        anim.setEndValue(target)
+        anim.setDuration(TICK_FADE_MS)
+        anim.setEasingCurve(QEasingCurve.Type.InOutQuad)
+        anim.valueChanged.connect(lambda value, item=item: self._on_tick_fade(item, value))
+        anim.finished.connect(lambda item=item: self._drop_tick_anim(item))
+        item._tick_anim = anim
+        anim.start()
+
+    def _running_tick_anim(self, item):
+        """Laufende Blende von ``item`` oder ``None``.
+
+        Das Attribut kann auf ein bereits per ``deleteLater`` geraeumtes
+        Qt-Objekt zeigen; der Zugriff darauf wirft und wuerde sonst
+        ``drawForeground`` mitten im Zeichnen abbrechen.
+        """
+        anim = getattr(item, "_tick_anim", None)
+        if anim is None:
+            return None
+        try:
+            running = anim.state() == QAbstractAnimation.State.Running
+        except RuntimeError:
+            running = False
+        if not running:
+            item._tick_anim = None
+            return None
+        return anim
+
+    def _drop_tick_anim(self, item) -> None:
+        anim = getattr(item, "_tick_anim", None)
+        item._tick_anim = None
+        if anim is not None:
+            try:
+                anim.deleteLater()
+            except RuntimeError:
+                pass
+
+    def _on_tick_fade(self, item, value) -> None:
+        try:
+            if item.scene() is not self._scene:
+                return
+        except RuntimeError:
+            return
+        item._tick_alpha = float(value)
+        self._update_item_chrome(item)
+
     def _draw_placed_guides(self, painter: QPainter, rect: QRectF) -> None:
         """Hilfslinien ueber die sichtbare Flaeche, kosmetisch einen Pixel dick."""
         hidden = None
@@ -1254,19 +1483,6 @@ class LabelCanvas(QGraphicsView):
                 painter.drawLine(QPointF(coord, rect.top()), QPointF(coord, rect.bottom()))
             else:
                 painter.drawLine(QPointF(rect.left(), coord), QPointF(rect.right(), coord))
-
-    def _invalidate_object_chrome(self) -> None:
-        """Objektbox plus Anfasser neu zeichnen.
-
-        Griffe und der kurze Drehstrich liegen ausserhalb von ``boundingRect``.
-        Ein normales Auswahl-Update wuerde sie abschneiden.
-        """
-        margin = (ROTATE_OFFSET_PX + HANDLE_SIZE_PX) / self._scale()
-        for item in self._scene.items():
-            if not hasattr(item, "to_dict"):
-                continue
-            bounds = item.mapToScene(item.boundingRect()).boundingRect()
-            self._scene.update(bounds.adjusted(-margin, -margin, margin, margin))
 
     def _screen_lengths(self, item, px: float) -> tuple[float, float]:
         """``px`` Bildschirmpixel als Laenge in den lokalen Achsen von ``item``."""
@@ -1310,11 +1526,18 @@ class LabelCanvas(QGraphicsView):
 
     # -- Griff-Geometrie ----------------------------------------------------
     def _editable_selection(self):
+        """Das eine Objekt, das Griffe bekommt - oder ``None``.
+
+        Ein Textfeld behaelt seine Griffe auch waehrend der Eingabe: ein neues
+        Feld oeffnet direkt zum Tippen und soll trotzdem sofort als Objekt
+        greifbar sein. Nur der offene Zellen-Editor einer Tabelle blendet sie
+        aus, der Klick auf den Rand gehoert dort dem Editor.
+        """
         selection = self.selected_items()
         if len(selection) != 1:
             return None
         item = selection[0]
-        if getattr(item, "is_editing", False):
+        if getattr(item, "kind", None) == "table" and getattr(item, "is_editing", False):
             return None
         return item
 
@@ -1374,6 +1597,50 @@ class LabelCanvas(QGraphicsView):
             for name, pt in self._handle_points(item).items():
                 if abs(scene_pos.x() - pt.x()) <= tol and abs(scene_pos.y() - pt.y()) <= tol:
                     return name, item
+        return None
+
+    # -- Rand in Bearbeitung ------------------------------------------------
+    def _editing_text_selection(self):
+        """Das Textfeld in Bearbeitung mit Griffen - oder ``None``."""
+        item = self._editable_selection()
+        if item is None or getattr(item, "kind", None) != "text":
+            return None
+        return item if getattr(item, "is_editing", False) else None
+
+    def _edit_border_polygons(self, item) -> tuple[QPolygonF, QPolygonF] | None:
+        """Aussen- und Innenkante des Rands in Szenenkoordinaten."""
+        br = item.boundingRect()
+        if br.width() <= 0 or br.height() <= 0:
+            return None
+        wx, wy = self._screen_lengths(item, EDIT_BORDER_PX)
+        outer = br.adjusted(-wx, -wy, wx, wy)
+        return item.mapToScene(outer), item.mapToScene(br)
+
+    @staticmethod
+    def _edit_border_path(outer: QPolygonF, inner: QPolygonF) -> QPainterPath:
+        """Das Band zwischen Aussen- und Innenkante als Pfad."""
+        path = QPainterPath()
+        path.setFillRule(Qt.FillRule.OddEvenFill)
+        path.addPolygon(outer)
+        path.closeSubpath()
+        path.addPolygon(inner)
+        path.closeSubpath()
+        return path
+
+    def _edit_border_at(self, scene_pos: QPointF):
+        """Liegt ``scene_pos`` auf dem schraffierten Rand? Dann das Textfeld."""
+        item = self._editing_text_selection()
+        if item is None:
+            return None
+        br = item.boundingRect()
+        if br.width() <= 0 or br.height() <= 0:
+            return None
+        local = item.mapFromScene(scene_pos)
+        if br.contains(local):
+            return None
+        wx, wy = self._screen_lengths(item, EDIT_BORDER_PX + 2)
+        if br.adjusted(-wx, -wy, wx, wy).contains(local):
+            return item
         return None
 
     def _top_serializable_item_at(self, view_pos: QPoint):
@@ -1610,10 +1877,18 @@ class LabelCanvas(QGraphicsView):
             return
 
         if event.button() == Qt.MouseButton.LeftButton:
+            self._track_pointer_hover(self._event_pos(event))
             scene_pos = self.mapToScene(self._event_pos(event))
             handle = self._handle_at(scene_pos)
             if handle is not None:
                 self._begin_handle_op(handle[0], handle[1], scene_pos)
+                event.accept()
+                return
+
+            # Schraffierter Rand eines Textfelds in Bearbeitung: verschieben,
+            # ohne die Eingabe zu beenden (innen setzt der Klick die Textmarke).
+            if self._edit_border_at(scene_pos) is not None:
+                self._begin_move(scene_pos)
                 event.accept()
                 return
 
@@ -1728,6 +2003,7 @@ class LabelCanvas(QGraphicsView):
             return
 
         scene_pos = self.mapToScene(self._event_pos(event))
+        self._track_pointer_hover(self._event_pos(event))
         if (
             self._pending_move_start is not None
             and event.buttons() & Qt.MouseButton.LeftButton
@@ -1763,7 +2039,9 @@ class LabelCanvas(QGraphicsView):
         # Cursor je nach Griff (mitgedreht wie das Item)
         handle = self._handle_at(scene_pos)
         guide_index = None if handle is not None else self._guide_at(scene_pos)
-        if guide_index is not None:
+        if handle is None and guide_index is None and self._edit_border_at(scene_pos) is not None:
+            self.viewport().setCursor(Qt.CursorShape.SizeAllCursor)
+        elif guide_index is not None:
             axis = self._placed_guides[guide_index][0]
             guide_cursor = (
                 Qt.CursorShape.SizeVerCursor
@@ -1794,6 +2072,8 @@ class LabelCanvas(QGraphicsView):
         super().mouseMoveEvent(event)
 
     def leaveEvent(self, event) -> None:  # noqa: N802
+        if self._op is None:
+            self._set_hover_item(None)
         self._set_hint("")
         super().leaveEvent(event)
 
@@ -1996,6 +2276,7 @@ class LabelCanvas(QGraphicsView):
                 # Der Dreh-Pfad in mouseMove kehrt vor dem Hinweis zurueck.
                 view_pos = self._event_pos(event)
                 self._update_idle_hint(self.mapToScene(view_pos), view_pos)
+            self._track_pointer_hover(self._event_pos(event))
             event.accept()
             return
         super().mouseReleaseEvent(event)
@@ -2007,12 +2288,17 @@ class LabelCanvas(QGraphicsView):
         if event.button() != Qt.MouseButton.LeftButton:
             super().mouseDoubleClickEvent(event)
             return
-        if self._guide_at(self.mapToScene(self._event_pos(event))) is not None:
+        scene_pos = self.mapToScene(self._event_pos(event))
+        if self._guide_at(scene_pos) is not None:
+            event.accept()
+            return
+        if self._handle_at(scene_pos) is not None or self._edit_border_at(scene_pos) is not None:
+            # Griffe und Rand gehoeren dem gewaehlten Objekt - kein neues Feld.
             event.accept()
             return
         item = self._top_serializable_item_at(self._event_pos(event))
         if item is None:
-            self.text_requested.emit(self.mapToScene(self._event_pos(event)))
+            self.text_requested.emit(scene_pos)
         elif getattr(item, "kind", None) == "text":
             # Oeffnet das Feld und markiert den Text (im offenen Feld ebenso).
             item.start_editing()
@@ -2055,16 +2341,28 @@ class LabelCanvas(QGraphicsView):
                 paths.append(path)
         return paths
 
-    def _accepts_external_drop(self, mime) -> bool:
+    def _accepts_external_drop(self, event) -> bool:
+        if self._is_own_drag(event):
+            return False
+        mime = event.mimeData()
         return bool(
             self._drop_paths(mime) or field_from_mime(mime) or mime.hasText()
         )
+
+    def _is_own_drag(self, event) -> bool:
+        """Zieht ein Textfeld in Bearbeitung seinen markierten Text?
+
+        Qt startet dafuer einen Drag mit dem Viewport als Quelle. Der geht an
+        die Szene (Text im Feld verschieben) statt ein neues Feld anzulegen.
+        """
+        source = event.source()
+        return source is not None and (source is self or self.isAncestorOf(source))
 
     def dragEnterEvent(self, event) -> None:  # noqa: N802
         if self._print_preview:
             event.ignore()
             return
-        if self._accepts_external_drop(event.mimeData()):
+        if self._accepts_external_drop(event):
             event.acceptProposedAction()
         else:
             super().dragEnterEvent(event)
@@ -2073,7 +2371,7 @@ class LabelCanvas(QGraphicsView):
         if self._print_preview:
             event.ignore()
             return
-        if self._accepts_external_drop(event.mimeData()):
+        if self._accepts_external_drop(event):
             event.acceptProposedAction()
         else:
             super().dragMoveEvent(event)
@@ -2081,6 +2379,9 @@ class LabelCanvas(QGraphicsView):
     def dropEvent(self, event) -> None:  # noqa: N802
         if self._print_preview:
             event.ignore()
+            return
+        if self._is_own_drag(event):
+            super().dropEvent(event)
             return
         scene_pos = self.mapToScene(event.position().toPoint())
         paths = self._drop_paths(event.mimeData())
