@@ -2323,7 +2323,7 @@ class MainWindow(QMainWindow):
             cols,
             width,
             height,
-            font_pixel_size=max(16, int(height * 0.55)),
+            font_pixel_size=max(16, int(height * 0.45)),
         )
         self._add_item(
             item,

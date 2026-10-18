@@ -148,6 +148,9 @@ class InspectorPanel(QWidget):
 
         self._build_common(item, form)
         self._root.addWidget(body)
+        # addWidget zeigt das neue Formular nicht immer (z. B. nach
+        # Zellenwechsel). Versteckt bliebe der Inspector sonst leer.
+        body.show()
         self._root.addStretch(1)
         install_wheel_guard_recursive(body)
 
@@ -278,11 +281,11 @@ class InspectorPanel(QWidget):
         button.toggled.connect(lambda v: self._apply_now(lambda: apply_fn(v)))
         return button
 
-    def _color_button(self, item) -> QToolButton:
-        """„A“-Knopf wie in Textverarbeitungen: Menue mit Schwarz/Rot."""
+    def _color_menu_button(self, tip: str, current, apply_fn) -> QToolButton:
+        """„A“-Knopf: Menue mit Schwarz/Rot. ``current`` ist None bei Mischauswahl."""
         button = QToolButton()
         button.setText("A")
-        button.setToolTip(tr("Farbe"))
+        button.setToolTip(tip)
         button.setAutoRaise(True)
         button.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         button.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
@@ -291,13 +294,17 @@ class InspectorPanel(QWidget):
         for label, value in ((tr("schwarz"), "black"), (tr("rot"), "red")):
             act = menu.addAction(label)
             act.setCheckable(True)
-            act.setChecked(item.color == value)
+            act.setChecked(current == value)
             group.addAction(act)
             act.triggered.connect(
-                lambda _=False, v=value: self._apply_now(lambda: item.set_text_color(v))
+                lambda _=False, v=value: self._apply_now(lambda: apply_fn(v))
             )
         button.setMenu(menu)
         return button
+
+    def _color_button(self, item) -> QToolButton:
+        """„A“-Knopf wie in Textverarbeitungen: Menue mit Schwarz/Rot."""
+        return self._color_menu_button(tr("Farbe"), item.color, item.set_text_color)
 
     def _choice(self, options, current, apply_fn) -> QWidget:
         """Gruppe von Symbol-Knoepfen, genau einer ist aktiv (Ausrichtung, Richtung ...)."""
@@ -717,14 +724,20 @@ class InspectorPanel(QWidget):
                 self._table_frame_page(item),
             ):
                 stack.addWidget(page)
-            index = min(self._table_page, tabs.count() - 1)
+            count = tabs.count()
+            index = 0 if count <= 0 else max(0, min(self._table_page, count - 1))
+            self._table_page = index
 
             def show_page(page: int) -> None:
+                # currentChanged(-1) beim Abbauen der alten Leiste nicht merken.
+                if page < 0:
+                    return
                 self._table_page = page
                 stack.setCurrentIndex(page)
 
             tabs.currentChanged.connect(show_page)
-            tabs.setCurrentIndex(index)
+            if tabs.currentIndex() != index:
+                tabs.setCurrentIndex(index)
             stack.setCurrentIndex(index)
             form.addRow(tabs)
             form.addRow(stack)
@@ -953,26 +966,11 @@ class InspectorPanel(QWidget):
 
     def _cell_color_button(self, item) -> QToolButton:
         same, color_value = item.selected_uniform("color")
-        button = QToolButton()
-        button.setText("A")
-        button.setToolTip(tr("Farbe") if same else tr("Mehrere Zellen"))
-        button.setAutoRaise(True)
-        button.setFocusPolicy(Qt.FocusPolicy.NoFocus)
-        button.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
-        menu = QMenu(button)
-        group = QActionGroup(menu)
-        for label, value in ((tr("schwarz"), "black"), (tr("rot"), "red")):
-            act = menu.addAction(label)
-            act.setCheckable(True)
-            act.setChecked(same and color_value == value)
-            group.addAction(act)
-            act.triggered.connect(
-                lambda _=False, v=value: self._apply_now(
-                    lambda: item.set_selected("color", v)
-                )
-            )
-        button.setMenu(menu)
-        return button
+        return self._color_menu_button(
+            tr("Farbe") if same else tr("Mehrere Zellen"),
+            color_value if same else None,
+            lambda value: item.set_selected("color", value),
+        )
 
     def _icon_action(
         self,
