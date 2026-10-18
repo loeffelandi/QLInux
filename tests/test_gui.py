@@ -1377,6 +1377,54 @@ def test_inspector_shows_only_selected_kind(qapp):
     assert inspector._title.text() == "Nichts ausgewählt"
 
 
+def test_inspector_puts_x_and_y_on_one_row(qapp):
+    from PySide6.QtWidgets import QLabel, QSpinBox
+
+    from ql_editor.inspector import InspectorPanel
+
+    inspector = InspectorPanel()
+    inspector.set_item(TextItem("Hallo"))
+
+    labels = {label.text(): label for label in inspector.findChildren(QLabel)}
+    assert "X" in labels
+    assert "Y" in labels
+    assert "X (Dots)" not in labels
+    assert "Y (Dots)" not in labels
+    assert labels["X"].parentWidget() is labels["Y"].parentWidget()
+
+    xy_row = labels["X"].parentWidget()
+    assert len(xy_row.findChildren(QSpinBox)) == 2
+    assert "Drehung" in labels
+    assert labels["Drehung"].parentWidget() is not xy_row
+
+
+def test_inspector_rotation_field_is_left_aligned(qapp):
+    from PySide6.QtWidgets import QLabel, QSpinBox
+
+    from ql_editor.inspector import InspectorPanel
+
+    inspector = InspectorPanel()
+    inspector.resize(320, 700)
+    inspector.show()
+    inspector.set_item(TextItem("Hallo"))
+    qapp.processEvents()
+
+    labels = {label.text(): label for label in inspector.findChildren(QLabel)}
+    x_label = labels["X"]
+    rot_label = labels["Drehung"]
+    xy_row = x_label.parentWidget()
+    rot_row = rot_label.parentWidget()
+    rot_spin = next(spin for spin in rot_row.findChildren(QSpinBox) if "°" in spin.suffix())
+
+    assert rot_row.mapTo(inspector, rot_row.rect().topLeft()).x() == xy_row.mapTo(
+        inspector, xy_row.rect().topLeft()
+    ).x()
+    assert rot_label.x() <= 2
+    assert rot_spin.x() == rot_label.x() + rot_label.width() + 6
+    assert rot_spin.width() <= rot_spin.sizeHint().width() + 4
+    assert rot_row.width() - (rot_spin.x() + rot_spin.width()) > 40
+
+
 def test_mainwindow_double_click_creates_text(qapp):
     from PySide6.QtCore import QPointF
 
