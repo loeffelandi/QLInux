@@ -91,6 +91,51 @@ def test_sheet_escape_closes(qapp):
     win.close()
 
 
+def test_sheet_scrim_click_closes_when_enabled(qapp):
+    from PySide6.QtCore import QPoint
+    from PySide6.QtGui import QMouseEvent
+    from PySide6.QtWidgets import QLabel
+
+    from ql_editor.sheet import show_widget
+
+    win = _window(qapp)
+    sheet = show_widget(
+        win,
+        title="Picker",
+        content=QLabel("Inhalt"),
+        close_on_outside=True,
+    )
+    qapp.processEvents()
+    outside = QPoint(4, 4)
+    assert not sheet._panel.geometry().contains(outside)
+    sheet.mousePressEvent(
+        QMouseEvent(
+            QMouseEvent.Type.MouseButtonPress,
+            outside.toPointF(),
+            Qt.MouseButton.LeftButton,
+            Qt.MouseButton.LeftButton,
+            Qt.KeyboardModifier.NoModifier,
+        )
+    )
+    qapp.processEvents()
+    assert not sheet.isVisible()
+
+    sheet = show_message(win, "info", "Titel", "Text")
+    qapp.processEvents()
+    sheet.mousePressEvent(
+        QMouseEvent(
+            QMouseEvent.Type.MouseButtonPress,
+            QPoint(4, 4).toPointF(),
+            Qt.MouseButton.LeftButton,
+            Qt.MouseButton.LeftButton,
+            Qt.KeyboardModifier.NoModifier,
+        )
+    )
+    qapp.processEvents()
+    assert sheet.isVisible()
+    win.close()
+
+
 def test_message_ok_button_closes_sheet(qapp):
     win = _window(qapp)
     sheet = show_message(win, "info", "Titel", "Text")

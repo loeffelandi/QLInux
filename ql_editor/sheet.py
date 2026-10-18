@@ -73,18 +73,21 @@ class Sheet(QWidget):
         sizing: str = "hint",
         margins: int = 40,
         max_size: QSize | None = None,
+        close_on_outside: bool = False,
     ) -> None:
         super().__init__(parent)
         self.setObjectName("qlSheet")
         self._sizing = sizing
         self._margins = margins
         self._max_size = max_size or QSize(1000, 760)
+        self._close_on_outside = bool(close_on_outside)
         self._closing = False
 
         self._panel = self._build_panel(content, title)
         self._panel.setParent(self)
 
         self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+        self.setAttribute(Qt.WidgetAttribute.WA_MouseTracking, True)
         self.setStyleSheet(
             "#qlSheetCard { background: palette(window); border: 1px solid palette(mid);"
             " border-radius: 12px; }"
@@ -125,13 +128,15 @@ class Sheet(QWidget):
             hint = panel.sizeHint()
             w = max(panel.minimumWidth(), hint.width())
             h = max(panel.minimumHeight(), hint.height())
+            # Bei knapper Hoehe nicht an der Mindestgroesse festhalten - sonst
+            # wird Inhalt (z. B. Scrollbalken) abgeschnitten.
+            w = min(w, avail.width(), self._max_size.width())
+            h = min(h, avail.height(), self._max_size.height())
         else:
-            w = self._max_size.width()
-            h = self._max_size.height()
-            w = max(w, panel.minimumWidth())
-            h = max(h, panel.minimumHeight())
-        w = min(w, avail.width())
-        h = min(h, avail.height())
+            w = min(self._max_size.width(), avail.width())
+            h = min(self._max_size.height(), avail.height())
+            w = max(w, min(panel.minimumWidth(), avail.width()))
+            h = max(h, min(panel.minimumHeight(), avail.height()))
         panel.setGeometry(
             avail.x() + (avail.width() - w) // 2,
             avail.y() + (avail.height() - h) // 2,
@@ -176,6 +181,18 @@ class Sheet(QWidget):
             return
         super().keyPressEvent(event)
 
+    def mousePressEvent(self, event) -> None:  # noqa: N802
+        """Klick auf die Abdunklung schliesst optional (Picker, Clip Art)."""
+        if (
+            self._close_on_outside
+            and event.button() == Qt.MouseButton.LeftButton
+            and not self._panel.geometry().contains(event.position().toPoint())
+        ):
+            self.close_sheet()
+            event.accept()
+            return
+        super().mousePressEvent(event)
+
     # --------------------------------------------------------- Schliessen ---
     def close_sheet(self) -> None:
         """Schliesst das Sheet (idempotent)."""
@@ -208,14 +225,23 @@ def show_widget(
     content: QWidget,
     sizing: str = "hint",
     max_size: QSize | None = None,
+    margins: int = 40,
+    close_on_outside: bool = False,
 ) -> Sheet:
     """Eigenen Inhalt als Sheet zeigen (z. B. "Über QLInux").
 
     Fuer alles, was mehr ist als eine Meldung: der Inhalt ist ein eigenes
     Widget, das Sheet bleibt aber im Hauptfenster (siehe Modulbeschreibung).
+    ``close_on_outside`` schliesst bei Klick auf die Abdunklung (Picker).
     """
     return _open_sheet(
-        parent, content, title=title, sizing=sizing, max_size=max_size
+        parent,
+        content,
+        title=title,
+        sizing=sizing,
+        max_size=max_size,
+        margins=margins,
+        close_on_outside=close_on_outside,
     )
 
 
