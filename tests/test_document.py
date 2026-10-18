@@ -81,6 +81,123 @@ def test_wrong_format_number(tmp_path):
         document.load(path)
 
 
+def test_format_1_remains_readable(tmp_path):
+    """D9: alte Format-1-Dateien oeffnen ohne Upgrade-Zwang beim Lesen."""
+    path = tmp_path / "alt.qlx"
+    document.save(
+        path,
+        {
+            "format": 1,
+            "app": "QLInux",
+            "version": "0.1.0",
+            "media": MEDIA,
+            "items": ITEMS,
+        },
+    )
+
+    data = document.load(path)
+
+    assert data["format"] == 1
+    assert data["items"] == ITEMS
+    assert "data_source" not in data
+    assert "serial" not in data
+
+
+def test_format_2_writes_serial_defaults(tmp_path):
+    """Format 2 enthaelt serial-Defaults; data_source nur bei CSV."""
+    path = tmp_path / "neu.qlx"
+    document.save(path, document.build(MEDIA, ITEMS))
+
+    data = document.load(path)
+
+    assert data["format"] == 2
+    assert data["serial"] == document.DEFAULT_SERIAL
+    assert "data_source" not in data
+
+
+def test_build_merges_partial_serial():
+    """Partielles serial-Dict ergaenzt fehlende Keys aus DEFAULT_SERIAL."""
+    data = document.build(MEDIA, ITEMS, serial={"enabled": True, "count": 5})
+
+    assert data["serial"] == {
+        **document.DEFAULT_SERIAL,
+        "enabled": True,
+        "count": 5,
+    }
+    assert data["serial"]["start"] == 1
+    assert data["serial"]["step"] == 1
+
+
+def test_load_fills_missing_serial_for_format_2(tmp_path):
+    """Format-2-Dateien ohne/partielles serial bekommen Defaults beim Laden."""
+    path = tmp_path / "teil.qlx"
+    document.save(
+        path,
+        {
+            "format": 2,
+            "media": MEDIA,
+            "items": [],
+            "serial": {"enabled": True},
+        },
+    )
+
+    data = document.load(path)
+
+    assert data["serial"]["enabled"] is True
+    assert data["serial"]["start"] == document.DEFAULT_SERIAL["start"]
+    assert data["serial"]["count"] == document.DEFAULT_SERIAL["count"]
+    assert data["serial"]["prefix"] == ""
+
+
+def test_load_adds_serial_when_absent_for_format_2(tmp_path):
+    path = tmp_path / "ohne.qlx"
+    document.save(path, {"format": 2, "media": MEDIA, "items": []})
+
+    data = document.load(path)
+
+    assert data["serial"] == document.DEFAULT_SERIAL
+
+
+def test_format_2_data_source_and_binding_round_trip(tmp_path):
+    """Pfad+Hash+Bindings ueberleben Speichern/Laden (CSV nicht eingebettet)."""
+    items = [
+        {
+            "type": "text",
+            "text": "Snapshot",
+            "binding": {"source": "database", "field": "Fixture"},
+        },
+        {
+            "type": "barcode",
+            "value": "0001",
+            "binding": {"source": "serial"},
+        },
+    ]
+    data_source = {
+        "type": "csv",
+        "path": "Fixture Data.csv",
+        "encoding": "utf-8-sig",
+        "delimiter": ";",
+        "current_record": 0,
+        "content_sha256": "abc123",
+    }
+    path = tmp_path / "merge.qlx"
+    document.save(
+        path,
+        document.build(MEDIA, items, data_source=data_source),
+    )
+
+    data = document.load(path)
+
+    assert data["format"] == 2
+    assert data["data_source"] == data_source
+    assert data["items"][0]["binding"] == {"source": "database", "field": "Fixture"}
+    assert data["items"][1]["binding"] == {"source": "serial"}
+    # CSV-Inhalt steckt nicht in der Datei.
+    text = path.read_text(encoding="utf-8")
+    assert "Spot" not in text
+    assert "content_sha256" in text
+
+
 def test_items_must_be_a_list(tmp_path):
     path = tmp_path / "halb.qlx"
     document.save(path, {"format": document.DOCUMENT_FORMAT, "items": {}})
