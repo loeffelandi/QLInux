@@ -574,17 +574,14 @@ class LabelCanvas(QGraphicsView):
 
         Endlos: beide Enden ``feed_margin``. Der Schnittversatz kommt nur
         hinter die letzte Zeile, weil die Schneide hinter dem Druckkopf
-        liegt. Die-cut: Differenz aus Gesamt- und Druckflaeche, haelftig.
+        liegt. Die-cut: keine zusaetzliche Laenge. Die Ergebniszeile zaehlt
+        dort die Druckflaeche, ``printer_extra_dots`` ist 0.
         """
         label = self._label
-        if label is None:
+        if label is None or not label.is_endless:
             return (0.0, 0.0)
-        if label.is_endless:
-            feed = float(label.feed_margin)
-            return (feed, feed + float(CUT_OFFSET_DOTS))
-        extra = max(0, int(label.dots_total[1]) - int(label.dots_printable[1]))
-        first = extra // 2
-        return (float(first), float(extra - first))
+        feed = float(label.feed_margin)
+        return (feed, feed + float(CUT_OFFSET_DOTS))
 
     def _canvas_length_margins(self) -> tuple[float, float]:
         """(niedrige, hohe) Achse in Szenenkoordinaten.

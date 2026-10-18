@@ -714,6 +714,30 @@ def test_cut_offset_follows_the_last_printed_line(qapp):
     assert tape.right() - printable.right() == pytest.approx(label.feed_margin)
 
 
+def test_die_cut_length_matches_the_result_readout(qapp):
+    """Die-cut: Laenge ist die Druckflaeche, wie die Ergebniszeile. Seitenkanten bleiben."""
+    canvas = LabelCanvas()
+    label = get_label("62x100")
+    assert not label.is_endless
+    assert label.dots_total[1] > label.dots_printable[1]
+    canvas.set_label(label, label.height_dots)
+    tape = canvas.tape_rect()
+    printable = canvas.printable_rect()
+    assert tape.top() == pytest.approx(printable.top())
+    assert tape.bottom() == pytest.approx(printable.bottom())
+    assert tape.left() == pytest.approx(printable.left() - label.side_border_dots)
+    assert tape.right() == pytest.approx(printable.right() + label.side_border_dots)
+    assert canvas._length_mm() == pytest.approx(media.dots_to_mm(label.height_dots))
+
+    canvas.set_label(label, label.height_dots, orientation=media.Orientation.ALONG)
+    tape = canvas.tape_rect()
+    printable = canvas.printable_rect()
+    assert tape.left() == pytest.approx(printable.left())
+    assert tape.right() == pytest.approx(printable.right())
+    assert tape.top() == pytest.approx(printable.top() - label.side_border_dots)
+    assert tape.bottom() == pytest.approx(printable.bottom() + label.side_border_dots)
+
+
 def test_tape_band_starts_after_the_full_label(qapp):
     """Grau erst hinter dem fertigen Etikett; das Etikett hat die volle Hoehe."""
     from PySide6.QtCore import QRectF
@@ -816,12 +840,18 @@ def test_unprintable_edge_is_hatched_band_beyond_label_is_plain(qapp):
 
     hatch = colors_at(QPointF(printable.center().x(), (tape.top() + printable.top()) / 2.0), 4)
     assert len(hatch) > 1
-    # Vorschub hinter dem Inhalt: gleiche Schraffur, noch Teil des Etiketts.
-    trail = colors_at(
+    # Schnittversatz hinter der letzten Zeile: bei ALONG links, noch Teil des Etiketts.
+    cut = colors_at(
+        QPointF((tape.left() + printable.left()) / 2.0, printable.center().y()),
+        3,
+    )
+    assert len(cut) > 1
+    # Vorschub vor der ersten Zeile: rechts, schmaler, ebenfalls schraffiert.
+    lead = colors_at(
         QPointF((printable.right() + tape.right()) / 2.0, printable.center().y()),
         3,
     )
-    assert len(trail) > 1
+    assert len(lead) > 1
     plain = QColor(TAPE_BAND_COLOR)
     beyond = colors_at(QPointF(tape.right() + 30, tape.center().y()), 1)
     assert beyond == {(plain.red(), plain.green(), plain.blue())}
