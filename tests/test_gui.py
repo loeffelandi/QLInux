@@ -4993,3 +4993,97 @@ def test_content_beyond_a_margin_is_not_printed(qapp, tmp_path):
     )
     win.close()
     qapp.processEvents()
+
+
+def _print_with_outcome(qapp, tmp_path, monkeypatch, outcome: str | None, error: str | None = None):
+    from PySide6.QtCore import QObject, Signal
+
+    from ql_editor import app as app_module
+
+    class FakeWorker(QObject):
+        succeeded = Signal(dict)
+        failed = Signal(str)
+        finished = Signal()
+
+        def __init__(self, image, label, config, options):
+            super().__init__()
+
+        def start(self) -> None:
+            if error is not None:
+                self.failed.emit(error)
+            else:
+                self.succeeded.emit({"outcome": outcome})
+            self.finished.emit()
+
+    monkeypatch.setattr(app_module, "PrintWorker", FakeWorker)
+    win = _temp_window(qapp, tmp_path)
+    win._media_panel.set_network_host("192.168.178.62")
+    win._on_print()
+    qapp.processEvents()
+    return win
+
+
+def test_network_send_is_reported_as_sent_not_as_error(qapp, tmp_path, monkeypatch):
+    win = _print_with_outcome(qapp, tmp_path, monkeypatch, "sent")
+    assert "An Drucker gesendet" in win._last_job_label.text()
+    assert "#b00020" not in win._last_job_label.styleSheet()
+    assert [job.outcome for job in win._print_jobs] == ["sent"]
+    win.close()
+    qapp.processEvents()
+
+
+def test_printer_error_is_marked_red_in_status_and_history(qapp, tmp_path, monkeypatch):
+    win = _print_with_outcome(qapp, tmp_path, monkeypatch, None, error="Drucker nicht erreichbar")
+    assert "#b00020" in win._last_job_label.styleSheet()
+    assert win._print_jobs[-1].is_error
+    assert win._print_jobs[-1].status_text() == "Nicht gesendet"
+    win.close()
+    qapp.processEvents()
+
+
+def test_status_area_keeps_its_height_while_printing(qapp, tmp_path, monkeypatch):
+    from PySide6.QtCore import QObject, Signal
+
+    from ql_editor import app as app_module
+
+    class SlowWorker(QObject):
+        succeeded = Signal(dict)
+        failed = Signal(str)
+        finished = Signal()
+
+        def __init__(self, image, label, config, options):
+            super().__init__()
+
+        def start(self) -> None:
+            pass
+
+    monkeypatch.setattr(app_module, "PrintWorker", SlowWorker)
+    win = _temp_window(qapp, tmp_path)
+    win._media_panel.set_network_host("192.168.178.62")
+    qapp.processEvents()
+    height_idle = win._status_stack.height()
+    win._on_print()
+    qapp.processEvents()
+    assert win._status_stack.currentWidget() is win._feed_indicator
+    assert win._status_stack.height() == height_idle
+    assert not win._print_button.isEnabled()
+    win._on_print_succeeded({"outcome": "printed"})
+    win._on_print_finished()
+    qapp.processEvents()
+    assert win._status_stack.currentWidget() is win._last_job_label
+    assert win._status_stack.height() == height_idle
+    assert win._print_button.isEnabled()
+    win.close()
+    qapp.processEvents()
+
+
+def test_print_and_history_buttons_share_height_and_row(qapp, tmp_path):
+    win = _temp_window(qapp, tmp_path)
+    page = win._right_pages.page(1)
+    page.resize(176, 400)
+    page.show()
+    qapp.processEvents()
+    assert win._print_button.height() == win._history_button.height()
+    assert win._print_button.y() == win._history_button.y()
+    win.close()
+    qapp.processEvents()
