@@ -4246,6 +4246,9 @@ class MainWindow(QMainWindow):
             if network is not None
             else [],
         )
+        # Der finished-Slot, der die Referenz leert, ist jetzt getrennt.
+        # Sonst zeigt das Fenster nach deleteLater auf einen toten Thread.
+        self._network_worker = None
         detect = self._detect_worker
         self._disconnect_worker(
             detect,
@@ -4257,6 +4260,7 @@ class MainWindow(QMainWindow):
             if detect is not None
             else [],
         )
+        self._detect_worker = None
         printing = self._print_worker
         self._disconnect_worker(
             printing,
@@ -4268,6 +4272,7 @@ class MainWindow(QMainWindow):
             if printing is not None
             else [],
         )
+        self._print_worker = None
         self._settings.save_geometry(self.saveGeometry())
         self._settings.connection = self._media_panel.connection()
         self._settings.address = self._media_panel.address()
