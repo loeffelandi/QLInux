@@ -220,13 +220,9 @@ class InspectorPanel(QWidget):
         form.addRow(tr("Zeilenabstand"), line)
 
         form.addRow(self._rule())
-        form.addRow(
-            self._bar(
-                self._check(tr("Breite automatisch"), item.auto_width, item.set_auto_width),
-                self._check(tr("Umbruch"), item.wrap, item.set_wrap),
-                self._check(tr("Höhe automatisch"), item.auto_height, item.set_auto_height),
-            )
-        )
+        form.addRow(self._check(tr("Breite automatisch"), item.auto_width, item.set_auto_width))
+        form.addRow(self._check(tr("Umbruch"), item.wrap, item.set_wrap))
+        form.addRow(self._check(tr("Höhe automatisch"), item.auto_height, item.set_auto_height))
 
     # -- Textleiste (Symbol-Knoepfe) -----------------------------------------
     def _bar(self, *widgets: QWidget) -> QWidget:
@@ -234,6 +230,7 @@ class InspectorPanel(QWidget):
         layout = QHBoxLayout(row)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(2)
+        layout.addStretch(1)
         for widget in widgets:
             layout.addWidget(widget)
         layout.addStretch(1)

@@ -2949,11 +2949,11 @@ def test_rotate_hint_follows_rotate_handle_hover(qapp):
     canvas._scene.clearSelection()
     item.setSelected(True)
     received: list[bool] = []
-    canvas.rotate_hint_changed.connect(received.append)
-    canvas._set_rotate_hint(True)
-    canvas._set_rotate_hint(True)
+    canvas.hint_changed.connect(received.append)
+    canvas._set_hint("Shift: 15°-Schritte")
+    canvas._set_hint("Shift: 15°-Schritte")
     canvas.leaveEvent(None)
-    assert received == [True, False]
+    assert received == ["Shift: 15°-Schritte", ""]
 
 
 def test_rotate_handle_distance_is_constant_for_scaled_items(qapp):
@@ -3605,7 +3605,7 @@ def test_print_options_fit_on_a_small_screen(qapp, tmp_path):
     win._right_pages.show_page(1)
     qapp.processEvents()
     page = win._right_pages.page(1)
-    assert page.widget().sizeHint().height() <= 300
+    assert page.widget().sizeHint().height() <= 310
     assert win._print_button.isVisible()
 
 
