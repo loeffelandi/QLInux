@@ -2763,39 +2763,42 @@ def test_no_menu_bar_but_hamburger_menu(qapp):
         labels.append("|" if action.isSeparator() else action.text())
     assert labels == [
         "Speichern unter…",
-        "Reiter schließen",
-        "Vorlagen",
-        "|",
-        "Quer zum Band",
-        "Längs des Bandes",
-        "|",
-        "Panel links",
-        "Panel rechts",
-        "Verkleinern",
-        "Einpassen",
-        "Vergrößern",
-        "1:1",
-        "Druckverlauf anzeigen",
         "|",
         "Sprache",
         "Über QLInux",
         "Beenden",
     ]
-    # Zoom und Druckverlauf teilen sich die QAction mit der Toolbar.
     bar = win.findChild(QToolBar)
-    for act in (
-        win._act_zoom_out,
-        win._act_zoom_fit,
-        win._act_zoom_in,
-        win._act_zoom_100,
-        win._act_print_history,
-    ):
-        assert act in items
-        assert act in bar.actions()
+
+    def _leaves(entries):
+        found = []
+        for entry in entries:
+            if entry.action is not None:
+                found.append(entry.action)
+            found.extend(_leaves(entry.children))
+        return found
+
+    entries = win._palette_entries()
+    leaves = _leaves(entries)
+    assert [entry.title for entry in entries] == [
+        "Datei",
+        "Vorlagen",
+        "Einfügen",
+        "Bearbeiten",
+        "Layout",
+        "Etikett",
+        "Datenbank",
+        "Ansicht",
+        "Drucken",
+        "Sprache",
+        "Über QLInux",
+        "Beenden",
+    ]
     left_the_burger = (
         win._act_file_new,
         win._act_file_open,
         win._act_file_save,
+        win._act_tab_close,
         win._act_add_text,
         win._act_add_image,
         win._act_add_clipart,
@@ -2817,23 +2820,24 @@ def test_no_menu_bar_but_hamburger_menu(qapp):
         win._act_snap_guides,
         win._act_print,
         win._act_print_preview,
+        win._act_print_history,
+        win._act_zoom_out,
+        win._act_panel_left,
         win._act_connect_csv,
         win._act_commands,
+        *win._media_panel.orientation_actions(),
     )
     assert all(act not in items for act in left_the_burger)
-    grouped = [action for _title, actions in win._palette_groups() for action in actions]
-    assert all(act in grouped for act in left_the_burger)
-    assert [title for title, _actions in win._palette_groups()] == [
-        "Datei",
-        "Einfügen",
-        "Bearbeiten",
-        "Layout",
-        "Etikett",
-        "Datenbank",
-        "Ansicht",
-        "Drucken",
-        "QLInux",
-    ]
+    assert all(act in leaves for act in left_the_burger if act is not win._act_commands)
+    for act in (
+        win._act_zoom_out,
+        win._act_zoom_fit,
+        win._act_zoom_in,
+        win._act_zoom_100,
+        win._act_print_history,
+    ):
+        assert act in bar.actions()
+        assert act in leaves
     assert win._act_commands in win.actions()
     assert win._act_commands.shortcut().toString() == "Ctrl+K"
     assert [
@@ -2895,22 +2899,47 @@ def test_no_menu_bar_but_hamburger_menu(qapp):
     qapp.processEvents()
     assert not win._act_front.isEnabled()
     sheet, edit, listing = _open_palette()
-    assert listing.item(0).text() == "Datei"
-    assert not listing.item(0).flags() & Qt.ItemFlag.ItemIsSelectable
-    assert listing.currentItem().text().startswith("Neu")
+    assert listing.item(0).text().startswith("Datei")
+    assert "›" in listing.item(0).text()
+    assert listing.currentItem() is listing.item(0)
+
+    def _go(title: str) -> None:
+        for _ in range(listing.count()):
+            if listing.currentItem().text().startswith(title):
+                return
+            QTest.keyClick(edit, Qt.Key.Key_Down)
+        raise AssertionError(title)
+
+    _go("Einfügen")
+    insert_row = listing.currentRow()
+    assert insert_row > 0
+    QTest.keyClick(edit, Qt.Key.Key_Right)
+    assert listing.item(0).text().startswith("Text")
+    _go("Formen")
+    shapes_row = listing.currentRow()
+    assert shapes_row > 0
+    QTest.keyClick(edit, Qt.Key.Key_Right)
+    assert any(listing.item(i).text().startswith("Stern") for i in range(listing.count()))
+    QTest.keyClick(edit, Qt.Key.Key_Down)
+    assert listing.currentRow() == 1
+    QTest.keyClick(edit, Qt.Key.Key_Left)
+    assert listing.currentRow() == shapes_row
+    assert listing.currentItem().text().startswith("Formen")
+    QTest.keyClick(edit, Qt.Key.Key_Left)
+    assert listing.currentRow() == insert_row
+    assert listing.currentItem().text().startswith("Einfügen")
+
     edit.setText("Neu")
     shown = [listing.item(i).text() for i in range(listing.count())]
-    assert shown[0] == "Datei"
     native = win._act_file_new.shortcut().toString(QKeySequence.SequenceFormat.NativeText)
     assert any(text.startswith("Neu") and text.endswith(native) for text in shown)
-    assert "Einfügen" not in shown
+    assert all(not text.startswith("Einfügen") for text in shown)
     edit.setText("kein-treffer")
     assert listing.count() == 0
     edit.setText("Vordergrund")
-    assert listing.item(0).text() == "Layout"
-    assert not listing.item(0).flags() & Qt.ItemFlag.ItemIsSelectable
-    assert listing.count() == 2
-    assert not listing.item(1).flags() & Qt.ItemFlag.ItemIsEnabled
+    assert listing.count() == 1
+    assert listing.item(0).text().startswith("In den Vordergrund")
+    assert not listing.item(0).flags() & Qt.ItemFlag.ItemIsEnabled
     sheet.close_sheet()
     qapp.processEvents()
 
@@ -2919,8 +2948,8 @@ def test_no_menu_bar_but_hamburger_menu(qapp):
     assert win._act_front.isEnabled()
     sheet, edit, listing = _open_palette()
     edit.setText("Vordergrund")
-    assert listing.item(1).flags() & Qt.ItemFlag.ItemIsEnabled
-    assert listing.currentItem() is listing.item(1)
+    assert listing.item(0).flags() & Qt.ItemFlag.ItemIsEnabled
+    assert listing.currentItem() is listing.item(0)
     QTest.keyClick(edit, Qt.Key.Key_Return)
     qapp.processEvents()
     assert _visual_bottom_to_top(win._canvas)[-1] is first
@@ -2934,7 +2963,7 @@ def test_menu_actions_have_icons(qapp):
     menu = win._menu_button.menu()
     assert menu is not None
     items = [a for a in menu.actions() if not a.isSeparator()]
-    assert len(items) >= 10
+    assert len(items) == 4
     assert all(not a.icon().isNull() for a in items)
 
 
@@ -3010,13 +3039,15 @@ def test_toolbar_has_no_orientation_buttons(qapp):
     assert "Längs des Bandes" not in texts
 
 
-def test_orientation_is_in_hamburger_menu(qapp):
+def test_orientation_is_in_the_command_list_not_the_burger(qapp):
     from ql_editor.app import MainWindow
 
     win = MainWindow()
     items = win._menu_button.menu().actions()
+    etikett = next(entry for entry in win._palette_entries() if entry.title == "Etikett")
     for act in win._media_panel.orientation_actions():
-        assert act in items
+        assert act not in items
+        assert act in [child.action for child in etikett.children]
 
 
 def test_orientation_changes_canvas_and_print_image(qapp):
@@ -3118,9 +3149,13 @@ def test_panel_actions_are_in_the_menu_not_the_toolbar(qapp):
     bar_actions = [a for a in bar.actions() if not a.isSeparator()]
     assert win._act_panel_left not in bar_actions
     assert win._act_panel_right not in bar_actions
-    # Erreichbar bleiben sie im Hamburger-Menue (Shortcut-Wege).
-    assert win._act_panel_left in win._menu_button.menu().actions()
-    assert win._act_panel_right in win._menu_button.menu().actions()
+    # Nicht im Burger: Strg+K unter Ansicht, das Kuerzel bleibt am Fenster.
+    assert win._act_panel_left not in win._menu_button.menu().actions()
+    assert win._act_panel_right not in win._menu_button.menu().actions()
+    assert win._act_panel_left in win.actions()
+    ansicht = next(entry for entry in win._palette_entries() if entry.title == "Ansicht")
+    assert win._act_panel_left in [child.action for child in ansicht.children]
+    assert win._act_panel_right in [child.action for child in ansicht.children]
 
 
 def test_panel_arrow_sits_in_the_panel(qapp):
