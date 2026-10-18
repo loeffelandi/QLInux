@@ -74,22 +74,18 @@ from .symbols import known_symbol, paint_symbol
 
 
 def normalize_binding(binding: Mapping[str, Any] | None) -> dict[str, Any] | None:
-    """Binding normalisieren: ``database``+Feld, ``serial``, oder ``None`` (D4)."""
-    if binding is None:
-        return None
-    source = binding.get("source")
-    if source in (None, "", "none"):
-        return None
-    if source == "database":
-        field = binding.get("field")
-        if not isinstance(field, str) or not field:
-            raise ValueError(tr("Datenbank-Binding braucht einen Spaltennamen."))
-        return {"source": "database", "field": field}
-    if source == "serial":
-        return {"source": "serial"}
-    raise ValueError(
-        tr("Unbekannte Binding-Quelle: {source!r}.").format(source=source)
-    )
+    """Binding normalisieren: ``database``+Feld, ``serial``, oder ``None`` (D4).
+
+    Delegiert an die headless Merge-Engine (eine Pure-Funktion); ``MergeError``
+    wird hier als ``ValueError`` weitergereicht (Item-API).
+    """
+    # Lazy Import: ``merge`` importiert ``document``, nicht ``items``.
+    from .merge import MergeError, normalize_binding as _normalize
+
+    try:
+        return _normalize(binding)
+    except MergeError as exc:
+        raise ValueError(str(exc)) from exc
 
 
 class _BindingMixin:
