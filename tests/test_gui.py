@@ -2360,15 +2360,17 @@ def test_large_image_is_downscaled_but_keeps_its_size(qapp, tmp_path):
     from ql_editor.items import IMAGE_MAX_SIDE_PX, ImageItem
 
     path = tmp_path / "big.png"
-    source = QImage(6000, 4000, QImage.Format.Format_RGB32)
+    # Knapp ueber der Kante reicht: die Verkleinerung haengt nur am Maximum.
+    width, height = IMAGE_MAX_SIDE_PX + 512, 1400
+    source = QImage(width, height, QImage.Format.Format_RGB32)
     source.fill(QColor("white"))
     assert source.save(str(path))
 
     item = ImageItem.from_file(str(path))
     assert max(item.pixmap().width(), item.pixmap().height()) == IMAGE_MAX_SIDE_PX
     rect = item.transform().mapRect(item.boundingRect())
-    assert rect.width() == pytest.approx(6000, abs=5)
-    assert rect.height() == pytest.approx(4000, abs=5)
+    assert rect.width() == pytest.approx(width, abs=5)
+    assert rect.height() == pytest.approx(height, abs=5)
 
     first = item.to_dict()["data_b64"]
     assert item.to_dict()["data_b64"] == first
