@@ -7365,3 +7365,35 @@ def test_pinch_zoom_keeps_point_under_fingers(qapp):
     after = canvas.mapFromScene(before)
     assert abs(after.x() - anchor.x()) <= 3
     assert abs(after.y() - anchor.y()) <= 3
+
+
+def test_touch_pinch_zooms_by_finger_distance(qapp):
+    """Echte Touch-Events: Fingerabstand 60 -> 150 px zoomt x2,5 um die Fingermitte."""
+    from PySide6.QtCore import QPoint
+    from PySide6.QtTest import QTest
+
+    canvas = _shown_canvas(qapp)
+    canvas.zoom_by(2.0)
+    for bar in (canvas.horizontalScrollBar(), canvas.verticalScrollBar()):
+        bar.setValue(bar.maximum() // 2)
+    qapp.processEvents()
+    vp = canvas.viewport()
+    mid = QPoint(300, 200)
+    scene_mid = canvas.mapToScene(mid)
+    before = canvas.transform().m11()
+
+    device = QTest.createTouchDevice()
+    left, right = mid - QPoint(30, 0), mid + QPoint(30, 0)
+    QTest.touchEvent(vp, device).press(0, left, vp).commit()
+    # stationary() gaebe dem ruhenden Finger in QTest die globale Position (0,0).
+    QTest.touchEvent(vp, device).move(0, left, vp).press(1, right, vp).commit()
+    for half in range(35, 76, 5):
+        left, right = mid - QPoint(half, 0), mid + QPoint(half, 0)
+        QTest.touchEvent(vp, device).move(0, left, vp).move(1, right, vp).commit()
+    QTest.touchEvent(vp, device).release(0, left, vp).release(1, right, vp).commit()
+    qapp.processEvents()
+
+    assert canvas.transform().m11() / before == pytest.approx(2.5, rel=0.01)
+    drift = canvas.mapFromScene(scene_mid) - mid
+    assert abs(drift.x()) <= 4
+    assert abs(drift.y()) <= 4

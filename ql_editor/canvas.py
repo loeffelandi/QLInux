@@ -1076,15 +1076,22 @@ class LabelCanvas(QGraphicsView):
         )
 
     def _on_pinch(self, pinch) -> None:
-        """Zwei Finger: Abstand zoomt, Mitte verschiebt den Ausschnitt."""
+        """Zwei Finger: Abstand zoomt, Mitte verschiebt den Ausschnitt.
+
+        ``scaleFactor()`` ist schon der Schritt seit dem letzten Event, nicht
+        seit Gestenbeginn. ``centerPoint()`` liegt in globalen Koordinaten.
+        Das Ende-Event wiederholt die Werte des letzten Schritts.
+        """
+        if pinch.state() in (Qt.GestureState.GestureFinished, Qt.GestureState.GestureCanceled):
+            return
         flags = pinch.changeFlags()
         ratio = 1.0
-        if flags & QPinchGesture.ChangeFlag.ScaleFactorChanged and pinch.lastScaleFactor():
-            ratio = pinch.scaleFactor() / pinch.lastScaleFactor()
+        if flags & QPinchGesture.ChangeFlag.ScaleFactorChanged:
+            ratio = pinch.scaleFactor()
         pan = QPointF(0.0, 0.0)
         if flags & QPinchGesture.ChangeFlag.CenterPointChanged:
             pan = pinch.centerPoint() - pinch.lastCenterPoint()
-        self.apply_pinch(ratio, pan, pinch.centerPoint())
+        self.apply_pinch(ratio, pan, self.viewport().mapFromGlobal(pinch.centerPoint()))
 
     def apply_pinch(self, ratio: float, pan: QPointF, center: QPointF | None = None) -> None:
         """Ein Schritt der Zwei-Finger-Geste: um die Fingermitte zoomen, dann verschieben.
