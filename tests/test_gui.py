@@ -412,6 +412,24 @@ def test_network_hint_names_the_remembered_tape(qapp):
     assert panel._loaded_label.isHidden() and panel._forget_button.isHidden()
 
 
+def test_elided_label_names_the_full_text_only_when_cut(qapp):
+    """Der Tooltip nur bei „…“, der Screenreader liest immer den ganzen Text."""
+    from ql_editor.media_panel import _ElidedLabel
+
+    label = _ElidedLabel()
+    label.show()
+    label.resize(400, 20)
+    label.set_full_text("Eingelegt: 62")
+    assert label.text() == "Eingelegt: 62"
+    assert label.toolTip() == ""
+    assert label.accessibleName() == "Eingelegt: 62"
+    label.resize(30, 20)
+    assert label.text().endswith("…")
+    assert label.toolTip() == "Eingelegt: 62"
+    assert label.accessibleName() == "Eingelegt: 62"
+    label.close()
+
+
 def test_media_panel_restores_a_network_address_from_settings(qapp):
     from ql_editor.media_panel import CONNECTION_NETWORK, MediaPanel
 
@@ -7529,10 +7547,10 @@ def test_long_tape_name_or_a_search_does_not_move_the_boxes_below(qapp, tmp_path
     win._sync_loaded_tape()
     full = "Eingelegt: 62 mm endlos (schwarz/rot)"
     assert panel._loaded_label.full_text() == full
-    assert panel._loaded_label.toolTip() == full
     assert band_top() == top
     panel._loaded_label.resize(60, panel._loaded_label.height())
     assert panel._loaded_label.text().endswith("…")
+    assert panel._loaded_label.toolTip() == full
     panel.set_network_searching(True)
     assert band_top() == top
     win.close()

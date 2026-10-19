@@ -127,7 +127,7 @@ class _ElidedLabel(QLabel):
 
     def set_full_text(self, text: str) -> None:
         self._full_text = text
-        self.setToolTip(text)
+        self.setAccessibleName(text)
         self._elide()
 
     def resizeEvent(self, event) -> None:  # noqa: N802
@@ -135,11 +135,11 @@ class _ElidedLabel(QLabel):
         self._elide()
 
     def _elide(self) -> None:
-        self.setText(
-            self.fontMetrics().elidedText(
-                self._full_text, Qt.TextElideMode.ElideRight, self.width()
-            )
+        shown = self.fontMetrics().elidedText(
+            self._full_text, Qt.TextElideMode.ElideRight, self.width()
         )
+        self.setText(shown)
+        self.setToolTip(self._full_text if shown != self._full_text else "")
 
 
 class MediaPanel(QWidget):
