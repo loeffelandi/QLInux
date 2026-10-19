@@ -7804,7 +7804,8 @@ def test_printer_poll_shows_faults_and_notes_in_the_status_bar(qapp, tmp_path):
     from ql_editor.discovery import NetworkStatus
 
     win = _temp_window(qapp, tmp_path)
-    address = "tcp://192.0.2.62:9100"
+    win._media_panel.set_network_host("192.0.2.62")
+    address = win._media_panel.printer_config().address
     win._on_network_polled(
         {"address": address, "status": NetworkStatus(fault=True, texts=("Klappe offen",))}
     )
@@ -7824,11 +7825,16 @@ def test_printer_poll_shows_faults_and_notes_in_the_status_bar(qapp, tmp_path):
 
 
 def test_printer_poll_reports_a_cleared_fault_once(qapp, tmp_path):
-    """Stille aendert nichts, ein anderer Drucker beginnt von vorn."""
+    """Stille aendert nichts, ein anderer Drucker beginnt von vorn. Ein eben
+    abgewaehlter meldet nichts mehr."""
     from ql_editor.discovery import NetworkStatus
 
     win = _temp_window(qapp, tmp_path)
-    address = "tcp://192.0.2.62:9100"
+    panel = win._media_panel
+    panel.set_network_host("192.0.2.99")
+    other = panel.printer_config().address
+    panel.set_network_host("192.0.2.62")
+    address = panel.printer_config().address
     bar = win.statusBar()
 
     def poll(status, at=address):
@@ -7843,7 +7849,10 @@ def test_printer_poll_reports_a_cleared_fault_once(qapp, tmp_path):
     assert poll(cover) == ""
     assert poll(fine) == "Drucker wieder bereit"
     assert poll(fine) == ""
-    assert poll(cover, "tcp://192.0.2.99:9100") == "Drucker meldet: Klappe offen"
+    assert poll(cover, other) == ""
+    panel.set_network_host("192.0.2.99")
+    assert poll(cover, other) == "Drucker meldet: Klappe offen"
+    panel.set_network_host("192.0.2.62")
     assert poll(cover) == "Drucker meldet: Klappe offen"
     win.close()
     qapp.processEvents()

@@ -3976,6 +3976,10 @@ class MainWindow(QMainWindow):
         if status is None:
             # Keine Antwort (auch ein verlorenes Paket): die letzte Meldung gilt.
             return
+        config = self._media_panel.printer_config()
+        if config.backend != "network" or config.address != address:
+            # Antwort fuer einen eben abgewaehlten Drucker.
+            return
         shown = self._net_shown
         before = shown[1] if shown is not None and shown[0] == address else None
         self._net_shown = (address, status)
