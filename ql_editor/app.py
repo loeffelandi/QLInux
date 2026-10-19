@@ -3904,8 +3904,9 @@ class MainWindow(QMainWindow):
                 tr("Hinweis vom Drucker: {texts}").format(texts=", ".join(warnings)),
                 10000,
             )
-        if outcome == "error":
-            errors = "\n".join(f"• {text}" for text in status.get("errors", ()))
+        # USB-Fehler bringen keine Texte mit: dort genuegt die rote Verlaufszeile.
+        if outcome == "error" and status.get("errors"):
+            errors = "\n".join(f"• {text}" for text in status["errors"])
             show_message(
                 self,
                 "warning",

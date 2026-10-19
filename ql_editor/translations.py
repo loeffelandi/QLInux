@@ -339,7 +339,6 @@ EN: dict[str, str] = {
     "Ausgabefach voll": "Output tray full",
     "Papierfach leer": "Paper tray empty",
     "Wartung überfällig": "Maintenance overdue",
-    "Drucker meldet einen Fehler": "Printer reports an error",
     "Der Drucker meldet:\n{errors}\n\nBand, Klappe und Papier prüfen und danach erneut drucken.": "The printer reports:\n{errors}\n\nCheck tape, cover and paper, then print again.",
     "Störung, z. B. falsches Band": "Fault, e.g. wrong tape",
     "Drucker meldet: {errors}": "Printer reports: {errors}",

@@ -7251,6 +7251,7 @@ def _print_with_outcome(
     error: str | None = None,
     *,
     open_sheet: bool = False,
+    details: dict | None = None,
 ):
     from PySide6.QtCore import QObject, Signal
 
@@ -7268,7 +7269,7 @@ def _print_with_outcome(
             if error is not None:
                 self.failed.emit(error)
             else:
-                self.succeeded.emit({"outcome": outcome})
+                self.succeeded.emit({"outcome": outcome, **(details or {})})
             self.finished.emit()
 
     monkeypatch.setattr(app_module, "PrintWorker", FakeWorker)
@@ -7307,6 +7308,31 @@ def test_silence_after_a_network_job_is_not_an_error(qapp, tmp_path, monkeypatch
     assert win.statusBar().currentMessage().startswith(
         "Drucker hat nach dem Senden nicht geantwortet."
     )
+    win.close()
+    qapp.processEvents()
+
+
+@pytest.mark.parametrize(
+    ("details", "explained"), [({}, False), ({"errors": ["Klappe offen"]}, True)]
+)
+def test_printer_error_is_explained_only_with_texts(
+    qapp, tmp_path, monkeypatch, details, explained
+):
+    """USB meldet einen Fehler ohne Texte: rote Zeile, das Sheet bleibt offen.
+    Per SNMP nennt der Netzwerkdrucker die Stoerung, die ein Dialog erklaert."""
+    from PySide6.QtWidgets import QMessageBox
+
+    win = _print_with_outcome(
+        qapp, tmp_path, monkeypatch, "error", open_sheet=True, details=details
+    )
+    assert win._history_table.item(0, 4).foreground().color().name() == "#b00020"
+    boxes = [box for box in win.findChildren(QMessageBox) if box.isVisible()]
+    if explained:
+        assert len(boxes) == 1
+        assert "• Klappe offen" in boxes[0].text()
+    else:
+        assert not boxes
+        assert win._print_sheet is not None and win._print_sheet.isVisible()
     win.close()
     qapp.processEvents()
 
