@@ -203,3 +203,78 @@ def test_clipart_inverted_round_trips(qapp):
     restored = ClipArtItem.from_dict(item.to_dict())
     assert restored.inverted
     assert restored.to_dict()["inverted"] is True
+
+
+def _paint_item(item: ClipArtItem) -> QImage:
+    rect = item.boundingRect()
+    image = QImage(int(rect.width()), int(rect.height()), QImage.Format.Format_ARGB32)
+    image.fill(QColor("white"))
+    painter = QPainter(image)
+    item.paint(painter, None)
+    painter.end()
+    return image
+
+
+def test_inverted_clipart_paints_a_box_with_a_white_symbol(qapp):
+    normal = ClipArtItem("warning", 80)
+    inverted = ClipArtItem("warning", 80, inverted=True)
+    plain = _paint_item(normal)
+    flipped = _paint_item(inverted)
+    assert flipped.pixelColor(1, 1).red() < 40
+    ink = [
+        (x, y)
+        for y in range(80)
+        for x in range(80)
+        if plain.pixelColor(x, y).red() < 40
+    ]
+    assert len(ink) > 80
+    assert all(flipped.pixelColor(x, y).red() > 215 for x, y in ink)
+
+
+def test_inverted_red_clipart_prints_red_without_black(qapp):
+    canvas = LabelCanvas()
+    canvas.resize(400, 300)
+    canvas.show()
+    qapp.processEvents()
+    canvas.set_label(get_label("50"), 400)
+    item = ClipArtItem("warning", 180, color="red", inverted=True)
+    canvas.add_item(item)
+    item.setPos(8, 8)
+    image = canvas.render_printable()
+    dark = red = 0
+    for pixel in image.getdata():
+        r, g, b = pixel[:3]
+        if r < 40 and g < 40 and b < 40:
+            dark += 1
+        if r > 180 and g < 40 and b < 40:
+            red += 1
+    assert red > 180 * 180 // 2
+    assert dark == 0
+
+
+def test_inspector_inverts_clipart_with_undo(qapp):
+    from ql_editor.app import MainWindow
+
+    win = MainWindow()
+    win.resize(1100, 760)
+    win.show()
+    qapp.processEvents()
+    win._act_add_clipart.trigger()
+    qapp.processEvents()
+    win.findChild(QToolButton, "symbol_home").click()
+    qapp.processEvents()
+    mark = next(it for it in win._canvas.scene().items() if getattr(it, "kind", None) == "clipart")
+    invert = next(
+        box
+        for box in win._inspector.findChildren(QCheckBox)
+        if box.text() == "Invertiert" and box.isVisible()
+    )
+    assert not invert.isChecked()
+    invert.click()
+    qapp.processEvents()
+    assert mark.inverted
+    win._act_undo.trigger()
+    qapp.processEvents()
+    mark = next(it for it in win._canvas.scene().items() if getattr(it, "kind", None) == "clipart")
+    assert not mark.inverted
+    win.close()

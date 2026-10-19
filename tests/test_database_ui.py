@@ -736,3 +736,40 @@ def test_opening_label_with_missing_csv_shows_the_banner(qapp, tmp_path):
     banner = win._database_panel.findChild(QLabel, "database_panel_banner")
     assert banner.isVisible() and banner.text()
     win.close()
+
+
+def test_ctrl_and_shift_clicks_in_the_grid(qapp, tmp_path):
+    from PySide6.QtTest import QTest
+
+    win = MainWindow(discover=False)
+    win.resize(1100, 760)
+    win.show()
+    item = TextItem("x")
+    item.set_binding({"source": "database", "field": "Fixture"})
+    win._canvas.add_item(item)
+    assert win.connect_csv_path(str(_rows_csv(tmp_path, "a.csv", "A")))
+    _open_database(win)
+    qapp.processEvents()
+    grid = win._database_panel._grid
+    viewport = grid.viewport()
+
+    def click(row: int, modifier=Qt.KeyboardModifier.NoModifier) -> None:
+        center = grid.visualRect(grid.model().index(row, 0)).center()
+        QTest.mouseClick(viewport, Qt.MouseButton.LeftButton, modifier, center)
+        qapp.processEvents()
+
+    click(1)
+    click(3, Qt.KeyboardModifier.ShiftModifier)
+    assert win._database_panel.selected_records() == [1, 2, 3]
+    click(5, Qt.KeyboardModifier.ControlModifier)
+    assert win._database_panel.selected_records() == [1, 2, 3, 5]
+    assert item.text_value == "A 1"
+    click(1, Qt.KeyboardModifier.ControlModifier)
+    assert win._database_panel.selected_records() == [2, 3, 5]
+    assert item.text_value == "A 2"
+    for row in (2, 3):
+        click(row, Qt.KeyboardModifier.ControlModifier)
+    assert win._database_panel.selected_records() == [5]
+    click(5, Qt.KeyboardModifier.ControlModifier)
+    assert win._database_panel.selected_records() == [5]
+    win.close()
