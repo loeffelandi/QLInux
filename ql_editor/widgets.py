@@ -6,6 +6,8 @@
   Scrollbereich weitergereicht - so scrollt das Panel, wie man es erwartet.
 * :class:`SmoothScrollArea` und :class:`SmoothScroller` sorgen fuer weiches,
   animiertes Scrollen (wie auf dem Mac) statt harter Spruenge pro Raste.
+* :class:`ToolbarSeparator` zeichnet die Trenner in der Werkzeugleiste aus
+  der Palette (Mid), hell und dunkel lesbar.
 """
 
 from __future__ import annotations
@@ -16,11 +18,68 @@ from PySide6.QtCore import (
     QRect,
     QObject,
     QPropertyAnimation,
+    QSize,
     Qt,
     QTimer,
 )
-from PySide6.QtGui import QColor, QFont, QPainter, QPen
-from PySide6.QtWidgets import QAbstractScrollArea, QGroupBox, QScrollArea, QWidget
+from PySide6.QtGui import QAction, QColor, QFont, QPainter, QPalette, QPen
+from PySide6.QtWidgets import (
+    QAbstractScrollArea,
+    QGroupBox,
+    QScrollArea,
+    QSizePolicy,
+    QToolBar,
+    QWidget,
+)
+
+
+class ToolbarSeparator(QWidget):
+    """Senkrechter Trenner in der Werkzeugleiste.
+
+    Fusion malt ``QToolBarSeparator`` mit Dark. Auf dem dunklen Fenstergrund
+    liegt die Linie dann dunkler als die Leiste und verschwindet. Mid ist auf
+    Hell grau und auf Dunkel hell genug. Kein Stylesheet: sonst loesen sich
+    die Toolbar-Knoepfe von der Anwendungspalette. Der Strich ist kosmetisch
+    (ein Geraetepixel), damit er unter Wayland mit HiDPI nicht aufdickt.
+    """
+
+    def __init__(self, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self.setObjectName("toolbar_separator")
+        self.setFixedWidth(6)
+        self.setSizePolicy(
+            QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Expanding
+        )
+        self.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
+
+    def sizeHint(self):  # noqa: N802
+        return self.minimumSizeHint()
+
+    def minimumSizeHint(self):  # noqa: N802
+        return QSize(6, 22)
+
+    def paintEvent(self, event) -> None:  # noqa: N802
+        del event
+        painter = QPainter(self)
+        color = self.palette().color(QPalette.ColorRole.Mid)
+        # Breite 0: kosmetischer Haarstrich, ein Geraetepixel bei jedem DPR.
+        pen = QPen(color, 0)
+        painter.setPen(pen)
+        x = self.width() // 2
+        margin = 4
+        painter.drawLine(x, margin, x, max(margin, self.height() - margin))
+
+
+def add_toolbar_separator(bar: QToolBar) -> QAction:
+    """Trenner in ``bar`` einfuegen.
+
+    Die Action ist ein Separator (``isSeparator()``), zeigt aber unser
+    Mid-Widget statt Fusion-Dark. Sichtbarkeit und Reihenfolge bleiben wie
+    bei ``QToolBar.addSeparator``.
+    """
+    action = bar.addWidget(ToolbarSeparator(bar))
+    action.setSeparator(True)
+    return action
 
 
 class _TitleBox(QGroupBox):
