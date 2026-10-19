@@ -9,7 +9,7 @@ clone, in Python.**
 ![GUI: PySide6](https://img.shields.io/badge/GUI-PySide6-green)
 ![Platform: Linux](https://img.shields.io/badge/platform-Linux-lightgrey)
 
-![QLInux main window](assets/screenshot-main-en.png)
+![QLInux main window, light and dark](assets/screenshot-main-themes.png)
 
 QLInux designs labels on a real canvas (text, images, barcodes, QR codes),
 shows an exact monochrome print preview and prints straight to the printer —
@@ -39,23 +39,24 @@ The model list even appears in the app: *menu → About QLInux*.
   merged values stay on the label if the CSV is later disconnected or missing.
   With a CSV connected, print can use the selected row, every row, or a
   from–to range. Copies repeat each of those labels.
-- **Label media**: pick tape by model, fixed or automatic length, margins,
-  orientation across/along the tape, red printing where supported.
-- **Print**: 300 × 300 or 300 × 600 dpi, high quality mode, grayscale
-  (dithering), ink amount, **1–99 copies per job** and
-  **cutting** — after each copy, only at the end, or not at all. A status area
-  shows the print state and the job history of the session.
+- **Label media**: pick tape by model, fixed or automatic length (always the
+  total length, including margins), orientation across/along the tape, red
+  printing where supported.
+- **Print**: the toolbar button opens a sheet with the 1-bit preview, quality
+  and output options, copies, cutting, and the session history. Printing
+  starts from the button in that sheet.
 - **Printer**: network or USB. Printers are found with mDNS and SNMP, USB
   devices show up in the list, and the last one is selected again when it
   is still there. *Detect label* reads the tape over USB. The network port
   has no read-back.
-- **Preview** in real print dots, plus a print preview mode at 1:1 (Ctrl+Shift+P).
+- **Preview** in real print dots, plus a 1:1 overlay on the canvas
+  (Ctrl+Shift+P).
 - **Templates**: seven ready-made labels plus your own stored as `.qlx`
   files.
-- **German and English UI** (switch at runtime), with dialogs as sheets in
-  the main window.
+- **German and English UI** (switch at runtime). Appearance follows the
+  system, or stays light or dark. Dialogs open as sheets in the main window.
 
-![Print preview](assets/screenshot-preview-en.png)
+![Print sheet, light and dark](assets/screenshot-print-themes.png)
 
 ## Requirements
 
@@ -116,9 +117,9 @@ AppImage and a source checkout share them.
    found via mDNS and SNMP; a single device is selected automatically. Only if
    nothing is found: *“Add by IP address…”* as the last entry of the list.
 3. Select the tape, type your text, drop in images, barcodes or QR codes.
-4. Check the preview, then press **Print**.
+4. Open **Print**, check the preview and options, then print from the sheet.
 
-Settings (last printer, tape, print options, language) are stored in
+Settings (last printer, tape, print options, language, appearance) are stored in
 `~/.config/QLInux/QLInux.conf`.
 
 ### Modifier keys on the canvas
