@@ -7359,3 +7359,80 @@ def test_language_switch_keeps_session_print_history(qapp, tmp_path, monkeypatch
 
     new.close()
     qapp.processEvents()
+
+
+def test_pinch_zooms_and_pans_canvas(qapp):
+    from PySide6.QtCore import QPointF
+
+    canvas = _shown_canvas(qapp)
+    before = canvas.transform().m11()
+    canvas.apply_pinch(1.5, QPointF(0.0, 0.0))
+    assert canvas.transform().m11() > before
+    zoomed = canvas.transform().m11()
+    canvas.apply_pinch(1.0, QPointF(0.0, 0.0))
+    assert canvas.transform().m11() == zoomed
+
+
+
+def test_two_fingers_disable_rubber_band_until_released(qapp):
+    from PySide6.QtCore import QPointF
+    from PySide6.QtWidgets import QGraphicsView
+
+    canvas = _shown_canvas(qapp)
+    assert canvas.dragMode() == QGraphicsView.DragMode.RubberBandDrag
+    canvas._enter_multitouch(QPointF(20, 20))
+    assert canvas.dragMode() == QGraphicsView.DragMode.NoDrag
+    canvas._leave_multitouch()
+    assert canvas.dragMode() == QGraphicsView.DragMode.RubberBandDrag
+
+
+
+def test_pinch_zoom_keeps_point_under_fingers(qapp):
+    from PySide6.QtCore import QPointF
+
+    canvas = _shown_canvas(qapp)
+    canvas.zoom_by(2.0)
+    qapp.processEvents()
+    anchor = QPointF(120.0, 90.0)
+    before = canvas.mapToScene(anchor.toPoint())
+    canvas.apply_pinch(1.4, QPointF(0.0, 0.0), anchor)
+    qapp.processEvents()
+    after = canvas.mapFromScene(before)
+    assert abs(after.x() - anchor.x()) <= 3
+    assert abs(after.y() - anchor.y()) <= 3
+
+
+@pytest.mark.parametrize("thumb_rests", [False, True])
+def test_touch_pinch_zooms_by_finger_distance(qapp, thumb_rests):
+    """Echte Touch-Events: Fingerabstand 60 -> 150 px zoomt x2,5, das Etikett bleibt unter den Fingern."""
+    from PySide6.QtCore import QPoint
+    from PySide6.QtTest import QTest
+
+    canvas = _shown_canvas(qapp)
+    canvas.zoom_by(2.0)
+    for bar in (canvas.horizontalScrollBar(), canvas.verticalScrollBar()):
+        bar.setValue(bar.maximum() // 2)
+    qapp.processEvents()
+    vp = canvas.viewport()
+    left, right = QPoint(270, 200), QPoint(330, 200)
+    scene_left, scene_right = canvas.mapToScene(left), canvas.mapToScene(right)
+    before = canvas.transform().m11()
+
+    device = QTest.createTouchDevice()
+    QTest.touchEvent(vp, device).press(0, left, vp).commit()
+    # stationary() gaebe dem ruhenden Finger in QTest die globale Position (0,0).
+    QTest.touchEvent(vp, device).move(0, left, vp).press(1, right, vp).commit()
+    for step in range(1, 10):
+        if thumb_rests:
+            right = QPoint(330 + 10 * step, 200)
+        else:
+            left, right = QPoint(270 - 5 * step, 200), QPoint(330 + 5 * step, 200)
+        QTest.touchEvent(vp, device).move(0, left, vp).move(1, right, vp).commit()
+    QTest.touchEvent(vp, device).release(0, left, vp).release(1, right, vp).commit()
+    qapp.processEvents()
+
+    assert canvas.transform().m11() / before == pytest.approx(2.5, rel=0.01)
+    for scene_point, finger in ((scene_left, left), (scene_right, right)):
+        drift = canvas.mapFromScene(scene_point) - finger
+        assert abs(drift.x()) <= 4
+        assert abs(drift.y()) <= 4
