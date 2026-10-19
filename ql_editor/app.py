@@ -66,6 +66,7 @@ from PySide6.QtWidgets import (
     QApplication,
     QCheckBox,
     QComboBox,
+    QDoubleSpinBox,
     QFormLayout,
     QFrame,
     QGroupBox,
@@ -95,7 +96,9 @@ from . import instance, lbx
 from . import media
 from . import merge as merge_engine
 from . import resources
+from . import stationery
 from . import templates
+from .sheet_output import print_sheets, render_page_image, system_printers, write_pdf
 from .canvas import DUPLICATE_OFFSET_DOTS, LabelCanvas
 from .command_palette import CommandPalette, PaletteEntry
 from .csv_source import CsvTable
@@ -589,6 +592,7 @@ class MainWindow(QMainWindow):
         self._print_jobs: list[PrintJob] = []
         # Start, Etikettname, Kopien, Modell, Adresse, Bandkennung.
         self._pending_job: tuple[datetime, str, int, str, str, str] | None = None
+        self._pending_sheet = None
         # Netzwerksuche im Hintergrund (mDNS + SNMP); ``_network_cancel``
         # bricht sie beim Schliessen des Fensters ab.
         self._network_worker: NetworkSearchWorker | None = None
@@ -1044,16 +1048,34 @@ class MainWindow(QMainWindow):
             shortcut.activated.connect(self._on_print_key)
 
         quality = title_box(tr("Qualität"))
+        self._quality_box = quality
         quality_form = self._panel_form(quality)
         quality_form.addRow(resolution_label, self._resolution_combo)
         quality_form.addRow(self._hq_check)
         quality_form.addRow(self._dither_check)
         quality_form.addRow(self._threshold_label, threshold_holder)
 
+        self._output_label = QLabel(tr("Ziel"))
+        self._output_combo = QComboBox()
+        self._output_combo.setObjectName("print_output")
+        self._output_combo.addItem(tr("Brother QL"), stationery.OUTPUT_BROTHER)
+        self._output_combo.addItem(tr("Etikettenbogen"), stationery.OUTPUT_SHEET)
+        self._output_label.setBuddy(self._output_combo)
+        self._output_combo.setToolTip(
+            tr(
+                "Brother QL druckt das Band. Etikettenbogen legt dieselben "
+                "Datensätze auf einen Avery-Zweckform-Bogen."
+            )
+        )
+        self._output_label.setToolTip(self._output_combo.toolTip())
+
         output = title_box(tr("Ausgabe"))
-        output_form = self._panel_form(output)
-        output_form.addRow(self._copies_label, self._copies_spin)
-        output_form.addRow(self._cut_label, self._cut_combo)
+        self._output_form = self._panel_form(output)
+        self._output_form.addRow(self._output_label, self._output_combo)
+        self._output_form.addRow(self._copies_label, self._copies_spin)
+        self._output_form.addRow(self._cut_label, self._cut_combo)
+
+        self._sheet_box = self._build_sheet_box()
 
         history = title_box(tr("Druckverlauf"))
         history_layout = QVBoxLayout(history)
@@ -1082,6 +1104,7 @@ class MainWindow(QMainWindow):
         form_layout.setContentsMargins(0, 0, 0, 0)
         form_layout.setSpacing(6)
         form_layout.addWidget(options)
+        form_layout.addWidget(self._sheet_box)
         form_layout.addWidget(self._db_print_box)
         form_layout.addWidget(history)
 
@@ -1095,6 +1118,8 @@ class MainWindow(QMainWindow):
         self._threshold_spin.valueChanged.connect(self._schedule_refresh)
         self._dither_check.toggled.connect(self._on_dither_toggled)
         self._copies_spin.valueChanged.connect(self._sync_cut_options)
+        self._copies_spin.valueChanged.connect(self._schedule_refresh)
+        self._output_combo.currentIndexChanged.connect(self._on_output_target_changed)
         self._hq_check.toggled.connect(self._on_hq_toggled)
         for radio in (self._scope_selected, self._scope_all, self._scope_range):
             radio.toggled.connect(self._on_print_scope_toggled)
@@ -1102,6 +1127,8 @@ class MainWindow(QMainWindow):
         self._range_to.valueChanged.connect(self._on_print_range_to_edited)
         self._sync_resolution_options()
         self._sync_print_scope_ui()
+        # Noch kein Etikett: die Fläche stellt _apply_saved_settings.
+        self._sheet_box.setVisible(False)
         return widget
 
     @staticmethod
@@ -1111,6 +1138,103 @@ class MainWindow(QMainWindow):
         form.setRowWrapPolicy(QFormLayout.RowWrapPolicy.WrapLongRows)
         form.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.AllNonFixedFieldsGrow)
         return form
+
+    def _build_sheet_box(self) -> QGroupBox:
+        """Avery-Zweckform: Vorlage, erstes Feld, Versatz, Systemdrucker."""
+        box = title_box(tr("Avery Zweckform"))
+        box.setObjectName("sheet_box")
+        box.setToolTip(
+            tr(
+                "Jeder Datensatz füllt ein Etikett, von links nach rechts. "
+                "Kopien wiederholen denselben Datensatz. Das erste Etikett "
+                "lässt schon benutzte Felder auf dem Bogen frei."
+            )
+        )
+        form = self._panel_form(box)
+
+        self._sheet_part_combo = QComboBox()
+        self._sheet_part_combo.setObjectName("sheet_part")
+        self._sheet_part_combo.setSizeAdjustPolicy(
+            QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon
+        )
+        self._sheet_part_combo.setMinimumContentsLength(18)
+        locale = QLocale()
+        for template in stationery.templates():
+            text = tr(
+                "{part} · {width} × {height} mm · {count} pro Bogen"
+            ).format(
+                part=template.part,
+                width=locale.toString(template.label_width_mm, "f", 1),
+                height=locale.toString(template.label_height_mm, "f", 1),
+                count=template.per_sheet,
+            )
+            self._sheet_part_combo.addItem(text, template.part)
+            self._sheet_part_combo.setItemData(
+                self._sheet_part_combo.count() - 1,
+                stationery.description_text(template.description),
+                Qt.ItemDataRole.ToolTipRole,
+            )
+        index = self._sheet_part_combo.findData(stationery.DEFAULT_PART)
+        if index >= 0:
+            self._sheet_part_combo.setCurrentIndex(index)
+
+        self._sheet_start = QSpinBox()
+        self._sheet_start.setObjectName("sheet_start")
+        self._sheet_start.setRange(1, 1)
+        self._sheet_start.setValue(1)
+        self._sheet_start.setToolTip(
+            tr("Feld 1 ist links oben. Höhere Zahlen überspringen benutzte Felder.")
+        )
+
+        self._sheet_offset_x = self._offset_spin()
+        self._sheet_offset_x.setObjectName("sheet_offset_x")
+        self._sheet_offset_x.setToolTip(
+            tr("Schiebt den ganzen Bogen nach rechts, in Millimetern.")
+        )
+        self._sheet_offset_y = self._offset_spin()
+        self._sheet_offset_y.setObjectName("sheet_offset_y")
+        self._sheet_offset_y.setToolTip(
+            tr("Schiebt den ganzen Bogen nach unten, in Millimetern.")
+        )
+
+        self._sheet_printer_combo = QComboBox()
+        self._sheet_printer_combo.setObjectName("sheet_printer")
+        self._sheet_printer_combo.setSizeAdjustPolicy(
+            QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon
+        )
+        self._sheet_printer_combo.setMinimumContentsLength(12)
+
+        self._sheet_pdf_button = QPushButton(tr("PDF speichern…"))
+        self._sheet_pdf_button.setObjectName("sheet_pdf")
+        self._sheet_pdf_button.clicked.connect(self._on_sheet_pdf)
+
+        self._sheet_hint = QLabel()
+        self._sheet_hint.setObjectName("sheet_fill")
+        self._sheet_hint.setWordWrap(True)
+
+        form.addRow(tr("Vorlage"), self._sheet_part_combo)
+        form.addRow(tr("Erstes Etikett"), self._sheet_start)
+        form.addRow(tr("Versatz rechts"), self._sheet_offset_x)
+        form.addRow(tr("Versatz unten"), self._sheet_offset_y)
+        form.addRow(tr("Systemdrucker"), self._sheet_printer_combo)
+        form.addRow(tr("Belegt"), self._sheet_hint)
+        form.addRow(self._sheet_pdf_button)
+
+        self._sheet_part_combo.currentIndexChanged.connect(self._on_sheet_part_changed)
+        self._sheet_start.valueChanged.connect(self._update_sheet_hint)
+        self._sheet_start.valueChanged.connect(self._schedule_refresh)
+        self._sheet_offset_x.valueChanged.connect(self._schedule_refresh)
+        self._sheet_offset_y.valueChanged.connect(self._schedule_refresh)
+        return box
+
+    @staticmethod
+    def _offset_spin() -> QDoubleSpinBox:
+        spin = QDoubleSpinBox()
+        spin.setRange(-stationery.OFFSET_MM_MAX, stationery.OFFSET_MM_MAX)
+        spin.setDecimals(1)
+        spin.setSingleStep(0.1)
+        spin.setSuffix(" mm")
+        return spin
 
     def _on_print_scope_toggled(self, checked: bool) -> None:
         if checked:
@@ -1255,6 +1379,8 @@ class MainWindow(QMainWindow):
             # Gleiche Wirkung wie „Nach jeder Kopie": die Auswahl aufraeumen,
             # damit in den Einstellungen steht, was wirklich passiert.
             self._cut_combo.setCurrentIndex(self._cut_combo.findData(CUT_EACH))
+        if self._sheet_output():
+            self._update_sheet_hint()
 
     def _on_resolution_changed(self) -> None:
         """Aufloesung gewechselt: Hinweis aktualisieren und neu rendern.
@@ -2267,6 +2393,12 @@ class MainWindow(QMainWindow):
             "print_scope": self._print_scope(),
             "record_from": self._range_request_from,
             "record_to": self._range_request_to,
+            "sheet_output": self._sheet_output(),
+            "sheet_part": self._sheet_part_combo.currentData(),
+            "sheet_start": self._sheet_start.value(),
+            "sheet_offset_x": self._sheet_offset_x.value(),
+            "sheet_offset_y": self._sheet_offset_y.value(),
+            "sheet_printer": self._sheet_printer_combo.currentData() or "",
             "document_path": self._document_path,
             "document_dirty": self._is_document_dirty(),
             "address_dirty": self._address_dirty,
@@ -2316,6 +2448,14 @@ class MainWindow(QMainWindow):
             self._sync_preview_action()
         self._update_window_title()
         self._sync_print_scope_ui()
+        self._apply_sheet_controls(
+            enabled=bool(state.get("sheet_output")),
+            part=str(state.get("sheet_part") or stationery.DEFAULT_PART),
+            start=int(state.get("sheet_start") or 1),
+            offset_x=float(state.get("sheet_offset_x") or 0),
+            offset_y=float(state.get("sheet_offset_y") or 0),
+            printer=str(state.get("sheet_printer") or ""),
+        )
         self._canvas.setFocus()
 
     # ------------------------------------------------------------- Settings --
@@ -2344,6 +2484,12 @@ class MainWindow(QMainWindow):
         print_scope = self._settings.print_scope
         record_from = self._settings.record_from
         record_to = self._settings.record_to
+        sheet_output = self._settings.sheet_output
+        sheet_part = self._settings.sheet_part
+        sheet_start = self._settings.sheet_start
+        sheet_offset_x = self._settings.sheet_offset_x
+        sheet_offset_y = self._settings.sheet_offset_y
+        sheet_printer = self._settings.sheet_printer
 
         if geometry is not None:
             self.restoreGeometry(geometry)
@@ -2376,6 +2522,14 @@ class MainWindow(QMainWindow):
         self._remember_print_range(record_from, record_to)
         self._set_print_scope(print_scope)
         self._sync_print_scope_ui()
+        self._apply_sheet_controls(
+            enabled=sheet_output,
+            part=sheet_part,
+            start=sheet_start,
+            offset_x=sheet_offset_x,
+            offset_y=sheet_offset_y,
+            printer=sheet_printer,
+        )
         self._schedule_refresh()
 
     # ---------------------------------------------------------- Media-Sync --
@@ -2439,6 +2593,18 @@ class MainWindow(QMainWindow):
     def _recompute_canvas(self) -> None:
         self._adjusting = True
         try:
+            if self._sheet_output():
+                spec = stationery.as_label_spec(self._sheet_template())
+                self._canvas.set_label(
+                    spec,
+                    spec.height_dots,
+                    orientation=media.Orientation.ACROSS,
+                )
+                margins = self._media_panel.margins()
+                self._canvas.set_margins(
+                    margins.left, margins.right, margins.top, margins.bottom
+                )
+                return
             orientation = self._media_panel.orientation()
             content = (
                 self._content_length_dots(orientation)
@@ -2736,7 +2902,12 @@ class MainWindow(QMainWindow):
 
         Der Tintenanteil wird immer berechnet - er zeigt sofort, was Tintenmenge
         und Dithering bewirken, auch wenn die Vorschau aus ist.
+
+        Ein Etikettenbogen zeigt das Raster statt des 1-bit-Bildes.
         """
+        if self._sheet_output():
+            self._refresh_sheet_preview()
+            return
         scale = self._print_scale()
         try:
             image = self._current_render(scale=scale)
@@ -3694,6 +3865,299 @@ class MainWindow(QMainWindow):
         self._on_items_changed()
 
     # -------------------------------------------------------------- Print ---
+    def _sheet_output(self) -> bool:
+        combo = getattr(self, "_output_combo", None)
+        return combo is not None and combo.currentData() == stationery.OUTPUT_SHEET
+
+    def _sheet_template(self) -> stationery.SheetTemplate:
+        part = self._sheet_part_combo.currentData() or stationery.DEFAULT_PART
+        return stationery.get_template(str(part))
+
+    def _on_output_target_changed(self) -> None:
+        self._sync_output_target()
+
+    def _on_sheet_part_changed(self) -> None:
+        self._sync_sheet_start_range()
+        self._update_sheet_hint()
+        self._recompute_canvas()
+        self._schedule_refresh()
+
+    def _sync_output_target(self) -> None:
+        """Brother-Felder oder den Bogen zeigen, die Fläche folgt dem Ziel."""
+        sheet = self._sheet_output()
+        self._print_button.setToolTip(
+            tr("Bogen an den Systemdrucker senden") if sheet else tr("Drucken")
+        )
+        self._quality_box.setVisible(not sheet)
+        self._output_form.setRowVisible(self._cut_combo, not sheet)
+        self._sheet_box.setVisible(sheet)
+        if sheet:
+            self._reload_system_printers()
+            self._sync_sheet_start_range()
+            self._update_sheet_hint()
+        self._recompute_canvas()
+        self._schedule_refresh()
+
+    def _sync_sheet_start_range(self) -> None:
+        per_sheet = self._sheet_template().per_sheet
+        self._sheet_start.setMaximum(per_sheet)
+
+    def _reload_system_printers(self) -> None:
+        current = self._sheet_printer_combo.currentData()
+        preferred = current or self._settings.sheet_printer
+        self._sheet_printer_combo.blockSignals(True)
+        self._sheet_printer_combo.clear()
+        names = system_printers()
+        if names:
+            for name in names:
+                self._sheet_printer_combo.addItem(name, name)
+            index = self._sheet_printer_combo.findData(preferred)
+            if index >= 0:
+                self._sheet_printer_combo.setCurrentIndex(index)
+        else:
+            self._sheet_printer_combo.addItem(tr("Kein Drucker gefunden"), None)
+        self._sheet_printer_combo.blockSignals(False)
+
+    def _sheet_offsets(self) -> tuple[float, float]:
+        return self._sheet_offset_x.value(), self._sheet_offset_y.value()
+
+    def _sheet_job(self):
+        """Gerenderte Etiketten und ihre Felder auf dem Bogen."""
+        template = self._sheet_template()
+        labels = self._planned_labels()
+        placements = stationery.plan_sheet(
+            template,
+            len(labels),
+            start=self._sheet_start.value(),
+            copies=self._copies_spin.value(),
+        )
+        images = self._render_print_images(for_sheet=True)
+        return template, images, placements
+
+    def _update_sheet_hint(self) -> None:
+        try:
+            count = len(self._planned_labels())
+            placements = stationery.plan_sheet(
+                self._sheet_template(),
+                count,
+                start=self._sheet_start.value(),
+                copies=self._copies_spin.value(),
+            )
+        except (merge_engine.MergeError, stationery.SheetError) as exc:
+            self._sheet_hint.setText(str(exc))
+            return
+        self._sheet_hint.setText(
+            stationery.fill_caption(
+                stationery.filled_per_page(placements),
+                self._sheet_template().per_sheet,
+            )
+        )
+
+    def _refresh_sheet_preview(self) -> None:
+        """Vorschau: das aktuelle Etikett im Raster. Der Druck mischt die Datensätze."""
+        self._canvas.set_print_image(None)
+        self._update_sheet_hint()
+        if not self._print_sheet_open():
+            return
+        try:
+            image = self._current_render(scale=1)
+            template = self._sheet_template()
+            count = max(1, len(self._planned_labels()))
+            placements = [
+                place
+                for place in stationery.plan_sheet(
+                    template,
+                    count,
+                    start=self._sheet_start.value(),
+                    copies=self._copies_spin.value(),
+                )
+                if place.page == 0
+            ]
+            # Die Vorschau zeigt die Fläche, nicht jeden Datensatz.
+            preview_places = [
+                stationery.Placement(0, place.slot, 0, place.x_mm, place.y_mm)
+                for place in placements
+            ]
+            offset_x, offset_y = self._sheet_offsets()
+            self._print_preview.set_image(
+                render_page_image(
+                    template,
+                    [image],
+                    preview_places,
+                    offset_x_mm=offset_x,
+                    offset_y_mm=offset_y,
+                )
+            )
+        except (merge_engine.MergeError, stationery.SheetError):
+            self._print_preview.set_image(None)
+        except Exception as exc:  # pragma: no cover - defensiv
+            self.statusBar().showMessage(
+                tr("Renderfehler: {error}").format(error=exc)
+            )
+
+    def _remember_sheet_job(self, address: str, copies: int, outcome: str) -> None:
+        template = self._sheet_template()
+        self._pending_job = (
+            datetime.now(),
+            f"Zweckform {template.part}",
+            copies,
+            "Zweckform",
+            address,
+            template.part,
+        )
+        self._record_print_job(outcome)
+
+    def _on_sheet_print(self) -> None:
+        if self._print_worker is not None and self._print_worker.isRunning():
+            return
+        self._inspector.flush_edit()
+        name = self._sheet_printer_combo.currentData()
+        if not name:
+            self._show_print_message(
+                "warning",
+                tr("Etikettenbogen"),
+                tr(
+                    "Kein Systemdrucker. PDF speichern und das mit "
+                    "Originalgröße drucken."
+                ),
+            )
+            return
+        try:
+            template, images, placements = self._sheet_job()
+            offset_x, offset_y = self._sheet_offsets()
+            print_sheets(
+                str(name),
+                template,
+                images,
+                placements,
+                offset_x_mm=offset_x,
+                offset_y_mm=offset_y,
+            )
+        except (merge_engine.MergeError, stationery.SheetError) as exc:
+            self._show_print_message("warning", tr("Etikettenbogen"), str(exc))
+            return
+        except Exception as exc:
+            self._show_print_message(
+                "critical",
+                tr("Etikettenbogen"),
+                tr("Bogen konnte nicht gedruckt werden:\n{error}").format(error=exc),
+            )
+            return
+        self._remember_sheet_job(str(name), len(placements), "sent")
+        self.statusBar().showMessage(
+            tr("{count} Etiketten an {printer} gesendet.").format(
+                count=len(placements), printer=name
+            ),
+            8000,
+        )
+
+    def _on_sheet_pdf(self) -> None:
+        if self._print_worker is not None and self._print_worker.isRunning():
+            return
+        self._inspector.flush_edit()
+        try:
+            template, images, placements = self._sheet_job()
+        except (merge_engine.MergeError, stationery.SheetError) as exc:
+            self._show_print_message("warning", tr("Etikettenbogen"), str(exc))
+            return
+        except Exception as exc:
+            self._show_print_message(
+                "critical",
+                tr("Etikettenbogen"),
+                tr("Bogen konnte nicht gedruckt werden:\n{error}").format(error=exc),
+            )
+            return
+        self._pending_sheet = (template, images, placements)
+        from_sheet = self._print_sheet_open()
+        if from_sheet:
+            self._close_print_sheet()
+
+        def _chosen(path: str | None) -> None:
+            job = self._pending_sheet
+            self._pending_sheet = None
+            if path and job is not None:
+                if not path.lower().endswith(".pdf"):
+                    path += ".pdf"
+                saved_template, saved_images, saved_placements = job
+                offset_x, offset_y = self._sheet_offsets()
+                try:
+                    write_pdf(
+                        path,
+                        saved_template,
+                        saved_images,
+                        saved_placements,
+                        offset_x_mm=offset_x,
+                        offset_y_mm=offset_y,
+                    )
+                except stationery.SheetError as exc:
+                    show_message(self, "critical", tr("Etikettenbogen"), str(exc))
+                except Exception as exc:
+                    show_message(
+                        self,
+                        "critical",
+                        tr("Etikettenbogen"),
+                        tr("Bogen konnte nicht gedruckt werden:\n{error}").format(
+                            error=exc
+                        ),
+                    )
+                else:
+                    self._settings.document_dir = str(Path(path).parent)
+                    self._remember_sheet_job("PDF", len(saved_placements), "saved")
+                    self.statusBar().showMessage(
+                        tr("PDF gespeichert: {path}").format(path=path),
+                        8000,
+                    )
+            if from_sheet:
+                QTimer.singleShot(0, self._return_to_print_sheet)
+
+        save_file(
+            self,
+            caption=tr("Bogen speichern"),
+            name_filter=tr("PDF (*.pdf)"),
+            on_selected=_chosen,
+            start_dir=self._settings.document_dir or "",
+            default_name=f"Zweckform-{template.part}.pdf",
+        )
+
+    def _apply_sheet_controls(
+        self,
+        *,
+        enabled: bool,
+        part: str,
+        start: int,
+        offset_x: float,
+        offset_y: float,
+        printer: str,
+    ) -> None:
+        widgets = (
+            self._output_combo,
+            self._sheet_part_combo,
+            self._sheet_start,
+            self._sheet_offset_x,
+            self._sheet_offset_y,
+            self._sheet_printer_combo,
+        )
+        for widget in widgets:
+            widget.blockSignals(True)
+        try:
+            output = stationery.OUTPUT_SHEET if enabled else stationery.OUTPUT_BROTHER
+            index = self._output_combo.findData(output)
+            if index >= 0:
+                self._output_combo.setCurrentIndex(index)
+            index = self._sheet_part_combo.findData(part)
+            if index >= 0:
+                self._sheet_part_combo.setCurrentIndex(index)
+            self._sync_sheet_start_range()
+            self._sheet_start.setValue(min(max(1, start), self._sheet_start.maximum()))
+            self._sheet_offset_x.setValue(offset_x)
+            self._sheet_offset_y.setValue(offset_y)
+            self._settings.sheet_printer = printer
+            self._reload_system_printers()
+        finally:
+            for widget in widgets:
+                widget.blockSignals(False)
+        self._sync_output_target()
+
     def _on_print_key(self) -> None:
         """Enter im Druck-Sheet: wie ein Klick auf den Druck-Knopf.
 
@@ -3707,6 +4171,9 @@ class MainWindow(QMainWindow):
             self._on_print()
 
     def _on_print(self) -> None:
+        if self._sheet_output():
+            self._on_sheet_print()
+            return
         if self._print_worker is not None and self._print_worker.isRunning():
             return
         self._inspector.flush_edit()
@@ -3928,24 +4395,31 @@ class MainWindow(QMainWindow):
         self._print_worker.finished.connect(self._print_worker.deleteLater)
         self._print_worker.start()
 
-    def _render_print_images(self) -> list[Image.Image]:
+    def _render_print_images(self, *, for_sheet: bool = False) -> list[Image.Image]:
         """Varianten vor dem Worker rendern (D5/D8/D10/D16).
 
         Pro gewaehltem Record laeuft die Serie einmal, dann ``+step``.
         Die automatische Laenge wird pro Etikett neu gerechnet, auch fuer
         jeden Serien-Schritt, sonst behielten alle die Laenge der Vorschau.
         ``copies`` wiederholt jedes Bild erst im Drucker, identisch.
+        Auf einem Bogen wiederholt ``plan_sheet`` die Bilder in aufeinander
+        folgenden Feldern; hier bleibt es bei einem Bild pro Datensatz.
         Danach steht wieder der aktuelle Record und Serien-Index 0
         auf dem Canvas.
         """
         labels = self._planned_labels()
-        merge_engine.job_page_count(len(labels), self._copies_spin.value())
+        if not for_sheet:
+            merge_engine.job_page_count(len(labels), self._copies_spin.value())
         current = self._active.current_record if self._active is not None else 0
+
+        def _image() -> Image.Image:
+            return self._for_sheet() if for_sheet else self._for_print()
+
         if len(labels) == 1 and labels[0].serial_index == 0 and (
             labels[0].variant.record is None
             or labels[0].variant.index == current
         ):
-            return [self._for_print()]
+            return [_image()]
         tab = self._require_tab()
         images: list[Image.Image] = []
         self._history_suppress = True
@@ -3959,13 +4433,17 @@ class MainWindow(QMainWindow):
                     strict=True,
                 )
                 self._recompute_canvas()
-                images.append(self._for_print())
+                images.append(_image())
             return images
         finally:
             try:
                 self._apply_merge_to_canvas()
             finally:
                 self._history_suppress = False
+
+    def _for_sheet(self) -> Image.Image:
+        """Etikett in der Größe der Vorlage, ohne Brother-Drehung."""
+        return self._current_render(rotate=False, scale=1)
 
     def _poll_network_printer(self) -> None:
         config = self._media_panel.printer_config()
@@ -4106,6 +4584,8 @@ class MainWindow(QMainWindow):
         # Erst hier: jeder Grid-Klick davor wuerde „Am Ende" bei einer
         # einzelnen Zeile dauerhaft auf „Jede Kopie" stellen.
         self._sync_print_scope_ui()
+        if self._sheet_output():
+            self._reload_system_printers()
         if self._print_sheet_open():
             self._print_sheet.raise_()
             self._refresh_history_table()
@@ -5651,6 +6131,14 @@ class MainWindow(QMainWindow):
         self._settings.print_scope = self._print_scope()
         self._settings.record_from = self._range_request_from
         self._settings.record_to = self._range_request_to
+        self._settings.sheet_output = self._sheet_output()
+        self._settings.sheet_part = str(
+            self._sheet_part_combo.currentData() or stationery.DEFAULT_PART
+        )
+        self._settings.sheet_start = self._sheet_start.value()
+        self._settings.sheet_offset_x = self._sheet_offset_x.value()
+        self._settings.sheet_offset_y = self._sheet_offset_y.value()
+        self._settings.sheet_printer = str(self._sheet_printer_combo.currentData() or "")
         self._settings.sync()
         super().closeEvent(event)
 

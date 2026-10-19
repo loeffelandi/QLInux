@@ -113,7 +113,10 @@ def build_help_content() -> QWidget:
         _body(
             tr(
                 "Die Druckvorschau zeigt die Punkte, so wie der Drucker sie "
-                "setzt. Esc bringt die normale Ansicht zurück."
+                "setzt. Esc bringt die normale Ansicht zurück. Unter Ziel "
+                "legt Etikettenbogen dieselben Datensätze auf einen "
+                "Avery-Zweckform-Bogen; PDF speichert ihn in Originalgröße, "
+                "der Versatz rückt den ganzen Bogen."
             )
         )
     )
