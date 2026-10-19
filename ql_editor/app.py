@@ -193,6 +193,8 @@ ACCESS_RETRY_MS = 400
 ACCESS_RETRY_COUNT = 8
 #: So lange darf eine abgebrochene Netzwerksuche beim Schliessen nachlaufen.
 NETWORK_CANCEL_WAIT_MS = 1000
+#: So lange wartet das Programmende hoechstens auf abgehaengte Worker.
+ORPHAN_EXIT_WAIT_MS = 5000
 #: Entprellung der Druckvorschau (Millisekunden).
 PREVIEW_REFRESH_MS = 150
 #: Startgroesse des Fensters (Breite, Hoehe).
@@ -218,6 +220,16 @@ def _forget_orphan(worker: QThread) -> None:
         return
 
 
+def _wait_for_orphans(timeout_ms: int = ORPHAN_EXIT_WAIT_MS) -> None:
+    """Vor dem Programmende: abgehaengte Worker auslaufen lassen.
+
+    Wird ein noch laufender ``QThread`` beim Beenden abgebaut, bricht Qt das
+    ganze Programm ab.
+    """
+    for worker in list(_orphan_workers):
+        worker.wait(timeout_ms)
+
+
 #: Abstand der Hintergrundabfrage des Netzwerkdruckers (Millisekunden).
 NETWORK_POLL_MS = 5000
 #: Wie alt ein Abfrageergebnis hoechstens sein darf, um den Druck zu bestimmen.
@@ -231,7 +243,13 @@ class PrintWorker(QThread):
     failed = Signal(str)
 
     def __init__(
-        self, image, label, config, options: dict, snmp_answered: bool | None = None
+        self,
+        image,
+        label,
+        config,
+        options: dict,
+        snmp_answered: bool | None = None,
+        cancel: threading.Event | None = None,
     ):
         super().__init__(None)
         if isinstance(image, Image.Image):
@@ -242,6 +260,7 @@ class PrintWorker(QThread):
         self._config = config
         self._options = options
         self._snmp_answered = snmp_answered
+        self._cancel = cancel
 
     def run(self) -> None:  # noqa: D401
         snmp_answered = self._snmp_answered
@@ -265,7 +284,10 @@ class PrintWorker(QThread):
         else:
             self.succeeded.emit(
                 confirm_network_job(
-                    self._config, status, snmp_answered=bool(snmp_answered)
+                    self._config,
+                    status,
+                    snmp_answered=bool(snmp_answered),
+                    cancel=self._cancel,
                 )
             )
 
@@ -550,6 +572,8 @@ class MainWindow(QMainWindow):
         # bricht sie beim Schliessen des Fensters ab.
         self._network_worker: NetworkSearchWorker | None = None
         self._network_cancel = threading.Event()
+        # Bricht die SNMP-Pruefung nach dem Senden ab, wenn das Fenster schliesst.
+        self._print_cancel = threading.Event()
         # True, solange die Startsuche laeuft: ihr Ergebnis stellt den letzten
         # Drucker wieder her und zaehlt nicht als Bearbeitung.
         self._startup_discovery = False
@@ -3742,7 +3766,12 @@ class MainWindow(QMainWindow):
             else None
         )
         self._print_worker = PrintWorker(
-            images, label, config, options, snmp_answered=snmp_answered
+            images,
+            label,
+            config,
+            options,
+            snmp_answered=snmp_answered,
+            cancel=self._print_cancel,
         )
         self._print_worker.succeeded.connect(self._on_print_succeeded)
         self._print_worker.failed.connect(self._on_print_failed)
@@ -5357,6 +5386,8 @@ class MainWindow(QMainWindow):
         # Laufende Suche abbrechen, damit kein Thread das geschlossene
         # Fenster anspricht.
         self._network_cancel.set()
+        self._print_cancel.set()
+        self._net_poll_timer.stop()
         if self._detect_worker is not None and self._detect_worker.isRunning():
             QApplication.restoreOverrideCursor()
         network = self._network_worker
@@ -5396,6 +5427,17 @@ class MainWindow(QMainWindow):
             else [],
         )
         self._print_worker = None
+        polling = self._net_poll_worker
+        self._disconnect_worker(
+            polling,
+            [
+                (polling.polled, self._on_network_polled),
+                (polling.finished, self._on_network_poll_finished),
+            ]
+            if polling is not None
+            else [],
+        )
+        self._net_poll_worker = None
         self._settings.save_geometry(self.saveGeometry())
         self._settings.connection = self._media_panel.connection()
         self._settings.address = self._media_panel.address()
@@ -5489,7 +5531,9 @@ def main(argv: list[str] | None = None) -> int:
     window.show()
     for path in files:
         window.open_path(path)
-    return app.exec()
+    code = app.exec()
+    _wait_for_orphans()
+    return code
 
 
 if __name__ == "__main__":  # pragma: no cover

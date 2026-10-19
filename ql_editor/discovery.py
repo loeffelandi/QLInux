@@ -544,6 +544,7 @@ def confirm_network_job(
     snmp_answered: bool = False,
     delay: float = NETWORK_CHECK_DELAY,
     timeout: float = SNMP_TIMEOUT,
+    cancel: threading.Event | None = None,
 ) -> dict:
     """Nach dem Senden per SNMP nachsehen, ob der Drucker einen Fehler meldet.
 
@@ -551,10 +552,14 @@ def confirm_network_job(
     Fehler (z. B. falsches Band), wird der Auftrag zu ``outcome == "error"``
     mit den Fehlertexten in ``errors``. Antwortete der Drucker schon vor dem
     Senden per SNMP (``snmp_answered``), gilt auch Stille danach als Fehler.
+    Mit ``cancel`` (Fenster schliesst) entfaellt die Pruefung.
     """
     if config.backend != "network":
         return status
-    time.sleep(delay)
+    if cancel is None:
+        time.sleep(delay)
+    elif cancel.wait(delay):
+        return status
     errors = network_printer_errors(config.address, timeout=timeout)
     if errors is None:
         if not snmp_answered:

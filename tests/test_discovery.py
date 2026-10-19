@@ -364,6 +364,23 @@ def test_network_snmp_answers_only_when_the_printer_replies(monkeypatch):
     assert discovery.network_snmp_answers("tcp://192.0.2.62:9100") is False
 
 
+def test_confirm_network_job_skips_the_check_when_cancelled(monkeypatch):
+    """Schliesst das Fenster, wartet der Druck-Thread nicht mehr auf den Drucker."""
+    import threading
+
+    def fail(*args, **kwargs):
+        raise AssertionError("kein SNMP nach dem Abbruch")
+
+    monkeypatch.setattr(discovery, "network_printer_errors", fail)
+    cancel = threading.Event()
+    cancel.set()
+    config = discovery.PrinterConfig(address="tcp://192.0.2.62:9100")
+    status = discovery.confirm_network_job(
+        config, {"outcome": "sent"}, snmp_answered=True, delay=30.0, cancel=cancel
+    )
+    assert status == {"outcome": "sent"}
+
+
 def test_network_snmp_answers_ignores_unsupported_objects(monkeypatch):
     """Ein Drucker, der die Gerätetabelle nicht kennt (noSuchObject), zaehlt nicht als SNMP-aktiv."""
     answer = _snmp_answer(discovery.HR_DEVICE_STATUS_OID, 0x80, b"")

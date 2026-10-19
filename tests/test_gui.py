@@ -5047,7 +5047,7 @@ def test_print_options_reach_the_print_job(qapp, tmp_path, monkeypatch):
         failed = Signal(str)
         finished = Signal()
 
-        def __init__(self, image, label, config, options, snmp_answered=None):
+        def __init__(self, image, label, config, options, **_kwargs):
             super().__init__()
             captured.update(options)
 
@@ -5080,7 +5080,7 @@ def test_second_print_after_first_finished(qapp, tmp_path, monkeypatch):
         succeeded = Signal(dict)
         failed = Signal(str)
 
-        def __init__(self, image, label, config, options, snmp_answered=None):
+        def __init__(self, image, label, config, options, **_kwargs):
             super().__init__()
             created.append(self)
 
@@ -7253,7 +7253,7 @@ def _print_with_outcome(qapp, tmp_path, monkeypatch, outcome: str | None, error:
         failed = Signal(str)
         finished = Signal()
 
-        def __init__(self, image, label, config, options, snmp_answered=None):
+        def __init__(self, image, label, config, options, **_kwargs):
             super().__init__()
 
         def start(self) -> None:
@@ -7301,7 +7301,7 @@ def test_print_icon_spins_until_the_job_is_done_then_closes(qapp, tmp_path, monk
         failed = Signal(str)
         finished = Signal()
 
-        def __init__(self, image, label, config, options, snmp_answered=None):
+        def __init__(self, image, label, config, options, **_kwargs):
             super().__init__()
 
         def start(self) -> None:
@@ -7389,6 +7389,62 @@ def test_network_status_worker_without_snmp_asks_no_errors(monkeypatch, qapp):
     worker.polled.connect(results.append)
     worker.run()
     assert results == [{"address": "tcp://192.0.2.62:9100", "answered": False, "errors": None}]
+
+
+def test_closing_stops_the_printer_poll_and_cancels_the_check(qapp, tmp_path, monkeypatch):
+    """Ein Thread, der das Fenster ueberlebt, bricht beim Programmende Qt ab."""
+    from PySide6.QtCore import QObject, Signal
+
+    from ql_editor import app as app_module
+
+    class RunningPoll(QObject):
+        polled = Signal(dict)
+        finished = Signal()
+
+        def __init__(self, address):
+            super().__init__()
+
+        def start(self) -> None:
+            pass
+
+        def isRunning(self) -> bool:  # noqa: N802
+            return True
+
+        def wait(self, _ms) -> bool:
+            return False
+
+    monkeypatch.setattr(app_module, "NetworkStatusWorker", RunningPoll)
+    win = _temp_window(qapp, tmp_path)
+    win._media_panel.set_network_host("192.0.2.62")
+    win._poll_network_printer()
+    worker = win._net_poll_worker
+    assert isinstance(worker, RunningPoll)
+
+    win.close()
+    qapp.processEvents()
+    assert not win._net_poll_timer.isActive()
+    assert win._print_cancel.is_set()
+    assert win._net_poll_worker is None
+    worker.polled.emit({"address": "tcp://192.0.2.62:9100", "answered": True, "errors": ()})
+    assert win._net_poll is None
+    assert worker in app_module._orphan_workers
+    worker.finished.emit()
+    assert worker not in app_module._orphan_workers
+
+
+def test_program_end_waits_for_orphaned_workers(monkeypatch):
+    from ql_editor import app as app_module
+
+    waited = []
+
+    class Orphan:
+        def wait(self, ms):
+            waited.append(ms)
+            return True
+
+    monkeypatch.setattr(app_module, "_orphan_workers", [Orphan(), Orphan()])
+    app_module._wait_for_orphans(1234)
+    assert waited == [1234, 1234]
 
 
 def test_pinch_zooms_and_pans_canvas(qapp):
