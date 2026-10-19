@@ -1310,6 +1310,11 @@ class InspectorPanel(QWidget):
         aspect.toggled.connect(lambda value: self._apply_now(lambda: item.set_keep_aspect(value)))
         form.addRow("", aspect)
 
+        invert = QCheckBox(tr("Invertiert"))
+        invert.setChecked(item.inverted)
+        invert.toggled.connect(lambda value: self._apply_now(lambda: item.set_inverted(value)))
+        form.addRow("", invert)
+
     def _pick_clipart(self, item, name: QLabel) -> None:
         """Anderes Symbol aus demselben Raster wie beim Einfügen."""
         host = self.window()

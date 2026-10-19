@@ -2776,6 +2776,30 @@ def test_icon_color_is_configurable(qapp):
     assert not red.isNull()
 
 
+def _save_button_action(win):
+    """Die Toolbar-Aktion, in der der Speichern-Knopf sitzt."""
+    from PySide6.QtWidgets import QToolBar, QToolButton
+
+    bar = win.findChild(QToolBar, "main_toolbar")
+    button = win.findChild(QToolButton, "save_button")
+    return next(a for a in bar.actions() if bar.widgetForAction(a) is button)
+
+
+def test_save_button_splits_save_and_save_as(qapp):
+    from PySide6.QtWidgets import QToolButton
+
+    from ql_editor.app import MainWindow
+
+    win = MainWindow()
+    button = win.findChild(QToolButton, "save_button")
+    assert button is not None
+    assert button.defaultAction() is win._act_file_save
+    assert button.popupMode() == QToolButton.ToolButtonPopupMode.MenuButtonPopup
+    assert button.menu().actions() == [win._act_file_save_as]
+    assert win._act_file_save_as not in win._menu_button.menu().actions()
+    assert win._act_file_save_as in win.actions()
+
+
 def test_toolbar_has_undo_and_redo(qapp):
     """Rückgängig und Wiederholen liegen als eigene Icons in der Toolbar."""
     from PySide6.QtWidgets import QToolBar
@@ -2788,7 +2812,7 @@ def test_toolbar_has_undo_and_redo(qapp):
     undo_at = actions.index(win._act_undo)
     redo_at = actions.index(win._act_redo)
     assert redo_at == undo_at + 1
-    assert undo_at > actions.index(win._act_file_save)
+    assert undo_at > actions.index(_save_button_action(win))
     assert redo_at < actions.index(win._act_add_text)
     assert win._act_undo.toolTip() == "Rückgängig (Strg+Z)"
     assert win._act_redo.toolTip() == "Wiederholen (Strg+Umschalt+Z)"
@@ -2917,9 +2941,16 @@ def test_toolbar_has_align_dropdown_before_front(qapp, tmp_path):
     ]
     actions = bar.actions()
     button_at = next(i for i, a in enumerate(actions) if bar.widgetForAction(a) is button)
-    assert button_at < actions.index(win._act_forward) < actions.index(win._act_backward)
-    assert win._act_front not in actions
-    assert win._act_back not in actions
+    layer = win.findChild(QToolButton, "layer_button")
+    assert layer.menu().actions() == [
+        win._act_front,
+        win._act_forward,
+        win._act_backward,
+        win._act_back,
+    ]
+    assert bar.widgetForAction(actions[button_at + 1]) is layer
+    for act in (win._act_forward, win._act_backward, win._act_front, win._act_back):
+        assert act not in actions
     shape = win.findChild(QToolButton, "shape_button")
     code = win.findChild(QToolButton, "code_button")
     shape_at = next(i for i, a in enumerate(actions) if bar.widgetForAction(a) is shape)
@@ -2936,8 +2967,7 @@ def test_toolbar_has_align_dropdown_before_front(qapp, tmp_path):
     assert win._act_print_preview not in actions
     assert win._act_print_history not in actions
     assert actions[csv_at - 1].isSeparator()
-    assert actions[csv_at + 1] is win._act_database_separator
-    assert win._act_database_separator.isSeparator()
+    assert database_at == csv_at + 1
     assert csv_at < database_at < print_at
     assert actions[database_at + 1].isSeparator()
     assert actions[database_at + 2] is win._act_print
@@ -3049,8 +3079,6 @@ def test_no_menu_bar_but_hamburger_menu(qapp):
     for action in menu.actions():
         labels.append("|" if action.isSeparator() else action.text())
     assert labels == [
-        "Speichern unter…",
-        "|",
         "Sprache",
         "Erscheinungsbild",
         "Hilfe",
@@ -3127,15 +3155,22 @@ def test_no_menu_bar_but_hamburger_menu(qapp):
     )
     assert all(act not in items for act in left_the_burger)
     assert all(act in leaves for act in left_the_burger if act is not win._act_commands)
-    for act in (
+    for act in (win._act_print,):
+        assert act in bar.actions()
+        assert act in leaves
+    zoom_buttons = {
+        b.defaultAction()
+        for b in win.statusBar().findChildren(QToolButton)
+        if b.defaultAction() is not None
+    }
+    assert zoom_buttons >= {
         win._act_zoom_out,
         win._act_zoom_fit,
         win._act_zoom_in,
         win._act_zoom_100,
-        win._act_print,
-    ):
-        assert act in bar.actions()
-        assert act in leaves
+    }
+    for act in (win._act_zoom_out, win._act_zoom_fit, win._act_zoom_in, win._act_zoom_100):
+        assert act not in bar.actions()
     assert win._act_print_preview not in bar.actions()
     assert win._act_print_history not in bar.actions()
     assert win._act_commands in win.actions()
@@ -3263,7 +3298,7 @@ def test_menu_actions_have_icons(qapp):
     menu = win._menu_button.menu()
     assert menu is not None
     items = [a for a in menu.actions() if not a.isSeparator()]
-    assert len(items) == 6
+    assert len(items) == 5
     assert all(not a.icon().isNull() for a in items)
 
 
@@ -6710,7 +6745,7 @@ def test_file_group_sits_right_after_the_burger(qapp, tmp_path):
     assert names[0] == "main_menu_button"
     assert names[1] == win._act_file_new.text()
     assert names[2] == win._act_file_open.text()
-    assert names[3] == win._act_file_save.text()
+    assert names[3] == "save_button"
     assert names[4] == "template_button"
     template_button = win.findChild(QToolButton, "template_button")
     assert template_button.toolTip() == "Vorlage laden"

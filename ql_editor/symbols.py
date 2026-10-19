@@ -145,7 +145,7 @@ def paint_symbol(painter: QPainter, symbol_id: str, rect: QRectF, color: str) ->
     painter.save()
     painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
     painter.setPen(Qt.PenStyle.NoPen)
-    painter.setBrush(QColor("red" if color == "red" else "black"))
+    painter.setBrush(QColor({"red": "red", "white": "white"}.get(color, "black")))
     painter.translate(rect.topLeft())
     painter.scale(rect.width() / _FIELD, rect.height() / _FIELD)
     painter.drawPath(path_for(symbol_id))

@@ -58,6 +58,7 @@ EN: dict[str, str] = {
     "Vertikal zentrieren": "Align center vertically",
     "Unten ausrichten": "Align bottom",
     "Ausrichten": "Align",
+    "Ebenen": "Layers",
     "Eigenschaften": "Properties",
     "Ränder": "Margins",
     "Reihenfolge": "Order",
@@ -84,12 +85,14 @@ EN: dict[str, str] = {
         "Esc brings the normal view back."
     ),
     "Mit der Maus": "With the pointer",
-    "Strg und das Mausrad zoomen, Umschalt und das Mausrad schieben seitlich. Strg+Klick nimmt ein Objekt zur Auswahl dazu oder wieder weg. Strg gedrückt halten und ein markiertes Objekt ziehen lässt das Original liegen und bewegt die Kopie. In einer Tabelle markiert Umschalt+Klick mehrere Zellen, Tab und Umschalt+Tab gehen zur nächsten. Beim Drehen rastet der Winkel auf 90 Grad, mit gehaltener Umschalttaste in Schritten von 15 Grad.": (
+    "Strg und das Mausrad zoomen, Umschalt und das Mausrad schieben seitlich. Strg+Klick nimmt ein Objekt zur Auswahl dazu oder wieder weg. Strg gedrückt halten und ein markiertes Objekt ziehen lässt das Original liegen und bewegt die Kopie. In einer Tabelle markiert Umschalt+Klick mehrere Zellen, Tab und Umschalt+Tab gehen zur nächsten. In der Datenbank-Tabelle nimmt Strg+Klick eine Zeile dazu oder weg, Umschalt+Klick wählt einen Bereich. Beim Drehen rastet der Winkel auf 90 Grad, mit gehaltener Umschalttaste in Schritten von 15 Grad.": (
         "Ctrl and the wheel zoom, Shift and the wheel scroll sideways. "
         "Ctrl+click adds an object to the selection or drops it again. "
         "Holding Ctrl and dragging a selected object leaves the original in "
         "place and moves a copy. In a table, Shift+click marks several cells, "
-        "and Tab and Shift+Tab move to the next one. While rotating, the angle "
+        "and Tab and Shift+Tab move to the next one. In the database grid, "
+        "Ctrl+click adds or removes a row and Shift+click selects a range. "
+        "While rotating, the angle "
         "snaps to 90 degrees, and holding Shift steps by 15 degrees."
     ),
     "Tasten": "Keys",
@@ -335,7 +338,9 @@ EN: dict[str, str] = {
     "Änderungen an „{name}“ speichern?": "Save changes to “{name}”?",
     "Etikett bereits geöffnet: {name}": "Label already open: {name}",
     "Etikett öffnen (Strg+O)": "Open label (Ctrl+O)",
-    "Etikett speichern (Strg+S)": "Save label (Ctrl+S)",
+    "Etikett speichern (Strg+S)\nPfeil: Speichern unter… (Strg+Umschalt+S)": (
+        "Save label (Ctrl+S)\nArrow: Save as… (Ctrl+Shift+S)"
+    ),
     "Speichern unter…": "Save as…",
     "Etikett unter neuem Namen speichern (Strg+Umschalt+S)": (
         "Save label under a new name (Ctrl+Shift+S)"
@@ -344,8 +349,8 @@ EN: dict[str, str] = {
     "Etikett öffnen": "Open label",
     "Etikett speichern": "Save label",
     "QLInux-Etiketten (*{suffix})": "QLInux labels (*{suffix})",
-    "QLInux-Etiketten (*{suffix});;Brother P-touch (*{lbx});;Alle Etiketten (*{suffix} *{lbx})": (
-        "QLInux labels (*{suffix});;Brother P-touch (*{lbx});;All labels (*{suffix} *{lbx})"
+    "Alle Etiketten (*{suffix} *{lbx});;QLInux-Etiketten (*{suffix});;Brother P-touch (*{lbx})": (
+        "All labels (*{suffix} *{lbx});;QLInux labels (*{suffix});;Brother P-touch (*{lbx})"
     ),
     "Etikett geöffnet: {name}": "Label opened: {name}",
     "Importiert: {name}": "Imported: {name}",
@@ -689,7 +694,10 @@ EN: dict[str, str] = {
         "Without a CSV it stays one label."
     ),
     "Ausgewählte Datensätze": "Selected Record(s)",
-    "Die in der Tabelle gewählte Zeile.": "The row selected in the table.",
+    "Ausgewählte Datensätze ({count})": "Selected Records ({count})",
+    "Die in der Tabelle gewählten Zeilen (Strg/Umschalt für mehrere).": (
+        "The rows selected in the table (Ctrl/Shift for several)."
+    ),
     "Alle Datensätze": "All Records",
     "Jede Zeile der verbundenen CSV.": "Every row of the connected CSV.",
     "Datensatzbereich": "Record Range",
@@ -893,6 +901,7 @@ EN: dict[str, str] = {
     "Andere…": "Other…",
     "Trennen": "Disconnect",
     "Datensatz {current} / {total}": "Record {current} / {total}",
+    "{count} gewählt": "{count} selected",
     "Auf Text, Barcode oder QR ziehen": "Drag onto text, barcode or QR",
     "CSV verbinden": "Connect CSV",
     "CSV verbinden…": "Connect CSV…",

@@ -1586,6 +1586,7 @@ class ClipArtItem(_ClampMixin, QGraphicsObject):
         height: float | None = None,
         color: str = "black",
         keep_aspect: bool = True,
+        inverted: bool = False,
     ) -> None:
         super().__init__()
         self.setFlags(
@@ -1598,6 +1599,7 @@ class ClipArtItem(_ClampMixin, QGraphicsObject):
         self._h = max(16.0, float(size if height is None else height))
         self._color = color if color in ("black", "red") else "black"
         self._keep_aspect = bool(keep_aspect)
+        self._inverted = bool(inverted)
         self._ratio = self._w / self._h if self._h else 1.0
 
     def boundingRect(self) -> QRectF:  # noqa: N802
@@ -1605,7 +1607,12 @@ class ClipArtItem(_ClampMixin, QGraphicsObject):
 
     def paint(self, painter: QPainter, option, widget=None) -> None:  # noqa: N802
         del option, widget
-        paint_symbol(painter, self._symbol, self.boundingRect(), self._color)
+        rect = self.boundingRect()
+        if self._inverted:
+            painter.fillRect(rect, QColor(self._color))
+            paint_symbol(painter, self._symbol, rect, "white")
+            return
+        paint_symbol(painter, self._symbol, rect, self._color)
 
     @property
     def symbol(self) -> str:
@@ -1619,12 +1626,20 @@ class ClipArtItem(_ClampMixin, QGraphicsObject):
     def keep_aspect(self) -> bool:
         return self._keep_aspect
 
+    @property
+    def inverted(self) -> bool:
+        return self._inverted
+
     def set_symbol(self, symbol: str) -> None:
         self._symbol = known_symbol(symbol)
         self.update()
 
     def set_color(self, color: str) -> None:
         self._color = color if color in ("black", "red") else "black"
+        self.update()
+
+    def set_inverted(self, value: bool) -> None:
+        self._inverted = bool(value)
         self.update()
 
     def set_keep_aspect(self, keep: bool) -> None:
@@ -1653,6 +1668,7 @@ class ClipArtItem(_ClampMixin, QGraphicsObject):
             h=self._h,
             color=self._color,
             keep_aspect=self._keep_aspect,
+            inverted=self._inverted,
         )
         return d
 
@@ -1664,6 +1680,7 @@ class ClipArtItem(_ClampMixin, QGraphicsObject):
             height=float(d.get("h", 160)),
             color=str(d.get("color", "black")),
             keep_aspect=bool(d.get("keep_aspect", True)),
+            inverted=bool(d.get("inverted", False)),
         )
         item._apply_base(d)
         return item
