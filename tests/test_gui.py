@@ -6417,6 +6417,19 @@ def test_the_template_menu_offers_builtins_and_saving(qapp, tmp_path, monkeypatc
     qapp.processEvents()
 
 
+def test_tabs_sit_above_the_toolbar(qapp, tmp_path):
+    """Die Reiterleiste steht über der Werkzeugleiste."""
+    from PySide6.QtWidgets import QToolBar
+
+    win = _temp_window(qapp, tmp_path)
+    tabs = win._tab_chrome.mapToGlobal(win._tab_chrome.rect().bottomLeft()).y()
+    bar = win.findChild(QToolBar, "main_toolbar")
+    tools = bar.mapToGlobal(bar.rect().topLeft()).y()
+    assert tabs <= tools
+    win.close()
+    qapp.processEvents()
+
+
 def test_file_group_sits_right_after_the_burger(qapp, tmp_path):
     """Burger, dann Neu, Öffnen, Speichern, Vorlage laden - danach die Werkzeuge."""
     from PySide6.QtWidgets import QToolBar, QToolButton, QWidgetAction

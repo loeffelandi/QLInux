@@ -539,7 +539,10 @@ class MainWindow(QMainWindow):
         self._canvas_stack = QStackedWidget()
         self._canvas_stack.setMinimumSize(240, 180)
         self._host = PanelHost(self._canvas_stack, self)
+        # Reiter über der Werkzeugleiste: das Menü-Widget sitzt ganz oben,
+        # addToolBar darunter.
         self._tab_chrome = self._build_tab_chrome()
+        self.setMenuWidget(self._tab_chrome)
         self._database_panel = DatabasePanel(self)
         self._database_panel.record_selected.connect(self._on_database_record_selected)
         self._database_panel.connect_requested.connect(self._choose_csv)
@@ -549,7 +552,6 @@ class MainWindow(QMainWindow):
         shell_layout = QVBoxLayout(shell)
         shell_layout.setContentsMargins(0, 0, 0, 0)
         shell_layout.setSpacing(0)
-        shell_layout.addWidget(self._tab_chrome)
         shell_layout.addWidget(self._host, 1)
         shell_layout.addWidget(self._database_panel)
         self.setCentralWidget(shell)
@@ -663,7 +665,7 @@ class MainWindow(QMainWindow):
         return area
 
     def _build_tab_chrome(self) -> QWidget:
-        """Reiterleiste über dem Canvas, plus ein Knopf für ein neues Etikett."""
+        """Reiterleiste über der Werkzeugleiste, plus ein Knopf für ein neues Etikett."""
         bar = QWidget()
         layout = QHBoxLayout(bar)
         layout.setContentsMargins(6, 2, 6, 0)
