@@ -32,6 +32,11 @@
     </screenshot>
   </screenshots>
   <releases>
+    <release version="0.3.1" date="2026-10-19">
+      <description>
+        <p>Select several database rows and print them together. Pinch to zoom the canvas. Network printers are checked over SNMP, and the loaded tape is remembered. AppImages for x86_64 and aarch64.</p>
+      </description>
+    </release>
     <release version="0.3.0" date="2026-10-19">
       <description>
         <p>Tables, date and time stamps, clip art, shapes and richer text. A CSV database with record ranges and numbering. Printing opens as a sheet. Light and dark appearance, ruler guides, copy and paste, and in-app help.</p>
