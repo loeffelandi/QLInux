@@ -344,8 +344,8 @@ EN: dict[str, str] = {
     "Etikett öffnen": "Open label",
     "Etikett speichern": "Save label",
     "QLInux-Etiketten (*{suffix})": "QLInux labels (*{suffix})",
-    "QLInux-Etiketten (*{suffix});;Brother P-touch (*{lbx});;Alle Etiketten (*{suffix} *{lbx})": (
-        "QLInux labels (*{suffix});;Brother P-touch (*{lbx});;All labels (*{suffix} *{lbx})"
+    "Alle Etiketten (*{suffix} *{lbx});;QLInux-Etiketten (*{suffix});;Brother P-touch (*{lbx})": (
+        "All labels (*{suffix} *{lbx});;QLInux labels (*{suffix});;Brother P-touch (*{lbx})"
     ),
     "Etikett geöffnet: {name}": "Label opened: {name}",
     "Importiert: {name}": "Imported: {name}",
@@ -689,7 +689,9 @@ EN: dict[str, str] = {
         "Without a CSV it stays one label."
     ),
     "Ausgewählte Datensätze": "Selected Record(s)",
-    "Die in der Tabelle gewählte Zeile.": "The row selected in the table.",
+    "Die in der Tabelle gewählten Zeilen (Strg/Umschalt für mehrere).": (
+        "The rows selected in the table (Ctrl/Shift for several)."
+    ),
     "Alle Datensätze": "All Records",
     "Jede Zeile der verbundenen CSV.": "Every row of the connected CSV.",
     "Datensatzbereich": "Record Range",

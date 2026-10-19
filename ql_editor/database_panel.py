@@ -12,7 +12,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from PySide6.QtCore import QMimeData, QPoint, Qt, Signal
+from PySide6.QtCore import QItemSelectionModel, QMimeData, QPoint, Qt, Signal
 from PySide6.QtGui import QDrag
 from PySide6.QtWidgets import (
     QApplication,
@@ -113,6 +113,7 @@ class DatabasePanel(QWidget):
         self._table_data: CsvTable | None = None
         self._updating = False
         self._linked = False
+        self._last_index: int | None = None
 
         self._toggle = QToolButton()
         self._toggle.setObjectName("database_panel_toggle")
@@ -175,7 +176,7 @@ class DatabasePanel(QWidget):
         self._grid.setSelectionBehavior(
             QTableWidget.SelectionBehavior.SelectRows
         )
-        self._grid.setSelectionMode(QTableWidget.SelectionMode.SingleSelection)
+        self._grid.setSelectionMode(QTableWidget.SelectionMode.ExtendedSelection)
         self._grid.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
         self._grid.setAlternatingRowColors(True)
         self._grid.verticalHeader().setVisible(False)
@@ -213,6 +214,7 @@ class DatabasePanel(QWidget):
         """Keine Verbindung: Grid leeren. Banner bleibt, wenn ``notice`` gesetzt ist."""
         self._table_data = None
         self._linked = False
+        self._last_index = None
         self._updating = True
         try:
             self._grid.clear()
@@ -231,6 +233,7 @@ class DatabasePanel(QWidget):
         """Pfad bekannt, Datei aber nicht geladen (D12): Banner, kein Grid."""
         self._table_data = None
         self._linked = True
+        self._last_index = None
         self._updating = True
         try:
             self._grid.clear()
@@ -288,6 +291,7 @@ class DatabasePanel(QWidget):
                     self._grid.setItem(row_index, col_index, cell)
             index = clamp_record_index(current_record, len(table.records))
             self._show_counter(index)
+            self._last_index = index if table.records else None
             if table.records:
                 self._grid.selectRow(index)
                 item = self._grid.item(index, 0)
@@ -305,12 +309,41 @@ class DatabasePanel(QWidget):
         self._show_counter(index)
         self._updating = True
         try:
-            self._grid.selectRow(index)
+            if index not in self.selected_records():
+                self._select_rows([index])
+            self._last_index = index
             item = self._grid.item(index, 0)
             if item is not None:
                 self._grid.scrollToItem(item)
         finally:
             self._updating = False
+
+    def set_selected_records(self, rows: list[int]) -> None:
+        """Gespeicherte Mehrfachauswahl wiederherstellen, ohne ``record_selected``."""
+        if self._table_data is None or not self._table_data.records:
+            return
+        count = len(self._table_data.records)
+        valid = sorted({row for row in rows if 0 <= row < count})
+        if not valid:
+            return
+        self._updating = True
+        try:
+            self._select_rows(valid)
+            self._last_index = valid[0]
+        finally:
+            self._updating = False
+
+    def _select_rows(self, rows: list[int]) -> None:
+        """Genau diese Zeilen selektieren (ohne Signale, Aufrufer setzt _updating)."""
+        model = self._grid.model()
+        selection = self._grid.selectionModel()
+        self._grid.clearSelection()
+        for row in rows:
+            selection.select(
+                model.index(row, 0),
+                QItemSelectionModel.SelectionFlag.Select
+                | QItemSelectionModel.SelectionFlag.Rows,
+            )
 
     def set_expanded(self, expanded: bool) -> None:
         """Grid ein- oder ausklappen, ohne das Signal doppelt zu verarbeiten."""
@@ -319,20 +352,29 @@ class DatabasePanel(QWidget):
             return
         self._toggle.setChecked(expanded)
 
+    def selected_records(self) -> list[int]:
+        """Alle selektierten Zeilen (0-basiert), aufsteigend sortiert."""
+        return sorted(int(row.row()) for row in self._grid.selectionModel().selectedRows())
+
     def current_record(self) -> int:
-        """Aktuell selektierte Zeile (0-basiert), oder 0."""
-        rows = self._grid.selectionModel().selectedRows()
-        if not rows:
-            return 0
-        return int(rows[0].row())
+        """Erste selektierte Zeile (0-basiert), oder 0."""
+        rows = self.selected_records()
+        return rows[0] if rows else 0
 
     def _on_selection_changed(self) -> None:
         if self._updating or self._table_data is None:
             return
-        rows = self._grid.selectionModel().selectedRows()
+        rows = self.selected_records()
         if not rows:
+            if self._last_index is not None:
+                self._updating = True
+                try:
+                    self._select_rows([self._last_index])
+                finally:
+                    self._updating = False
             return
-        index = int(rows[0].row())
+        index = rows[0]
+        self._last_index = index
         self._show_counter(index)
         self.record_selected.emit(index)
 

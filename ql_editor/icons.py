@@ -78,6 +78,7 @@ ICON_COLORS: dict[str, str] = {
     "shape_arrow_double": "#597697",
     "table": "#3f6f54",
     "database": "#3d6d8c",
+    "database_view": "#3d6d8c",
     "datetime": "#3d6d8c",
     "clipart": "#7a4e2d",
     # Datei und Vorlagen
@@ -393,6 +394,19 @@ def _draw_database(p: QPainter, color: QColor) -> None:
     _line(p, 20.0, 5.8, 20.0, 17.2)
     p.drawArc(QRectF(4.0, 14.4, 16.0, 5.2), 180 * 16, 180 * 16)
     p.drawArc(QRectF(4.0, 8.6, 16.0, 5.2), 200 * 16, 140 * 16)
+
+
+def _draw_database_view(p: QPainter, color: QColor) -> None:
+    """Kleiner Zylinder mit Raster-Badge: Datenbank-Grid ein-/ausblenden."""
+    _stroke_only(p, color, 1.6)
+    p.drawEllipse(QRectF(2.5, 2.8, 10.0, 4.0))
+    _line(p, 2.5, 4.8, 2.5, 12.0)
+    _line(p, 12.5, 4.8, 12.5, 12.0)
+    p.drawArc(QRectF(2.5, 9.6, 10.0, 4.0), 180 * 16, 180 * 16)
+    _stroke_only(p, color, 1.4)
+    p.drawRoundedRect(QRectF(13.2, 12.6, 8.2, 8.2), 1.0, 1.0)
+    _line(p, 13.2, 16.7, 21.4, 16.7)
+    _line(p, 17.3, 12.6, 17.3, 20.8)
 
 
 def _table_frame(p: QPainter, color: QColor) -> None:
@@ -1101,6 +1115,7 @@ _DRAW = {
     "shape": _draw_shape,
     "table": _draw_table,
     "database": _draw_database,
+    "database_view": _draw_database_view,
     "row_above": _draw_row_above,
     "col_left": _draw_col_left,
     "row_delete": _draw_row_delete,

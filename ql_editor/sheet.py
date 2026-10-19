@@ -24,7 +24,7 @@ from typing import Callable
 
 import shiboken6
 from PySide6.QtCore import QDir, QEvent, QObject, QSize, Qt, Signal
-from PySide6.QtGui import QColor, QFont, QPainter, QPalette, QPen
+from PySide6.QtGui import QColor, QFont, QPainter, QPalette, QPen, QShortcut
 from PySide6.QtWidgets import (
     QApplication,
     QDialog,
@@ -34,11 +34,13 @@ from PySide6.QtWidgets import (
     QInputDialog,
     QLabel,
     QMessageBox,
+    QToolButton,
     QVBoxLayout,
     QWidget,
 )
 
 from .i18n import tr
+from .icons import icon
 
 #: Kleinstes Format eines Dateidialogs im Sheet (Bildschirmpixel).
 DIALOG_MIN_WIDTH = 320
@@ -260,7 +262,12 @@ class Sheet(QWidget):
         # Solange das Sheet offen ist, keine App-Tastenkombinationen
         # (Ctrl+P, Entf, ...) ausloesen - das Sheet ist modal.
         if event.type() == QEvent.Type.Shortcut and self.isVisible():
-            if not _same_object(obj, self) and not self.isAncestorOf(obj):
+            # QShortcut ist kein Widget: zaehlt das Widget, dem es gehoert.
+            owner = obj.parent() if isinstance(obj, QShortcut) else obj
+            inside = isinstance(owner, QWidget) and (
+                _same_object(owner, self) or self.isAncestorOf(owner)
+            )
+            if not inside:
                 return True
         parent = self.parentWidget()
         if parent is not None and obj == parent and event.type() == QEvent.Type.Resize:
@@ -416,8 +423,11 @@ def ask_save(
     box.setIcon(QMessageBox.Icon.Question)
     box.setText(text)
     save = box.addButton(tr("Speichern"), QMessageBox.ButtonRole.AcceptRole)
+    save.setIcon(icon("save"))
     discard = box.addButton(tr("Verwerfen"), QMessageBox.ButtonRole.DestructiveRole)
+    discard.setIcon(icon("delete"))
     cancel = box.addButton(tr("Abbrechen"), QMessageBox.ButtonRole.RejectRole)
+    cancel.setIcon(icon("close"))
     box.setDefaultButton(save)
     sheet = _open_sheet(parent, box, title=title, sizing="hint")
     chosen: dict[str, str | None] = {"value": None}
@@ -486,6 +496,45 @@ def ask_label_printer(
     return sheet
 
 
+class _HistoryNavFilter(QObject):
+    """Maus-Seitentasten: Zurueck/Vor wie die Pfeile des Datei-Dialogs.
+
+    Liegt an der Anwendung, damit auch Widgets gelten, die der Dialog erst
+    spaeter erzeugt. Nur Klicks innerhalb des Dialogs zaehlen.
+    """
+
+    _BUTTONS = {
+        Qt.MouseButton.BackButton: "backButton",
+        Qt.MouseButton.ForwardButton: "forwardButton",
+    }
+
+    def __init__(self, dialog: QFileDialog) -> None:
+        super().__init__(dialog)
+        self._dialog = dialog
+
+    def eventFilter(self, obj, event) -> bool:  # noqa: N802
+        if event.type() != QEvent.Type.MouseButtonPress:
+            return False
+        name = self._BUTTONS.get(event.button())
+        if name is None:
+            return False
+        if not isinstance(obj, QWidget):
+            return False
+        if not (_same_object(obj, self._dialog) or self._dialog.isAncestorOf(obj)):
+            return False
+        button = self._dialog.findChild(QToolButton, name)
+        if button is not None and button.isEnabled():
+            button.click()
+        return True
+
+
+def _bind_history_buttons(dialog: QFileDialog) -> None:
+    app = QApplication.instance()
+    filter_ = _HistoryNavFilter(dialog)
+    app.installEventFilter(filter_)
+    dialog.destroyed.connect(lambda *_: app.removeEventFilter(filter_))
+
+
 def choose_file(
     parent: QWidget,
     *,
@@ -508,6 +557,7 @@ def choose_file(
     # Keine harte Mindestgroesse: die erzwingt das Sheet und schneidet sonst die
     # Schaltflaechen unten ab, wenn das Fenster niedrig ist.
     dialog.setMinimumSize(DIALOG_MIN_WIDTH, DIALOG_MIN_HEIGHT)
+    _bind_history_buttons(dialog)
     sheet = _open_sheet(
         parent,
         dialog,
@@ -552,6 +602,7 @@ def save_file(
     # Keine harte Mindestgroesse: die erzwingt das Sheet und schneidet sonst die
     # Schaltflaechen unten ab, wenn das Fenster niedrig ist.
     dialog.setMinimumSize(DIALOG_MIN_WIDTH, DIALOG_MIN_HEIGHT)
+    _bind_history_buttons(dialog)
     sheet = _open_sheet(
         parent,
         dialog,

@@ -13,11 +13,11 @@ import pytest
 from PIL import Image
 from PySide6.QtCore import QPointF, QSettings, Qt
 from PySide6.QtGui import QKeyEvent
-from PySide6.QtWidgets import QFileDialog, QInputDialog, QLineEdit, QMessageBox
+from PySide6.QtWidgets import QFileDialog, QInputDialog, QLineEdit, QMessageBox, QWidget
 
 from ql_editor.app import MainWindow
 from ql_editor.items import BarcodeItem, ImageItem, QRItem
-from ql_editor.sheet import Sheet, ask_choice, ask_text, choose_file, show_message
+from ql_editor.sheet import Sheet, ask_choice, ask_save, ask_text, choose_file, show_message
 
 pytestmark = pytest.mark.usefixtures("qapp")
 
@@ -350,3 +350,17 @@ def test_error_message_uses_sheet(qapp, tmp_path):
     assert sheet is not None
     assert sheet.findChild(QMessageBox) is not None
     win.close()
+
+
+def test_unsaved_question_buttons_have_icons(qapp):
+    parent = QWidget()
+    parent.resize(1100, 760)
+    parent.show()
+    choices: list[str] = []
+    ask_save(parent, title="Test", text="Ungespeichert", on_choice=choices.append)
+    box = parent.findChild(QMessageBox)
+    assert box is not None
+    buttons = {button.text(): button for button in box.buttons()}
+    for label in ("Speichern", "Verwerfen", "Abbrechen"):
+        assert not buttons[label].icon().isNull()
+    parent.close()

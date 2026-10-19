@@ -2936,8 +2936,7 @@ def test_toolbar_has_align_dropdown_before_front(qapp, tmp_path):
     assert win._act_print_preview not in actions
     assert win._act_print_history not in actions
     assert actions[csv_at - 1].isSeparator()
-    assert actions[csv_at + 1] is win._act_database_separator
-    assert win._act_database_separator.isSeparator()
+    assert database_at == csv_at + 1
     assert csv_at < database_at < print_at
     assert actions[database_at + 1].isSeparator()
     assert actions[database_at + 2] is win._act_print

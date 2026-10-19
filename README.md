@@ -136,6 +136,13 @@ Settings (last printer, tape, print options, language, appearance) are stored in
 | Rotating without Shift | Stick to the nearest 90° until the pointer moves clearly away |
 | Shift while rotating | Rotate in 15° steps |
 
+### Database grid
+
+With a CSV connected, the grid under the canvas accepts several rows:
+Ctrl + click adds or removes a row, Shift + click selects a range. The canvas
+previews the first selected row. **Print** with *Selected records* prints every
+selected row. The last selected row cannot be deselected with Ctrl + click.
+
 ### Ruler guides
 
 Drag down from the top ruler for a horizontal guide, or right from the left
