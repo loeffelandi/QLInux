@@ -31,10 +31,17 @@ import time
 from dataclasses import dataclass
 from functools import lru_cache
 from typing import Callable, Iterable
+from urllib.parse import urlsplit
 
 from .i18n import tr
 from .media import all_models
-from .printer import NETWORK_PORT
+from .printer import (
+    NETWORK_PORT,
+    PrinterConfig,
+    parse_network_address,
+    printer_error_bits,
+    printer_error_texts,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -73,6 +80,27 @@ SNMP_OID_DEVICE_DESCR = (1, 3, 6, 1, 2, 1, 25, 3, 2, 1, 3, 1)
 SNMP_OID_SYS_DESCR = (1, 3, 6, 1, 2, 1, 1, 1, 0)
 SNMP_OID_SYS_NAME = (1, 3, 6, 1, 2, 1, 1, 5, 0)
 SNMP_OIDS = (SNMP_OID_DEVICE_DESCR, SNMP_OID_SYS_DESCR, SNMP_OID_SYS_NAME)
+#: Fehlerzustand des ersten Druckers (``hrPrinterDetectedErrorState``,
+#: HOST-RESOURCES-MIB). Gemessen am QL-820NWB: Klappe offen setzt Bit 4; ein
+#: falsches Band setzt kein Bit (dafuer gilt ``HR_DEVICE_STATUS_OID``).
+HR_PRINTER_ERROR_OID = (1, 3, 6, 1, 2, 1, 25, 3, 5, 1, 2, 1)
+#: Betriebszustand des Geraets (``hrDeviceStatus``). Ein falsches Band setzt
+#: ihn auf "down" (5), ohne dass ein Fehlerbit gesetzt wird. Gemessen am QL-820NWB.
+HR_DEVICE_STATUS_OID = (1, 3, 6, 1, 2, 1, 25, 3, 2, 1, 5, 1)
+HR_DEVICE_DOWN = 5
+#: Fehlerbits, bei denen der Drucker nicht druckt (RFC 2790). Die uebrigen
+#: (wenig Papier/Toner, Ausgabe fast voll, Wartung) sind nur Hinweise.
+HR_PRINTER_FATAL_BITS = frozenset({1, 3, 4, 5, 6, 8, 9, 10, 12, 13})
+#: Wartezeit nach dem Senden, bevor der Netzwerkdrucker nach Fehlern gefragt
+#: wird - der Drucker braucht einen Moment, bis er den Fehler setzt.
+NETWORK_CHECK_DELAY = 2.0
+#: Timeout je Statusabfrage. UDP kennt keine Wiederholung: ueber WLAN geht
+#: auch mal ein Paket verloren, darum wird mehrmals gefragt.
+SNMP_STATUS_TIMEOUT = 1.0
+#: Versuche nach dem Senden, bevor Stille als "keine Statusantwort" gilt.
+NETWORK_CHECK_ATTEMPTS = 3
+#: Versuche bei der Probe vor dem Senden (antwortet SNMP ueberhaupt?).
+NETWORK_PROBE_ATTEMPTS = 2
 #: Broadcast-Adresse (Standardweg, wenn sich keine Schnittstelle meldet).
 BROADCAST_ADDRESS = "255.255.255.255"
 #: SIOCGIFBRDADDR: Broadcast-Adresse einer Schnittstelle erfragen (Linux).
@@ -414,11 +442,13 @@ def snmp_request(oids: tuple[tuple[int, ...], ...] = SNMP_OIDS) -> bytes:
     return _ber(0x30, body)
 
 
-def snmp_values(data: bytes) -> dict[tuple[int, ...], str]:
-    """``OID -> Text`` aus einer SNMP-Antwort (nur Zeichenketten-Werte).
+def snmp_varbinds(data: bytes) -> dict[tuple[int, ...], tuple[int, bytes]]:
+    """``OID -> (Tag, Inhalt)`` aller Werte einer SNMP-Antwort.
 
     Ein ``GetResponse`` ist eine Sequenz aus Version, Community und PDU; die
-    PDU enthaelt Anfrage-Kennung, Fehlerfelder und die Werteliste.
+    PDU enthaelt Anfrage-Kennung, Fehlerfelder und die Werteliste. Meldet der
+    Agent einen Fehler (SNMPv1 ``noSuchName``: eine OID fehlt, die Werte sind
+    dann nur Platzhalter), ist das Ergebnis leer.
     """
     tag, body, _ = _ber_read(data, 0)
     if tag != 0x30:
@@ -429,20 +459,147 @@ def snmp_values(data: bytes) -> dict[tuple[int, ...], str]:
     tag, pdu, _ = _ber_read(body, offset)
     if tag != 0xA2:  # GetResponse
         return {}
-    offset = 0
-    for _ in range(3):  # Anfrage-Kennung, Fehlerstatus, Fehlerindex
-        _, _, offset = _ber_read(pdu, offset)
+    _, _, offset = _ber_read(pdu, 0)  # Anfrage-Kennung
+    _, error_status, offset = _ber_read(pdu, offset)
+    _, _, offset = _ber_read(pdu, offset)  # Fehlerindex
+    if int.from_bytes(error_status, "big"):
+        return {}
     _, varbinds, _ = _ber_read(pdu, offset)
-    values: dict[tuple[int, ...], str] = {}
+    values: dict[tuple[int, ...], tuple[int, bytes]] = {}
     offset = 0
     while offset < len(varbinds):
         _, varbind, offset = _ber_read(varbinds, offset)
         inner = 0
         _, oid_bytes, inner = _ber_read(varbind, inner)
         tag, value, _ = _ber_read(varbind, inner)
-        if tag == 0x04:  # nur Zeichenketten sind fuer uns interessant
-            values[_ber_oid_value(oid_bytes)] = value.decode("utf-8", "replace")
+        values[_ber_oid_value(oid_bytes)] = (tag, value)
     return values
+
+
+def snmp_values(data: bytes) -> dict[tuple[int, ...], str]:
+    """``OID -> Text`` aus einer SNMP-Antwort (nur Zeichenketten-Werte)."""
+    return {
+        oid: value.decode("utf-8", "replace")
+        for oid, (tag, value) in snmp_varbinds(data).items()
+        if tag == 0x04  # nur Zeichenketten sind fuer uns interessant
+    }
+
+
+def snmp_get(
+    host: str,
+    oids: tuple[tuple[int, ...], ...],
+    *,
+    timeout: float = SNMP_TIMEOUT,
+    attempts: int = 1,
+) -> dict[tuple[int, ...], tuple[int, bytes]]:
+    """Werte gezielt von **einem** Geraet lesen (SNMP-GET per Unicast).
+
+    Bleibt die Antwort ``timeout`` lang aus, wird bis zu ``attempts`` mal
+    gefragt. Leer, wenn keine Antwort kommt (SNMP aus, andere Community,
+    Drucker aus).
+    """
+    request = snmp_request(oids)
+    with _udp_socket() as sock:
+        sock.settimeout(timeout)
+        # Verbunden wird ein Name nur einmal aufgeloest, und "Port nicht
+        # erreichbar" (SNMP aus) kommt sofort an statt erst nach dem Timeout.
+        sock.connect((host, SNMP_PORT))
+        for _ in range(max(1, attempts)):
+            sock.send(request)
+            try:
+                data, _address = sock.recvfrom(PACKET_LIMIT)
+            except ConnectionRefusedError:
+                break
+            except OSError:
+                continue
+            return snmp_varbinds(data)
+    return {}
+
+
+@dataclass(frozen=True)
+class NetworkStatus:
+    """Was der Netzwerkdrucker per SNMP ueber sich meldet."""
+
+    #: Der Drucker druckt nicht: Geraet "down" oder ein schweres Fehlerbit.
+    fault: bool
+    #: Fehler bzw. Hinweise zum Anzeigen (leer: alles in Ordnung).
+    texts: tuple[str, ...] = ()
+
+
+def network_printer_status(
+    address: str, *, attempts: int = 1, timeout: float = SNMP_STATUS_TIMEOUT
+) -> NetworkStatus | None:
+    """Zustand des Netzwerkdruckers laut SNMP (``hrDeviceStatus`` und Fehlerbits).
+
+    ``None``: keine brauchbare Antwort (SNMP aus, Paket verloren, Drucker aus).
+    Ein falsches Band setzt nur "down", eine offene Klappe zusaetzlich Bit 4.
+    Bits wie "Papier wird knapp" ohne "down" sind nur Hinweise.
+    """
+    try:
+        host = urlsplit(parse_network_address(address)).hostname
+        if not host:
+            return None
+        values = snmp_get(
+            host,
+            (HR_PRINTER_ERROR_OID, HR_DEVICE_STATUS_OID),
+            timeout=timeout,
+            attempts=attempts,
+        )
+    except (OSError, ValueError) as exc:
+        logger.info("SNMP-Statusabfrage an %s fehlgeschlagen: %s", address, exc)
+        return None
+    bits = values.get(HR_PRINTER_ERROR_OID)
+    device = values.get(HR_DEVICE_STATUS_OID)
+    state = bits[1] if bits is not None and bits[0] == 0x04 else None
+    device_state = (
+        int.from_bytes(device[1], "big")
+        if device is not None and device[0] == 0x02
+        else None
+    )
+    if state is None and device_state is None:
+        return None
+    state = state or b""
+    fatal = any(bit in HR_PRINTER_FATAL_BITS for bit in printer_error_bits(state))
+    texts = printer_error_texts(state)
+    fault = fatal or device_state == HR_DEVICE_DOWN
+    if fault and not fatal:
+        texts = (*texts, tr("Störung, z. B. falsches Band"))
+    return NetworkStatus(fault=fault, texts=texts)
+
+
+def confirm_network_job(
+    config: PrinterConfig,
+    status: dict,
+    *,
+    snmp_answered: bool = False,
+    delay: float = NETWORK_CHECK_DELAY,
+    attempts: int = NETWORK_CHECK_ATTEMPTS,
+    cancel: threading.Event | None = None,
+) -> dict:
+    """Nach dem Senden per SNMP nachsehen, ob der Drucker eine Stoerung meldet.
+
+    Der Netzwerkweg liefert nur "gesendet". Gefragt wird nur, wenn der Drucker
+    schon vor dem Senden per SNMP geantwortet hat (``snmp_answered``):
+
+    - Stoerung (z. B. falsches Band): ``outcome == "error"``, Texte in ``errors``.
+    - Keine Antwort trotz Wiederholung: ``outcome == "unconfirmed"``. Das ist
+      kein Fehler - der Auftrag kann gedruckt sein.
+    - Alles in Ordnung: ``snmp_ok`` ist gesetzt, Hinweise stehen in ``warnings``.
+
+    Mit ``cancel`` (Fenster schliesst) entfaellt die Pruefung.
+    """
+    if config.backend != "network" or not snmp_answered:
+        return status
+    if cancel is None:
+        time.sleep(delay)
+    elif cancel.wait(delay):
+        return status
+    printer = network_printer_status(config.address, attempts=attempts)
+    if printer is None:
+        return {**status, "outcome": "unconfirmed"}
+    if printer.fault:
+        return {**status, "outcome": "error", "errors": list(printer.texts)}
+    return {**status, "snmp_ok": True, "warnings": list(printer.texts)}
 
 
 def parse_snmp_response(data: bytes, source_host: str = "") -> list[NetworkPrinter]:
@@ -651,6 +808,7 @@ def discover_network_printers(
 __all__ = [
     "MDNS_SERVICE",
     "NetworkPrinter",
+    "NetworkStatus",
     "SOURCE_MDNS",
     "SOURCE_SNMP",
     "discover_network_printers",
@@ -662,6 +820,10 @@ __all__ = [
     "model_id_for_name",
     "parse_mdns_response",
     "parse_snmp_response",
+    "confirm_network_job",
+    "network_printer_status",
+    "snmp_get",
     "snmp_printers",
     "snmp_request",
+    "snmp_varbinds",
 ]

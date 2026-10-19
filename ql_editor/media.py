@@ -247,6 +247,16 @@ class LabelSpec:
             return True
         return model_identifier in self.restricted_to_models
 
+    def prints_on(self, loaded: "LabelSpec") -> bool:
+        """True, wenn ein Auftrag fuer dieses Band auf das eingelegte passt.
+
+        Groesse und Art muessen stimmen. Rot braucht ein schwarz/rotes Band,
+        Schwarz passt auch darauf.
+        """
+        if self.tape_size != loaded.tape_size or self.form_factor != loaded.form_factor:
+            return False
+        return loaded.color.supports_red or not self.color.supports_red
+
     # -- Voreinstellungen ---------------------------------------------------
     def default_margins(self) -> Margins:
         """Startwerte fuer die Margin-Felder: alles 0 mm.

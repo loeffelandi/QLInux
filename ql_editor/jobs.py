@@ -2,7 +2,9 @@
 
 Netzwerkdruck (TCP 9100) liefert keine Rueckmeldung - ``outcome == "sent"``
 heisst nur "an den Drucker geschickt". Nur USB (pyusb/linux_kernel) bestaetigt
-den Druck (``printed``) oder meldet einen Fehler (``error``).
+den Druck (``printed``) oder meldet einen Fehler (``error``). Beim Netzwerk
+meldet SNMP eine Stoerung (``error``); schweigt der Drucker danach, bleibt es
+bei ``unconfirmed`` - gesendet, aber ohne Statusantwort.
 """
 
 from __future__ import annotations
@@ -32,7 +34,7 @@ class PrintJob:
     copies: int
     model: str
     address: str
-    outcome: str  # "printed", "sent", "error" oder "failed" (lokaler Fehler)
+    outcome: str  # "printed", "sent", "unconfirmed", "error" oder "failed" (lokal)
 
     @property
     def is_error(self) -> bool:
@@ -43,6 +45,8 @@ class PrintJob:
             return tr("Gedruckt")
         if self.outcome == "sent":
             return tr("An Drucker gesendet")
+        if self.outcome == "unconfirmed":
+            return tr("Gesendet, keine Statusantwort")
         if self.outcome == "error":
             return tr("Drucker meldet einen Fehler")
         return tr("Nicht gesendet")

@@ -8,6 +8,8 @@ und ist leer.
 
 from __future__ import annotations
 
+from urllib.parse import quote
+
 from PySide6.QtCore import QByteArray, QSettings
 
 from .media import DEFAULT_MODEL
@@ -29,6 +31,11 @@ _APP = "QLInux"
 #: Anschlussarten, die die Oberflaeche kennt (siehe ``media_panel``).
 _CONNECTION_NETWORK = "network"
 _CONNECTION_USB = "usb"
+
+
+def _loaded_label_key(address: str) -> str:
+    """Schluessel je Drucker - die Adresse selbst enthaelt ``/`` und ``:``."""
+    return "printer/loaded_label/" + quote(address, safe="")
 
 
 class AppSettings:
@@ -97,6 +104,17 @@ class AppSettings:
     @last_label.setter
     def last_label(self, value: str) -> None:
         self.set_value("media/last_label", value)
+
+    def loaded_label(self, address: str) -> str | None:
+        """Band, das laut QLInux am Netzwerkdrucker eingelegt ist (Kennung)."""
+        value = self.value(_loaded_label_key(address), None)
+        return str(value) if value else None
+
+    def set_loaded_label(self, address: str, identifier: str) -> None:
+        self.set_value(_loaded_label_key(address), identifier)
+
+    def forget_loaded_label(self, address: str) -> None:
+        self._settings.remove(_loaded_label_key(address))
 
     @property
     def image_dir(self) -> str:

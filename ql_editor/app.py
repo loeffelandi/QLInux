@@ -23,11 +23,13 @@ gedruckt ueber :mod:`ql_editor.printer` (in einem Worker-Thread).
 from __future__ import annotations
 
 import json
+import logging
 import math
 import sys
 import threading
 from datetime import datetime
 from copy import deepcopy
+from time import monotonic
 from functools import partial
 from pathlib import Path
 from typing import Any, Iterable, Mapping
@@ -98,7 +100,13 @@ from .canvas import DUPLICATE_OFFSET_DOTS, LabelCanvas
 from .command_palette import CommandPalette, PaletteEntry
 from .csv_source import CsvTable
 from .database_panel import DatabasePanel
-from .discovery import discover_network_printers
+from .discovery import (
+    NETWORK_PROBE_ATTEMPTS,
+    NetworkStatus,
+    confirm_network_job,
+    discover_network_printers,
+    network_printer_status,
+)
 from .history import design_snapshot, push_if_changed
 from .i18n import (
     DEFAULT_LANGUAGE,
@@ -160,6 +168,8 @@ from .sheet import (
     Sheet,
     ask_choice,
     ask_label_printer,
+    ask_loaded_tape,
+    ask_print_anyway,
     ask_save,
     ask_text,
     choose_file,
@@ -176,6 +186,8 @@ from .widgets import (
     title_box,
 )
 
+logger = logging.getLogger(__name__)
+
 BARCODE_SYMBOLOGIES = ["code128", "code39", "ean13", "ean8", "upca", "itf", "codabar"]
 
 #: Wie lange auf den Passwort-Dialog gewartet wird, bevor der Einzeiler kommt.
@@ -186,6 +198,8 @@ ACCESS_RETRY_MS = 400
 ACCESS_RETRY_COUNT = 8
 #: So lange darf eine abgebrochene Netzwerksuche beim Schliessen nachlaufen.
 NETWORK_CANCEL_WAIT_MS = 1000
+#: So lange wartet das Programmende hoechstens auf abgehaengte Worker.
+ORPHAN_EXIT_WAIT_MS = 5000
 #: Entprellung der Druckvorschau (Millisekunden).
 PREVIEW_REFRESH_MS = 150
 #: Startgroesse des Fensters (Breite, Hoehe).
@@ -211,13 +225,43 @@ def _forget_orphan(worker: QThread) -> None:
         return
 
 
+def _wait_for_orphans(timeout_ms: int = ORPHAN_EXIT_WAIT_MS) -> None:
+    """Vor dem Programmende: abgehaengte Worker auslaufen lassen.
+
+    Wird ein noch laufender ``QThread`` beim Beenden abgebaut, bricht Qt das
+    ganze Programm ab. ``timeout_ms`` gilt fuer alle zusammen.
+    """
+    deadline = monotonic() + timeout_ms / 1000
+    for worker in list(_orphan_workers):
+        remaining = max(0, int((deadline - monotonic()) * 1000))
+        try:
+            worker.wait(remaining)
+        except RuntimeError:
+            # deleteLater war schneller als _forget_orphan: der Thread ist fertig.
+            continue
+
+
+#: Abstand der Hintergrundabfrage des Netzwerkdruckers (Millisekunden).
+NETWORK_POLL_MS = 5000
+#: Wie alt ein Abfrageergebnis hoechstens sein darf, um den Druck zu bestimmen.
+SNMP_CACHE_MAX_AGE = 15.0
+
+
 class PrintWorker(QThread):
     """Rendert nichts, sondern konvertiert und sendet in einem Thread."""
 
     succeeded = Signal(dict)
     failed = Signal(str)
 
-    def __init__(self, image, label, config, options: dict):
+    def __init__(
+        self,
+        image,
+        label,
+        config,
+        options: dict,
+        snmp_answered: bool | None = None,
+        cancel: threading.Event | None = None,
+    ):
         super().__init__(None)
         if isinstance(image, Image.Image):
             self._images = [image]
@@ -226,8 +270,18 @@ class PrintWorker(QThread):
         self._label = label
         self._config = config
         self._options = options
+        self._snmp_answered = snmp_answered
+        self._cancel = cancel
 
     def run(self) -> None:  # noqa: D401
+        snmp_answered = self._snmp_answered
+        if snmp_answered is None and self._config.backend == "network":
+            snmp_answered = (
+                network_printer_status(
+                    self._config.address, attempts=NETWORK_PROBE_ATTEMPTS
+                )
+                is not None
+            )
         try:
             if len(self._images) == 1:
                 status = print_image(
@@ -244,7 +298,35 @@ class PrintWorker(QThread):
                 tr("Unerwarteter Fehler: {error}").format(error=exc)
             )
         else:
+            try:
+                status = confirm_network_job(
+                    self._config,
+                    status,
+                    snmp_answered=bool(snmp_answered),
+                    cancel=self._cancel,
+                )
+            except Exception:  # pragma: no cover - defensiv
+                logger.exception("SNMP-Pruefung nach dem Senden fehlgeschlagen")
             self.succeeded.emit(status)
+
+
+class NetworkStatusWorker(QThread):
+    """Fragt den Netzwerkdrucker im Hintergrund per SNMP nach seinem Status.
+
+    ``polled`` liefert ``{"address": ..., "status": NetworkStatus | None}``.
+    """
+
+    polled = Signal(object)
+
+    def __init__(self, address: str):
+        super().__init__(None)
+        self._address = address
+
+    def run(self) -> None:  # noqa: D401
+        # Ein verlorenes Paket hiesse "kein SNMP" - dann entfiele die Pruefung
+        # nach dem naechsten Druck. Die Wiederholung kostet nur diesen Thread.
+        status = network_printer_status(self._address, attempts=NETWORK_PROBE_ATTEMPTS)
+        self.polled.emit({"address": self._address, "status": status})
 
 
 class NetworkSearchWorker(QThread):
@@ -505,11 +587,14 @@ class MainWindow(QMainWindow):
         self._adjusting = False
         self._print_worker: PrintWorker | None = None
         self._print_jobs: list[PrintJob] = []
-        self._pending_job: tuple[datetime, str, int, str] | None = None
+        # Start, Etikettname, Kopien, Modell, Adresse, Bandkennung.
+        self._pending_job: tuple[datetime, str, int, str, str, str] | None = None
         # Netzwerksuche im Hintergrund (mDNS + SNMP); ``_network_cancel``
         # bricht sie beim Schliessen des Fensters ab.
         self._network_worker: NetworkSearchWorker | None = None
         self._network_cancel = threading.Event()
+        # Bricht die SNMP-Pruefung nach dem Senden ab, wenn das Fenster schliesst.
+        self._print_cancel = threading.Event()
         # True, solange die Startsuche laeuft: ihr Ergebnis stellt den letzten
         # Drucker wieder her und zaehlt nicht als Bearbeitung.
         self._startup_discovery = False
@@ -586,6 +671,15 @@ class MainWindow(QMainWindow):
         self._refresh_timer.timeout.connect(self._refresh_now)
         self._detect_worker: DetectLabelWorker | None = None
 
+        self._net_poll: dict | None = None
+        self._net_poll_worker: NetworkStatusWorker | None = None
+        # Zuletzt in der Statusleiste gemeldeter Zustand (Adresse, Status).
+        self._net_shown: tuple[str, NetworkStatus] | None = None
+        # Laeuft nur, solange das Fenster aktiv ist (siehe changeEvent).
+        self._net_poll_timer = QTimer(self)
+        self._net_poll_timer.setInterval(NETWORK_POLL_MS)
+        self._net_poll_timer.timeout.connect(self._poll_network_printer)
+
         self._zoom_label = QLabel(tr("Zoom 100 %"))
         self._zoom_label.setToolTip(
             tr("Mausrad scrollt – Strg + Mausrad (oder Zoomgeste) zoomt")
@@ -640,6 +734,8 @@ class MainWindow(QMainWindow):
         self._media_panel.usb_search_requested.connect(self._on_usb_search)
         self._media_panel.network_search_requested.connect(self._on_network_search)
         self._media_panel.usb_permission_requested.connect(self._on_usb_permission)
+        self._media_panel.forget_loaded_requested.connect(self._forget_loaded_tape)
+        self._media_panel.changed.connect(self._sync_loaded_tape)
         self._inspector.changed.connect(self._on_inspector_changed)
         self._inspector.edit_begun.connect(self._capture_history)
         self._inspector.edit_committed.connect(self._on_inspector_edit_committed)
@@ -663,6 +759,7 @@ class MainWindow(QMainWindow):
         # Gespeicherte Einstellungen anwenden.
         self._apply_saved_settings()
         self._on_media_changed()
+        self._sync_loaded_tape()
         self._sync_margin_base()
         self._sync_media_prev()
         # Startzustand ist sauber - Medien-Sync oben zählt nicht als Bearbeitung.
@@ -1472,6 +1569,12 @@ class MainWindow(QMainWindow):
         self._act_print_history.setToolTip(tr("Druckverlauf dieser Sitzung anzeigen"))
         self._act_print_history.triggered.connect(self._show_print_sheet)
 
+        self._act_forget_tape = QAction(icon("delete"), tr("Gemerktes Band vergessen"), self)
+        self._act_forget_tape.setToolTip(
+            tr("Gemerktes Band löschen, z. B. nach einem Bandwechsel am Drucker.")
+        )
+        self._act_forget_tape.setEnabled(False)
+        self._act_forget_tape.triggered.connect(self._forget_loaded_tape)
 
         self._act_print_preview = QAction(icon("preview"), tr("Druckvorschau"), self)
         self._act_print_preview.setCheckable(True)
@@ -1909,7 +2012,7 @@ class MainWindow(QMainWindow):
             self._palette_group(
                 tr("Drucken"),
                 "print",
-                [self._act_print, self._act_print_history],
+                [self._act_print, self._act_print_history, self._act_forget_tape],
             ),
             self._palette_group(
                 tr("Sprache"),
@@ -2077,6 +2180,13 @@ class MainWindow(QMainWindow):
             QEvent.Type.ApplicationPaletteChange,
         ):
             self._refresh_history_table()
+        elif event.type() == QEvent.Type.ActivationChange:
+            # Im Hintergrund oder ueber Nacht bleibt der Drucker in Ruhe.
+            if self.isActiveWindow():
+                self._poll_network_printer()
+                self._net_poll_timer.start()
+            else:
+                self._net_poll_timer.stop()
 
     def _set_appearance(self, value: str) -> None:
         """Palette umschalten. ``system`` bleibt die Vorgabe."""
@@ -3612,7 +3722,8 @@ class MainWindow(QMainWindow):
         try:
             images = self._render_print_images()
         except merge_engine.MergeError as exc:
-            show_message(self, "warning", tr("Drucken"), str(exc))
+            # Bereich oder Kopien stehen im Druck-Sheet: dorthin zurueck.
+            self._show_print_message("warning", tr("Drucken"), str(exc))
             return
         except Exception as exc:
             show_message(
@@ -3625,6 +3736,147 @@ class MainWindow(QMainWindow):
             )
             return
         label = self._media_panel.label
+        # Eine Rueckfrage verdraengt das Druck-Sheet; danach kommt es wieder.
+        from_sheet = self._print_sheet_open()
+        fault = self._known_fault(config)
+        if fault:
+            ask_print_anyway(
+                self,
+                title=tr("Drucker prüfen"),
+                text=tr(
+                    "Der Drucker meldet: {errors}\n\n"
+                    "Erst beheben, sonst druckt der Drucker den Auftrag wahrscheinlich nicht."
+                ).format(errors=", ".join(fault)),
+                on_choice=partial(
+                    self._on_fault_choice, config, images, label, from_sheet
+                ),
+            )
+            return
+        self._check_loaded_tape(config, images, label, from_sheet)
+
+    def _known_fault(self, config) -> tuple[str, ...]:
+        """Stoerung laut letzter Abfrage (z. B. Klappe offen), sonst leer."""
+        if config.backend != "network":
+            return ()
+        poll = self._fresh_poll(config.address)
+        status = poll["status"] if poll is not None else None
+        if status is None or not status.fault:
+            return ()
+        return status.texts
+
+    def _on_fault_choice(
+        self, config, images, label, from_sheet: bool, choice: str
+    ) -> None:
+        if choice == "print":
+            self._check_loaded_tape(config, images, label, from_sheet)
+        elif from_sheet:
+            QTimer.singleShot(0, self._return_to_print_sheet)
+
+    def _return_to_print_sheet(self) -> None:
+        """Nach einer Rueckfrage wieder ins Druck-Sheet.
+
+        Hat ein anderes Sheet die Rueckfrage verdraengt (z. B. die Frage beim
+        Schliessen), bleibt es vorn. Darum kommt "Abbrechen" erst verzoegert
+        hier an: dann ist das andere Sheet schon sichtbar.
+        """
+        if not self.isVisible():
+            return
+        if any(sheet.isVisible() for sheet in self.findChildren(Sheet)):
+            return
+        self._show_print_sheet()
+
+    def _show_print_message(self, kind: str, title: str, text: str, **kwargs) -> None:
+        """Meldung zum Druck; danach wieder ins Druck-Sheet, wenn es offen war."""
+        from_sheet = self._print_sheet_open()
+        sheet = show_message(self, kind, title, text, **kwargs)
+        if from_sheet:
+            sheet.closed.connect(
+                lambda: QTimer.singleShot(0, self._return_to_print_sheet)
+            )
+
+    def _check_loaded_tape(self, config, images, label, from_sheet: bool) -> None:
+        loaded = self._settings.loaded_label(config.address)
+        if config.backend == "network" and loaded and not self._fits_loaded(label, loaded):
+            ask_loaded_tape(
+                self,
+                title=tr("Band prüfen"),
+                text=tr(
+                    "Gewählt: {selected}\nLaut QLInux eingelegt: {loaded}\n\n"
+                    "Stimmt das nicht, bricht der Drucker mit einem Fehler ab."
+                ).format(
+                    selected=self._band_name(label.identifier),
+                    loaded=self._band_name(loaded),
+                ),
+                on_choice=partial(
+                    self._on_loaded_tape_choice, config, images, label, from_sheet
+                ),
+            )
+            return
+        if from_sheet:
+            self._return_to_print_sheet()
+        self._start_print(config, images, label)
+
+    def _band_name(self, identifier: str) -> str:
+        try:
+            return media.get_label(identifier).display_name
+        except KeyError:
+            return identifier
+
+    @staticmethod
+    def _fits_loaded(label: media.LabelSpec, loaded: str) -> bool:
+        try:
+            return label.prints_on(media.get_label(loaded))
+        except KeyError:
+            return False
+
+    def _remember_printed_tape(self, address: str, identifier: str) -> None:
+        """Nach sauberer SNMP-Antwort liegt das gedruckte Band ein.
+
+        Ein gemerktes Band, auf das der Auftrag schon passte (z. B. schwarz/rot
+        fuer einen schwarzen Druck), bleibt stehen.
+        """
+        loaded = self._settings.loaded_label(address)
+        if loaded and self._fits_loaded(media.get_label(identifier), loaded):
+            return
+        self._settings.set_loaded_label(address, identifier)
+        self._settings.sync()
+        self._sync_loaded_tape()
+
+    def _sync_loaded_tape(self) -> None:
+        """Gemerktes Band des gewaehlten Netzwerkdruckers im Panel zeigen."""
+        config = self._media_panel.printer_config()
+        loaded = (
+            self._settings.loaded_label(config.address)
+            if config.backend == "network" and config.address
+            else None
+        )
+        self._media_panel.set_loaded_tape(self._band_name(loaded) if loaded else "")
+        self._act_forget_tape.setEnabled(bool(loaded))
+
+    def _forget_loaded_tape(self) -> None:
+        config = self._media_panel.printer_config()
+        if config.backend != "network" or not config.address:
+            return
+        self._settings.forget_loaded_label(config.address)
+        self._settings.sync()
+        self._sync_loaded_tape()
+
+    def _on_loaded_tape_choice(
+        self, config, images, label, from_sheet: bool, choice: str
+    ) -> None:
+        if choice == "cancel":
+            if from_sheet:
+                QTimer.singleShot(0, self._return_to_print_sheet)
+            return
+        if from_sheet:
+            self._return_to_print_sheet()
+        if choice == "remember":
+            self._settings.set_loaded_label(config.address, label.identifier)
+            self._settings.sync()
+            self._sync_loaded_tape()
+        self._start_print(config, images, label)
+
+    def _start_print(self, config, images, label) -> None:
         copies = self._copies_spin.value()
         pages = len(images) * copies
         options = {
@@ -3642,6 +3894,7 @@ class MainWindow(QMainWindow):
             copies,
             config.model,
             config.address,
+            label.identifier,
         )
         self._print_button.set_busy(True)
         if len(images) > 1:
@@ -3656,7 +3909,19 @@ class MainWindow(QMainWindow):
         self.statusBar().showMessage(
             message.format(count=count, address=config.address)
         )
-        self._print_worker = PrintWorker(images, label, config, options)
+        snmp_answered = (
+            self._cached_snmp_answer(config.address)
+            if config.backend == "network"
+            else None
+        )
+        self._print_worker = PrintWorker(
+            images,
+            label,
+            config,
+            options,
+            snmp_answered=snmp_answered,
+            cancel=self._print_cancel,
+        )
         self._print_worker.succeeded.connect(self._on_print_succeeded)
         self._print_worker.failed.connect(self._on_print_failed)
         self._print_worker.finished.connect(self._on_print_finished)
@@ -3702,21 +3967,109 @@ class MainWindow(QMainWindow):
             finally:
                 self._history_suppress = False
 
+    def _poll_network_printer(self) -> None:
+        config = self._media_panel.printer_config()
+        if config.backend != "network" or not config.address:
+            self._net_poll = None
+            return
+        # Erst nach ``finished``: sonst verwirft dessen Slot den naechsten,
+        # noch laufenden Thread, und Qt bricht das Programm ab.
+        if self._net_poll_worker is not None:
+            return
+        worker = NetworkStatusWorker(config.address)
+        worker.polled.connect(self._on_network_polled)
+        worker.finished.connect(self._on_network_poll_finished)
+        worker.finished.connect(worker.deleteLater)
+        self._net_poll_worker = worker
+        worker.start()
+
+    def _on_network_poll_finished(self) -> None:
+        self._net_poll_worker = None
+
+    def _on_network_polled(self, result: dict) -> None:
+        address, status = result["address"], result["status"]
+        self._net_poll = {"address": address, "at": monotonic(), "status": status}
+        if status is None:
+            # Keine Antwort (auch ein verlorenes Paket): die letzte Meldung gilt.
+            return
+        config = self._media_panel.printer_config()
+        if config.backend != "network" or config.address != address:
+            # Antwort fuer einen eben abgewaehlten Drucker.
+            return
+        shown = self._net_shown
+        before = shown[1] if shown is not None and shown[0] == address else None
+        self._net_shown = (address, status)
+        if before is not None and before.texts == status.texts:
+            return
+        if status.texts:
+            message = (
+                tr("Drucker meldet: {errors}")
+                if status.fault
+                else tr("Hinweis vom Drucker: {texts}")
+            )
+            texts = ", ".join(status.texts)
+            self.statusBar().showMessage(message.format(errors=texts, texts=texts), 10000)
+        elif before is not None and before.fault:
+            self.statusBar().showMessage(tr("Drucker wieder bereit"), 5000)
+
+    def _fresh_poll(self, address: str) -> dict | None:
+        """Letzte Abfrage dieses Druckers, ``None`` wenn sie fehlt oder veraltet ist."""
+        poll = self._net_poll
+        if poll is None or poll["address"] != address:
+            return None
+        if monotonic() - poll["at"] > SNMP_CACHE_MAX_AGE:
+            return None
+        return poll
+
+    def _cached_snmp_answer(self, address: str) -> bool | None:
+        """Hat der Drucker zuletzt per SNMP geantwortet? ``None``: unbekannt."""
+        poll = self._fresh_poll(address)
+        return None if poll is None else poll["status"] is not None
+
     def _on_print_finished(self) -> None:
         self._print_worker = None
         self._print_button.set_busy(False)
 
     def _on_print_succeeded(self, status: dict) -> None:
         outcome = status.get("outcome") or "sent"
+        pending = self._pending_job
         self._record_print_job(outcome)
+        if status.get("snmp_ok") and pending is not None:
+            self._remember_printed_tape(pending[4], pending[5])
         self.statusBar().showMessage(
             tr("Druckauftrag gesendet (outcome={outcome}).").format(
                 outcome=outcome
             ),
             8000,
         )
+        warnings = status.get("warnings") or ()
+        if outcome == "unconfirmed":
+            self.statusBar().showMessage(
+                tr(
+                    "Drucker hat nach dem Senden nicht geantwortet. "
+                    "Etikett prüfen, bevor du neu druckst."
+                ),
+                10000,
+            )
+        elif warnings:
+            self.statusBar().showMessage(
+                tr("Hinweis vom Drucker: {texts}").format(texts=", ".join(warnings)),
+                10000,
+            )
+        # USB-Fehler bringen keine Texte mit: dort genuegt die rote Verlaufszeile.
+        if outcome == "error" and status.get("errors"):
+            errors = "\n".join(f"• {text}" for text in status["errors"])
+            self._show_print_message(
+                "warning",
+                tr("Drucker meldet einen Fehler"),
+                tr(
+                    "Der Drucker meldet:\n{errors}\n\n"
+                    "Band, Klappe und Papier prüfen und danach erneut drucken."
+                ).format(errors=errors),
+            )
         # USB meldet "printed", das Netzwerk "sent", sobald der Auftrag weg ist.
-        if outcome not in ("error", "failed"):
+        # Ohne Statusantwort bleibt das Sheet offen: erst pruefen, dann neu drucken.
+        if outcome not in ("error", "failed", "unconfirmed"):
             self._close_print_sheet()
 
     def _on_print_failed(self, message: str) -> None:
@@ -3725,12 +4078,14 @@ class MainWindow(QMainWindow):
         hint = access.failure_hint(message)
         if hint:
             message = f"{message}\n\n{hint}"
-        show_message(self, "critical", tr("Druckfehler"), message, selectable=bool(hint))
+        self._show_print_message(
+            "critical", tr("Druckfehler"), message, selectable=bool(hint)
+        )
 
     def _record_print_job(self, outcome: str) -> None:
         if self._pending_job is None:
             return
-        started, label, copies, model, address = self._pending_job
+        started, label, copies, model, address, _tape = self._pending_job
         self._pending_job = None
         job = PrintJob(started, label, copies, model, address, outcome)
         self._print_jobs.append(job)
@@ -5169,11 +5524,18 @@ class MainWindow(QMainWindow):
         return True
 
     # -------------------------------------------------------------- Close ---
-    def _disconnect_worker(self, worker: QThread | None, slots: list[tuple]) -> None:
+    def _disconnect_worker(
+        self,
+        worker: QThread | None,
+        slots: list[tuple],
+        wait_ms: int = NETWORK_CANCEL_WAIT_MS,
+    ) -> None:
         """Ergebnis-Signale loesen, warten, und einen haengenden Thread behalten.
 
         Ohne Qt-Parent ueberlebt der Thread das Fenster. Die Slots duerfen das
         geschlossene Fenster nicht mehr ansprechen; ``deleteLater`` bleibt.
+        ``wait_ms=0`` behaelt ihn sofort (auf ihn wartet dann nur das
+        Programmende, siehe :func:`_wait_for_orphans`).
         """
         if worker is None or not hasattr(worker, "isRunning"):
             return
@@ -5184,7 +5546,8 @@ class MainWindow(QMainWindow):
                 continue
         if not worker.isRunning():
             return
-        worker.wait(NETWORK_CANCEL_WAIT_MS)
+        if wait_ms:
+            worker.wait(wait_ms)
         if worker.isRunning():
             _orphan_workers.append(worker)
             worker.finished.connect(lambda worker=worker: _forget_orphan(worker))
@@ -5218,6 +5581,8 @@ class MainWindow(QMainWindow):
         # Laufende Suche abbrechen, damit kein Thread das geschlossene
         # Fenster anspricht.
         self._network_cancel.set()
+        self._print_cancel.set()
+        self._net_poll_timer.stop()
         if self._detect_worker is not None and self._detect_worker.isRunning():
             QApplication.restoreOverrideCursor()
         network = self._network_worker
@@ -5257,6 +5622,19 @@ class MainWindow(QMainWindow):
             else [],
         )
         self._print_worker = None
+        polling = self._net_poll_worker
+        # Die kurze Abfrage nicht abwarten - das tut erst das Programmende.
+        self._disconnect_worker(
+            polling,
+            [
+                (polling.polled, self._on_network_polled),
+                (polling.finished, self._on_network_poll_finished),
+            ]
+            if polling is not None
+            else [],
+            wait_ms=0,
+        )
+        self._net_poll_worker = None
         self._settings.save_geometry(self.saveGeometry())
         self._settings.connection = self._media_panel.connection()
         self._settings.address = self._media_panel.address()
@@ -5350,7 +5728,9 @@ def main(argv: list[str] | None = None) -> int:
     window.show()
     for path in files:
         window.open_path(path)
-    return app.exec()
+    code = app.exec()
+    _wait_for_orphans()
+    return code
 
 
 if __name__ == "__main__":  # pragma: no cover

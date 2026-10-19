@@ -347,10 +347,14 @@ class Sheet(QWidget):
 
 # ------------------------------------------------------------------ Helfer --
 def _open_sheet(parent: QWidget, content: QWidget, **kwargs) -> Sheet:
-    """Oeffnet ein Sheet; ein evtl. offenes wird vorher geschlossen."""
-    existing = parent.findChild(Sheet)
-    if existing is not None:
-        existing.close_sheet()
+    """Oeffnet ein Sheet; ein evtl. offenes wird vorher geschlossen.
+
+    Ein schon geschlossenes Sheet wartet evtl. noch auf ``deleteLater`` und
+    zaehlt nicht - sonst bliebe das offene neben dem neuen stehen.
+    """
+    for existing in parent.findChildren(Sheet):
+        if not existing._closing:
+            existing.close_sheet()
     sheet = Sheet(parent, content, **kwargs)
     sheet.show()
     return sheet
@@ -501,6 +505,92 @@ def ask_label_printer(
 
     box.finished.connect(_clicked)
     sheet.closed.connect(lambda: _finish("keep"))
+    return sheet
+
+
+def ask_loaded_tape(
+    parent: QWidget,
+    *,
+    title: str,
+    text: str,
+    on_choice: Callable[[str], None],
+) -> Sheet:
+    """Gewaehltes Band passt nicht zum eingelegten: drucken, merken oder abbrechen.
+
+    ``on_choice`` bekommt ``"print"``, ``"remember"`` (das gewaehlte Band wird
+    als eingelegt gemerkt und gedruckt) oder ``"cancel"``. Escape und das
+    Schliessen des Sheets zaehlen als Abbrechen.
+    """
+    box = QMessageBox()
+    box.setWindowFlags(Qt.WindowType.Widget)
+    box.setIcon(QMessageBox.Icon.Warning)
+    box.setText(text)
+    cancel = box.addButton(tr("Abbrechen"), QMessageBox.ButtonRole.RejectRole)
+    cancel.setIcon(icon("close"))
+    remember = box.addButton(
+        tr("Als eingelegt merken und drucken"), QMessageBox.ButtonRole.ActionRole
+    )
+    send = box.addButton(tr("Trotzdem drucken"), QMessageBox.ButtonRole.AcceptRole)
+    box.setDefaultButton(cancel)
+    sheet = _open_sheet(parent, box, title=title, sizing="hint")
+    chosen: dict[str, str | None] = {"value": None}
+
+    def _finish(choice: str) -> None:
+        if chosen["value"] is not None:
+            return
+        chosen["value"] = choice
+        sheet.close_sheet()
+        on_choice(choice)
+
+    def _clicked(_result: int) -> None:
+        button = box.clickedButton()
+        if button is send:
+            _finish("print")
+        elif button is remember:
+            _finish("remember")
+        else:
+            _finish("cancel")
+
+    box.finished.connect(_clicked)
+    sheet.closed.connect(lambda: _finish("cancel"))
+    return sheet
+
+
+def ask_print_anyway(
+    parent: QWidget,
+    *,
+    title: str,
+    text: str,
+    on_choice: Callable[[str], None],
+) -> Sheet:
+    """Drucker meldet eine Stoerung: trotzdem drucken oder abbrechen.
+
+    ``on_choice`` bekommt ``"print"`` oder ``"cancel"``. Escape und das
+    Schliessen des Sheets zaehlen als Abbrechen.
+    """
+    box = QMessageBox()
+    box.setWindowFlags(Qt.WindowType.Widget)
+    box.setIcon(QMessageBox.Icon.Warning)
+    box.setText(text)
+    cancel = box.addButton(tr("Abbrechen"), QMessageBox.ButtonRole.RejectRole)
+    cancel.setIcon(icon("close"))
+    send = box.addButton(tr("Trotzdem drucken"), QMessageBox.ButtonRole.AcceptRole)
+    box.setDefaultButton(cancel)
+    sheet = _open_sheet(parent, box, title=title, sizing="hint")
+    chosen: dict[str, str | None] = {"value": None}
+
+    def _finish(choice: str) -> None:
+        if chosen["value"] is not None:
+            return
+        chosen["value"] = choice
+        sheet.close_sheet()
+        on_choice(choice)
+
+    def _clicked(_result: int) -> None:
+        _finish("print" if box.clickedButton() is send else "cancel")
+
+    box.finished.connect(_clicked)
+    sheet.closed.connect(lambda: _finish("cancel"))
     return sheet
 
 
@@ -708,4 +798,6 @@ __all__ = [
     "ask_choice",
     "ask_save",
     "ask_label_printer",
+    "ask_loaded_tape",
+    "ask_print_anyway",
 ]

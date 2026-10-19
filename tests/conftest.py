@@ -30,11 +30,13 @@ os.environ["QT_QPA_PLATFORM"] = os.environ.get("QLINUX_TEST_PLATFORM", "offscree
 
 @pytest.fixture(autouse=True)
 def _quiet_network_discovery(monkeypatch):
-    """Der Start sucht Drucker. Tests sollen dafuer nicht ins Netz funken.
+    """Der Start sucht Drucker, das aktive Fenster fragt den Netzwerkdrucker
+    ab. Tests sollen dafuer nicht ins Netz funken.
 
-    Ein Test, der Treffer braucht, setzt ``discover_network_printers`` danach
-    selbst. Laeuft am Ende noch eine Suche, wird sie abgebrochen, damit kein
-    Thread ein schon verworfenes Fenster anspricht.
+    Ein Test, der Treffer braucht, setzt ``discover_network_printers`` bzw.
+    ``network_printer_status`` danach selbst. Laeuft am Ende noch eine Suche
+    oder Abfrage, wird darauf gewartet, damit kein Thread ein schon
+    verworfenes Fenster anspricht.
     """
     monkeypatch.setattr(
         "ql_editor.app.discover_network_printers", lambda *args, **kwargs: []
@@ -42,6 +44,7 @@ def _quiet_network_discovery(monkeypatch):
     monkeypatch.setattr(
         "ql_editor.media_panel.discover_network_printers", lambda *args, **kwargs: []
     )
+    monkeypatch.setattr("ql_editor.app.network_printer_status", lambda *args, **kwargs: None)
     yield
     widgets = sys.modules.get("PySide6.QtWidgets")
     app = widgets.QApplication.instance() if widgets is not None else None
@@ -70,17 +73,17 @@ def _release_qt_windows(app) -> None:
         if not shiboken6.isValid(widget) or not isinstance(widget, MainWindow):
             continue
         widget._network_cancel.set()
-        worker = widget._network_worker
-        if worker is None or not shiboken6.isValid(worker):
-            continue
-        try:
-            running = worker.isRunning()
-        except RuntimeError:
-            # close() trennt den Slot, der die Referenz leert; deleteLater
-            # kann die Huelle danach schon abgebaut haben.
-            continue
-        if running:
-            worker.wait(2000)
+        for worker in (widget._network_worker, widget._net_poll_worker):
+            if worker is None or not shiboken6.isValid(worker):
+                continue
+            try:
+                running = worker.isRunning()
+            except RuntimeError:
+                # close() trennt den Slot, der die Referenz leert; deleteLater
+                # kann die Huelle danach schon abgebaut haben.
+                continue
+            if running:
+                worker.wait(2000)
 
     for widget in list(app.topLevelWidgets()):
         if not shiboken6.isValid(widget) or widget.parent() is not None:

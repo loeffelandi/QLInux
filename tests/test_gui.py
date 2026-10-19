@@ -382,6 +382,54 @@ def test_network_search_shows_its_state(qapp):
     assert panel._net_hint.text() == "Kein Drucker gefunden."
 
 
+def test_network_hint_names_the_remembered_tape(qapp):
+    """Ohne andere Meldung steht dort das gemerkte Band - der Kasten waechst nicht."""
+    from ql_editor.media_panel import MediaPanel
+
+    panel = MediaPanel()
+    forgotten = []
+    panel.forget_loaded_requested.connect(lambda: forgotten.append(True))
+    panel.set_network_host("192.168.178.62")
+    height = panel._connection_stack.sizeHint().height()
+
+    panel.set_loaded_tape("62 mm endlos (schwarz/rot)")
+    assert panel._loaded_label.full_text() == "Eingelegt: 62 mm endlos (schwarz/rot)"
+    assert not panel._loaded_label.isHidden() and panel._net_hint.isHidden()
+    assert not panel._forget_button.isHidden()
+    assert panel._connection_stack.sizeHint().height() == height
+    panel._forget_button.click()
+    assert forgotten == [True]
+
+    panel.set_network_searching(True)
+    assert panel._net_hint.text() == "Suche läuft …"
+    assert panel._loaded_label.isHidden() and panel._forget_button.isHidden()
+    panel.set_network_searching(False)
+    # Drucker in einem anderen Netz: die Suche findet ihn nicht, das Band bleibt.
+    panel.remember_network_printers([])
+    assert not panel._loaded_label.isHidden() and panel._net_hint.isHidden()
+    panel.set_loaded_tape("")
+    assert panel._net_hint.text() == "Kein Drucker gefunden."
+    assert panel._loaded_label.isHidden() and panel._forget_button.isHidden()
+
+
+def test_elided_label_names_the_full_text_only_when_cut(qapp):
+    """Der Tooltip nur bei „…“, der Screenreader liest immer den ganzen Text."""
+    from ql_editor.media_panel import _ElidedLabel
+
+    label = _ElidedLabel()
+    label.show()
+    label.resize(400, 20)
+    label.set_full_text("Eingelegt: 62")
+    assert label.text() == "Eingelegt: 62"
+    assert label.toolTip() == ""
+    assert label.accessibleName() == "Eingelegt: 62"
+    label.resize(30, 20)
+    assert label.text().endswith("…")
+    assert label.toolTip() == "Eingelegt: 62"
+    assert label.accessibleName() == "Eingelegt: 62"
+    label.close()
+
+
 def test_media_panel_restores_a_network_address_from_settings(qapp):
     from ql_editor.media_panel import CONNECTION_NETWORK, MediaPanel
 
@@ -3147,6 +3195,7 @@ def test_no_menu_bar_but_hamburger_menu(qapp):
         win._act_print,
         win._act_print_preview,
         win._act_print_history,
+        win._act_forget_tape,
         win._act_zoom_out,
         win._act_panel_left,
         win._act_connect_csv,
@@ -5047,7 +5096,7 @@ def test_print_options_reach_the_print_job(qapp, tmp_path, monkeypatch):
         failed = Signal(str)
         finished = Signal()
 
-        def __init__(self, image, label, config, options):
+        def __init__(self, image, label, config, options, **_kwargs):
             super().__init__()
             captured.update(options)
 
@@ -5080,7 +5129,7 @@ def test_second_print_after_first_finished(qapp, tmp_path, monkeypatch):
         succeeded = Signal(dict)
         failed = Signal(str)
 
-        def __init__(self, image, label, config, options):
+        def __init__(self, image, label, config, options, **_kwargs):
             super().__init__()
             created.append(self)
 
@@ -7243,7 +7292,16 @@ def test_content_beyond_a_margin_is_not_printed(qapp, tmp_path):
     qapp.processEvents()
 
 
-def _print_with_outcome(qapp, tmp_path, monkeypatch, outcome: str | None, error: str | None = None):
+def _print_with_outcome(
+    qapp,
+    tmp_path,
+    monkeypatch,
+    outcome: str | None,
+    error: str | None = None,
+    *,
+    open_sheet: bool = False,
+    details: dict | None = None,
+):
     from PySide6.QtCore import QObject, Signal
 
     from ql_editor import app as app_module
@@ -7253,19 +7311,22 @@ def _print_with_outcome(qapp, tmp_path, monkeypatch, outcome: str | None, error:
         failed = Signal(str)
         finished = Signal()
 
-        def __init__(self, image, label, config, options):
+        def __init__(self, image, label, config, options, **_kwargs):
             super().__init__()
 
         def start(self) -> None:
             if error is not None:
                 self.failed.emit(error)
             else:
-                self.succeeded.emit({"outcome": outcome})
+                self.succeeded.emit({"outcome": outcome, **(details or {})})
             self.finished.emit()
 
     monkeypatch.setattr(app_module, "PrintWorker", FakeWorker)
     win = _temp_window(qapp, tmp_path)
     win._media_panel.set_network_host("192.168.178.62")
+    if open_sheet:
+        win._show_print_sheet()
+        qapp.processEvents()
     win._on_print()
     qapp.processEvents()
     return win
@@ -7281,12 +7342,431 @@ def test_network_send_is_reported_as_sent_not_as_error(qapp, tmp_path, monkeypat
     qapp.processEvents()
 
 
+def test_silence_after_a_network_job_is_not_an_error(qapp, tmp_path, monkeypatch):
+    """Ohne Statusantwort ist offen, ob gedruckt wurde: keine Fehlermeldung,
+    das Sheet bleibt zum Pruefen offen."""
+    from PySide6.QtWidgets import QMessageBox
+
+    win = _print_with_outcome(qapp, tmp_path, monkeypatch, "unconfirmed", open_sheet=True)
+    status = win._history_table.item(0, 4)
+    assert status.text() == "Gesendet, keine Statusantwort"
+    assert status.foreground().color().name() != "#b00020"
+    assert not win._print_jobs[-1].is_error
+    assert win._print_sheet is not None and win._print_sheet.isVisible()
+    assert not win.findChildren(QMessageBox)
+    assert win.statusBar().currentMessage().startswith(
+        "Drucker hat nach dem Senden nicht geantwortet."
+    )
+    win.close()
+    qapp.processEvents()
+
+
+@pytest.mark.parametrize(
+    ("details", "explained"), [({}, False), ({"errors": ["Klappe offen"]}, True)]
+)
+def test_printer_error_is_explained_only_with_texts(
+    qapp, tmp_path, monkeypatch, details, explained
+):
+    """USB meldet einen Fehler ohne Texte: rote Zeile, das Sheet bleibt offen.
+    Per SNMP nennt der Netzwerkdrucker die Stoerung, die ein Dialog erklaert."""
+    from PySide6.QtWidgets import QMessageBox
+
+    win = _print_with_outcome(
+        qapp, tmp_path, monkeypatch, "error", open_sheet=True, details=details
+    )
+    assert win._history_table.item(0, 4).foreground().color().name() == "#b00020"
+    boxes = [box for box in win.findChildren(QMessageBox) if box.isVisible()]
+    if explained:
+        assert len(boxes) == 1
+        assert "• Klappe offen" in boxes[0].text()
+        assert not win._print_sheet_open()
+        boxes[0].button(QMessageBox.StandardButton.Ok).click()
+        qapp.processEvents()
+    else:
+        assert not boxes
+    assert win._print_sheet_open()
+    win.close()
+    qapp.processEvents()
+
+
+def _fake_print_worker(monkeypatch, status: dict) -> list:
+    """Ersetzt den Druck: jeder Auftrag liefert ``status``, die Liste zaehlt mit."""
+    from PySide6.QtCore import QObject, Signal
+
+    from ql_editor import app as app_module
+
+    starts = []
+
+    class FakeWorker(QObject):
+        succeeded = Signal(dict)
+        failed = Signal(str)
+        finished = Signal()
+
+        def __init__(self, image, label, config, options, **_kwargs):
+            super().__init__()
+            self._label = label
+
+        def start(self) -> None:
+            starts.append(self._label.identifier)
+            self.succeeded.emit(dict(status))
+            self.finished.emit()
+
+    monkeypatch.setattr(app_module, "PrintWorker", FakeWorker)
+    return starts
+
+
+def _network_window_with_tape(qapp, tmp_path, *, loaded: str, selected: str):
+    win = _temp_window(qapp, tmp_path)
+    win._media_panel.set_network_host("192.0.2.62")
+    address = win._media_panel.printer_config().address
+    win._settings.set_loaded_label(address, loaded)
+    assert win._media_panel.select_label(selected)
+    qapp.processEvents()
+    return win, address
+
+
+def _visible_message_box(win):
+    from PySide6.QtWidgets import QMessageBox
+
+    boxes = [box for box in win.findChildren(QMessageBox) if box.isVisible()]
+    return boxes[0] if boxes else None
+
+
+@pytest.mark.parametrize(
+    ("outcome", "details", "remembered"),
+    [
+        ("sent", {"snmp_ok": True}, True),
+        ("sent", {}, False),
+        ("unconfirmed", {}, False),
+        ("error", {"errors": ["Falsches Band"]}, False),
+    ],
+)
+def test_only_a_confirmed_network_print_remembers_the_tape(
+    qapp, tmp_path, monkeypatch, outcome, details, remembered
+):
+    """Nur mit sauberer SNMP-Antwort steht fest, welches Band eingelegt ist."""
+    win = _print_with_outcome(qapp, tmp_path, monkeypatch, outcome, details=details)
+    address = win._media_panel.printer_config().address
+    expected = win._media_panel.label_id() if remembered else None
+    assert win._settings.loaded_label(address) == expected
+    win.close()
+    qapp.processEvents()
+
+
+@pytest.mark.parametrize(
+    ("button", "printed", "remembered"),
+    [
+        ("Abbrechen", [], "62"),
+        ("Trotzdem drucken", ["50"], "62"),
+        ("Als eingelegt merken und drucken", ["50"], "50"),
+    ],
+)
+def test_other_tape_than_the_remembered_one_asks_first(
+    qapp, tmp_path, monkeypatch, button, printed, remembered
+):
+    starts = _fake_print_worker(monkeypatch, {"outcome": "sent"})
+    win, address = _network_window_with_tape(qapp, tmp_path, loaded="62", selected="50")
+    win._on_print()
+    qapp.processEvents()
+    assert starts == []
+    box = _visible_message_box(win)
+    assert "62 mm endlos" in box.text() and "50 mm endlos" in box.text()
+    next(choice for choice in box.buttons() if choice.text() == button).click()
+    qapp.processEvents()
+    assert starts == printed
+    assert win._settings.loaded_label(address) == remembered
+    win.close()
+    qapp.processEvents()
+
+
+def test_print_anyway_corrects_the_remembered_tape_once_confirmed(qapp, tmp_path, monkeypatch):
+    _fake_print_worker(monkeypatch, {"outcome": "sent", "snmp_ok": True})
+    win, address = _network_window_with_tape(qapp, tmp_path, loaded="62", selected="50")
+    win._on_print()
+    qapp.processEvents()
+    box = _visible_message_box(win)
+    next(choice for choice in box.buttons() if choice.text() == "Trotzdem drucken").click()
+    qapp.processEvents()
+    assert win._settings.loaded_label(address) == "50"
+    win.close()
+    qapp.processEvents()
+
+
+@pytest.mark.parametrize("via", ["panel", "palette"])
+def test_remembered_tape_shows_in_the_panel_and_can_be_forgotten(
+    qapp, tmp_path, monkeypatch, via
+):
+    from ql_editor import app as app_module
+    from ql_editor import discovery, media
+
+    # Nur ein Drucker mit SNMP merkt sich ein Band - und den findet die Suche.
+    found = [discovery.NetworkPrinter(host="192.168.178.62", model_id="QL-820NWB")]
+    monkeypatch.setattr(app_module, "discover_network_printers", lambda *a, **k: found)
+    win = _print_with_outcome(qapp, tmp_path, monkeypatch, "sent", details={"snmp_ok": True})
+    _wait_startup_discovery(win, qapp)
+    panel = win._media_panel
+    address = panel.printer_config().address
+    band = media.get_label(panel.label_id()).display_name
+    assert panel._loaded_label.full_text() == f"Eingelegt: {band}"
+    assert win._act_forget_tape.isEnabled()
+
+    if via == "panel":
+        panel._forget_button.click()
+    else:
+        printing = next(e for e in win._palette_entries() if e.title == "Drucken")
+        assert win._act_forget_tape in [child.action for child in printing.children]
+        win._act_forget_tape.trigger()
+    assert win._settings.loaded_label(address) is None
+    assert panel._loaded_label.isHidden()
+    assert not win._act_forget_tape.isEnabled()
+    win.close()
+    qapp.processEvents()
+
+
+def test_long_tape_name_or_a_search_does_not_move_the_boxes_below(qapp, tmp_path, monkeypatch):
+    """Der Bandname bleibt einzeilig - umgebrochen haengt die Hoehe an der Schrift."""
+    from PySide6.QtCore import QPoint
+
+    from ql_editor import app as app_module
+    from ql_editor import discovery
+
+    found = [discovery.NetworkPrinter(host="192.168.178.62", model_id="QL-820NWB")]
+    monkeypatch.setattr(app_module, "discover_network_printers", lambda *a, **k: found)
+    win = _temp_window(qapp, tmp_path)
+    _wait_startup_discovery(win, qapp)
+    panel = win._media_panel
+    panel.set_network_host("192.168.178.62")
+
+    def band_top() -> int:
+        for _ in range(5):
+            qapp.processEvents()
+        return panel._band_combo.mapTo(win, QPoint(0, 0)).y()
+
+    top = band_top()
+    win._settings.set_loaded_label(panel.printer_config().address, "62red")
+    win._sync_loaded_tape()
+    full = "Eingelegt: 62 mm endlos (schwarz/rot)"
+    assert panel._loaded_label.full_text() == full
+    assert band_top() == top
+    panel._loaded_label.resize(60, panel._loaded_label.height())
+    assert panel._loaded_label.text().endswith("…")
+    assert panel._loaded_label.toolTip() == full
+    panel.set_network_searching(True)
+    assert band_top() == top
+    win.close()
+    qapp.processEvents()
+
+
+def test_startup_shows_the_tape_remembered_for_the_printer(qapp, tmp_path):
+    from PySide6.QtCore import QSettings
+
+    from ql_editor.app import MainWindow
+    from ql_editor.settings import AppSettings
+
+    settings = AppSettings(
+        QSettings(str(tmp_path / "settings.ini"), QSettings.Format.IniFormat)
+    )
+    settings.connection = "network"
+    settings.address = "tcp://192.0.2.20:9100"
+    settings.set_loaded_label("tcp://192.0.2.20:9100", "62red")
+    win = MainWindow(settings=settings, discover=False)
+    assert win._media_panel._loaded_label.full_text() == "Eingelegt: 62 mm endlos (schwarz/rot)"
+    assert win._act_forget_tape.isEnabled()
+    win.close()
+    qapp.processEvents()
+
+
+def test_black_job_on_a_remembered_red_tape_prints_without_asking(qapp, tmp_path, monkeypatch):
+    """Schwarz passt auf das schwarz/rote Band - und das bleibt gemerkt."""
+    starts = _fake_print_worker(monkeypatch, {"outcome": "sent", "snmp_ok": True})
+    win, address = _network_window_with_tape(qapp, tmp_path, loaded="62red", selected="62")
+    win._on_print()
+    qapp.processEvents()
+    assert _visible_message_box(win) is None
+    assert starts == ["62"]
+    assert win._settings.loaded_label(address) == "62red"
+    win.close()
+    qapp.processEvents()
+
+
+def test_red_job_on_a_remembered_black_tape_asks_first(qapp, tmp_path, monkeypatch):
+    starts = _fake_print_worker(monkeypatch, {"outcome": "sent"})
+    win, _address = _network_window_with_tape(qapp, tmp_path, loaded="62", selected="62red")
+    win._on_print()
+    qapp.processEvents()
+    assert _visible_message_box(win) is not None
+    assert starts == []
+    win.close()
+    qapp.processEvents()
+
+
+def _report_printer(win, *, fault: bool, texts: tuple[str, ...]) -> str:
+    from ql_editor.discovery import NetworkStatus
+
+    address = win._media_panel.printer_config().address
+    win._on_network_polled({"address": address, "status": NetworkStatus(fault=fault, texts=texts)})
+    return address
+
+
+@pytest.mark.parametrize(("button", "printed"), [("Abbrechen", 0), ("Trotzdem drucken", 1)])
+def test_known_fault_asks_before_sending(qapp, tmp_path, monkeypatch, button, printed):
+    """Klappe offen laut letzter Abfrage: erst fragen, sonst ist der Auftrag weg."""
+    starts = _fake_print_worker(monkeypatch, {"outcome": "sent"})
+    win = _temp_window(qapp, tmp_path)
+    win._media_panel.set_network_host("192.0.2.62")
+    _report_printer(win, fault=True, texts=("Klappe offen",))
+    win._on_print()
+    qapp.processEvents()
+    assert starts == []
+    box = _visible_message_box(win)
+    assert box.text().startswith("Der Drucker meldet: Klappe offen")
+    assert box.defaultButton().text() == "Abbrechen"
+    next(choice for choice in box.buttons() if choice.text() == button).click()
+    qapp.processEvents()
+    assert len(starts) == printed
+    win.close()
+    qapp.processEvents()
+
+
+def test_print_anyway_on_a_fault_still_checks_the_tape(qapp, tmp_path, monkeypatch):
+    starts = _fake_print_worker(monkeypatch, {"outcome": "sent"})
+    win, _address = _network_window_with_tape(qapp, tmp_path, loaded="62", selected="50")
+    _report_printer(win, fault=True, texts=("Störung, z. B. falsches Band",))
+    win._on_print()
+    qapp.processEvents()
+    next(c for c in _visible_message_box(win).buttons() if c.text() == "Trotzdem drucken").click()
+    qapp.processEvents()
+    assert starts == []
+    assert "Laut QLInux eingelegt" in _visible_message_box(win).text()
+    win.close()
+    qapp.processEvents()
+
+
+@pytest.mark.parametrize(
+    ("prompt", "button", "outcome", "sheet_open"),
+    [
+        ("fault", "Abbrechen", "sent", True),
+        ("fault", "Trotzdem drucken", "unconfirmed", True),
+        ("fault", "Trotzdem drucken", "sent", False),
+        ("tape", "Abbrechen", "sent", True),
+        ("tape", "Trotzdem drucken", "unconfirmed", True),
+    ],
+)
+def test_print_sheet_comes_back_after_a_prompt(
+    qapp, tmp_path, monkeypatch, prompt, button, outcome, sheet_open
+):
+    """Die Rueckfrage verdraengt das Druck-Sheet, danach ist man wieder dort.
+    Geht der Auftrag sauber raus, schliesst es wie sonst."""
+    starts = _fake_print_worker(monkeypatch, {"outcome": outcome})
+    selected = "62" if prompt == "fault" else "50"
+    win, _address = _network_window_with_tape(qapp, tmp_path, loaded="62", selected=selected)
+    win._show_print_sheet()
+    qapp.processEvents()
+    if prompt == "fault":
+        _report_printer(win, fault=True, texts=("Klappe offen",))
+    win._on_print()
+    qapp.processEvents()
+    assert not win._print_sheet_open()
+    next(c for c in _visible_message_box(win).buttons() if c.text() == button).click()
+    qapp.processEvents()
+    assert win._print_sheet_open() is sheet_open
+    assert len(starts) == (0 if button == "Abbrechen" else 1)
+    win.close()
+    qapp.processEvents()
+
+
+def test_a_prompt_pushed_aside_by_another_sheet_keeps_that_sheet_in_front(
+    qapp, tmp_path, monkeypatch
+):
+    """Verdraengt z. B. die Frage beim Schliessen die Rueckfrage, bleibt sie vorn.
+
+    Das geschlossene Druck-Sheet wartet hier noch auf ``deleteLater`` - es darf
+    das neue Sheet nicht davon abhalten, die Rueckfrage zu schliessen.
+    """
+    from ql_editor.sheet import Sheet, show_message
+
+    starts = _fake_print_worker(monkeypatch, {"outcome": "sent"})
+    win = _temp_window(qapp, tmp_path)
+    win._media_panel.set_network_host("192.0.2.62")
+    win._show_print_sheet()
+    qapp.processEvents()
+    _report_printer(win, fault=True, texts=("Klappe offen",))
+    win._on_print()
+    qapp.processEvents()
+    assert _visible_message_box(win).text().startswith("Der Drucker meldet")
+    returns = []
+    back = win._return_to_print_sheet
+    monkeypatch.setattr(win, "_return_to_print_sheet", lambda: returns.append(1) or back())
+    other = show_message(win, "info", "Andere Frage", "Text")
+    qapp.processEvents()
+    assert returns == [1]
+    assert [sheet for sheet in win.findChildren(Sheet) if sheet.isVisible()] == [other]
+    assert _visible_message_box(win).text() == "Text"
+    assert not win._print_sheet_open()
+    assert starts == []
+    win.close()
+    qapp.processEvents()
+
+
+def test_notes_or_an_old_fault_do_not_hold_the_job(qapp, tmp_path, monkeypatch):
+    """Ein Hinweis (Papier wird knapp) oder eine veraltete Abfrage fragt nicht."""
+    from ql_editor import app as app_module
+
+    starts = _fake_print_worker(monkeypatch, {"outcome": "sent"})
+    win = _temp_window(qapp, tmp_path)
+    win._media_panel.set_network_host("192.0.2.62")
+    _report_printer(win, fault=False, texts=("Papier wird knapp",))
+    win._on_print()
+    qapp.processEvents()
+    assert len(starts) == 1
+    _report_printer(win, fault=True, texts=("Klappe offen",))
+    win._net_poll["at"] -= app_module.SNMP_CACHE_MAX_AGE + 1
+    win._on_print()
+    qapp.processEvents()
+    assert _visible_message_box(win) is None
+    assert len(starts) == 2
+    win.close()
+    qapp.processEvents()
+
+
 def test_printer_error_is_marked_red_in_status_and_history(qapp, tmp_path, monkeypatch):
     win = _print_with_outcome(qapp, tmp_path, monkeypatch, None, error="Drucker nicht erreichbar")
     status = win._history_table.item(0, 4)
     assert status.foreground().color().name() == "#b00020"
     assert win._print_jobs[-1].is_error
     assert win._print_jobs[-1].status_text() == "Nicht gesendet"
+    win.close()
+    qapp.processEvents()
+
+
+@pytest.mark.parametrize("cause", ["failed", "merge"])
+def test_print_error_message_returns_to_the_print_sheet(qapp, tmp_path, monkeypatch, cause):
+    """Fehlermeldung zum Druck, dann OK: man ist wieder im Druck-Sheet."""
+    from PySide6.QtWidgets import QMessageBox
+
+    from ql_editor import merge as merge_engine
+
+    if cause == "failed":
+        win = _print_with_outcome(
+            qapp, tmp_path, monkeypatch, None, error="Drucker nicht erreichbar", open_sheet=True
+        )
+    else:
+        win = _temp_window(qapp, tmp_path)
+        win._media_panel.set_network_host("192.168.178.62")
+        win._show_print_sheet()
+        qapp.processEvents()
+
+        def too_many():
+            raise merge_engine.MergeError("Zu viele Etiketten")
+
+        monkeypatch.setattr(win, "_render_print_images", too_many)
+        win._on_print()
+        qapp.processEvents()
+    box = _visible_message_box(win)
+    assert box is not None and not win._print_sheet_open()
+    box.button(QMessageBox.StandardButton.Ok).click()
+    qapp.processEvents()
+    assert win._print_sheet_open()
     win.close()
     qapp.processEvents()
 
@@ -7301,7 +7781,7 @@ def test_print_icon_spins_until_the_job_is_done_then_closes(qapp, tmp_path, monk
         failed = Signal(str)
         finished = Signal()
 
-        def __init__(self, image, label, config, options):
+        def __init__(self, image, label, config, options, **_kwargs):
             super().__init__()
 
         def start(self) -> None:
@@ -7359,6 +7839,219 @@ def test_language_switch_keeps_session_print_history(qapp, tmp_path, monkeypatch
 
     new.close()
     qapp.processEvents()
+
+
+def test_network_status_worker_polls_once(monkeypatch, qapp):
+    """Eine Abfrage, aber mit Wiederholung: ein verlorenes Paket ist kein "SNMP aus"."""
+    from ql_editor import app
+    from ql_editor.discovery import NETWORK_PROBE_ATTEMPTS, NetworkStatus
+
+    asked = []
+    status = NetworkStatus(fault=True, texts=("Klappe offen",))
+
+    def query(address, **kwargs):
+        asked.append((address, kwargs.get("attempts")))
+        return status
+
+    monkeypatch.setattr(app, "network_printer_status", query)
+    results = []
+    worker = app.NetworkStatusWorker("tcp://192.0.2.62:9100")
+    worker.polled.connect(results.append)
+    worker.run()
+    assert asked == [("tcp://192.0.2.62:9100", NETWORK_PROBE_ATTEMPTS)]
+    assert results == [{"address": "tcp://192.0.2.62:9100", "status": status}]
+
+
+def test_printer_poll_shows_faults_and_notes_in_the_status_bar(qapp, tmp_path):
+    from ql_editor import app as app_module
+    from ql_editor.discovery import NetworkStatus
+
+    win = _temp_window(qapp, tmp_path)
+    win._media_panel.set_network_host("192.0.2.62")
+    address = win._media_panel.printer_config().address
+    win._on_network_polled(
+        {"address": address, "status": NetworkStatus(fault=True, texts=("Klappe offen",))}
+    )
+    assert win.statusBar().currentMessage() == "Drucker meldet: Klappe offen"
+    assert win._cached_snmp_answer(address) is True
+    win._on_network_polled(
+        {"address": address, "status": NetworkStatus(fault=False, texts=("Papier wird knapp",))}
+    )
+    assert win.statusBar().currentMessage() == "Hinweis vom Drucker: Papier wird knapp"
+    win._on_network_polled({"address": address, "status": None})
+    assert win._cached_snmp_answer(address) is False
+    assert win._cached_snmp_answer("tcp://192.0.2.99:9100") is None
+    win._net_poll["at"] -= app_module.SNMP_CACHE_MAX_AGE + 1
+    assert win._cached_snmp_answer(address) is None
+    win.close()
+    qapp.processEvents()
+
+
+def test_printer_poll_reports_a_cleared_fault_once(qapp, tmp_path):
+    """Stille aendert nichts, ein anderer Drucker beginnt von vorn. Ein eben
+    abgewaehlter meldet nichts mehr."""
+    from ql_editor.discovery import NetworkStatus
+
+    win = _temp_window(qapp, tmp_path)
+    panel = win._media_panel
+    panel.set_network_host("192.0.2.99")
+    other = panel.printer_config().address
+    panel.set_network_host("192.0.2.62")
+    address = panel.printer_config().address
+    bar = win.statusBar()
+
+    def poll(status, at=address):
+        bar.clearMessage()
+        win._on_network_polled({"address": at, "status": status})
+        return bar.currentMessage()
+
+    cover = NetworkStatus(fault=True, texts=("Klappe offen",))
+    fine = NetworkStatus(fault=False)
+    assert poll(cover) == "Drucker meldet: Klappe offen"
+    assert poll(None) == ""
+    assert poll(cover) == ""
+    assert poll(fine) == "Drucker wieder bereit"
+    assert poll(fine) == ""
+    assert poll(cover, other) == ""
+    panel.set_network_host("192.0.2.99")
+    assert poll(cover, other) == "Drucker meldet: Klappe offen"
+    panel.set_network_host("192.0.2.62")
+    assert poll(cover) == "Drucker meldet: Klappe offen"
+    win.close()
+    qapp.processEvents()
+
+
+def test_printer_poll_runs_only_while_the_window_is_active(qapp, tmp_path, monkeypatch):
+    from PySide6.QtCore import QObject, Signal
+    from PySide6.QtWidgets import QWidget
+
+    from ql_editor import app as app_module
+
+    polls = []
+
+    class InstantPoll(QObject):
+        polled = Signal(object)
+        finished = Signal()
+
+        def __init__(self, address):
+            super().__init__()
+            polls.append(address)
+
+        def start(self) -> None:
+            self.finished.emit()
+
+    monkeypatch.setattr(app_module, "NetworkStatusWorker", InstantPoll)
+    win = _temp_window(qapp, tmp_path)
+    win._media_panel.set_network_host("192.0.2.62")
+    assert win.isActiveWindow()
+    assert win._net_poll_timer.isActive()
+
+    other = QWidget()
+    other.show()
+    other.activateWindow()
+    qapp.processEvents()
+    assert not win.isActiveWindow()
+    assert not win._net_poll_timer.isActive()
+    assert polls == []
+
+    win.activateWindow()
+    qapp.processEvents()
+    assert win._net_poll_timer.isActive()
+    assert polls == ["tcp://192.0.2.62:9100"]
+    other.close()
+    win.close()
+    qapp.processEvents()
+
+
+def test_printer_poll_waits_until_the_last_one_has_finished(qapp, tmp_path):
+    """Thread fertig, sein ``finished`` aber noch nicht da: ein neuer Poll wuerde
+    von diesem ``finished`` verworfen, waehrend er laeuft - Qt bricht dann ab."""
+    win = _temp_window(qapp, tmp_path)
+    win._net_poll_timer.stop()
+    win._media_panel.set_network_host("192.0.2.62")
+    win._poll_network_printer()
+    first = win._net_poll_worker
+    assert first is not None
+    first.wait(2000)
+    win._poll_network_printer()
+    assert win._net_poll_worker is first
+    for _ in range(3):
+        qapp.processEvents()
+    assert win._net_poll_worker is None
+    win._poll_network_printer()
+    assert win._net_poll_worker is not None
+    win._net_poll_worker.wait(2000)
+    win.close()
+    qapp.processEvents()
+
+
+def test_closing_stops_the_printer_poll_and_cancels_the_check(qapp, tmp_path, monkeypatch):
+    """Ein Thread, der das Fenster ueberlebt, bricht beim Programmende Qt ab.
+    Auf die kurze Abfrage wartet das Schliessen nicht, erst das Programmende."""
+    from PySide6.QtCore import QObject, Signal
+
+    from ql_editor import app as app_module
+
+    waited = []
+
+    class RunningPoll(QObject):
+        polled = Signal(object)
+        finished = Signal()
+
+        def __init__(self, address):
+            super().__init__()
+
+        def start(self) -> None:
+            pass
+
+        def isRunning(self) -> bool:  # noqa: N802
+            return True
+
+        def wait(self, ms) -> bool:
+            waited.append(ms)
+            return False
+
+    monkeypatch.setattr(app_module, "NetworkStatusWorker", RunningPoll)
+    win = _temp_window(qapp, tmp_path)
+    win._media_panel.set_network_host("192.0.2.62")
+    win._poll_network_printer()
+    worker = win._net_poll_worker
+    assert isinstance(worker, RunningPoll)
+
+    win.close()
+    qapp.processEvents()
+    assert not win._net_poll_timer.isActive()
+    assert win._print_cancel.is_set()
+    assert win._net_poll_worker is None
+    assert waited == []
+    worker.polled.emit({"address": "tcp://192.0.2.62:9100", "status": None})
+    assert win._net_poll is None
+    assert worker in app_module._orphan_workers
+    worker.finished.emit()
+    assert worker not in app_module._orphan_workers
+
+
+def test_program_end_waits_for_orphaned_workers(monkeypatch):
+    """Eine Frist fuer alle; ein schon abgebauter Thread stoert nicht."""
+    from ql_editor import app as app_module
+
+    clock = [100.0]
+    waited = []
+
+    class Orphan:
+        def wait(self, ms):
+            waited.append(ms)
+            clock[0] += 1.0
+            return True
+
+    class Gone:
+        def wait(self, ms):
+            raise RuntimeError("Internal C++ object already deleted.")
+
+    monkeypatch.setattr(app_module, "monotonic", lambda: clock[0])
+    monkeypatch.setattr(app_module, "_orphan_workers", [Orphan(), Gone(), Orphan()])
+    app_module._wait_for_orphans(1500)
+    assert waited == [1500, 500]
 
 
 def test_pinch_zooms_and_pans_canvas(qapp):

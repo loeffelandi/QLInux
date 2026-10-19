@@ -48,7 +48,11 @@ The model list even appears in the app: *menu → About QLInux*.
 - **Printer**: network or USB. Printers are found with mDNS and SNMP, USB
   devices show up in the list, and the last one is selected again when it
   is still there. *Detect label* reads the tape over USB. The network port
-  has no read-back.
+  has no read-back, but QLInux asks the printer over SNMP. It warns before
+  sending to a printer with a fault (open cover, wrong tape) and marks a job
+  red in the session history if the printer reports one after it. After a
+  clean job it remembers the loaded tape and asks before printing a
+  different one.
 - **Preview** in real print dots, plus a 1:1 overlay on the canvas
   (Ctrl+Shift+P).
 - **Templates**: seven ready-made labels plus your own stored as `.qlx`
@@ -241,7 +245,10 @@ to the device node. QLInux offers **“Set up access”** in the *Printer* panel
 when it is missing; it installs a udev rule with `TAG+="uaccess"`
 (`scripts/install-udev-rule.sh` → `/etc/udev/rules.d/70-brother-ql.rules`).
 The network port (TCP 9100) needs no permissions — but it has no read-back,
-so *Detect label* only works over USB.
+so *Detect label* only works over USB. The SNMP check (UDP 161, community
+`public`) needs no permissions either. It only runs if the printer answered
+SNMP before the job; with SNMP switched off, jobs are reported as sent. If the
+printer goes silent after a job, the history says “Sent, no status reply”.
 
 ## Development
 
