@@ -5318,12 +5318,14 @@ def test_toolbar_print_opens_the_sheet(qapp, tmp_path):
 
 def test_print_button_opens_sheet_with_preview_settings_and_history(qapp, tmp_path):
     """Rechts bleibt nur der Knopf. Er oeffnet Vorschau, Optionen und Verlauf."""
-    from PySide6.QtWidgets import QGroupBox
+    from PySide6.QtWidgets import QGroupBox, QPushButton
 
     from ql_editor.sheet import Sheet
 
     win = _temp_window(qapp, tmp_path)
-    assert win._open_print_button.text() == "Drucken…"
+    assert win._open_print_button.text() == ""
+    assert not win._open_print_button.icon().isNull()
+    assert win._open_print_button.minimumHeight() >= 48
     assert win._open_print_button.isVisible()
     assert not win._right_panel.isAncestorOf(win._resolution_combo)
     assert not win._right_panel.isAncestorOf(win._print_button)
@@ -5341,6 +5343,7 @@ def test_print_button_opens_sheet_with_preview_settings_and_history(qapp, tmp_pa
     assert sheet.isAncestorOf(win._history_table)
     titles = {box.title() for box in sheet.findChildren(QGroupBox)}
     assert {"Druckvorschau", "Qualität", "Ausgabe", "Datenbank", "Druckverlauf"} <= titles
+    assert isinstance(win._print_button, QPushButton)
     assert win._print_button.text() == ""
     assert win._print_button.toolTip() == "Drucken"
     assert win._print_preview.pixmap() is not None

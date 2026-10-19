@@ -323,16 +323,18 @@ def _put_items_on_clipboard(items) -> None:
 INSPECTOR_MIN_PX = 240
 
 
-class _PrintIconButton(QToolButton):
-    """Drucker-Icon oben rechts. Während des Auftrags dreht sich ein Bogen."""
+class _PrintIconButton(QPushButton):
+    """Drucker-Knopf oben rechts. Während des Auftrags dreht sich ein Bogen.
+
+    Ein Toolbutton mit ``autoRaise`` sieht nur beim Hover nach Knopf aus.
+    """
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self.setObjectName("print_icon_button")
-        self.setAutoRaise(True)
         self.setIcon(icon("print"))
         self.setIconSize(QSize(22, 22))
-        self.setFixedSize(32, 32)
+        self.setFixedSize(40, 36)
         self.setToolTip(tr("Drucken"))
         self.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         self._angle = 0
@@ -716,8 +718,10 @@ class MainWindow(QMainWindow):
         footer = QWidget()
         footer_layout = QVBoxLayout(footer)
         footer_layout.setContentsMargins(6, 6, 6, 6)
-        self._open_print_button = QPushButton(icon("print"), tr("Drucken…"))
+        self._open_print_button = QPushButton(icon("print"), "")
         self._open_print_button.setObjectName("open_print_button")
+        self._open_print_button.setIconSize(QSize(28, 28))
+        self._open_print_button.setMinimumHeight(48)
         self._open_print_button.setToolTip(tr("Druckvorschau, Einstellungen und Verlauf"))
         self._open_print_button.clicked.connect(self._show_print_sheet)
         footer_layout.addWidget(self._open_print_button)
