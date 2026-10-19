@@ -832,6 +832,11 @@ class MainWindow(QMainWindow):
         ``PANEL_WIDTH``), damit "Symbologie"/"Höhe (Dots)" einzeilig bleiben.
         Rechts bleibt der Inspector; Drucken oeffnet das Sheet.
         """
+        # Ziel und Zweckform gehören zur Medienwahl, nicht in den Druckdialog.
+        self._media_panel.insert_header(self._build_target_box())
+        self._sheet_box = self._build_sheet_box()
+        self._sheet_box.setVisible(False)
+        self._media_panel.insert_header(self._sheet_box)
         self._left_panel = OverlayPanel(
             tr("Band & Drucker"),
             self._scroll_wrap(self._media_panel),
@@ -1055,27 +1060,19 @@ class MainWindow(QMainWindow):
         quality_form.addRow(self._dither_check)
         quality_form.addRow(self._threshold_label, threshold_holder)
 
-        self._output_label = QLabel(tr("Ziel"))
-        self._output_combo = QComboBox()
-        self._output_combo.setObjectName("print_output")
-        self._output_combo.addItem(tr("Brother QL"), stationery.OUTPUT_BROTHER)
-        self._output_combo.addItem(tr("Etikettenbogen"), stationery.OUTPUT_SHEET)
-        self._output_label.setBuddy(self._output_combo)
-        self._output_combo.setToolTip(
-            tr(
-                "Brother QL druckt das Band. Etikettenbogen legt dieselben "
-                "Datensätze auf einen Avery-Zweckform-Bogen."
-            )
-        )
-        self._output_label.setToolTip(self._output_combo.toolTip())
+        self._sheet_hint = QLabel()
+        self._sheet_hint.setObjectName("sheet_fill")
+        self._sheet_hint.setWordWrap(True)
+        self._sheet_pdf_button = QPushButton(tr("PDF speichern…"))
+        self._sheet_pdf_button.setObjectName("sheet_pdf")
+        self._sheet_pdf_button.clicked.connect(self._on_sheet_pdf)
 
         output = title_box(tr("Ausgabe"))
         self._output_form = self._panel_form(output)
-        self._output_form.addRow(self._output_label, self._output_combo)
         self._output_form.addRow(self._copies_label, self._copies_spin)
         self._output_form.addRow(self._cut_label, self._cut_combo)
-
-        self._sheet_box = self._build_sheet_box()
+        self._output_form.addRow(tr("Belegt"), self._sheet_hint)
+        self._output_form.addRow(self._sheet_pdf_button)
 
         history = title_box(tr("Druckverlauf"))
         history_layout = QVBoxLayout(history)
@@ -1104,7 +1101,6 @@ class MainWindow(QMainWindow):
         form_layout.setContentsMargins(0, 0, 0, 0)
         form_layout.setSpacing(6)
         form_layout.addWidget(options)
-        form_layout.addWidget(self._sheet_box)
         form_layout.addWidget(self._db_print_box)
         form_layout.addWidget(history)
 
@@ -1127,8 +1123,9 @@ class MainWindow(QMainWindow):
         self._range_to.valueChanged.connect(self._on_print_range_to_edited)
         self._sync_resolution_options()
         self._sync_print_scope_ui()
-        # Noch kein Etikett: die Fläche stellt _apply_saved_settings.
-        self._sheet_box.setVisible(False)
+        # Brother ist der Start. Der Bogen blendet das nach den Einstellungen ein.
+        self._output_form.setRowVisible(self._sheet_hint, False)
+        self._output_form.setRowVisible(self._sheet_pdf_button, False)
         return widget
 
     @staticmethod
@@ -1138,6 +1135,26 @@ class MainWindow(QMainWindow):
         form.setRowWrapPolicy(QFormLayout.RowWrapPolicy.WrapLongRows)
         form.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.AllNonFixedFieldsGrow)
         return form
+
+    def _build_target_box(self) -> QGroupBox:
+        """Brother-Band oder Etikettenbogen. Steht über der Medienwahl."""
+        box = title_box(tr("Ziel"))
+        self._output_label = QLabel(tr("Ziel"))
+        self._output_combo = QComboBox()
+        self._output_combo.setObjectName("print_output")
+        self._output_combo.addItem(tr("Brother QL"), stationery.OUTPUT_BROTHER)
+        self._output_combo.addItem(tr("Etikettenbogen"), stationery.OUTPUT_SHEET)
+        self._output_label.setBuddy(self._output_combo)
+        self._output_combo.setToolTip(
+            tr(
+                "Brother QL druckt das Band. Etikettenbogen legt dieselben "
+                "Datensätze auf einen Avery-Zweckform-Bogen."
+            )
+        )
+        self._output_label.setToolTip(self._output_combo.toolTip())
+        form = self._panel_form(box)
+        form.addRow(self._output_label, self._output_combo)
+        return box
 
     def _build_sheet_box(self) -> QGroupBox:
         """Avery-Zweckform: Vorlage, erstes Feld, Versatz, Systemdrucker."""
@@ -1204,21 +1221,11 @@ class MainWindow(QMainWindow):
         )
         self._sheet_printer_combo.setMinimumContentsLength(12)
 
-        self._sheet_pdf_button = QPushButton(tr("PDF speichern…"))
-        self._sheet_pdf_button.setObjectName("sheet_pdf")
-        self._sheet_pdf_button.clicked.connect(self._on_sheet_pdf)
-
-        self._sheet_hint = QLabel()
-        self._sheet_hint.setObjectName("sheet_fill")
-        self._sheet_hint.setWordWrap(True)
-
         form.addRow(tr("Vorlage"), self._sheet_part_combo)
         form.addRow(tr("Erstes Etikett"), self._sheet_start)
         form.addRow(tr("Versatz rechts"), self._sheet_offset_x)
         form.addRow(tr("Versatz unten"), self._sheet_offset_y)
         form.addRow(tr("Systemdrucker"), self._sheet_printer_combo)
-        form.addRow(tr("Belegt"), self._sheet_hint)
-        form.addRow(self._sheet_pdf_button)
 
         self._sheet_part_combo.currentIndexChanged.connect(self._on_sheet_part_changed)
         self._sheet_start.valueChanged.connect(self._update_sheet_hint)
@@ -3890,7 +3897,13 @@ class MainWindow(QMainWindow):
         )
         self._quality_box.setVisible(not sheet)
         self._output_form.setRowVisible(self._cut_combo, not sheet)
+        self._output_form.setRowVisible(self._sheet_hint, sheet)
+        self._output_form.setRowVisible(self._sheet_pdf_button, sheet)
         self._sheet_box.setVisible(sheet)
+        self._media_panel.set_tape_controls_visible(not sheet)
+        self._left_panel.set_title(
+            tr("Etikettenbogen") if sheet else tr("Band & Drucker")
+        )
         if sheet:
             self._reload_system_printers()
             self._sync_sheet_start_range()

@@ -69,10 +69,12 @@ EN: dict[str, str] = {
     "Beenden (Strg+Q)": "Quit (Ctrl+Q)",
     "Über QLInux": "About QLInux",
     "Hilfe": "Help",
-    "Links wählst du Drucker und Band. Das Etikett liegt in der Mitte, die Eigenschaften des Markierten rechts, zusammen mit dem Druck. Esc schließt diese Hilfe.": (
-        "On the left you pick the printer and the tape. The label sits in the "
-        "middle, and the properties of whatever is selected sit on the right, "
-        "together with printing. Esc closes this help."
+    "Links wählst du das Ziel: Brother QL mit Drucker und Band, oder einen Avery-Zweckform-Bogen mit Vorlage, Versatz und Systemdrucker. Das Etikett liegt in der Mitte, die Eigenschaften des Markierten rechts, zusammen mit dem Druck. Esc schließt diese Hilfe.": (
+        "On the left you pick the target: a Brother QL with its printer and "
+        "tape, or an Avery Zweckform sheet with the product, offset and system "
+        "printer. The label sits in the middle, and the properties of whatever "
+        "is selected sit on the right, together with printing. Esc closes this "
+        "help."
     ),
     "Auf dem Etikett": "On the label",
     "Doppelklick auf die freie Fläche setzt ein Textfeld. Ein Objekt ziehst du mit der Maus. Die Pfeiltasten schieben es um einen Punkt, mit gehaltener Umschalttaste um zehn. Esc beendet das Schreiben im Feld und hebt die Auswahl auf.": (
@@ -80,11 +82,11 @@ EN: dict[str, str] = {
         "move it. The arrow keys nudge it by one dot, and holding Shift moves "
         "it by ten. Esc stops typing in a field and clears the selection."
     ),
-    "Die Druckvorschau zeigt die Punkte, so wie der Drucker sie setzt. Esc bringt die normale Ansicht zurück. Unter Ziel legt Etikettenbogen dieselben Datensätze auf einen Avery-Zweckform-Bogen; PDF speichert ihn in Originalgröße, der Versatz rückt den ganzen Bogen.": (
+    "Die Druckvorschau zeigt die Punkte, so wie der Drucker sie setzt. Bei einem Etikettenbogen zeigt sie das Raster; Belegt nennt die gefüllten Felder, PDF speichert den Bogen in Originalgröße. Esc bringt die normale Ansicht zurück.": (
         "Print preview shows the dots the way the printer lays them down. "
-        "Esc brings the normal view back. Under Target, Label sheet lays the "
-        "same records onto an Avery Zweckform sheet; PDF saves it at actual "
-        "size, and the offset nudges the whole sheet."
+        "For a label sheet it shows the grid; Filled names the cells the job "
+        "uses, and PDF saves the sheet at actual size. Esc brings the normal "
+        "view back."
     ),
     "Mit der Maus": "With the pointer",
     "Strg und das Mausrad zoomen, Umschalt und das Mausrad schieben seitlich. Strg+Klick nimmt ein Objekt zur Auswahl dazu oder wieder weg. Strg gedrückt halten und ein markiertes Objekt ziehen lässt das Original liegen und bewegt die Kopie. In einer Tabelle markiert Umschalt+Klick mehrere Zellen, Tab und Umschalt+Tab gehen zur nächsten. In der Datenbank-Tabelle nimmt Strg+Klick eine Zeile dazu oder weg, Umschalt+Klick wählt einen Bereich. Beim Drehen rastet der Winkel auf 90 Grad, mit gehaltener Umschalttaste in Schritten von 15 Grad.": (
