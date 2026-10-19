@@ -66,15 +66,24 @@ The model list even appears in the app: *menu → About QLInux*.
 
 ## Install
 
-**Ready to run (AppImage):** download the latest
-[`QLInux-*.x86_64.AppImage`](https://github.com/loeffelandi/QLInux/releases/latest)
+**Ready to run (AppImage):** download the latest build for your machine from
+[Releases](https://github.com/loeffelandi/QLInux/releases/latest)
 (≈ 68 MB, the Qt runtime is included), make it executable and start it — no
 installation, no root:
 
 ```bash
+# x86_64
 chmod +x QLInux-*-x86_64.AppImage
 ./QLInux-*-x86_64.AppImage
+
+# aarch64 (64-bit ARM: Raspberry Pi OS 64-bit, Ubuntu/Debian arm64, …)
+chmod +x QLInux-*-aarch64.AppImage
+./QLInux-*-aarch64.AppImage
 ```
+
+The aarch64 AppImage needs **glibc 2.39 or newer** (Ubuntu 24.04, Debian 13 /
+Raspberry Pi OS Trixie). Older systems such as Raspberry Pi OS Bookworm do not
+start it.
 
 **From source:**
 
@@ -86,18 +95,23 @@ bash scripts/bootstrap_venv.sh     # creates .venv, installs pinned deps,
 .venv/bin/python -m ql_editor
 ```
 
-Releases carry a **single-file AppImage** — build it yourself with one command
-(no installation, no root). A `.deb` is deliberately not planned: PySide6 and
-`python-barcode` are not in the distribution archives, so a package would have
-to carry the whole Qt runtime anyway; the AppImage does exactly that, just
-without root.
+Releases carry a **single-file AppImage** per architecture — build it yourself
+with one command (no installation, no root). A `.deb` is deliberately not
+planned: PySide6 and `python-barcode` are not in the distribution archives, so
+a package would have to carry the whole Qt runtime anyway; the AppImage does
+exactly that, just without root.
 
 ## AppImage
 
 ```bash
-bash packaging/build_appimage.sh      # builds dist/QLInux-<version>-x86_64.AppImage
-./dist/QLInux-*-x86_64.AppImage       # start it
+bash packaging/build_appimage.sh      # builds dist/QLInux-<version>-<arch>.AppImage
+./dist/QLInux-*-$(uname -m | sed 's/arm64/aarch64/').AppImage
 ```
+
+The script takes the architecture from the build machine (`x86_64` or
+`aarch64`). The aarch64 file is produced by
+[`.github/workflows/appimage-arm.yml`](.github/workflows/appimage-arm.yml) and
+attached to each published release.
 
 The build uses PyInstaller (`requirements-dev.txt`) and fetches `appimagetool`
 once into `packaging/.cache/` (not in the repository). What is bundled: the
@@ -229,7 +243,8 @@ python scripts/verify_api.py            # documents the real brother_ql API
 ```
 
 The same suite runs on every push and pull request
-([`.github/workflows/tests.yml`](.github/workflows/tests.yml), Python 3.12 on Ubuntu).
+([`.github/workflows/tests.yml`](.github/workflows/tests.yml), Python 3.12 on
+Ubuntu x86_64 and aarch64).
 
 The tests run headless: `tests/conftest.py` forces the Qt *offscreen* platform
 and redirects `XDG_CONFIG_HOME` to a temporary directory, so a test run never
