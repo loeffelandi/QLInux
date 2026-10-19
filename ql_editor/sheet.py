@@ -521,7 +521,11 @@ class _HistoryNavFilter(QObject):
         self._dialog = dialog
 
     def eventFilter(self, obj, event) -> bool:  # noqa: N802
-        if event.type() != QEvent.Type.MouseButtonPress:
+        # Der zweite schnelle Druck kommt bei Widgets nur als Doppelklick an.
+        if event.type() not in (
+            QEvent.Type.MouseButtonPress,
+            QEvent.Type.MouseButtonDblClick,
+        ):
             return False
         name = self._BUTTONS.get(event.button())
         if name is None:

@@ -12,9 +12,13 @@ from ql_editor import sheet
 pytestmark = pytest.mark.usefixtures("qapp")
 
 
-def _press(widget: QWidget, button: Qt.MouseButton) -> None:
+def _press(
+    widget: QWidget,
+    button: Qt.MouseButton,
+    kind: QEvent.Type = QEvent.Type.MouseButtonPress,
+) -> None:
     event = QMouseEvent(
-        QEvent.Type.MouseButtonPress,
+        kind,
         QPointF(2, 2),
         QPointF(2, 2),
         button,
@@ -28,7 +32,7 @@ def test_side_buttons_navigate_file_dialog(qapp, tmp_path):
     parent = QWidget()
     parent.resize(1100, 760)
     parent.show()
-    sheet.choose_file(
+    opened = sheet.choose_file(
         parent,
         caption="Test",
         name_filter="Alle (*)",
@@ -53,8 +57,36 @@ def test_side_buttons_navigate_file_dialog(qapp, tmp_path):
     _press(dialog, Qt.MouseButton.ForwardButton)
     qapp.processEvents()
     assert dialog.directory().absolutePath() == str(sub)
+    opened.close_sheet()
+    qapp.processEvents()
     parent.close()
 
+
+def test_quick_second_back_press_navigates_again(qapp, tmp_path):
+    parent = QWidget()
+    parent.resize(1100, 760)
+    parent.show()
+    opened = sheet.choose_file(
+        parent,
+        caption="Test",
+        name_filter="Alle (*)",
+        on_selected=lambda _path: None,
+        start_dir=str(tmp_path),
+    )
+    dialog = parent.findChild(QFileDialog)
+    sub = tmp_path / "sub"
+    deeper = sub / "deeper"
+    deeper.mkdir(parents=True)
+    dialog.setDirectory(str(sub))
+    dialog.setDirectory(str(deeper))
+    qapp.processEvents()
+    _press(dialog, Qt.MouseButton.BackButton)
+    _press(dialog, Qt.MouseButton.BackButton, QEvent.Type.MouseButtonDblClick)
+    qapp.processEvents()
+    assert dialog.directory().absolutePath() == str(tmp_path)
+    opened.close_sheet()
+    qapp.processEvents()
+    parent.close()
 
 
 def test_history_filter_is_removed_when_unbound(qapp, tmp_path):
