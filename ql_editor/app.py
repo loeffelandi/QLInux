@@ -146,6 +146,7 @@ from .printer import (
 from .settings import AppSettings
 from .adaptive import AdaptivePages
 from .sheet import (
+    Sheet,
     ask_choice,
     ask_label_printer,
     ask_save,
@@ -4079,6 +4080,10 @@ class MainWindow(QMainWindow):
             self._request_close_tab(self._tab_at(index))
 
     def _request_close_tab(self, tab: LabelTab) -> None:
+        """Letzter Reiter beendet die App, sonst fällt nur dieser Reiter weg."""
+        if len(self._ordered_tabs()) <= 1:
+            self.close()
+            return
         if not tab.is_dirty():
             self._remove_tab(tab)
             return
@@ -4135,7 +4140,7 @@ class MainWindow(QMainWindow):
             self._update_window_title()
 
     def _blank_tab(self, tab: LabelTab) -> None:
-        """Letzten Reiter leeren, statt das Fenster zu schließen."""
+        """Reiter leeren, ohne ihn zu entfernen und ohne das Fenster zu schließen."""
         self._show_tab(tab)
         self._adjusting = True
         self._history_suppress = True
@@ -4828,14 +4833,21 @@ class MainWindow(QMainWindow):
             _orphan_workers.append(worker)
             worker.finished.connect(lambda worker=worker: _forget_orphan(worker))
 
+    def _save_sheet_open(self) -> bool:
+        """True, solange eine Rückfrage als Sheet sichtbar ist."""
+        return any(sheet.isVisible() for sheet in self.findChildren(Sheet))
+
     def closeEvent(self, event) -> None:  # noqa: N802
         if not self._accept_close and self.isVisible():
             dirty = [tab for tab in self._ordered_tabs() if tab.is_dirty()]
             if dirty:
                 event.ignore()
-                if not self._close_prompt:
-                    self._close_prompt = True
-                    self._prompt_close(dirty)
+                # Ein hängengebliebenes Flag ohne Sheet würde „Schließen“
+                # schlucken. Sichtbares Sheet: nicht noch einmal fragen.
+                if self._close_prompt and self._save_sheet_open():
+                    return
+                self._close_prompt = True
+                self._prompt_close(dirty)
                 return
         self._finish_close(event)
 
