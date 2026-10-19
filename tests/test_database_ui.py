@@ -673,3 +673,26 @@ def test_restoring_a_split_selection_keeps_exactly_those_rows(qapp, tmp_path):
     qapp.processEvents()
     assert win._database_panel.selected_records() == [1, 2, 3, 5, 8]
     win.close()
+
+
+def test_rebuild_keeps_grid_selection_and_open_grid(qapp, tmp_path):
+    win = MainWindow(discover=False)
+    win.resize(1100, 760)
+    win.show()
+    assert win.connect_csv_path(str(_rows_csv(tmp_path, "a.csv", "A")))
+    _open_database(win)
+    _select_rows(win, [1, 2, 4])
+    qapp.processEvents()
+    state = win._state()
+    win.close()
+
+    rebuilt = MainWindow(discover=False)
+    rebuilt.resize(1100, 760)
+    rebuilt.show()
+    rebuilt.apply_state(state)
+    qapp.processEvents()
+    assert rebuilt._act_database.isChecked()
+    assert rebuilt._database_panel.isVisible()
+    assert rebuilt._database_panel.selected_records() == [1, 2, 4]
+    assert rebuilt._active.current_record == 1
+    rebuilt.close()

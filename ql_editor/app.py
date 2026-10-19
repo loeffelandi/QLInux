@@ -2126,6 +2126,7 @@ class MainWindow(QMainWindow):
                 "data_source": deepcopy(tab.data_source),
                 "serial": deepcopy(tab.serial),
                 "current_record": tab.current_record,
+                "selected_records": list(tab.selected_records),
             }
             for tab in self._ordered_tabs()
         ]
@@ -2136,6 +2137,7 @@ class MainWindow(QMainWindow):
             "active": active,
             "items": self._canvas.items_serialized(),
             "preview": self._act_print_preview.isChecked(),
+            "database_open": self._act_database.isChecked(),
             "threshold": self._threshold_spin.value(),
             "dither": self._dither_check.isChecked(),
             "hq": self._hq_check.isChecked(),
@@ -2183,6 +2185,8 @@ class MainWindow(QMainWindow):
                 }
             ]
         self._replace_tabs(list(specs), int(state.get("active") or 0))
+        if state.get("database_open") and self._database_is_linked():
+            self._act_database.setChecked(True)
         self._address_dirty = bool(state.get("address_dirty", False))
         self._print_jobs = list(state.get("print_jobs") or [])
         self._refresh_history_table()
@@ -4334,6 +4338,9 @@ class MainWindow(QMainWindow):
             if spec.get("preview"):
                 tab.canvas.set_print_preview(True)
             self._restore_tab_database(tab, spec)
+            tab.selected_records = [
+                int(row) for row in spec.get("selected_records") or []
+            ]
             created.append((tab, spec))
         if not created:
             self._create_tab()
