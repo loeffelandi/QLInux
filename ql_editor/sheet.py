@@ -347,10 +347,14 @@ class Sheet(QWidget):
 
 # ------------------------------------------------------------------ Helfer --
 def _open_sheet(parent: QWidget, content: QWidget, **kwargs) -> Sheet:
-    """Oeffnet ein Sheet; ein evtl. offenes wird vorher geschlossen."""
-    existing = parent.findChild(Sheet)
-    if existing is not None:
-        existing.close_sheet()
+    """Oeffnet ein Sheet; ein evtl. offenes wird vorher geschlossen.
+
+    Ein schon geschlossenes Sheet wartet evtl. noch auf ``deleteLater`` und
+    zaehlt nicht - sonst bliebe das offene neben dem neuen stehen.
+    """
+    for existing in parent.findChildren(Sheet):
+        if not existing._closing:
+            existing.close_sheet()
     sheet = Sheet(parent, content, **kwargs)
     sheet.show()
     return sheet

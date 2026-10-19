@@ -7678,8 +7678,12 @@ def test_print_sheet_comes_back_after_a_prompt(
 def test_a_prompt_pushed_aside_by_another_sheet_keeps_that_sheet_in_front(
     qapp, tmp_path, monkeypatch
 ):
-    """Verdraengt z. B. die Frage beim Schliessen die Rueckfrage, bleibt sie vorn."""
-    from ql_editor.sheet import show_message
+    """Verdraengt z. B. die Frage beim Schliessen die Rueckfrage, bleibt sie vorn.
+
+    Das geschlossene Druck-Sheet wartet hier noch auf ``deleteLater`` - es darf
+    das neue Sheet nicht davon abhalten, die Rueckfrage zu schliessen.
+    """
+    from ql_editor.sheet import Sheet, show_message
 
     starts = _fake_print_worker(monkeypatch, {"outcome": "sent"})
     win = _temp_window(qapp, tmp_path)
@@ -7689,9 +7693,15 @@ def test_a_prompt_pushed_aside_by_another_sheet_keeps_that_sheet_in_front(
     _report_printer(win, fault=True, texts=("Klappe offen",))
     win._on_print()
     qapp.processEvents()
+    assert _visible_message_box(win).text().startswith("Der Drucker meldet")
+    returns = []
+    back = win._return_to_print_sheet
+    monkeypatch.setattr(win, "_return_to_print_sheet", lambda: returns.append(1) or back())
     other = show_message(win, "info", "Andere Frage", "Text")
     qapp.processEvents()
-    assert other.isVisible()
+    assert returns == [1]
+    assert [sheet for sheet in win.findChildren(Sheet) if sheet.isVisible()] == [other]
+    assert _visible_message_box(win).text() == "Text"
     assert not win._print_sheet_open()
     assert starts == []
     win.close()
