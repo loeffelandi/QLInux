@@ -110,9 +110,11 @@ jobs:
           path: dist
           merge-multiple: true
 
+      # gh leitet das Repo aus .git ab. Dieser Job checkt nichts aus.
       - name: Attach to release
         env:
           GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
         run: |
           shopt -s nullglob
           files=(dist/QLInux-*-x86_64.AppImage dist/QLInux-*-x86_64.AppImage.zsync \
