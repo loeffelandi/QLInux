@@ -3744,7 +3744,7 @@ class MainWindow(QMainWindow):
                 title=tr("Drucker prüfen"),
                 text=tr(
                     "Der Drucker meldet: {errors}\n\n"
-                    "Erst beheben, sonst bricht der Drucker den Auftrag ab."
+                    "Erst beheben, sonst druckt der Drucker den Auftrag wahrscheinlich nicht."
                 ).format(errors=", ".join(fault)),
                 on_choice=partial(
                     self._on_fault_choice, config, images, label, from_sheet

@@ -348,8 +348,8 @@ EN: dict[str, str] = {
         "The printer did not answer after sending. Check the label before you print again."
     ),
     "Drucker prüfen": "Check printer",
-    "Der Drucker meldet: {errors}\n\nErst beheben, sonst bricht der Drucker den Auftrag ab.": (
-        "The printer reports: {errors}\n\nFix this first, or the printer stops the job."
+    "Der Drucker meldet: {errors}\n\nErst beheben, sonst druckt der Drucker den Auftrag wahrscheinlich nicht.": (
+        "The printer reports: {errors}\n\nFix this first, or the printer will probably not print the job."
     ),
     "Band prüfen": "Check tape",
     "Gewählt: {selected}\nLaut QLInux eingelegt: {loaded}\n\nStimmt das nicht, bricht der Drucker mit einem Fehler ab.": "Selected: {selected}\nLoaded according to QLInux: {loaded}\n\nIf that is wrong, the printer stops with an error.",
