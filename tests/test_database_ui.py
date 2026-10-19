@@ -696,3 +696,26 @@ def test_rebuild_keeps_grid_selection_and_open_grid(qapp, tmp_path):
     assert rebuilt._database_panel.selected_records() == [1, 2, 4]
     assert rebuilt._active.current_record == 1
     rebuilt.close()
+
+
+def test_counter_and_print_scope_show_the_selection_count(qapp, tmp_path):
+    win = MainWindow(discover=False)
+    win.resize(1100, 760)
+    win.show()
+    assert win.connect_csv_path(str(_rows_csv(tmp_path, "a.csv", "A")))
+    _open_database(win)
+    _select_rows(win, [1, 2, 4])
+    qapp.processEvents()
+    assert win._database_panel._counter.text() == "Datensatz 2 / 6 · 3 gewählt"
+    win._show_print_sheet()
+    qapp.processEvents()
+    assert win._scope_selected.text() == "Ausgewählte Datensätze (3)"
+    win._close_print_sheet()
+    qapp.processEvents()
+    _select_rows(win, [5])
+    qapp.processEvents()
+    assert win._database_panel._counter.text() == "Datensatz 6 / 6"
+    win._show_print_sheet()
+    qapp.processEvents()
+    assert win._scope_selected.text() == "Ausgewählte Datensätze"
+    win.close()

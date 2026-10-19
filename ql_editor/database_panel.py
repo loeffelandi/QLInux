@@ -132,6 +132,7 @@ class DatabasePanel(QWidget):
         self._updating = False
         self._linked = False
         self._last_index: int | None = None
+        self._counter_index = 0
 
         self._toggle = QToolButton()
         self._toggle.setObjectName("database_panel_toggle")
@@ -308,13 +309,13 @@ class DatabasePanel(QWidget):
                     )
                     self._grid.setItem(row_index, col_index, cell)
             index = clamp_record_index(current_record, len(table.records))
-            self._show_counter(index)
             self._last_index = index if table.records else None
             if table.records:
                 self._grid.selectRow(index)
                 item = self._grid.item(index, 0)
                 if item is not None:
                     self._grid.scrollToItem(item)
+            self._show_counter(index)
         finally:
             self._updating = False
         self.set_expanded(True)
@@ -324,7 +325,6 @@ class DatabasePanel(QWidget):
         if self._table_data is None or not self._table_data.records:
             return
         index = clamp_record_index(index, len(self._table_data.records))
-        self._show_counter(index)
         self._updating = True
         try:
             if index not in self.selected_records():
@@ -335,6 +335,7 @@ class DatabasePanel(QWidget):
                 self._grid.scrollToItem(item)
         finally:
             self._updating = False
+        self._show_counter(index)
 
     def set_selected_records(self, rows: list[int]) -> None:
         """Gespeicherte Mehrfachauswahl wiederherstellen, ohne ``record_selected``."""
@@ -350,6 +351,7 @@ class DatabasePanel(QWidget):
             self._last_index = valid[0]
         finally:
             self._updating = False
+        self._show_counter(self._counter_index)
 
     def _select_rows(self, rows: list[int]) -> None:
         """Genau diese Zeilen selektieren (ohne Signale, Aufrufer setzt _updating).
@@ -411,15 +413,18 @@ class DatabasePanel(QWidget):
         drag.exec(Qt.DropAction.CopyAction)
 
     def _show_counter(self, index: int) -> None:
+        self._counter_index = index
         total = len(self._table_data.records) if self._table_data is not None else 0
         if total <= 0:
             self._counter.setText("")
             return
-        self._counter.setText(
-            tr("Datensatz {current} / {total}").format(
-                current=index + 1, total=total
-            )
+        text = tr("Datensatz {current} / {total}").format(
+            current=index + 1, total=total
         )
+        selected = len(self.selected_records())
+        if selected > 1:
+            text += " · " + tr("{count} gewählt").format(count=selected)
+        self._counter.setText(text)
 
     def _set_notice(self, notice: str | None) -> None:
         text = (notice or "").strip()

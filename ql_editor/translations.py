@@ -694,6 +694,7 @@ EN: dict[str, str] = {
         "Without a CSV it stays one label."
     ),
     "Ausgewählte Datensätze": "Selected Record(s)",
+    "Ausgewählte Datensätze ({count})": "Selected Records ({count})",
     "Die in der Tabelle gewählten Zeilen (Strg/Umschalt für mehrere).": (
         "The rows selected in the table (Ctrl/Shift for several)."
     ),
@@ -900,6 +901,7 @@ EN: dict[str, str] = {
     "Andere…": "Other…",
     "Trennen": "Disconnect",
     "Datensatz {current} / {total}": "Record {current} / {total}",
+    "{count} gewählt": "{count} selected",
     "Auf Text, Barcode oder QR ziehen": "Drag onto text, barcode or QR",
     "CSV verbinden": "Connect CSV",
     "CSV verbinden…": "Connect CSV…",

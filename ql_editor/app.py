@@ -1103,6 +1103,14 @@ class MainWindow(QMainWindow):
         enabled = count > 0
         self._db_print_box.setVisible(enabled)
         self._db_print_box.setEnabled(enabled)
+        # Das Grid kann zugeklappt sein: die Zahl zeigt, wie viele Zeilen gemeint sind.
+        selected = len(self._database_panel.selected_records()) if enabled else 0
+        if selected > 1:
+            self._scope_selected.setText(
+                tr("Ausgewählte Datensätze ({count})").format(count=selected)
+            )
+        else:
+            self._scope_selected.setText(tr("Ausgewählte Datensätze"))
         if count > 0:
             maximum = count
             shown_from = min(self._range_request_from, maximum)
@@ -3740,7 +3748,7 @@ class MainWindow(QMainWindow):
         """Druckvorschau, Optionen und Verlauf im Sheet."""
         # Erst hier: jeder Grid-Klick davor wuerde „Am Ende" bei einer
         # einzelnen Zeile dauerhaft auf „Jede Kopie" stellen.
-        self._sync_cut_options()
+        self._sync_print_scope_ui()
         if self._print_sheet_open():
             self._print_sheet.raise_()
             self._refresh_history_table()
