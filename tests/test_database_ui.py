@@ -570,3 +570,43 @@ def test_shift_click_selects_range_of_rows(qapp, tmp_path):
     qapp.processEvents()
     assert win._database_panel.selected_records() == [0, 1]
     win.close()
+
+
+def _rows_csv(tmp_path: Path, name: str, prefix: str, rows: int = 6) -> Path:
+    path = tmp_path / name
+    lines = ["Fixture;Channel"] + [f"{prefix} {i};{i}" for i in range(rows)]
+    path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    return path
+
+
+def test_replacing_the_csv_drops_the_old_selection(qapp, tmp_path):
+    win = MainWindow(discover=False)
+    win.resize(1100, 760)
+    win.show()
+    assert win.connect_csv_path(str(_rows_csv(tmp_path, "a.csv", "A")))
+    _open_database(win)
+    _select_rows(win, [3, 4, 5])
+    qapp.processEvents()
+    assert win.connect_csv_path(str(_rows_csv(tmp_path, "b.csv", "B")))
+    qapp.processEvents()
+    assert win._active.current_record == 0
+    assert win._database_panel.selected_records() == [0]
+    assert [label.variant.index for label in win._planned_labels()] == [0]
+    win.close()
+
+
+def test_reconnecting_after_disconnect_starts_with_one_row(qapp, tmp_path):
+    win = MainWindow(discover=False)
+    win.resize(1100, 760)
+    win.show()
+    path = _rows_csv(tmp_path, "a.csv", "A")
+    assert win.connect_csv_path(str(path))
+    _open_database(win)
+    _select_rows(win, [2, 3])
+    qapp.processEvents()
+    win.disconnect_csv()
+    assert win._active.selected_records == []
+    assert win.connect_csv_path(str(path))
+    qapp.processEvents()
+    assert win._database_panel.selected_records() == [0]
+    win.close()

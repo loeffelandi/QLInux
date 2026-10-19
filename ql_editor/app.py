@@ -4584,6 +4584,7 @@ class MainWindow(QMainWindow):
         """``data_source``/``serial`` aus dem Dokument in den aktiven Reiter laden."""
         tab = self._require_tab()
         self._pending_database_status = None
+        tab.selected_records = []
         raw_serial = data.get("serial")
         tab.serial = document.merge_serial(
             raw_serial if isinstance(raw_serial, Mapping) else None
@@ -4727,7 +4728,12 @@ class MainWindow(QMainWindow):
             display_name=name,
             notice=notice,
         )
-        self._database_panel.set_selected_records(tab.selected_records)
+        # Die Vorschau muss in der Auswahl liegen, sonst druckt "Ausgewählte"
+        # andere Zeilen als der Canvas zeigt.
+        if tab.current_record in tab.selected_records:
+            self._database_panel.set_selected_records(tab.selected_records)
+        else:
+            tab.selected_records = self._database_panel.selected_records()
         self._apply_database_visibility()
         self._sync_print_scope_ui()
         self._on_selection_changed()
@@ -4790,6 +4796,7 @@ class MainWindow(QMainWindow):
         """CSV an den aktiven Reiter binden und Live-Merge anwenden (Tests/API)."""
         tab = self._require_tab()
         tab.csv_table = table
+        tab.selected_records = []
         path = relative_path
         if path is None and table.path is not None:
             path = str(table.path)
@@ -4831,6 +4838,7 @@ class MainWindow(QMainWindow):
         tab.csv_table = None
         tab.data_source = None
         tab.current_record = 0
+        tab.selected_records = []
         tab.database_notice = None
         self._sync_database_panel()
         self._on_selection_changed()
