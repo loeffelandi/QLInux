@@ -45,6 +45,14 @@ The model list even appears in the app: *menu → About QLInux*.
 - **Print**: the toolbar button opens a sheet with the 1-bit preview, quality
   and output options, copies, cutting, and the session history. Printing
   starts from the button in that sheet.
+- **Avery Zweckform sheets**: the print target *Label sheet* lays the same
+  design onto an A4 sheet, using the gLabels Zweckform templates. The canvas
+  becomes one label of that product. With a CSV connected, the selected rows,
+  every row, or a from–to range fill the grid, one record per label; copies
+  repeat a record in the next cells. The first label skips fields already
+  used on a partial sheet. Save a PDF or send it to a normal printer at actual
+  size. A millimetre offset nudges the whole sheet when the printer does not
+  start at the paper edge.
 - **Printer**: network or USB. Printers are found with mDNS and SNMP, USB
   devices show up in the list, and the last one is selected again when it
   is still there. *Detect label* reads the tape over USB. The network port
@@ -321,11 +329,13 @@ dependency: `brother_ql` is GPL-3.0-or-later.
 | [pyusb](https://github.com/pyusb/pyusb) | Wander Lairson Costa and contributors | BSD-3-Clause | USB connection |
 | [qrcode](https://github.com/lincolnloop/python-qrcode) | Lincoln Loop and contributors | BSD-3-Clause | QR codes |
 | [python-barcode](https://github.com/WhyNotHugo/python-barcode) | Thorsten Weimann and contributors | MIT | barcodes |
+| [gLabels](https://github.com/jimevins/glabels-qt) | Jim Evins and contributors | GPL-3.0-or-later | Avery Zweckform sheet measurements |
 
 ## Disclaimer
 
-QLInux is not affiliated with Brother Industries, Ltd. “Brother” and
-“P-touch” are trademarks of Brother Industries, Ltd. Use at your own risk —
+QLInux is not affiliated with Brother Industries, Ltd. or Avery Zweckform.
+“Brother” and “P-touch” are trademarks of Brother Industries, Ltd. “Avery”
+and “Zweckform” are trademarks of their owners. Use at your own risk —
 printing wrong labels is your printer's fault only in the most literal sense.
 
 ## Developed by
