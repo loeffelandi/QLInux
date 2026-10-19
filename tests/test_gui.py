@@ -7367,8 +7367,9 @@ def test_pinch_zoom_keeps_point_under_fingers(qapp):
     assert abs(after.y() - anchor.y()) <= 3
 
 
-def test_touch_pinch_zooms_by_finger_distance(qapp):
-    """Echte Touch-Events: Fingerabstand 60 -> 150 px zoomt x2,5 um die Fingermitte."""
+@pytest.mark.parametrize("thumb_rests", [False, True])
+def test_touch_pinch_zooms_by_finger_distance(qapp, thumb_rests):
+    """Echte Touch-Events: Fingerabstand 60 -> 150 px zoomt x2,5, das Etikett bleibt unter den Fingern."""
     from PySide6.QtCore import QPoint
     from PySide6.QtTest import QTest
 
@@ -7378,22 +7379,25 @@ def test_touch_pinch_zooms_by_finger_distance(qapp):
         bar.setValue(bar.maximum() // 2)
     qapp.processEvents()
     vp = canvas.viewport()
-    mid = QPoint(300, 200)
-    scene_mid = canvas.mapToScene(mid)
+    left, right = QPoint(270, 200), QPoint(330, 200)
+    scene_left, scene_right = canvas.mapToScene(left), canvas.mapToScene(right)
     before = canvas.transform().m11()
 
     device = QTest.createTouchDevice()
-    left, right = mid - QPoint(30, 0), mid + QPoint(30, 0)
     QTest.touchEvent(vp, device).press(0, left, vp).commit()
     # stationary() gaebe dem ruhenden Finger in QTest die globale Position (0,0).
     QTest.touchEvent(vp, device).move(0, left, vp).press(1, right, vp).commit()
-    for half in range(35, 76, 5):
-        left, right = mid - QPoint(half, 0), mid + QPoint(half, 0)
+    for step in range(1, 10):
+        if thumb_rests:
+            right = QPoint(330 + 10 * step, 200)
+        else:
+            left, right = QPoint(270 - 5 * step, 200), QPoint(330 + 5 * step, 200)
         QTest.touchEvent(vp, device).move(0, left, vp).move(1, right, vp).commit()
     QTest.touchEvent(vp, device).release(0, left, vp).release(1, right, vp).commit()
     qapp.processEvents()
 
     assert canvas.transform().m11() / before == pytest.approx(2.5, rel=0.01)
-    drift = canvas.mapFromScene(scene_mid) - mid
-    assert abs(drift.x()) <= 4
-    assert abs(drift.y()) <= 4
+    for scene_point, finger in ((scene_left, left), (scene_right, right)):
+        drift = canvas.mapFromScene(scene_point) - finger
+        assert abs(drift.x()) <= 4
+        assert abs(drift.y()) <= 4
