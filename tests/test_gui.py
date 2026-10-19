@@ -7243,7 +7243,15 @@ def test_content_beyond_a_margin_is_not_printed(qapp, tmp_path):
     qapp.processEvents()
 
 
-def _print_with_outcome(qapp, tmp_path, monkeypatch, outcome: str | None, error: str | None = None):
+def _print_with_outcome(
+    qapp,
+    tmp_path,
+    monkeypatch,
+    outcome: str | None,
+    error: str | None = None,
+    *,
+    open_sheet: bool = False,
+):
     from PySide6.QtCore import QObject, Signal
 
     from ql_editor import app as app_module
@@ -7266,6 +7274,9 @@ def _print_with_outcome(qapp, tmp_path, monkeypatch, outcome: str | None, error:
     monkeypatch.setattr(app_module, "PrintWorker", FakeWorker)
     win = _temp_window(qapp, tmp_path)
     win._media_panel.set_network_host("192.168.178.62")
+    if open_sheet:
+        win._show_print_sheet()
+        qapp.processEvents()
     win._on_print()
     qapp.processEvents()
     return win
@@ -7277,6 +7288,25 @@ def test_network_send_is_reported_as_sent_not_as_error(qapp, tmp_path, monkeypat
     assert status.text() == "An Drucker gesendet"
     assert status.foreground().color().name() != "#b00020"
     assert [job.outcome for job in win._print_jobs] == ["sent"]
+    win.close()
+    qapp.processEvents()
+
+
+def test_silence_after_a_network_job_is_not_an_error(qapp, tmp_path, monkeypatch):
+    """Ohne Statusantwort ist offen, ob gedruckt wurde: keine Fehlermeldung,
+    das Sheet bleibt zum Pruefen offen."""
+    from PySide6.QtWidgets import QMessageBox
+
+    win = _print_with_outcome(qapp, tmp_path, monkeypatch, "unconfirmed", open_sheet=True)
+    status = win._history_table.item(0, 4)
+    assert status.text() == "Gesendet, keine Statusantwort"
+    assert status.foreground().color().name() != "#b00020"
+    assert not win._print_jobs[-1].is_error
+    assert win._print_sheet is not None and win._print_sheet.isVisible()
+    assert not win.findChildren(QMessageBox)
+    assert win.statusBar().currentMessage().startswith(
+        "Drucker hat nach dem Senden nicht geantwortet."
+    )
     win.close()
     qapp.processEvents()
 

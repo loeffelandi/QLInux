@@ -341,10 +341,12 @@ EN: dict[str, str] = {
     "Wartung überfällig": "Maintenance overdue",
     "Drucker meldet einen Fehler": "Printer reports an error",
     "Der Drucker meldet:\n{errors}\n\nBand, Klappe und Papier prüfen und danach erneut drucken.": "The printer reports:\n{errors}\n\nCheck tape, cover and paper, then print again.",
-    "Drucker meldet eine Störung": "Printer reports a fault",
+    "Störung, z. B. falsches Band": "Fault, e.g. wrong tape",
     "Drucker meldet: {errors}": "Printer reports: {errors}",
     "Hinweis vom Drucker: {texts}": "Note from the printer: {texts}",
-    "Drucker antwortet nach dem Senden nicht": "Printer does not respond after sending",
+    "Drucker hat nach dem Senden nicht geantwortet. Etikett prüfen, bevor du neu druckst.": (
+        "The printer did not answer after sending. Check the label before you print again."
+    ),
     "Band prüfen": "Check tape",
     "Gewählt: {selected}\nLaut QLInux eingelegt: {loaded}\n\nStimmt das nicht, bricht der Drucker mit einem Fehler ab.": "Selected: {selected}\nLoaded according to QLInux: {loaded}\n\nIf that is wrong, the printer stops with an error.",
     "Als eingelegt merken und drucken": "Remember as loaded and print",
@@ -693,6 +695,7 @@ EN: dict[str, str] = {
     "Schließen": "Close",
     "Gedruckt": "Printed",
     "An Drucker gesendet": "Sent to printer",
+    "Gesendet, keine Statusantwort": "Sent, no status reply",
     "Drucker meldet einen Fehler": "Printer reports an error",
     "Nicht gesendet": "Not sent",
     "Auflösung": "Resolution",

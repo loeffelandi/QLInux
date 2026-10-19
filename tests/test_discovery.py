@@ -313,7 +313,7 @@ def test_network_printer_status_flags_a_down_device_without_error_bits(monkeypat
     _printer_answers(monkeypatch, (_BITS, 0x04, b"\x00\x00"), (_DEVICE, 0x02, b"\x05"))
     status = discovery.network_printer_status(_PRINTER)
     assert status == discovery.NetworkStatus(
-        fault=True, texts=("Drucker meldet eine Störung",)
+        fault=True, texts=("Störung, z. B. falsches Band",)
     )
 
 
@@ -365,15 +365,19 @@ def test_confirm_network_job_marks_an_error_after_sending(monkeypatch):
     assert status == {"outcome": "error", "errors": ["Papierstau"]}
 
 
-def test_confirm_network_job_keeps_sent_without_error(monkeypatch):
+def test_confirm_network_job_confirms_a_clean_job(monkeypatch):
     printer = discovery.NetworkStatus(fault=False)
-    assert _status_after_job(monkeypatch, printer, snmp_answered=True) == {"outcome": "sent"}
+    assert _status_after_job(monkeypatch, printer, snmp_answered=True) == {
+        "outcome": "sent",
+        "snmp_ok": True,
+        "warnings": [],
+    }
 
 
 def test_confirm_network_job_keeps_sent_with_a_warning(monkeypatch):
     printer = discovery.NetworkStatus(fault=False, texts=("Papier wird knapp",))
     status = _status_after_job(monkeypatch, printer, snmp_answered=True)
-    assert status["outcome"] == "sent"
+    assert status == {"outcome": "sent", "snmp_ok": True, "warnings": ["Papier wird knapp"]}
 
 
 def test_confirm_network_job_skips_usb(monkeypatch):
@@ -389,18 +393,62 @@ def test_confirm_network_job_skips_usb(monkeypatch):
     }
 
 
-def test_confirm_network_job_treats_silence_after_sending_as_error(monkeypatch):
-    """Antwortete der Drucker vor dem Druck per SNMP, ist Stille danach ein Fehler."""
-    status = _status_after_job(monkeypatch, None, snmp_answered=True)
-    assert status == {
-        "outcome": "error",
-        "errors": ["Drucker antwortet nach dem Senden nicht"],
-    }
+def test_confirm_network_job_reports_silence_as_unconfirmed(monkeypatch):
+    """Stille nach dem Senden ist kein Fehler: der Auftrag kann gedruckt sein."""
+    asked = []
+
+    def silent(address, **kwargs):
+        asked.append(kwargs.get("attempts"))
+        return None
+
+    monkeypatch.setattr(discovery.time, "sleep", lambda seconds: None)
+    monkeypatch.setattr(discovery, "network_printer_status", silent)
+    config = discovery.PrinterConfig(address=_PRINTER)
+    status = discovery.confirm_network_job(config, {"outcome": "sent"}, snmp_answered=True)
+    assert status == {"outcome": "unconfirmed"}
+    assert asked == [discovery.NETWORK_CHECK_ATTEMPTS]
 
 
-def test_confirm_network_job_without_snmp_never_hard_stops(monkeypatch):
-    """Ohne SNMP vor dem Druck gibt es keine Stille-Pruefung: nur "gesendet"."""
-    assert _status_after_job(monkeypatch, None) == {"outcome": "sent"}
+def test_confirm_network_job_without_snmp_neither_waits_nor_asks(monkeypatch):
+    """Ohne SNMP-Antwort vor dem Druck ist der Auftrag sofort fertig: "gesendet"."""
+
+    def fail(*args, **kwargs):
+        raise AssertionError("ohne SNMP weder warten noch fragen")
+
+    monkeypatch.setattr(discovery.time, "sleep", fail)
+    monkeypatch.setattr(discovery, "network_printer_status", fail)
+    config = discovery.PrinterConfig(address=_PRINTER)
+    assert discovery.confirm_network_job(config, {"outcome": "sent"}) == {"outcome": "sent"}
+
+
+class _LossySocket(_AnswerSocket):
+    """Verliert die ersten ``losses`` Antworten (WLAN)."""
+
+    def __init__(self, answer: bytes, losses: int):
+        super().__init__(answer)
+        self.losses = losses
+        self.sent = 0
+
+    def sendto(self, *args):
+        self.sent += 1
+
+    def recvfrom(self, size):
+        if self.sent <= self.losses:
+            import socket as socket_module
+
+            raise socket_module.timeout()
+        return super().recvfrom(size)
+
+
+def test_network_printer_status_asks_again_after_a_lost_packet(monkeypatch):
+    sock = _LossySocket(_snmp_answer((_DEVICE, 0x02, b"\x02")), losses=1)
+    monkeypatch.setattr(discovery, "_udp_socket", lambda: sock)
+    assert discovery.network_printer_status(_PRINTER, attempts=1) is None
+    sock.sent = 0
+    assert discovery.network_printer_status(_PRINTER, attempts=2) == discovery.NetworkStatus(
+        fault=False
+    )
+    assert sock.sent == 2
 
 
 def test_confirm_network_job_skips_the_check_when_cancelled(monkeypatch):

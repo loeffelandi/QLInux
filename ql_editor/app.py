@@ -101,6 +101,7 @@ from .command_palette import CommandPalette, PaletteEntry
 from .csv_source import CsvTable
 from .database_panel import DatabasePanel
 from .discovery import (
+    NETWORK_PROBE_ATTEMPTS,
     confirm_network_job,
     discover_network_printers,
     network_printer_status,
@@ -267,7 +268,12 @@ class PrintWorker(QThread):
     def run(self) -> None:  # noqa: D401
         snmp_answered = self._snmp_answered
         if snmp_answered is None and self._config.backend == "network":
-            snmp_answered = network_printer_status(self._config.address) is not None
+            snmp_answered = (
+                network_printer_status(
+                    self._config.address, attempts=NETWORK_PROBE_ATTEMPTS
+                )
+                is not None
+            )
         try:
             if len(self._images) == 1:
                 status = print_image(
@@ -3884,6 +3890,20 @@ class MainWindow(QMainWindow):
             ),
             8000,
         )
+        warnings = status.get("warnings") or ()
+        if outcome == "unconfirmed":
+            self.statusBar().showMessage(
+                tr(
+                    "Drucker hat nach dem Senden nicht geantwortet. "
+                    "Etikett prüfen, bevor du neu druckst."
+                ),
+                10000,
+            )
+        elif warnings:
+            self.statusBar().showMessage(
+                tr("Hinweis vom Drucker: {texts}").format(texts=", ".join(warnings)),
+                10000,
+            )
         if outcome == "error":
             errors = "\n".join(f"• {text}" for text in status.get("errors", ()))
             show_message(
@@ -3896,7 +3916,8 @@ class MainWindow(QMainWindow):
                 ).format(errors=errors),
             )
         # USB meldet "printed", das Netzwerk "sent", sobald der Auftrag weg ist.
-        if outcome not in ("error", "failed"):
+        # Ohne Statusantwort bleibt das Sheet offen: erst pruefen, dann neu drucken.
+        if outcome not in ("error", "failed", "unconfirmed"):
             self._close_print_sheet()
 
     def _on_print_failed(self, message: str) -> None:
