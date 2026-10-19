@@ -70,15 +70,24 @@ The model list even appears in the app: *menu → About QLInux*.
 
 ## Install
 
-**Ready to run (AppImage):** download the latest
-[`QLInux-*.x86_64.AppImage`](https://github.com/loeffelandi/QLInux/releases/latest)
+**Ready to run (AppImage):** download the latest build for your machine from
+[Releases](https://github.com/loeffelandi/QLInux/releases/latest)
 (≈ 68 MB, the Qt runtime is included), make it executable and start it — no
 installation, no root:
 
 ```bash
+# x86_64
 chmod +x QLInux-*-x86_64.AppImage
 ./QLInux-*-x86_64.AppImage
+
+# aarch64 (64-bit ARM: Raspberry Pi OS 64-bit, Ubuntu/Debian arm64, …)
+chmod +x QLInux-*-aarch64.AppImage
+./QLInux-*-aarch64.AppImage
 ```
+
+The aarch64 AppImage needs **glibc 2.39 or newer** (Ubuntu 24.04, Debian 13 /
+Raspberry Pi OS Trixie). Older systems such as Raspberry Pi OS Bookworm do not
+start it.
 
 **From source:**
 
@@ -90,24 +99,32 @@ bash scripts/bootstrap_venv.sh     # creates .venv, installs pinned deps,
 .venv/bin/python -m ql_editor
 ```
 
-Releases carry a **single-file AppImage** — build it yourself with one command
-(no installation, no root). A `.deb` is deliberately not planned: PySide6 and
-`python-barcode` are not in the distribution archives, so a package would have
-to carry the whole Qt runtime anyway; the AppImage does exactly that, just
-without root.
+Releases carry a **single-file AppImage** per architecture — build it yourself
+with one command (no installation, no root). A `.deb` is deliberately not
+planned: PySide6 and `python-barcode` are not in the distribution archives, so
+a package would have to carry the whole Qt runtime anyway; the AppImage does
+exactly that, just without root.
 
 ## AppImage
 
 ```bash
-bash packaging/build_appimage.sh      # builds dist/QLInux-<version>-x86_64.AppImage
-./dist/QLInux-*-x86_64.AppImage       # start it
+bash packaging/build_appimage.sh      # builds dist/QLInux-<version>-<arch>.AppImage
+./dist/QLInux-*-$(uname -m | sed 's/arm64/aarch64/').AppImage
 ```
+
+The script takes the architecture from the build machine (`x86_64` or
+`aarch64`). A published GitHub release builds both files in
+[`.github/workflows/appimage.yml`](.github/workflows/appimage.yml) and attaches
+them together.
 
 The build uses PyInstaller (`requirements-dev.txt`) and fetches `appimagetool`
 once into `packaging/.cache/` (not in the repository). What is bundled: the
-application plus its Python dependencies, including the Qt runtime. Excluded is
-what the app never uses — QtWebEngine, QML/Quick, Multimedia, SQL, Charts —
-otherwise the file would be several hundred megabytes larger.
+application plus its Python dependencies, including the Qt runtime and the XCB
+helpers Qt needs to open a window. Those helpers must be installed on the
+**build** machine (e.g. `libxcb-cursor0`); otherwise PyInstaller omits them and
+the AppImage exits without a GUI. Excluded is what the app never uses —
+QtWebEngine, QML/Quick, Multimedia, SQL, Charts — otherwise the file would be
+several hundred megabytes larger.
 
 The icon comes from `packaging/make_icon.py`, the desktop entry from
 `packaging/ql-editor.desktop`: both are plain files in the repository, not
@@ -243,7 +260,8 @@ python scripts/verify_api.py            # documents the real brother_ql API
 ```
 
 The same suite runs on every push and pull request
-([`.github/workflows/tests.yml`](.github/workflows/tests.yml), Python 3.12 on Ubuntu).
+([`.github/workflows/tests.yml`](.github/workflows/tests.yml), Python 3.12 on
+Ubuntu x86_64 and aarch64).
 
 The tests run headless: `tests/conftest.py` forces the Qt *offscreen* platform
 and redirects `XDG_CONFIG_HOME` to a temporary directory, so a test run never

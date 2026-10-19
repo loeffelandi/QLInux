@@ -5,12 +5,38 @@
 #   packaging/build_appimage.sh
 #
 # Ablauf: PyInstaller-Bundle -> AppDir (Programm + Desktop-Datei + Symbol)
-# -> appimagetool -> dist/QLInux-<version>-x86_64.AppImage.
+# -> appimagetool -> dist/QLInux-<version>-<arch>.AppImage.
 #
-# appimagetool wird einmalig nach packaging/.cache/ geladen (nicht im Repo).
-# Es braucht FUSE nur zum *Start*: hier laeuft es mit
-# --appimage-extract-and-run, damit auch Rechner ohne FUSE bauen koennen.
+# Die Architektur kommt von uname -m (x86_64 oder aarch64). appimagetool
+# wird einmalig nach packaging/.cache/ geladen (nicht im Repo). Es braucht
+# FUSE nur zum *Start*: hier laeuft es mit --appimage-extract-and-run,
+# damit auch Rechner ohne FUSE bauen koennen.
+#
+# Build-Host braucht die Qt/XCB-Systemlibs (u. a. libxcb-cursor0,
+# libxkbcommon-x11-0, libxcb-icccm4, …). PyInstaller packt nur, was es
+# finden kann - fehlen sie, startet das AppImage ohne xcb-Plugin.
 set -euo pipefail
+
+_missing=()
+for _lib in \
+    libxcb-cursor.so.0 \
+    libxkbcommon-x11.so.0 \
+    libxcb-icccm.so.4 \
+    libxcb-image.so.0 \
+    libxcb-keysyms.so.1 \
+    libxcb-render-util.so.0 \
+    libxcb-xkb.so.1
+do
+    if ! ldconfig -p 2>/dev/null | grep -q "$_lib"; then
+        _missing+=("$_lib")
+    fi
+done
+if [ "${#_missing[@]}" -gt 0 ]; then
+    echo "Fehlende Build-Libs (werden sonst nicht ins AppImage gepackt): ${_missing[*]}" >&2
+    echo "Debian/Ubuntu: sudo apt install libxcb-cursor0 libxkbcommon-x11-0 libxcb-icccm4 libxcb-image0 libxcb-keysyms1 libxcb-render-util0 libxcb-xkb1" >&2
+    exit 1
+fi
+unset _missing _lib
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 PY="$ROOT/.venv/bin/python"
@@ -18,9 +44,19 @@ OUT="$ROOT/packaging/out"
 CACHE="$ROOT/packaging/.cache"
 APPDIR="$OUT/AppDir"
 VERSION="$("$PY" -c 'import ql_editor; print(ql_editor.__version__)')"
-APPIMAGE="$ROOT/dist/QLInux-${VERSION}-x86_64.AppImage"
 
-echo "==> Version $VERSION"
+case "$(uname -m)" in
+    x86_64) ARCH=x86_64 ;;
+    aarch64|arm64) ARCH=aarch64 ;;
+    *)
+        echo "Nicht unterstuetzte Architektur: $(uname -m) (erwartet: x86_64 oder aarch64)" >&2
+        exit 1
+        ;;
+esac
+
+APPIMAGE="$ROOT/dist/QLInux-${VERSION}-${ARCH}.AppImage"
+
+echo "==> Version $VERSION ($ARCH)"
 
 echo "==> App-Symbol"
 "$PY" "$ROOT/packaging/make_icon.py"
@@ -66,20 +102,30 @@ done
 
 echo "==> appimagetool"
 mkdir -p "$CACHE"
-TOOL="$CACHE/appimagetool-x86_64.AppImage"
+TOOL="$CACHE/appimagetool-${ARCH}.AppImage"
 if [ ! -x "$TOOL" ]; then
     curl -fsSL -o "$TOOL" \
-        https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-x86_64.AppImage
+        "https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-${ARCH}.AppImage"
     chmod +x "$TOOL"
 fi
 
 echo "==> AppImage"
 mkdir -p "$ROOT/dist"
 # Update-Info fuer GearLever: neueste GitHub-Release, .zsync-Datei daneben.
-UPDATE_INFO="gh-releases-zsync|loeffelandi|QLInux|latest|QLInux-*-x86_64.AppImage.zsync"
-ARCH=x86_64 "$TOOL" --appimage-extract-and-run -u "$UPDATE_INFO" "$APPDIR" "$APPIMAGE"
-# appimagetool legt die .zsync im Home-Verzeichnis ab, nicht neben dem AppImage.
-mv -f "$HOME/$(basename "$APPIMAGE").zsync" "$ROOT/dist/"
+UPDATE_INFO="gh-releases-zsync|loeffelandi|QLInux|latest|QLInux-*-${ARCH}.AppImage.zsync"
+ARCH="$ARCH" "$TOOL" --appimage-extract-and-run -u "$UPDATE_INFO" "$APPDIR" "$APPIMAGE"
+# appimagetool schreibt die .zsync je nach Version ins Home, ins CWD oder
+# neben das AppImage - danach soll sie neben der Datei in dist/ liegen.
+ZSYNC_NAME="$(basename "$APPIMAGE").zsync"
+for candidate in "$HOME/$ZSYNC_NAME" "$ROOT/$ZSYNC_NAME" "$ROOT/dist/$ZSYNC_NAME"; do
+    if [ -f "$candidate" ] && [ "$candidate" != "$ROOT/dist/$ZSYNC_NAME" ]; then
+        mv -f "$candidate" "$ROOT/dist/$ZSYNC_NAME"
+        break
+    fi
+done
+if [ ! -f "$ROOT/dist/$ZSYNC_NAME" ]; then
+    echo "Warnung: $ZSYNC_NAME nicht gefunden" >&2
+fi
 
 echo
 echo "fertig: $APPIMAGE ($(du -h "$APPIMAGE" | cut -f1))"
