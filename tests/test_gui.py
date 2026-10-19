@@ -6239,23 +6239,33 @@ def test_a_broken_file_does_not_open_another_tab(qapp, tmp_path):
 
 
 def test_cancelling_a_tab_close_keeps_the_label(qapp, tmp_path):
+    """Abbrechen behält den Reiter, und Schließen lässt sich danach noch drücken."""
+    from PySide6.QtCore import Qt
+    from PySide6.QtTest import QTest
+
     from ql_editor.items import TextItem
 
     win = _temp_window(qapp, tmp_path)
     win._add_item(TextItem("Bleibt", font_pixel_size=20))
-    win._on_close_current_tab()
+    button = win._tab_bar.tabButton(0, win._tab_bar.ButtonPosition.RightSide)
+    QTest.mouseClick(button, Qt.MouseButton.LeftButton)
     qapp.processEvents()
     _sheet_button(win, "Abbrechen").click()
     qapp.processEvents()
     assert win._tab_bar.count() == 1
     assert [item["text"] for item in win._canvas.items_serialized()] == ["Bleibt"]
     assert win.isVisible()
-    win._accept_close = True
-    win.close()
+    assert button.isEnabled() and not button.isDown()
+
+    QTest.mouseClick(button, Qt.MouseButton.LeftButton)
     qapp.processEvents()
+    _sheet_button(win, "Verwerfen").click()
+    qapp.processEvents()
+    assert not win.isVisible()
 
 
-def test_discarding_the_last_tab_leaves_a_blank_label(qapp, tmp_path):
+def test_discarding_the_last_tab_quits(qapp, tmp_path):
+    """Verwerfen am letzten Reiter beendet die App, ohne einen zweiten Klick."""
     from ql_editor.items import TextItem
 
     win = _temp_window(qapp, tmp_path)
@@ -6264,10 +6274,72 @@ def test_discarding_the_last_tab_leaves_a_blank_label(qapp, tmp_path):
     qapp.processEvents()
     _sheet_button(win, "Verwerfen").click()
     qapp.processEvents()
+    assert not win.isVisible()
+
+
+def test_a_stuck_close_prompt_asks_again(qapp, tmp_path):
+    """Ohne sichtbares Sheet darf das Schließen-Flag den nächsten Versuch nicht schlucken."""
+    from ql_editor.items import TextItem
+
+    win = _temp_window(qapp, tmp_path)
+    win._add_item(TextItem("Weg", font_pixel_size=20))
+    win._close_prompt = True
+    win.close()
+    qapp.processEvents()
+    assert win.isVisible()
+    _sheet_button(win, "Verwerfen").click()
+    qapp.processEvents()
+    assert not win.isVisible()
+
+
+def test_removing_the_last_tab_quits_without_asking_again(qapp, tmp_path):
+    """Ist der Reiter schon zum Schließen freigegeben, kommt keine zweite Frage."""
+    from ql_editor.items import TextItem
+
+    win = _temp_window(qapp, tmp_path)
+    win._add_item(TextItem("Weg", font_pixel_size=20))
+    win._remove_tab(win._active)
+    qapp.processEvents()
+    assert not win.isVisible()
+
+
+def test_a_help_sheet_does_not_swallow_close(qapp, tmp_path):
+    """Hilfe ist kein Speicher-Sheet: ein hängendes Flag fragt trotzdem noch."""
+    from ql_editor.items import TextItem
+
+    win = _temp_window(qapp, tmp_path)
+    win._add_item(TextItem("Weg", font_pixel_size=20))
+    win._show_help()
+    qapp.processEvents()
+    win._close_prompt = True
+    win.close()
+    qapp.processEvents()
+    assert win.isVisible()
+    _sheet_button(win, "Verwerfen").click()
+    qapp.processEvents()
+    assert not win.isVisible()
+
+
+def test_closing_a_clean_last_tab_quits(qapp, tmp_path):
+    win = _temp_window(qapp, tmp_path)
     assert win._tab_bar.count() == 1
-    assert win._canvas.items_serialized() == []
-    assert win._document_path == ""
-    assert win._is_document_dirty() is False
+    win._on_close_current_tab()
+    qapp.processEvents()
+    assert not win.isVisible()
+
+
+def test_closing_one_of_several_tabs_keeps_the_window(qapp, tmp_path):
+    from ql_editor.items import TextItem
+
+    win = _temp_window(qapp, tmp_path)
+    win._add_item(TextItem("Bleibt", font_pixel_size=20))
+    win._on_file_new()
+    win._on_close_current_tab()
+    qapp.processEvents()
+    assert win.isVisible()
+    assert win._tab_bar.count() == 1
+    assert [item["text"] for item in win._canvas.items_serialized()] == ["Bleibt"]
+    win._accept_close = True
     win.close()
     qapp.processEvents()
 

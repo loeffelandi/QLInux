@@ -154,6 +154,7 @@ from .printer import (
 )
 from .settings import AppSettings
 from .sheet import (
+    Sheet,
     ask_choice,
     ask_label_printer,
     ask_save,
@@ -526,6 +527,8 @@ class MainWindow(QMainWindow):
         #: Sprachwechsel übernimmt das Etikett - dabei nicht nach dem Speichern fragen.
         self._accept_close = False
         self._close_prompt = False
+        #: Sheet der Fenster-Rückfrage. Hilfe und andere Sheets zählen nicht.
+        self._close_sheet: Sheet | None = None
         #: CSV-/Hash-Status nach Open zuletzt anzeigen (nicht von „geöffnet“ überdecken).
         self._pending_database_status: str | None = None
         # Von/Bis, wie der Nutzer sie gesetzt hat. Eine kürzere CSV klemmt nur
@@ -4295,6 +4298,10 @@ class MainWindow(QMainWindow):
             self._request_close_tab(self._tab_at(index))
 
     def _request_close_tab(self, tab: LabelTab) -> None:
+        """Letzter Reiter beendet die App, sonst fällt nur dieser Reiter weg."""
+        if len(self._ordered_tabs()) <= 1:
+            self.close()
+            return
         if not tab.is_dirty():
             self._remove_tab(tab)
             return
@@ -4305,7 +4312,7 @@ class MainWindow(QMainWindow):
 
         self._ask_about_tab(tab, on_save=_saved, on_discard=_saved, on_cancel=lambda: None)
 
-    def _ask_about_tab(self, tab: LabelTab, *, on_save, on_discard, on_cancel) -> None:
+    def _ask_about_tab(self, tab: LabelTab, *, on_save, on_discard, on_cancel) -> Sheet:
         name = Path(tab.path).name if tab.path else tr("Unbenannt")
 
         def _chosen(choice: str) -> None:
@@ -4317,7 +4324,7 @@ class MainWindow(QMainWindow):
             else:
                 on_cancel()
 
-        ask_save(
+        return ask_save(
             self,
             title=tr("Etikett schließen"),
             text=tr("Änderungen an „{name}“ speichern?").format(name=name),
@@ -4327,7 +4334,11 @@ class MainWindow(QMainWindow):
     def _remove_tab(self, tab: LabelTab) -> None:
         ordered = self._ordered_tabs()
         if len(ordered) <= 1:
-            self._blank_tab(tab)
+            # Weg damit ist schon entschieden (sauber, gespeichert, verworfen).
+            self._close_prompt = False
+            self._close_sheet = None
+            self._accept_close = True
+            self.close()
             return
         index = self._index_of(tab)
         was_active = tab is self._active
@@ -4351,7 +4362,7 @@ class MainWindow(QMainWindow):
             self._update_window_title()
 
     def _blank_tab(self, tab: LabelTab) -> None:
-        """Letzten Reiter leeren, statt das Fenster zu schließen."""
+        """Reiter leeren, ohne ihn zu entfernen und ohne das Fenster zu schließen."""
         self._show_tab(tab)
         self._adjusting = True
         self._history_suppress = True
@@ -4387,6 +4398,7 @@ class MainWindow(QMainWindow):
         pending = [tab for tab in tabs if tab.is_dirty()]
         if not pending:
             self._close_prompt = False
+            self._close_sheet = None
             self._accept_close = True
             self.close()
             return
@@ -4394,12 +4406,15 @@ class MainWindow(QMainWindow):
 
         def _cancel() -> None:
             self._close_prompt = False
+            self._close_sheet = None
 
         def _continue() -> None:
             self._prompt_close(pending[1:])
 
         self._show_tab(tab)
-        self._ask_about_tab(tab, on_save=_continue, on_discard=_continue, on_cancel=_cancel)
+        self._close_sheet = self._ask_about_tab(
+            tab, on_save=_continue, on_discard=_continue, on_cancel=_cancel
+        )
 
     # ------------------------------------------------------------- Dateien --
     def _document_data(self, *, relative_to: str | None = None) -> dict:
@@ -5044,14 +5059,27 @@ class MainWindow(QMainWindow):
             _orphan_workers.append(worker)
             worker.finished.connect(lambda worker=worker: _forget_orphan(worker))
 
+    def _close_sheet_open(self) -> bool:
+        """True, solange die Speicher-Rückfrage dieses Schließens sichtbar ist."""
+        sheet = self._close_sheet
+        if sheet is None:
+            return False
+        try:
+            return sheet.isVisible()
+        except RuntimeError:
+            return False
+
     def closeEvent(self, event) -> None:  # noqa: N802
         if not self._accept_close and self.isVisible():
             dirty = [tab for tab in self._ordered_tabs() if tab.is_dirty()]
             if dirty:
                 event.ignore()
-                if not self._close_prompt:
-                    self._close_prompt = True
-                    self._prompt_close(dirty)
+                # Hängendes Flag ohne diese Rückfrage würde „Schließen“
+                # schlucken. Sichtbare Rückfrage: nicht noch einmal fragen.
+                if self._close_prompt and self._close_sheet_open():
+                    return
+                self._close_prompt = True
+                self._prompt_close(dirty)
                 return
         self._finish_close(event)
 
