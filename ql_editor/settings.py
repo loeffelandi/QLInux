@@ -15,6 +15,7 @@ from PySide6.QtCore import QByteArray, QSettings
 from .media import DEFAULT_MODEL
 from .preview import DEFAULT_THRESHOLD
 from .merge import PRINT_SCOPES, PRINT_SELECTED
+from .stationery import DEFAULT_PART, OFFSET_MM_MAX
 from .printer import (
     COPIES_MAX,
     CUT_EACH,
@@ -262,6 +263,71 @@ class AppSettings:
     @record_to.setter
     def record_to(self, value: int) -> None:
         self.set_value("print/record_to", max(1, int(value)))
+
+    @property
+    def sheet_output(self) -> bool:
+        """Etikettenbogen statt Brother-QL."""
+        return self._as_bool(self.value("print/sheet", None), False)
+
+    @sheet_output.setter
+    def sheet_output(self, value: bool) -> None:
+        self.set_value("print/sheet", bool(value))
+
+    @property
+    def sheet_part(self) -> str:
+        """Zweckform-Teilenummer, zum Beispiel ``3475``."""
+        value = str(self.value("print/sheet_part", "") or "")
+        return value or DEFAULT_PART
+
+    @sheet_part.setter
+    def sheet_part(self, value: str) -> None:
+        self.set_value("print/sheet_part", str(value))
+
+    @property
+    def sheet_start(self) -> int:
+        """Erstes belegtes Feld auf dem ersten Bogen, 1-basiert."""
+        return max(1, self._as_int(self.value("print/sheet_start", None), 1))
+
+    @sheet_start.setter
+    def sheet_start(self, value: int) -> None:
+        self.set_value("print/sheet_start", max(1, int(value)))
+
+    @property
+    def sheet_offset_x(self) -> float:
+        """Versatz des ganzen Bogens nach rechts, Millimeter."""
+        return self._clamp_offset(self.value("print/sheet_offset_x", None))
+
+    @sheet_offset_x.setter
+    def sheet_offset_x(self, value: float) -> None:
+        self.set_value("print/sheet_offset_x", self._clamp_offset(value))
+
+    @property
+    def sheet_offset_y(self) -> float:
+        """Versatz des ganzen Bogens nach unten, Millimeter."""
+        return self._clamp_offset(self.value("print/sheet_offset_y", None))
+
+    @sheet_offset_y.setter
+    def sheet_offset_y(self, value: float) -> None:
+        self.set_value("print/sheet_offset_y", self._clamp_offset(value))
+
+    @property
+    def sheet_printer(self) -> str:
+        """Zuletzt gewählter Systemdrucker für Bögen."""
+        return str(self.value("print/sheet_printer", "") or "")
+
+    @sheet_printer.setter
+    def sheet_printer(self, value: str) -> None:
+        self.set_value("print/sheet_printer", str(value))
+
+    @staticmethod
+    def _as_float(value, default: float) -> float:
+        try:
+            return float(value)
+        except (TypeError, ValueError):
+            return default
+
+    def _clamp_offset(self, value) -> float:
+        return min(OFFSET_MM_MAX, max(-OFFSET_MM_MAX, self._as_float(value, 0.0)))
 
     # -- Sprache ------------------------------------------------------------
     @property

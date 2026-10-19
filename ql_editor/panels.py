@@ -123,6 +123,12 @@ class OverlayPanel(QWidget):
     def title(self) -> str:
         return self._title
 
+    def set_title(self, title: str) -> None:
+        """Streifenbeschriftung, z. B. Band oder Etikettenbogen."""
+        self._title = title
+        self._update_button()
+        self.update()
+
     @property
     def content(self) -> QWidget:
         return self._content

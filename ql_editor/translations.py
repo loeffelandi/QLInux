@@ -69,10 +69,12 @@ EN: dict[str, str] = {
     "Beenden (Strg+Q)": "Quit (Ctrl+Q)",
     "Über QLInux": "About QLInux",
     "Hilfe": "Help",
-    "Links wählst du Drucker und Band. Das Etikett liegt in der Mitte, die Eigenschaften des Markierten rechts, zusammen mit dem Druck. Esc schließt diese Hilfe.": (
-        "On the left you pick the printer and the tape. The label sits in the "
-        "middle, and the properties of whatever is selected sit on the right, "
-        "together with printing. Esc closes this help."
+    "Links wählst du das Ziel: Brother QL mit Drucker und Band, oder einen Avery-Zweckform-Bogen mit Vorlage, Versatz und Systemdrucker. Das Etikett liegt in der Mitte, die Eigenschaften des Markierten rechts, zusammen mit dem Druck. Esc schließt diese Hilfe.": (
+        "On the left you pick the target: a Brother QL with its printer and "
+        "tape, or an Avery Zweckform sheet with the product, offset and system "
+        "printer. The label sits in the middle, and the properties of whatever "
+        "is selected sit on the right, together with printing. Esc closes this "
+        "help."
     ),
     "Auf dem Etikett": "On the label",
     "Doppelklick auf die freie Fläche setzt ein Textfeld. Ein Objekt ziehst du mit der Maus. Die Pfeiltasten schieben es um einen Punkt, mit gehaltener Umschalttaste um zehn. Esc beendet das Schreiben im Feld und hebt die Auswahl auf.": (
@@ -80,9 +82,11 @@ EN: dict[str, str] = {
         "move it. The arrow keys nudge it by one dot, and holding Shift moves "
         "it by ten. Esc stops typing in a field and clears the selection."
     ),
-    "Die Druckvorschau zeigt die Punkte, so wie der Drucker sie setzt. Esc bringt die normale Ansicht zurück.": (
+    "Die Druckvorschau zeigt die Punkte, so wie der Drucker sie setzt. Bei einem Etikettenbogen zeigt sie das Raster; Belegt nennt die gefüllten Felder, PDF speichert den Bogen in Originalgröße. Esc bringt die normale Ansicht zurück.": (
         "Print preview shows the dots the way the printer lays them down. "
-        "Esc brings the normal view back."
+        "For a label sheet it shows the grid; Filled names the cells the job "
+        "uses, and PDF saves the sheet at actual size. Esc brings the normal "
+        "view back."
     ),
     "Mit der Maus": "With the pointer",
     "Strg und das Mausrad zoomen, Umschalt und das Mausrad schieben seitlich. Strg+Klick nimmt ein Objekt zur Auswahl dazu oder wieder weg. Strg gedrückt halten und ein markiertes Objekt ziehen lässt das Original liegen und bewegt die Kopie. In einer Tabelle markiert Umschalt+Klick mehrere Zellen, Tab und Umschalt+Tab gehen zur nächsten. In der Datenbank-Tabelle nimmt Strg+Klick eine Zeile dazu oder weg, Umschalt+Klick wählt einen Bereich. Beim Drehen rastet der Winkel auf 90 Grad, mit gehaltener Umschalttaste in Schritten von 15 Grad.": (
@@ -176,6 +180,8 @@ EN: dict[str, str] = {
     "QR-Codes": "QR codes",
     "Thorsten Weimann und Mitwirkende": "Thorsten Weimann and contributors",
     "Barcodes": "Barcodes",
+    "Jim Evins und Mitwirkende": "Jim Evins and contributors",
+    "Avery-Zweckform-Bogenmaße": "Avery Zweckform sheet measurements",
     "Entwickelt von": "Developed by",
     "Quelltext und Fehler melden": "Source code and bug reports",
     "Version": "Version",
@@ -976,4 +982,94 @@ EN: dict[str, str] = {
     "CSV-Inhalt hat sich geändert (Hash weicht ab).": (
         "CSV content has changed (hash mismatch)."
     ),
+    # -- Etikettenbogen (Avery Zweckform) -----------------------------------
+    "PDF gespeichert": "PDF saved",
+    "Avery Zweckform": "Avery Zweckform",
+    "Jeder Datensatz füllt ein Etikett, von links nach rechts. Kopien wiederholen denselben Datensatz. Das erste Etikett lässt schon benutzte Felder auf dem Bogen frei.": (
+        "Each record fills one label, left to right. Copies repeat the same "
+        "record. The first label skips fields already used on the sheet."
+    ),
+    "{part} · {width} × {height} mm · {count} pro Bogen": (
+        "{part} · {width} × {height} mm · {count} per sheet"
+    ),
+    "Feld 1 ist links oben. Höhere Zahlen überspringen benutzte Felder.": (
+        "Field 1 is the top left. Higher numbers skip fields already used."
+    ),
+    "Schiebt den ganzen Bogen nach rechts, in Millimetern.": (
+        "Nudges the whole sheet to the right, in millimetres."
+    ),
+    "Schiebt den ganzen Bogen nach unten, in Millimetern.": (
+        "Nudges the whole sheet down, in millimetres."
+    ),
+    "PDF speichern…": "Save PDF…",
+    "Vorlage": "Template",
+    "Erstes Etikett": "First label",
+    "Versatz rechts": "Offset right",
+    "Versatz unten": "Offset down",
+    "Systemdrucker": "System printer",
+    "Ziel": "Target",
+    "Brother QL": "Brother QL",
+    "Etikettenbogen": "Label sheet",
+    "Bogen an den Systemdrucker senden": "Send the sheet to the system printer",
+    "Brother QL druckt das Band. Etikettenbogen legt dieselben Datensätze auf einen Avery-Zweckform-Bogen.": (
+        "Brother QL prints the tape. Label sheet lays the same records onto "
+        "an Avery Zweckform sheet."
+    ),
+    "Adressetiketten": "Address labels",
+    "Universaletiketten": "Multipurpose labels",
+    "Rechteckige Etiketten": "Rectangular labels",
+    "Ordnerrücken": "Lever arch file labels",
+    "CD/DVD-Etiketten": "CD/DVD labels",
+    "Videokassetten-Rücken": "Video tape spine labels",
+    "Korrekturetiketten": "Correction labels",
+    "CD/DVD-Booklet": "CD/DVD booklet",
+    "CD/DVD-Einleger": "CD/DVD insert",
+    "Visitenkarten": "Business cards",
+    "Kein Drucker gefunden": "No printer found",
+    "Unlesbares Maß: {value}.": "Unreadable measurement: {value}.",
+    "Unbekannte Einheit: {unit}.": "Unknown unit: {unit}.",
+    "Unbekannte Vorlage: {part}.": "Unknown template: {part}.",
+    "Keine Etiketten für den Bogen.": "No labels for the sheet.",
+    "Erstes Etikett muss zwischen 1 und {count} liegen.": (
+        "The first label must be between 1 and {count}."
+    ),
+    "Höchstens {max} Etiketten pro Bogenauftrag.": (
+        "At most {max} labels per sheet job."
+    ),
+    "Vorlagendatei fehlt.": "Template file is missing.",
+    "Vorlage {part} verweist auf unbekannte {equiv}.": (
+        "Template {part} points at unknown {equiv}."
+    ),
+    "Unbekanntes Papierformat: {size}.": "Unknown paper size: {size}.",
+    "Vorlage {part} hat kein Raster.": "Template {part} has no grid.",
+    "PDF konnte nicht geschrieben werden.": "Could not write the PDF.",
+    "Der Drucker hat den Auftrag nicht angenommen.": (
+        "The printer did not accept the job."
+    ),
+    "Belegt": "Filled",
+    "Vorschau: Bogen {page} von {count}": "Preview: sheet {page} of {count}",
+    "Bogen wird aufgebaut…": "Building the sheet…",
+    "Zweckform {part} · {count} Etikett": "Zweckform {part} · {count} label",
+    "Zweckform {part} · {count} Etiketten": "Zweckform {part} · {count} labels",
+    "{filled} von {capacity} Etiketten belegt": (
+        "{filled} of {capacity} labels filled"
+    ),
+    "Bogen {page}: {filled} von {capacity}": (
+        "Sheet {page}: {filled} of {capacity}"
+    ),
+    "Bogen {start}–{end}: {filled} von {capacity}": (
+        "Sheets {start}–{end}: {filled} of {capacity}"
+    ),
+    "Kein Systemdrucker. PDF speichern und das mit Originalgröße drucken.": (
+        "No system printer. Save a PDF and print it at actual size."
+    ),
+    "Bogen konnte nicht gedruckt werden:\n{error}": (
+        "Could not print the sheet:\n{error}"
+    ),
+    "{count} Etiketten an {printer} gesendet.": (
+        "Sent {count} labels to {printer}."
+    ),
+    "PDF gespeichert: {path}": "PDF saved: {path}",
+    "Bogen speichern": "Save sheet",
+    "PDF (*.pdf)": "PDF (*.pdf)",
 }

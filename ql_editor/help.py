@@ -89,9 +89,11 @@ def build_help_content() -> QWidget:
     layout.addWidget(
         _body(
             tr(
-                "Links wählst du Drucker und Band. Das Etikett liegt in der "
-                "Mitte, die Eigenschaften des Markierten rechts, zusammen "
-                "mit dem Druck. Esc schließt diese Hilfe."
+                "Links wählst du das Ziel: Brother QL mit Drucker und Band, "
+                "oder einen Avery-Zweckform-Bogen mit Vorlage, Versatz und "
+                "Systemdrucker. Das Etikett liegt in der Mitte, die "
+                "Eigenschaften des Markierten rechts, zusammen mit dem Druck. "
+                "Esc schließt diese Hilfe."
             )
         )
     )
@@ -113,7 +115,9 @@ def build_help_content() -> QWidget:
         _body(
             tr(
                 "Die Druckvorschau zeigt die Punkte, so wie der Drucker sie "
-                "setzt. Esc bringt die normale Ansicht zurück."
+                "setzt. Bei einem Etikettenbogen zeigt sie das Raster; Belegt "
+                "nennt die gefüllten Felder, PDF speichert den Bogen in "
+                "Originalgröße. Esc bringt die normale Ansicht zurück."
             )
         )
     )
