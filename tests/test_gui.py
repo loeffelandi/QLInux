@@ -7358,9 +7358,12 @@ def test_printer_error_is_explained_only_with_texts(
     if explained:
         assert len(boxes) == 1
         assert "• Klappe offen" in boxes[0].text()
+        assert not win._print_sheet_open()
+        boxes[0].button(QMessageBox.StandardButton.Ok).click()
+        qapp.processEvents()
     else:
         assert not boxes
-        assert win._print_sheet is not None and win._print_sheet.isVisible()
+    assert win._print_sheet_open()
     win.close()
     qapp.processEvents()
 
@@ -7614,6 +7617,62 @@ def test_print_anyway_on_a_fault_still_checks_the_tape(qapp, tmp_path, monkeypat
     qapp.processEvents()
     assert starts == []
     assert "Laut QLInux eingelegt" in _visible_message_box(win).text()
+    win.close()
+    qapp.processEvents()
+
+
+@pytest.mark.parametrize(
+    ("prompt", "button", "outcome", "sheet_open"),
+    [
+        ("fault", "Abbrechen", "sent", True),
+        ("fault", "Trotzdem drucken", "unconfirmed", True),
+        ("fault", "Trotzdem drucken", "sent", False),
+        ("tape", "Abbrechen", "sent", True),
+        ("tape", "Trotzdem drucken", "unconfirmed", True),
+    ],
+)
+def test_print_sheet_comes_back_after_a_prompt(
+    qapp, tmp_path, monkeypatch, prompt, button, outcome, sheet_open
+):
+    """Die Rueckfrage verdraengt das Druck-Sheet, danach ist man wieder dort.
+    Geht der Auftrag sauber raus, schliesst es wie sonst."""
+    starts = _fake_print_worker(monkeypatch, {"outcome": outcome})
+    selected = "62" if prompt == "fault" else "50"
+    win, _address = _network_window_with_tape(qapp, tmp_path, loaded="62", selected=selected)
+    win._show_print_sheet()
+    qapp.processEvents()
+    if prompt == "fault":
+        _report_printer(win, fault=True, texts=("Klappe offen",))
+    win._on_print()
+    qapp.processEvents()
+    assert not win._print_sheet_open()
+    next(c for c in _visible_message_box(win).buttons() if c.text() == button).click()
+    qapp.processEvents()
+    assert win._print_sheet_open() is sheet_open
+    assert len(starts) == (0 if button == "Abbrechen" else 1)
+    win.close()
+    qapp.processEvents()
+
+
+def test_a_prompt_pushed_aside_by_another_sheet_keeps_that_sheet_in_front(
+    qapp, tmp_path, monkeypatch
+):
+    """Verdraengt z. B. die Frage beim Schliessen die Rueckfrage, bleibt sie vorn."""
+    from ql_editor.sheet import show_message
+
+    starts = _fake_print_worker(monkeypatch, {"outcome": "sent"})
+    win = _temp_window(qapp, tmp_path)
+    win._media_panel.set_network_host("192.0.2.62")
+    win._show_print_sheet()
+    qapp.processEvents()
+    _report_printer(win, fault=True, texts=("Klappe offen",))
+    win._on_print()
+    qapp.processEvents()
+    other = show_message(win, "info", "Andere Frage", "Text")
+    qapp.processEvents()
+    assert other.isVisible()
+    assert not win._print_sheet_open()
+    assert starts == []
     win.close()
     qapp.processEvents()
 

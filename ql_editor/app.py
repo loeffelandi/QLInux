@@ -3728,6 +3728,8 @@ class MainWindow(QMainWindow):
             )
             return
         label = self._media_panel.label
+        # Eine Rueckfrage verdraengt das Druck-Sheet; danach kommt es wieder.
+        from_sheet = self._print_sheet_open()
         fault = self._known_fault(config)
         if fault:
             ask_print_anyway(
@@ -3737,10 +3739,12 @@ class MainWindow(QMainWindow):
                     "Der Drucker meldet: {errors}\n\n"
                     "Erst beheben, sonst bricht der Drucker den Auftrag ab."
                 ).format(errors=", ".join(fault)),
-                on_choice=partial(self._on_fault_choice, config, images, label),
+                on_choice=partial(
+                    self._on_fault_choice, config, images, label, from_sheet
+                ),
             )
             return
-        self._check_loaded_tape(config, images, label)
+        self._check_loaded_tape(config, images, label, from_sheet)
 
     def _known_fault(self, config) -> tuple[str, ...]:
         """Stoerung laut letzter Abfrage (z. B. Klappe offen), sonst leer."""
@@ -3752,11 +3756,28 @@ class MainWindow(QMainWindow):
             return ()
         return status.texts
 
-    def _on_fault_choice(self, config, images, label, choice: str) -> None:
+    def _on_fault_choice(
+        self, config, images, label, from_sheet: bool, choice: str
+    ) -> None:
         if choice == "print":
-            self._check_loaded_tape(config, images, label)
+            self._check_loaded_tape(config, images, label, from_sheet)
+        elif from_sheet:
+            QTimer.singleShot(0, self._return_to_print_sheet)
 
-    def _check_loaded_tape(self, config, images, label) -> None:
+    def _return_to_print_sheet(self) -> None:
+        """Nach einer Rueckfrage wieder ins Druck-Sheet.
+
+        Hat ein anderes Sheet die Rueckfrage verdraengt (z. B. die Frage beim
+        Schliessen), bleibt es vorn. Darum kommt "Abbrechen" erst verzoegert
+        hier an: dann ist das andere Sheet schon sichtbar.
+        """
+        if not self.isVisible():
+            return
+        if any(sheet.isVisible() for sheet in self.findChildren(Sheet)):
+            return
+        self._show_print_sheet()
+
+    def _check_loaded_tape(self, config, images, label, from_sheet: bool) -> None:
         loaded = self._settings.loaded_label(config.address)
         if config.backend == "network" and loaded and not self._fits_loaded(label, loaded):
             ask_loaded_tape(
@@ -3769,9 +3790,13 @@ class MainWindow(QMainWindow):
                     selected=self._band_name(label.identifier),
                     loaded=self._band_name(loaded),
                 ),
-                on_choice=partial(self._on_loaded_tape_choice, config, images, label),
+                on_choice=partial(
+                    self._on_loaded_tape_choice, config, images, label, from_sheet
+                ),
             )
             return
+        if from_sheet:
+            self._return_to_print_sheet()
         self._start_print(config, images, label)
 
     def _band_name(self, identifier: str) -> str:
@@ -3819,9 +3844,15 @@ class MainWindow(QMainWindow):
         self._settings.sync()
         self._sync_loaded_tape()
 
-    def _on_loaded_tape_choice(self, config, images, label, choice: str) -> None:
+    def _on_loaded_tape_choice(
+        self, config, images, label, from_sheet: bool, choice: str
+    ) -> None:
         if choice == "cancel":
+            if from_sheet:
+                QTimer.singleShot(0, self._return_to_print_sheet)
             return
+        if from_sheet:
+            self._return_to_print_sheet()
         if choice == "remember":
             self._settings.set_loaded_label(config.address, label.identifier)
             self._settings.sync()
@@ -4005,7 +4036,8 @@ class MainWindow(QMainWindow):
         # USB-Fehler bringen keine Texte mit: dort genuegt die rote Verlaufszeile.
         if outcome == "error" and status.get("errors"):
             errors = "\n".join(f"• {text}" for text in status["errors"])
-            show_message(
+            from_sheet = self._print_sheet_open()
+            message = show_message(
                 self,
                 "warning",
                 tr("Drucker meldet einen Fehler"),
@@ -4014,6 +4046,10 @@ class MainWindow(QMainWindow):
                     "Band, Klappe und Papier prüfen und danach erneut drucken."
                 ).format(errors=errors),
             )
+            if from_sheet:
+                message.closed.connect(
+                    lambda: QTimer.singleShot(0, self._return_to_print_sheet)
+                )
         # USB meldet "printed", das Netzwerk "sent", sobald der Auftrag weg ist.
         # Ohne Statusantwort bleibt das Sheet offen: erst pruefen, dann neu drucken.
         if outcome not in ("error", "failed", "unconfirmed"):
