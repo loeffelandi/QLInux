@@ -7729,6 +7729,38 @@ def test_printer_error_is_marked_red_in_status_and_history(qapp, tmp_path, monke
     qapp.processEvents()
 
 
+@pytest.mark.parametrize("cause", ["failed", "merge"])
+def test_print_error_message_returns_to_the_print_sheet(qapp, tmp_path, monkeypatch, cause):
+    """Fehlermeldung zum Druck, dann OK: man ist wieder im Druck-Sheet."""
+    from PySide6.QtWidgets import QMessageBox
+
+    from ql_editor import merge as merge_engine
+
+    if cause == "failed":
+        win = _print_with_outcome(
+            qapp, tmp_path, monkeypatch, None, error="Drucker nicht erreichbar", open_sheet=True
+        )
+    else:
+        win = _temp_window(qapp, tmp_path)
+        win._media_panel.set_network_host("192.168.178.62")
+        win._show_print_sheet()
+        qapp.processEvents()
+
+        def too_many():
+            raise merge_engine.MergeError("Zu viele Etiketten")
+
+        monkeypatch.setattr(win, "_render_print_images", too_many)
+        win._on_print()
+        qapp.processEvents()
+    box = _visible_message_box(win)
+    assert box is not None and not win._print_sheet_open()
+    box.button(QMessageBox.StandardButton.Ok).click()
+    qapp.processEvents()
+    assert win._print_sheet_open()
+    win.close()
+    qapp.processEvents()
+
+
 def test_print_icon_spins_until_the_job_is_done_then_closes(qapp, tmp_path, monkeypatch):
     from PySide6.QtCore import QObject, Signal
 

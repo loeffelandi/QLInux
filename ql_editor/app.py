@@ -3722,7 +3722,8 @@ class MainWindow(QMainWindow):
         try:
             images = self._render_print_images()
         except merge_engine.MergeError as exc:
-            show_message(self, "warning", tr("Drucken"), str(exc))
+            # Bereich oder Kopien stehen im Druck-Sheet: dorthin zurueck.
+            self._show_print_message("warning", tr("Drucken"), str(exc))
             return
         except Exception as exc:
             show_message(
@@ -3783,6 +3784,15 @@ class MainWindow(QMainWindow):
         if any(sheet.isVisible() for sheet in self.findChildren(Sheet)):
             return
         self._show_print_sheet()
+
+    def _show_print_message(self, kind: str, title: str, text: str, **kwargs) -> None:
+        """Meldung zum Druck; danach wieder ins Druck-Sheet, wenn es offen war."""
+        from_sheet = self._print_sheet_open()
+        sheet = show_message(self, kind, title, text, **kwargs)
+        if from_sheet:
+            sheet.closed.connect(
+                lambda: QTimer.singleShot(0, self._return_to_print_sheet)
+            )
 
     def _check_loaded_tape(self, config, images, label, from_sheet: bool) -> None:
         loaded = self._settings.loaded_label(config.address)
@@ -4049,9 +4059,7 @@ class MainWindow(QMainWindow):
         # USB-Fehler bringen keine Texte mit: dort genuegt die rote Verlaufszeile.
         if outcome == "error" and status.get("errors"):
             errors = "\n".join(f"• {text}" for text in status["errors"])
-            from_sheet = self._print_sheet_open()
-            message = show_message(
-                self,
+            self._show_print_message(
                 "warning",
                 tr("Drucker meldet einen Fehler"),
                 tr(
@@ -4059,10 +4067,6 @@ class MainWindow(QMainWindow):
                     "Band, Klappe und Papier prüfen und danach erneut drucken."
                 ).format(errors=errors),
             )
-            if from_sheet:
-                message.closed.connect(
-                    lambda: QTimer.singleShot(0, self._return_to_print_sheet)
-                )
         # USB meldet "printed", das Netzwerk "sent", sobald der Auftrag weg ist.
         # Ohne Statusantwort bleibt das Sheet offen: erst pruefen, dann neu drucken.
         if outcome not in ("error", "failed", "unconfirmed"):
@@ -4074,7 +4078,9 @@ class MainWindow(QMainWindow):
         hint = access.failure_hint(message)
         if hint:
             message = f"{message}\n\n{hint}"
-        show_message(self, "critical", tr("Druckfehler"), message, selectable=bool(hint))
+        self._show_print_message(
+            "critical", tr("Druckfehler"), message, selectable=bool(hint)
+        )
 
     def _record_print_job(self, outcome: str) -> None:
         if self._pending_job is None:
