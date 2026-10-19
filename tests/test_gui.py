@@ -7984,18 +7984,26 @@ def test_closing_stops_the_printer_poll_and_cancels_the_check(qapp, tmp_path, mo
 
 
 def test_program_end_waits_for_orphaned_workers(monkeypatch):
+    """Eine Frist fuer alle; ein schon abgebauter Thread stoert nicht."""
     from ql_editor import app as app_module
 
+    clock = [100.0]
     waited = []
 
     class Orphan:
         def wait(self, ms):
             waited.append(ms)
+            clock[0] += 1.0
             return True
 
-    monkeypatch.setattr(app_module, "_orphan_workers", [Orphan(), Orphan()])
-    app_module._wait_for_orphans(1234)
-    assert waited == [1234, 1234]
+    class Gone:
+        def wait(self, ms):
+            raise RuntimeError("Internal C++ object already deleted.")
+
+    monkeypatch.setattr(app_module, "monotonic", lambda: clock[0])
+    monkeypatch.setattr(app_module, "_orphan_workers", [Orphan(), Gone(), Orphan()])
+    app_module._wait_for_orphans(1500)
+    assert waited == [1500, 500]
 
 
 def test_pinch_zooms_and_pans_canvas(qapp):

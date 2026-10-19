@@ -229,10 +229,16 @@ def _wait_for_orphans(timeout_ms: int = ORPHAN_EXIT_WAIT_MS) -> None:
     """Vor dem Programmende: abgehaengte Worker auslaufen lassen.
 
     Wird ein noch laufender ``QThread`` beim Beenden abgebaut, bricht Qt das
-    ganze Programm ab.
+    ganze Programm ab. ``timeout_ms`` gilt fuer alle zusammen.
     """
+    deadline = monotonic() + timeout_ms / 1000
     for worker in list(_orphan_workers):
-        worker.wait(timeout_ms)
+        remaining = max(0, int((deadline - monotonic()) * 1000))
+        try:
+            worker.wait(remaining)
+        except RuntimeError:
+            # deleteLater war schneller als _forget_orphan: der Thread ist fertig.
+            continue
 
 
 #: Abstand der Hintergrundabfrage des Netzwerkdruckers (Millisekunden).
