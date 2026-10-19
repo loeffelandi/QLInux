@@ -1,7 +1,8 @@
 <?xml version="1.0"?>
-<!-- Avery-Zweckform-Boegen. Masse aus gLabels (glabels-qt), GPL-3.0-or-later.
+<!-- Copyright (C) 2013-2026 Jaye Evins. gLabels-qt, GPL-3.0-or-later.
      Quelle: templates/zweckform-iso-templates.xml
-     https://github.com/jimevins/glabels-qt -->
+     https://github.com/jimevins/glabels-qt
+     QLInux hat nur diesen Hinweis ergänzt. -->
 
 <Glabels-templates>
 

@@ -1,6 +1,6 @@
 """Avery-Zweckform-Bögen nach den gLabels-Vorlagen.
 
-Die Maße stehen in ``data/zweckform-iso-templates.xml`` (gLabels, GPL-3.0).
+Die Maße stehen in ``data/zweckform-iso-templates.xml`` (gLabels, GPL-3.0-or-later).
 Ein Bogen ist eine Seite mit festem Raster. Der Datenbankdruck liefert die
 Etiketten, dieses Modul nur die Felder: Leserichtung, erstes Feld auf einem
 angefangenen Bogen, Kopien wiederholen dasselbe Etikett.

@@ -226,5 +226,152 @@ def test_sheet_target_sizes_the_canvas_to_the_label(qapp):
     assert window._media_panel._printer_box.isVisibleTo(media)
     assert not window._sheet_hint.isVisibleTo(panel)
     assert window._left_panel.title == "Band & Drucker"
+    assert "Band & Drucker" in window._left_panel._button.toolTip()
     window.close()
     qapp.processEvents()
+
+
+def test_sheet_preview_paints_each_record(qapp, monkeypatch):
+    from PIL import Image
+
+    from ql_editor.app import MainWindow
+    from ql_editor.stationery import OUTPUT_SHEET
+
+    red = Image.new("RGB", (8, 8), "red")
+    blue = Image.new("RGB", (8, 8), "blue")
+
+    class _Variant:
+        def __init__(self, index: int) -> None:
+            self.record = {"n": index}
+            self.index = index
+
+    class _Planned:
+        def __init__(self, index: int) -> None:
+            self.serial_index = 0
+            self.variant = _Variant(index)
+
+    window = MainWindow()
+    window._output_combo.setCurrentIndex(window._output_combo.findData(OUTPUT_SHEET))
+    window._sheet_part_combo.setCurrentIndex(window._sheet_part_combo.findData("3481"))
+    window._copies_spin.setValue(1)
+    labels = [_Planned(0), _Planned(1)]
+
+    def planned():
+        return labels
+
+    def render(*, for_sheet: bool = False, only_indexes=None):
+        assert for_sheet
+        assert list(only_indexes) == [0, 1]
+        return [red, blue]
+
+    monkeypatch.setattr(window, "_planned_labels", planned)
+    monkeypatch.setattr(window, "_render_print_images", render)
+    monkeypatch.setattr(window, "_print_sheet_open", lambda: True)
+    window._refresh_sheet_preview()
+    preview = window._print_preview._image
+    # 3481: Feld 1 bei x=0, Feld 2 bei x=70 mm. 5 mm unter dem Rand.
+    assert preview.pixelColor(4, 20).red() > 200
+    assert preview.pixelColor(4, 20).blue() < 40
+    assert preview.pixelColor(202, 20).blue() > 200
+    assert preview.pixelColor(202, 20).red() < 40
+    window.close()
+    qapp.processEvents()
+
+
+def test_sheet_preview_names_the_first_page_when_another_follows(qapp, monkeypatch):
+    from PIL import Image
+
+    from ql_editor.app import MainWindow
+    from ql_editor.stationery import OUTPUT_SHEET
+
+    class _Planned:
+        serial_index = 0
+
+        class variant:
+            record = None
+            index = 0
+
+    window = MainWindow()
+    window._output_combo.setCurrentIndex(window._output_combo.findData(OUTPUT_SHEET))
+    window._sheet_part_combo.setCurrentIndex(window._sheet_part_combo.findData("3481"))
+
+    def planned():
+        return [_Planned()] * 25
+
+    def render(*, for_sheet: bool = False, only_indexes=None):
+        count = 1 if only_indexes is None else len(list(only_indexes))
+        return [Image.new("RGB", (4, 4), "white")] * count
+
+    monkeypatch.setattr(window, "_planned_labels", planned)
+    monkeypatch.setattr(window, "_render_print_images", render)
+    monkeypatch.setattr(window, "_print_sheet_open", lambda: True)
+    window._refresh_sheet_preview()
+    assert window._sheet_preview_page.text() == "Vorschau: Bogen 1 von 2"
+    assert not window._sheet_preview_page.isHidden()
+    window.close()
+    qapp.processEvents()
+
+
+def test_sheet_target_belongs_to_the_tab(qapp):
+    from ql_editor.app import MainWindow
+    from ql_editor.stationery import OUTPUT_BROTHER, OUTPUT_SHEET
+
+    window = MainWindow()
+    window._output_combo.setCurrentIndex(window._output_combo.findData(OUTPUT_SHEET))
+    window._sheet_part_combo.setCurrentIndex(window._sheet_part_combo.findData("3481"))
+    window._create_tab()
+    assert window._sheet_output()
+    assert window._sheet_part_combo.currentData() == "3481"
+    window._output_combo.setCurrentIndex(window._output_combo.findData(OUTPUT_BROTHER))
+    window._tab_bar.setCurrentIndex(0)
+    assert window._sheet_output()
+    assert window._sheet_part_combo.currentData() == "3481"
+    assert window._canvas._label.width_dots == mm_to_dots(70)
+    window._tab_bar.setCurrentIndex(1)
+    assert not window._sheet_output()
+    assert not str(window._canvas._label.identifier).startswith("zweckform")
+    window.close()
+    qapp.processEvents()
+
+
+def test_sheet_history_stores_copies_and_the_cell_count(qapp):
+    from ql_editor.app import MainWindow
+
+    window = MainWindow()
+    window._remember_sheet_job("Office", 24, "sent", copies=3, part="3475")
+    job = window._print_jobs[-1]
+    assert job.copies == 3
+    assert job.label == "Zweckform 3475 · 24 Etiketten"
+    assert job.outcome == "sent"
+    window.close()
+    qapp.processEvents()
+
+
+def test_sheet_worker_prints_off_the_gui_thread(qapp, monkeypatch):
+    import threading
+
+    from ql_editor.app import SheetOutputWorker
+
+    seen: dict[str, object] = {}
+
+    def fake(name, template, images, placements, **kwargs):
+        seen["name"] = name
+        seen["thread"] = threading.current_thread()
+        seen["cells"] = len(placements)
+
+    monkeypatch.setattr("ql_editor.app.print_sheets", fake)
+    template = get_template("3481")
+    worker = SheetOutputWorker(
+        kind="print",
+        template=template,
+        images=[Image.new("RGB", (2, 2), "red")],
+        placements=plan_sheet(template, 1),
+        offset_x=1.0,
+        offset_y=0.0,
+        printer_name="Office",
+    )
+    worker.start()
+    assert worker.wait(5000)
+    assert seen["name"] == "Office"
+    assert seen["cells"] == 1
+    assert seen["thread"] is not threading.main_thread()

@@ -180,6 +180,8 @@ EN: dict[str, str] = {
     "QR-Codes": "QR codes",
     "Thorsten Weimann und Mitwirkende": "Thorsten Weimann and contributors",
     "Barcodes": "Barcodes",
+    "Jim Evins und Mitwirkende": "Jim Evins and contributors",
+    "Avery-Zweckform-Bogenmaße": "Avery Zweckform sheet measurements",
     "Entwickelt von": "Developed by",
     "Quelltext und Fehler melden": "Source code and bug reports",
     "Version": "Version",
@@ -1045,6 +1047,10 @@ EN: dict[str, str] = {
         "The printer did not accept the job."
     ),
     "Belegt": "Filled",
+    "Vorschau: Bogen {page} von {count}": "Preview: sheet {page} of {count}",
+    "Bogen wird aufgebaut…": "Building the sheet…",
+    "Zweckform {part} · {count} Etikett": "Zweckform {part} · {count} label",
+    "Zweckform {part} · {count} Etiketten": "Zweckform {part} · {count} labels",
     "{filled} von {capacity} Etiketten belegt": (
         "{filled} of {capacity} labels filled"
     ),
