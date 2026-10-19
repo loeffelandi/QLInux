@@ -1073,18 +1073,21 @@ class MediaPanel(QWidget):
         loaded = ""
         if self._network_searching:
             text = tr("Suche läuft …")
-        elif self._network_searched and not self._network_found:
-            text = tr("Kein Drucker gefunden.")
         elif self._network_fallback_note:
             text = self._network_fallback_note
+        elif self._network_host and self._loaded_tape:
+            # Auch nach einer Suche ohne Treffer: ein Drucker in einem anderen
+            # Netz findet die Suche nicht, per SNMP antwortet er trotzdem.
+            text = ""
+            loaded = tr("Eingelegt: {band}").format(band=self._loaded_tape)
+        elif self._network_searched and not self._network_found:
+            text = tr("Kein Drucker gefunden.")
         elif not self._network_host:
             # Erster Start (keine Adresse gespeichert): der Weg steht daneben -
             # das Suchsymbol fuellt die Liste.
             text = tr("Kein Drucker gewählt.")
         else:
             text = ""
-            if self._loaded_tape:
-                loaded = tr("Eingelegt: {band}").format(band=self._loaded_tape)
         self._net_hint.setText(text)
         self._net_hint.setVisible(not loaded)
         self._loaded_label.set_full_text(loaded)

@@ -404,8 +404,11 @@ def test_network_hint_names_the_remembered_tape(qapp):
     assert panel._net_hint.text() == "Suche läuft …"
     assert panel._loaded_label.isHidden() and panel._forget_button.isHidden()
     panel.set_network_searching(False)
+    # Drucker in einem anderen Netz: die Suche findet ihn nicht, das Band bleibt.
+    panel.remember_network_printers([])
+    assert not panel._loaded_label.isHidden() and panel._net_hint.isHidden()
     panel.set_loaded_tape("")
-    assert panel._net_hint.text() == ""
+    assert panel._net_hint.text() == "Kein Drucker gefunden."
     assert panel._loaded_label.isHidden() and panel._forget_button.isHidden()
 
 
