@@ -4955,7 +4955,8 @@ class MainWindow(QMainWindow):
         self._history_before = None
         self._apply_merge_to_canvas()
         self._sync_database_panel()
-        if self._active is not None and self._active.csv_table is not None:
+        # Auch bei fehlender CSV: das Banner mit „Andere…" steht im Grid.
+        if self._database_is_linked():
             self._act_database.setChecked(True)
             self._database_panel.set_expanded(True)
         self._recompute_canvas()

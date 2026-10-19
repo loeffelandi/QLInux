@@ -719,3 +719,20 @@ def test_counter_and_print_scope_show_the_selection_count(qapp, tmp_path):
     qapp.processEvents()
     assert win._scope_selected.text() == "Ausgewählte Datensätze"
     win.close()
+
+
+def test_opening_label_with_missing_csv_shows_the_banner(qapp, tmp_path):
+    win = MainWindow(discover=False)
+    win.resize(1100, 760)
+    win.show()
+    data = {
+        "items": [],
+        "data_source": {"type": "csv", "path": "Missing.csv", "current_record": 0},
+    }
+    win._apply_document(data, document_path=str(tmp_path / "label.qlx"))
+    qapp.processEvents()
+    assert win._act_database.isChecked()
+    assert win._database_panel.isVisible()
+    banner = win._database_panel.findChild(QLabel, "database_panel_banner")
+    assert banner.isVisible() and banner.text()
+    win.close()
