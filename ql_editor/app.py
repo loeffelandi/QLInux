@@ -102,6 +102,7 @@ from .csv_source import CsvTable
 from .database_panel import DatabasePanel
 from .discovery import (
     NETWORK_PROBE_ATTEMPTS,
+    NetworkStatus,
     confirm_network_job,
     discover_network_printers,
     network_printer_status,
@@ -665,11 +666,12 @@ class MainWindow(QMainWindow):
 
         self._net_poll: dict | None = None
         self._net_poll_worker: NetworkStatusWorker | None = None
-        self._net_errors_shown: tuple[str, ...] = ()
+        # Zuletzt in der Statusleiste gemeldeter Zustand (Adresse, Status).
+        self._net_shown: tuple[str, NetworkStatus] | None = None
+        # Laeuft nur, solange das Fenster aktiv ist (siehe changeEvent).
         self._net_poll_timer = QTimer(self)
         self._net_poll_timer.setInterval(NETWORK_POLL_MS)
         self._net_poll_timer.timeout.connect(self._poll_network_printer)
-        self._net_poll_timer.start()
 
         self._zoom_label = QLabel(tr("Zoom 100 %"))
         self._zoom_label.setToolTip(
@@ -2162,6 +2164,13 @@ class MainWindow(QMainWindow):
             QEvent.Type.ApplicationPaletteChange,
         ):
             self._refresh_history_table()
+        elif event.type() == QEvent.Type.ActivationChange:
+            # Im Hintergrund oder ueber Nacht bleibt der Drucker in Ruhe.
+            if self.isActiveWindow():
+                self._poll_network_printer()
+                self._net_poll_timer.start()
+            else:
+                self._net_poll_timer.stop()
 
     def _set_appearance(self, value: str) -> None:
         """Palette umschalten. ``system`` bleibt die Vorgabe."""
@@ -3898,21 +3907,26 @@ class MainWindow(QMainWindow):
         self._net_poll_worker = None
 
     def _on_network_polled(self, result: dict) -> None:
-        status = result["status"]
-        self._net_poll = {"address": result["address"], "at": monotonic(), "status": status}
-        texts = status.texts if status is not None else ()
-        if texts != self._net_errors_shown:
-            self._net_errors_shown = texts
-            if texts:
-                message = (
-                    tr("Drucker meldet: {errors}")
-                    if status.fault
-                    else tr("Hinweis vom Drucker: {texts}")
-                )
-                self.statusBar().showMessage(
-                    message.format(errors=", ".join(texts), texts=", ".join(texts)),
-                    10000,
-                )
+        address, status = result["address"], result["status"]
+        self._net_poll = {"address": address, "at": monotonic(), "status": status}
+        if status is None:
+            # Keine Antwort (auch ein verlorenes Paket): die letzte Meldung gilt.
+            return
+        shown = self._net_shown
+        before = shown[1] if shown is not None and shown[0] == address else None
+        self._net_shown = (address, status)
+        if before is not None and before.texts == status.texts:
+            return
+        if status.texts:
+            message = (
+                tr("Drucker meldet: {errors}")
+                if status.fault
+                else tr("Hinweis vom Drucker: {texts}")
+            )
+            texts = ", ".join(status.texts)
+            self.statusBar().showMessage(message.format(errors=texts, texts=texts), 10000)
+        elif before is not None and before.fault:
+            self.statusBar().showMessage(tr("Drucker wieder bereit"), 5000)
 
     def _fresh_poll(self, address: str) -> dict | None:
         """Letzte Abfrage dieses Druckers, ``None`` wenn sie fehlt oder veraltet ist."""

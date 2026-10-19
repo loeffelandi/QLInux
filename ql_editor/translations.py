@@ -343,6 +343,7 @@ EN: dict[str, str] = {
     "Störung, z. B. falsches Band": "Fault, e.g. wrong tape",
     "Drucker meldet: {errors}": "Printer reports: {errors}",
     "Hinweis vom Drucker: {texts}": "Note from the printer: {texts}",
+    "Drucker wieder bereit": "Printer ready again",
     "Drucker hat nach dem Senden nicht geantwortet. Etikett prüfen, bevor du neu druckst.": (
         "The printer did not answer after sending. Check the label before you print again."
     ),

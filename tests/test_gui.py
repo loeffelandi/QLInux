@@ -7648,6 +7648,74 @@ def test_printer_poll_shows_faults_and_notes_in_the_status_bar(qapp, tmp_path):
     qapp.processEvents()
 
 
+def test_printer_poll_reports_a_cleared_fault_once(qapp, tmp_path):
+    """Stille aendert nichts, ein anderer Drucker beginnt von vorn."""
+    from ql_editor.discovery import NetworkStatus
+
+    win = _temp_window(qapp, tmp_path)
+    address = "tcp://192.0.2.62:9100"
+    bar = win.statusBar()
+
+    def poll(status, at=address):
+        bar.clearMessage()
+        win._on_network_polled({"address": at, "status": status})
+        return bar.currentMessage()
+
+    cover = NetworkStatus(fault=True, texts=("Klappe offen",))
+    fine = NetworkStatus(fault=False)
+    assert poll(cover) == "Drucker meldet: Klappe offen"
+    assert poll(None) == ""
+    assert poll(cover) == ""
+    assert poll(fine) == "Drucker wieder bereit"
+    assert poll(fine) == ""
+    assert poll(cover, "tcp://192.0.2.99:9100") == "Drucker meldet: Klappe offen"
+    assert poll(cover) == "Drucker meldet: Klappe offen"
+    win.close()
+    qapp.processEvents()
+
+
+def test_printer_poll_runs_only_while_the_window_is_active(qapp, tmp_path, monkeypatch):
+    from PySide6.QtCore import QObject, Signal
+    from PySide6.QtWidgets import QWidget
+
+    from ql_editor import app as app_module
+
+    polls = []
+
+    class InstantPoll(QObject):
+        polled = Signal(object)
+        finished = Signal()
+
+        def __init__(self, address):
+            super().__init__()
+            polls.append(address)
+
+        def start(self) -> None:
+            self.finished.emit()
+
+    monkeypatch.setattr(app_module, "NetworkStatusWorker", InstantPoll)
+    win = _temp_window(qapp, tmp_path)
+    win._media_panel.set_network_host("192.0.2.62")
+    assert win.isActiveWindow()
+    assert win._net_poll_timer.isActive()
+
+    other = QWidget()
+    other.show()
+    other.activateWindow()
+    qapp.processEvents()
+    assert not win.isActiveWindow()
+    assert not win._net_poll_timer.isActive()
+    assert polls == []
+
+    win.activateWindow()
+    qapp.processEvents()
+    assert win._net_poll_timer.isActive()
+    assert polls == ["tcp://192.0.2.62:9100"]
+    other.close()
+    win.close()
+    qapp.processEvents()
+
+
 def test_closing_stops_the_printer_poll_and_cancels_the_check(qapp, tmp_path, monkeypatch):
     """Ein Thread, der das Fenster ueberlebt, bricht beim Programmende Qt ab."""
     from PySide6.QtCore import QObject, Signal
