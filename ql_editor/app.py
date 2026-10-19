@@ -5,12 +5,14 @@ Aufbau:
 * links: :class:`~ql_editor.media_panel.MediaPanel` (Band, Laenge, Margins)
 * mitte: :class:`~ql_editor.canvas.LabelCanvas` (feste Pixelgroesse, Lineale)
 * rechts: Objekteigenschaften; der Knopf unten oeffnet Drucken als Sheet
-* Toolbar: Items einfuegen, Reihenfolge, Loeschen, Zoom, Datenbank, Drucken
+* Toolbar: Datei (Speichern mit Pfeil fuer Speichern unter), Items einfuegen,
+  Ausrichten, Ebenen, Loeschen, Datenbank, Drucken
+* Statusleiste: Zoom-Knoepfe und Zoomstufe
 * Reiter: mehrere Etiketten in einem Fenster (Canvas, Band, Undo je Reiter)
 
 Es gibt **keine klassische Menueleiste**. Haeufige Befehle liegen in der
 Toolbar. Das Hamburger-Menue behaelt nur, was keinen eigenen Schalter hat:
-Speichern unter, Sprache, Erscheinungsbild, Hilfe, Ueber und Beenden.
+Sprache, Erscheinungsbild, Hilfe, Ueber und Beenden.
 Strg+K listet alle Befehle.
 
 Die GUI haelt keine eigene Wahrheit ueber Bandmasse: alles kommt aus
@@ -55,6 +57,7 @@ from PySide6.QtGui import (
     QPalette,
     QPen,
     QPixmap,
+    QShortcut,
     QUndoGroup,
     QUndoStack,
 )
@@ -509,6 +512,8 @@ class LabelTab:
         #: Serienparameter (Format 2); Vorschau nutzt Index 0 (D10).
         self.serial: dict[str, Any] = document.merge_serial()
         self.current_record: int = 0
+        #: Mehrfachauswahl im Datenbank-Grid (nicht persistiert).
+        self.selected_records: list[int] = []
         #: Pfad-/Hash-Hinweis fuer das Datenbank-Banner (nicht persistiert).
         self.database_notice: str | None = None
 
@@ -525,6 +530,7 @@ class LabelTab:
         self.csv_table = None
         self.data_source = None
         self.current_record = 0
+        self.selected_records = []
         self.database_notice = None
         self.serial = document.merge_serial()
 
@@ -632,7 +638,26 @@ class MainWindow(QMainWindow):
         self._zoom_label.setToolTip(
             tr("Mausrad scrollt – Strg + Mausrad (oder Zoomgeste) zoomt")
         )
-        self.statusBar().addPermanentWidget(self._zoom_label)
+        zoom_row = QWidget()
+        zoom_layout = QHBoxLayout(zoom_row)
+        zoom_layout.setContentsMargins(0, 0, 0, 0)
+        zoom_layout.setSpacing(2)
+        for act in (
+            self._act_zoom_out,
+            self._act_zoom_fit,
+            self._act_zoom_in,
+            self._act_zoom_100,
+        ):
+            button = QToolButton(zoom_row)
+            button.setDefaultAction(act)
+            button.setAutoRaise(True)
+            button.setIconSize(QSize(16, 16))
+            button.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonIconOnly)
+            button.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+            zoom_layout.addWidget(button)
+        zoom_layout.addSpacing(6)
+        zoom_layout.addWidget(self._zoom_label)
+        self.statusBar().addPermanentWidget(zoom_row)
         self._hint_label = QLabel()
         self._hint_label.setVisible(False)
         hint_row = QWidget()
@@ -910,7 +935,7 @@ class MainWindow(QMainWindow):
         self._scope_selected = QRadioButton(tr("Ausgewählte Datensätze"))
         self._scope_selected.setObjectName("print_scope_selected")
         self._scope_selected.setToolTip(
-            tr("Die in der Tabelle gewählte Zeile.")
+            tr("Die in der Tabelle gewählten Zeilen (Strg/Umschalt für mehrere).")
         )
         self._scope_all = QRadioButton(tr("Alle Datensätze"))
         self._scope_all.setObjectName("print_scope_all")
@@ -961,6 +986,13 @@ class MainWindow(QMainWindow):
 
         self._print_button = _PrintIconButton(widget)
         self._print_button.clicked.connect(self._on_print)
+        # Fensterweit: nach dem Oeffnen hat das Sheet den Fokus, und der
+        # Druck-Knopf sitzt im Sheet-Kopf - beide liegen ausserhalb von
+        # ``widget``. Ohne Sheet ist das Panel versteckt, der Shortcut aus.
+        for key in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
+            shortcut = QShortcut(QKeySequence(key), widget)
+            shortcut.setContext(Qt.ShortcutContext.WindowShortcut)
+            shortcut.activated.connect(self._on_print_key)
 
         quality = title_box(tr("Qualität"))
         quality_form = self._panel_form(quality)
@@ -1076,15 +1108,21 @@ class MainWindow(QMainWindow):
             return None
         return tab.csv_table.records
 
+    def _selected_print_records(self) -> list[int]:
+        """Alle in der Tabelle gewählten Zeilen, sonst der aktuelle Record."""
+        rows = self._database_panel.selected_records()
+        if rows:
+            return rows
+        return [self._active.current_record] if self._active is not None else [0]
+
     def _print_variants(self) -> list[merge_engine.PrintVariant]:
         records = self._active_print_records()
         if records is None:
             return merge_engine.plan_print_variants(None)
-        selected = self._active.current_record if self._active is not None else 0
         return merge_engine.plan_print_variants(
             records,
             scope=self._print_scope(),
-            selected=selected,
+            selected=self._selected_print_records(),
             range_from=self._range_from.value(),
             range_to=self._range_to.value(),
         )
@@ -1115,6 +1153,14 @@ class MainWindow(QMainWindow):
         enabled = count > 0
         self._db_print_box.setVisible(enabled)
         self._db_print_box.setEnabled(enabled)
+        # Das Grid kann zugeklappt sein: die Zahl zeigt, wie viele Zeilen gemeint sind.
+        selected = len(self._database_panel.selected_records()) if enabled else 0
+        if selected > 1:
+            self._scope_selected.setText(
+                tr("Ausgewählte Datensätze ({count})").format(count=selected)
+            )
+        else:
+            self._scope_selected.setText(tr("Ausgewählte Datensätze"))
         if count > 0:
             maximum = count
             shown_from = min(self._range_request_from, maximum)
@@ -1515,7 +1561,7 @@ class MainWindow(QMainWindow):
         self._act_connect_csv.triggered.connect(self._choose_csv)
 
         # Erst sichtbar, wenn eine CSV haengt. Klick klappt das untere Grid auf.
-        self._act_database = QAction(icon("database"), tr("Datenbank"), self)
+        self._act_database = QAction(icon("database_view"), tr("Datenbank"), self)
         self._act_database.setObjectName("database_toolbar")
         self._act_database.setCheckable(True)
         self._act_database.setChecked(False)
@@ -1555,7 +1601,9 @@ class MainWindow(QMainWindow):
         self._act_file_open.triggered.connect(self._on_file_open)
 
         self._act_file_save = QAction(icon("save"), tr("Speichern"), self)
-        self._act_file_save.setToolTip(tr("Etikett speichern (Strg+S)"))
+        self._act_file_save.setToolTip(
+            tr("Etikett speichern (Strg+S)\nPfeil: Speichern unter… (Strg+Umschalt+S)")
+        )
         self._act_file_save.setShortcut(QKeySequence.StandardKey.Save)
         self._act_file_save.triggered.connect(self._on_file_save)
 
@@ -1563,6 +1611,7 @@ class MainWindow(QMainWindow):
         self._act_file_save_as.setToolTip(tr("Etikett unter neuem Namen speichern (Strg+Umschalt+S)"))
         self._act_file_save_as.setShortcut(QKeySequence.StandardKey.SaveAs)
         self._act_file_save_as.triggered.connect(self._on_file_save_as)
+        self.addAction(self._act_file_save_as)
 
         self._act_tab_close = QAction(icon("close"), tr("Reiter schließen"), self)
         self._act_tab_close.setToolTip(tr("Reiter schließen (Strg+W)"))
@@ -1605,7 +1654,7 @@ class MainWindow(QMainWindow):
         # Datei-Gruppe direkt nach dem Burger: Öffnen, Speichern, Vorlage laden.
         bar.addAction(self._act_file_new)
         bar.addAction(self._act_file_open)
-        bar.addAction(self._act_file_save)
+        bar.addWidget(self._build_save_button(bar))
         bar.addWidget(self._build_template_button(bar))
         add_toolbar_separator(bar)
 
@@ -1622,21 +1671,27 @@ class MainWindow(QMainWindow):
         bar.addAction(self._act_add_datetime)
         add_toolbar_separator(bar)
         bar.addWidget(self._build_align_button(bar))
-        bar.addAction(self._act_forward)
-        bar.addAction(self._act_backward)
+        bar.addWidget(self._build_layer_button(bar))
         bar.addAction(self._act_delete)
-        add_toolbar_separator(bar)
-        bar.addAction(self._act_zoom_out)
-        bar.addAction(self._act_zoom_fit)
-        bar.addAction(self._act_zoom_in)
-        bar.addAction(self._act_zoom_100)
         # Datenbank vor dem Drucken: CSV bleibt sichtbar, das Raster erst mit Datei.
         add_toolbar_separator(bar)
         bar.addAction(self._act_connect_csv)
-        self._act_database_separator = add_toolbar_separator(bar)
         bar.addAction(self._act_database)
         add_toolbar_separator(bar)
         bar.addAction(self._act_print)
+
+    def _build_save_button(self, parent: QWidget) -> QToolButton:
+        """Speichern mit Klick; der kleine Pfeil öffnet „Speichern unter…“."""
+        button = QToolButton(parent)
+        button.setObjectName("save_button")
+        button.setDefaultAction(self._act_file_save)
+        button.setAutoRaise(True)
+        button.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        button.setPopupMode(QToolButton.ToolButtonPopupMode.MenuButtonPopup)
+        menu = QMenu(button)
+        menu.addAction(self._act_file_save_as)
+        button.setMenu(menu)
+        return button
 
     def _build_template_button(self, parent: QWidget) -> QToolButton:
         """Toolbar-Knopf "Vorlage laden": Klick oeffnet die Vorlagenliste."""
@@ -1703,16 +1758,34 @@ class MainWindow(QMainWindow):
         button.setMenu(menu)
         return button
 
+    def _build_layer_button(self, parent: QWidget) -> QToolButton:
+        """Toolbar-Knopf "Ebenen": Klick oeffnet vor, zurueck, Vorder- und Hintergrund."""
+        button = QToolButton(parent)
+        button.setObjectName("layer_button")
+        button.setIcon(icon("front"))
+        button.setToolTip(tr("Ebenen"))
+        button.setAutoRaise(True)
+        button.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        button.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
+        menu = QMenu(button)
+        for act in (
+            self._act_front,
+            self._act_forward,
+            self._act_backward,
+            self._act_back,
+        ):
+            menu.addAction(act)
+        button.setMenu(menu)
+        return button
+
     def _build_main_menu(self) -> QMenu:
         """Primaeres Menue: nur was keinen eigenen Schalter hat.
 
-        Speichern unter, Sprache, Erscheinungsbild, Hilfe, Ueber und Beenden.
+        Sprache, Erscheinungsbild, Hilfe, Ueber und Beenden.
         Alles andere liegt in der Toolbar, im Kontextmenue oder unter Strg+K.
         """
         menu = QMenu(self)
         self._ensure_template_menu()
-        menu.addAction(self._act_file_save_as)
-        menu.addSeparator()
         self._build_language_menu(menu)
         self._build_appearance_menu(menu)
         menu.addAction(self._act_help)
@@ -2111,6 +2184,7 @@ class MainWindow(QMainWindow):
                 "data_source": deepcopy(tab.data_source),
                 "serial": deepcopy(tab.serial),
                 "current_record": tab.current_record,
+                "selected_records": list(tab.selected_records),
             }
             for tab in self._ordered_tabs()
         ]
@@ -2121,6 +2195,7 @@ class MainWindow(QMainWindow):
             "active": active,
             "items": self._canvas.items_serialized(),
             "preview": self._act_print_preview.isChecked(),
+            "database_open": self._act_database.isChecked(),
             "threshold": self._threshold_spin.value(),
             "dither": self._dither_check.isChecked(),
             "hq": self._hq_check.isChecked(),
@@ -2168,6 +2243,8 @@ class MainWindow(QMainWindow):
                 }
             ]
         self._replace_tabs(list(specs), int(state.get("active") or 0))
+        if state.get("database_open") and self._database_is_linked():
+            self._act_database.setChecked(True)
         self._address_dirty = bool(state.get("address_dirty", False))
         self._print_jobs = list(state.get("print_jobs") or [])
         self._refresh_history_table()
@@ -3555,6 +3632,18 @@ class MainWindow(QMainWindow):
         self._on_items_changed()
 
     # -------------------------------------------------------------- Print ---
+    def _on_print_key(self) -> None:
+        """Enter im Druck-Sheet: wie ein Klick auf den Druck-Knopf.
+
+        Hat ein anderer Knopf den Fokus, bekommt er den Klick.
+        """
+        focus = QApplication.focusWidget()
+        if isinstance(focus, (QPushButton, QToolButton)) and focus is not self._print_button:
+            focus.click()
+            return
+        if self._print_button.isEnabled():
+            self._on_print()
+
     def _on_print(self) -> None:
         if self._print_worker is not None and self._print_worker.isRunning():
             return
@@ -3798,6 +3887,9 @@ class MainWindow(QMainWindow):
 
     def _show_print_sheet(self) -> None:
         """Druckvorschau, Optionen und Verlauf im Sheet."""
+        # Erst hier: jeder Grid-Klick davor wuerde „Am Ende" bei einer
+        # einzelnen Zeile dauerhaft auf „Jede Kopie" stellen.
+        self._sync_print_scope_ui()
         if self._print_sheet_open():
             self._print_sheet.raise_()
             self._refresh_history_table()
@@ -4395,6 +4487,9 @@ class MainWindow(QMainWindow):
             if spec.get("preview"):
                 tab.canvas.set_print_preview(True)
             self._restore_tab_database(tab, spec)
+            tab.selected_records = [
+                int(row) for row in spec.get("selected_records") or []
+            ]
             created.append((tab, spec))
         if not created:
             self._create_tab()
@@ -4648,6 +4743,7 @@ class MainWindow(QMainWindow):
         """``data_source``/``serial`` aus dem Dokument in den aktiven Reiter laden."""
         tab = self._require_tab()
         self._pending_database_status = None
+        tab.selected_records = []
         raw_serial = data.get("serial")
         tab.serial = document.merge_serial(
             raw_serial if isinstance(raw_serial, Mapping) else None
@@ -4753,7 +4849,6 @@ class MainWindow(QMainWindow):
         """Ohne CSV weder Icon noch Panel; mit CSV nur das Icon, bis es geklickt wird."""
         linked = self._database_is_linked()
         self._act_database.setVisible(linked)
-        self._act_database_separator.setVisible(linked)
         if not linked:
             self._act_database.blockSignals(True)
             self._act_database.setChecked(False)
@@ -4792,6 +4887,12 @@ class MainWindow(QMainWindow):
             display_name=name,
             notice=notice,
         )
+        # Die Vorschau muss in der Auswahl liegen, sonst druckt "Ausgewählte"
+        # andere Zeilen als der Canvas zeigt.
+        if tab.current_record in tab.selected_records:
+            self._database_panel.set_selected_records(tab.selected_records)
+        else:
+            tab.selected_records = self._database_panel.selected_records()
         self._apply_database_visibility()
         self._sync_print_scope_ui()
         self._on_selection_changed()
@@ -4812,6 +4913,7 @@ class MainWindow(QMainWindow):
             tab.data_source["current_record"] = index
         self._apply_merge_to_canvas()
         self._database_panel.set_current_record(index)
+        tab.selected_records = self._database_panel.selected_records()
         if mark_dirty and changed:
             self._document_dirty = True
             self._update_window_title()
@@ -4852,6 +4954,7 @@ class MainWindow(QMainWindow):
         """CSV an den aktiven Reiter binden und Live-Merge anwenden (Tests/API)."""
         tab = self._require_tab()
         tab.csv_table = table
+        tab.selected_records = []
         path = relative_path
         if path is None and table.path is not None:
             path = str(table.path)
@@ -4893,6 +4996,7 @@ class MainWindow(QMainWindow):
         tab.csv_table = None
         tab.data_source = None
         tab.current_record = 0
+        tab.selected_records = []
         tab.database_notice = None
         self._sync_database_panel()
         self._on_selection_changed()
@@ -4992,6 +5096,10 @@ class MainWindow(QMainWindow):
         self._history_before = None
         self._apply_merge_to_canvas()
         self._sync_database_panel()
+        # Auch bei fehlender CSV: das Banner mit „Andere…" steht im Grid.
+        if self._database_is_linked():
+            self._act_database.setChecked(True)
+            self._database_panel.set_expanded(True)
         self._recompute_canvas()
         self._schedule_refresh()
         self._stash_active()
@@ -5054,9 +5162,9 @@ class MainWindow(QMainWindow):
             self,
             caption=tr("Etikett öffnen"),
             name_filter=tr(
+                "Alle Etiketten (*{suffix} *{lbx});;"
                 "QLInux-Etiketten (*{suffix});;"
-                "Brother P-touch (*{lbx});;"
-                "Alle Etiketten (*{suffix} *{lbx})"
+                "Brother P-touch (*{lbx})"
             ).format(suffix=document.DOCUMENT_SUFFIX, lbx=lbx.LBX_SUFFIX),
             start_dir=self._settings.document_dir or "",
             on_selected=self._open_document_chosen,

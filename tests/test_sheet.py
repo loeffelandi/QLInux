@@ -13,11 +13,11 @@ import pytest
 from PIL import Image
 from PySide6.QtCore import QPointF, QSettings, Qt
 from PySide6.QtGui import QKeyEvent
-from PySide6.QtWidgets import QFileDialog, QInputDialog, QLineEdit, QMessageBox
+from PySide6.QtWidgets import QFileDialog, QInputDialog, QLineEdit, QMessageBox, QWidget
 
 from ql_editor.app import MainWindow
 from ql_editor.items import BarcodeItem, ImageItem, QRItem
-from ql_editor.sheet import Sheet, ask_choice, ask_text, choose_file, show_message
+from ql_editor.sheet import Sheet, ask_choice, ask_save, ask_text, choose_file, show_message
 
 pytestmark = pytest.mark.usefixtures("qapp")
 
@@ -199,6 +199,55 @@ def test_sheet_blocks_app_shortcuts(qapp):
     win.close()
 
 
+def test_sheet_judges_shortcuts_and_actions_by_their_widget(qapp):
+    """QShortcut/QAction im Sheet laufen, App-Aktionen bleiben gesperrt."""
+    from PySide6.QtGui import QAction, QKeySequence, QShortcut, QShortcutEvent
+
+    win = _window(qapp)
+    sheet = show_message(win, "info", "Titel", "Text")
+    qapp.processEvents()
+    box = sheet.findChild(QMessageBox)
+    event = QShortcutEvent(QKeySequence("Ctrl+Up"), 1)
+
+    inner_shortcut = QShortcut(QKeySequence("Return"), box)
+    assert sheet.eventFilter(inner_shortcut, event) is False
+    outer_shortcut = QShortcut(QKeySequence("Return"), win)
+    assert sheet.eventFilter(outer_shortcut, event) is True
+
+    inner_action = QAction("Hoch", box)
+    box.addAction(inner_action)
+    assert sheet.eventFilter(inner_action, event) is False
+    assert sheet.eventFilter(win._act_print, event) is True
+    sheet.close_sheet()
+    win.close()
+
+
+def test_file_dialog_keeps_its_own_shortcuts_in_the_sheet(qapp, tmp_path):
+    """Strg+Hoch (uebergeordneter Ordner) ist eine QAction des Dialogs."""
+    from PySide6.QtTest import QTest
+    from PySide6.QtWidgets import QApplication
+
+    sub = tmp_path / "sub"
+    sub.mkdir()
+    win = _window(qapp)
+    sheet = choose_file(
+        win,
+        caption="Test",
+        name_filter="Alle (*)",
+        on_selected=lambda _path: None,
+        start_dir=str(sub),
+    )
+    qapp.processEvents()
+    dialog = win.findChild(QFileDialog)
+    QTest.keyClick(
+        QApplication.focusWidget(), Qt.Key.Key_Up, Qt.KeyboardModifier.ControlModifier
+    )
+    qapp.processEvents()
+    assert dialog.directory().absolutePath() == str(tmp_path)
+    sheet.close_sheet()
+    win.close()
+
+
 # --------------------------------------------------------------------------- #
 # Datei-Dialog
 # --------------------------------------------------------------------------- #
@@ -350,3 +399,17 @@ def test_error_message_uses_sheet(qapp, tmp_path):
     assert sheet is not None
     assert sheet.findChild(QMessageBox) is not None
     win.close()
+
+
+def test_unsaved_question_buttons_have_icons(qapp):
+    parent = QWidget()
+    parent.resize(1100, 760)
+    parent.show()
+    choices: list[str] = []
+    ask_save(parent, title="Test", text="Ungespeichert", on_choice=choices.append)
+    box = parent.findChild(QMessageBox)
+    assert box is not None
+    buttons = {button.text(): button for button in box.buttons()}
+    for label in ("Speichern", "Verwerfen", "Abbrechen"):
+        assert not buttons[label].icon().isNull()
+    parent.close()

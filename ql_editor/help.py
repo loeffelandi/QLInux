@@ -127,7 +127,9 @@ def build_help_content() -> QWidget:
                 "dazu oder wieder weg. Strg gedrückt halten und ein markiertes "
                 "Objekt ziehen lässt das Original liegen und bewegt die Kopie. "
                 "In einer Tabelle markiert Umschalt+Klick mehrere Zellen, Tab "
-                "und Umschalt+Tab gehen zur nächsten. Beim Drehen rastet der "
+                "und Umschalt+Tab gehen zur nächsten. In der Datenbank-Tabelle "
+                "nimmt Strg+Klick eine Zeile dazu oder weg, Umschalt+Klick "
+                "wählt einen Bereich. Beim Drehen rastet der "
                 "Winkel auf 90 Grad, mit gehaltener Umschalttaste in Schritten "
                 "von 15 Grad."
             )

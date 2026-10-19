@@ -136,8 +136,15 @@ Settings (last printer, tape, print options, language, appearance) are stored in
 | Shift + arrow keys | Move the selected object in larger steps |
 | Shift + click in a table | Extend the cell selection |
 | Tab / Shift + Tab in a table | Next or previous cell while typing |
+| Ctrl + click in the database grid | Add or remove a row; the last row stays selected |
+| Shift + click in the database grid | Select a range of rows |
 | Rotating without Shift | Stick to the nearest 90° until the pointer moves clearly away |
 | Shift while rotating | Rotate in 15° steps |
+
+### Database grid
+
+The canvas previews the first selected row. **Print** with *Selected records*
+prints every selected row.
 
 ### Ruler guides
 
@@ -163,7 +170,7 @@ the preview nor printed.
 
 ## Saving and opening labels
 
-*File → Open…* (Ctrl+O) and *File → Save* (Ctrl+S, *Save as…* Ctrl+Shift+S)
+*File → Open…* (Ctrl+O) and *File → Save* (Ctrl+S). The arrow next to the save button in the toolbar opens *Save as…* (Ctrl+Shift+S)
 store a label as a `.qlx` file — plain JSON, so it stays readable, diffable
 and diff-friendly in a repository.
 

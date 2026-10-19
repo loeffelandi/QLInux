@@ -72,9 +72,6 @@ def test_database_ui_hidden_without_csv(qapp):
     bar = win.findChild(QToolBar, "main_toolbar")
     assert win._act_connect_csv in bar.actions()
     assert win._act_database in bar.actions()
-    assert not win._act_database_separator.isVisible()
-    separator = bar.widgetForAction(win._act_database_separator)
-    assert separator is None or not separator.isVisible()
     text = TextItem("A")
     win._canvas.add_item(text)
     text.setSelected(True)
@@ -87,7 +84,6 @@ def test_connect_shows_grid_counter_and_headers(qapp, tmp_path):
     win = _window_with_csv(qapp, tmp_path)
     panel = win._database_panel
     assert win._act_database.isVisible()
-    assert win._act_database_separator.isVisible()
     assert not panel.isVisible()
     _open_database(win)
     qapp.processEvents()
@@ -123,7 +119,6 @@ def test_disconnect_keeps_snapshots_and_serial(qapp, tmp_path):
     assert item.binding == {"source": "database", "field": "Fixture"}
     assert win._active.serial == serial_before
     assert not win._act_database.isVisible()
-    assert not win._act_database_separator.isVisible()
     assert not win._database_panel.isVisible()
     assert win._act_connect_csv.isEnabled()
     assert win._document_dirty is True
@@ -396,4 +391,385 @@ def test_connect_save_stores_relative_path(qapp, tmp_path):
     saved = json.loads(out.read_text(encoding="utf-8"))
     assert saved["data_source"]["path"] == "Fixture Data.csv"
     assert "Spot A" not in json.dumps(saved["data_source"])
+    win.close()
+
+
+
+def _select_rows(win: MainWindow, rows: list[int]) -> None:
+    grid = win._database_panel._grid
+    model = grid.selectionModel()
+    for position, row in enumerate(rows):
+        flag = (
+            model.SelectionFlag.ClearAndSelect
+            if position == 0
+            else model.SelectionFlag.Select
+        )
+        model.select(grid.model().index(row, 0), flag | model.SelectionFlag.Rows)
+
+
+def test_multi_select_previews_first_selected_record(qapp, tmp_path):
+    win = _window_with_csv(qapp, tmp_path)
+    item = TextItem("CH:")
+    item.set_binding({"source": "database", "field": "Fixture"})
+    win._canvas.add_item(item)
+    _open_database(win)
+    _select_rows(win, [1, 0])
+    qapp.processEvents()
+    assert win._database_panel.selected_records() == [0, 1]
+    assert win._active.current_record == 0
+    assert item.text_value == "Spot A"
+    win.set_current_record(1)
+    qapp.processEvents()
+    assert win._database_panel.selected_records() == [0, 1]
+    win.close()
+
+
+def test_print_selected_uses_all_selected_rows(qapp, tmp_path):
+    win = _window_with_csv(qapp, tmp_path)
+    _open_database(win)
+    _select_rows(win, [0, 1])
+    qapp.processEvents()
+    labels = win._planned_labels()
+    assert [label.variant.index for label in labels] == [0, 1]
+    win.close()
+
+
+def test_last_selected_row_stays_selected_on_ctrl_click(qapp, tmp_path):
+    win = _window_with_csv(qapp, tmp_path)
+    _open_database(win)
+    _select_rows(win, [1])
+    qapp.processEvents()
+    grid = win._database_panel._grid
+    model = grid.selectionModel()
+    model.select(
+        grid.model().index(1, 0),
+        model.SelectionFlag.Deselect | model.SelectionFlag.Rows,
+    )
+    qapp.processEvents()
+    assert win._database_panel.selected_records() == [1]
+    assert win._active.current_record == 1
+    win.close()
+
+
+def test_multi_selection_survives_panel_resync(qapp, tmp_path):
+    win = _window_with_csv(qapp, tmp_path)
+    _open_database(win)
+    _select_rows(win, [0, 1])
+    qapp.processEvents()
+    win._sync_database_panel()
+    qapp.processEvents()
+    assert win._database_panel.selected_records() == [0, 1]
+    win.close()
+
+
+def test_opening_label_with_database_shows_grid(qapp, tmp_path):
+    _csv(tmp_path)
+    win = MainWindow(discover=False)
+    win.resize(1100, 760)
+    win.show()
+    data = {
+        "items": [],
+        "data_source": {"type": "csv", "path": "Fixture Data.csv", "current_record": 1},
+    }
+    win._apply_document(data, document_path=str(tmp_path / "label.qlx"))
+    qapp.processEvents()
+    assert win._act_database.isChecked()
+    assert win._database_panel.isVisible()
+    assert win._database_panel.current_record() == 1
+    win.close()
+
+
+def test_opening_label_without_database_keeps_grid_hidden(qapp, tmp_path):
+    win = MainWindow(discover=False)
+    win.resize(1100, 760)
+    win.show()
+    win._apply_document({"items": []}, document_path=str(tmp_path / "label.qlx"))
+    qapp.processEvents()
+    assert not win._act_database.isChecked()
+    assert not win._database_panel.isVisible()
+    win.close()
+
+
+def test_enter_in_print_sheet_starts_print(qapp, monkeypatch):
+    from PySide6.QtTest import QTest
+
+    win = MainWindow(discover=False)
+    win.resize(1100, 760)
+    win.show()
+    win._show_print_sheet()
+    qapp.processEvents()
+    calls = []
+    monkeypatch.setattr(win, "_on_print", lambda: calls.append(True))
+    win._print_button.setEnabled(True)
+    win._copies_spin.setFocus()
+    qapp.processEvents()
+    QTest.keyClick(win._copies_spin, Qt.Key.Key_Return)
+    qapp.processEvents()
+    assert calls == [True]
+    win._print_button.setEnabled(False)
+    QTest.keyClick(win._copies_spin, Qt.Key.Key_Return)
+    qapp.processEvents()
+    assert calls == [True]
+    win.close()
+
+
+def test_enter_prints_right_after_opening_the_sheet(qapp, monkeypatch):
+    from PySide6.QtTest import QTest
+    from PySide6.QtWidgets import QApplication
+
+    win = MainWindow(discover=False)
+    win.resize(1100, 760)
+    win.show()
+    calls = []
+    monkeypatch.setattr(win, "_on_print", lambda: calls.append(True))
+    win._show_print_sheet()
+    qapp.processEvents()
+    win._print_button.setEnabled(True)
+    QTest.keyClick(QApplication.focusWidget(), Qt.Key.Key_Return)
+    qapp.processEvents()
+    assert calls == [True]
+    win._print_button.setFocus()
+    qapp.processEvents()
+    QTest.keyClick(win._print_button, Qt.Key.Key_Enter, Qt.KeyboardModifier.KeypadModifier)
+    qapp.processEvents()
+    assert calls == [True, True]
+    win.close()
+
+
+def test_enter_on_canvas_does_not_print_after_sheet_closed(qapp, monkeypatch):
+    from PySide6.QtTest import QTest
+
+    win = MainWindow(discover=False)
+    win.resize(1100, 760)
+    win.show()
+    calls = []
+    monkeypatch.setattr(win, "_on_print", lambda: calls.append(True))
+    win._show_print_sheet()
+    qapp.processEvents()
+    win._close_print_sheet()
+    qapp.processEvents()
+    win._canvas.setFocus()
+    qapp.processEvents()
+    QTest.keyClick(win._canvas, Qt.Key.Key_Return)
+    qapp.processEvents()
+    assert calls == []
+    win.close()
+
+
+def test_shift_click_selects_range_of_rows(qapp, tmp_path):
+    from PySide6.QtCore import QItemSelection, QItemSelectionModel
+
+    win = _window_with_csv(qapp, tmp_path)
+    _open_database(win)
+    grid = win._database_panel._grid
+    model = grid.selectionModel()
+    first = grid.model().index(0, 0)
+    last = grid.model().index(1, 0)
+    model.select(first, QItemSelectionModel.SelectionFlag.ClearAndSelect | QItemSelectionModel.SelectionFlag.Rows)
+    model.select(QItemSelection(first, last), QItemSelectionModel.SelectionFlag.Select | QItemSelectionModel.SelectionFlag.Rows)
+    qapp.processEvents()
+    assert win._database_panel.selected_records() == [0, 1]
+    win.close()
+
+
+def _rows_csv(tmp_path: Path, name: str, prefix: str, rows: int = 6) -> Path:
+    path = tmp_path / name
+    lines = ["Fixture;Channel"] + [f"{prefix} {i};{i}" for i in range(rows)]
+    path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    return path
+
+
+def test_replacing_the_csv_drops_the_old_selection(qapp, tmp_path):
+    win = MainWindow(discover=False)
+    win.resize(1100, 760)
+    win.show()
+    assert win.connect_csv_path(str(_rows_csv(tmp_path, "a.csv", "A")))
+    _open_database(win)
+    _select_rows(win, [3, 4, 5])
+    qapp.processEvents()
+    assert win.connect_csv_path(str(_rows_csv(tmp_path, "b.csv", "B")))
+    qapp.processEvents()
+    assert win._active.current_record == 0
+    assert win._database_panel.selected_records() == [0]
+    assert [label.variant.index for label in win._planned_labels()] == [0]
+    win.close()
+
+
+def test_reconnecting_after_disconnect_starts_with_one_row(qapp, tmp_path):
+    win = MainWindow(discover=False)
+    win.resize(1100, 760)
+    win.show()
+    path = _rows_csv(tmp_path, "a.csv", "A")
+    assert win.connect_csv_path(str(path))
+    _open_database(win)
+    _select_rows(win, [2, 3])
+    qapp.processEvents()
+    win.disconnect_csv()
+    assert win._active.selected_records == []
+    assert win.connect_csv_path(str(path))
+    qapp.processEvents()
+    assert win._database_panel.selected_records() == [0]
+    win.close()
+
+
+def test_grid_click_keeps_cut_at_end(qapp, tmp_path):
+    from ql_editor.app import CUT_AT_END
+
+    win = MainWindow(discover=False)
+    win.resize(1100, 760)
+    win.show()
+    assert win.connect_csv_path(str(_rows_csv(tmp_path, "a.csv", "A")))
+    _open_database(win)
+    _select_rows(win, [0, 1, 2])
+    qapp.processEvents()
+    win._cut_combo.setCurrentIndex(win._cut_combo.findData(CUT_AT_END))
+    _select_rows(win, [4])
+    _select_rows(win, [4, 5])
+    qapp.processEvents()
+    assert win._cut_combo.currentData() == CUT_AT_END
+    win._show_print_sheet()
+    qapp.processEvents()
+    item = win._cut_combo.model().item(win._cut_combo.findData(CUT_AT_END))
+    assert item.isEnabled()
+    assert win._cut_combo.currentData() == CUT_AT_END
+    win.close()
+
+
+def test_print_sheet_greys_out_cut_at_end_for_one_row(qapp, tmp_path):
+    from ql_editor.app import CUT_AT_END
+
+    win = MainWindow(discover=False)
+    win.resize(1100, 760)
+    win.show()
+    assert win.connect_csv_path(str(_rows_csv(tmp_path, "a.csv", "A")))
+    _open_database(win)
+    _select_rows(win, [0, 1])
+    qapp.processEvents()
+    win._show_print_sheet()
+    qapp.processEvents()
+    win._close_print_sheet()
+    qapp.processEvents()
+    _select_rows(win, [3])
+    qapp.processEvents()
+    win._show_print_sheet()
+    qapp.processEvents()
+    item = win._cut_combo.model().item(win._cut_combo.findData(CUT_AT_END))
+    assert not item.isEnabled()
+    win.close()
+
+
+def test_restoring_a_split_selection_keeps_exactly_those_rows(qapp, tmp_path):
+    from ql_editor.database_panel import _row_spans
+
+    assert _row_spans([5, 1, 2, 3, 7, 2]) == [(1, 3), (5, 5), (7, 7)]
+    win = MainWindow(discover=False)
+    win.resize(1100, 760)
+    win.show()
+    assert win.connect_csv_path(str(_rows_csv(tmp_path, "a.csv", "A", rows=10)))
+    _open_database(win)
+    _select_rows(win, [1, 2, 3, 5, 8])
+    qapp.processEvents()
+    win._sync_database_panel()
+    qapp.processEvents()
+    assert win._database_panel.selected_records() == [1, 2, 3, 5, 8]
+    win.close()
+
+
+def test_rebuild_keeps_grid_selection_and_open_grid(qapp, tmp_path):
+    win = MainWindow(discover=False)
+    win.resize(1100, 760)
+    win.show()
+    assert win.connect_csv_path(str(_rows_csv(tmp_path, "a.csv", "A")))
+    _open_database(win)
+    _select_rows(win, [1, 2, 4])
+    qapp.processEvents()
+    state = win._state()
+    win.close()
+
+    rebuilt = MainWindow(discover=False)
+    rebuilt.resize(1100, 760)
+    rebuilt.show()
+    rebuilt.apply_state(state)
+    qapp.processEvents()
+    assert rebuilt._act_database.isChecked()
+    assert rebuilt._database_panel.isVisible()
+    assert rebuilt._database_panel.selected_records() == [1, 2, 4]
+    assert rebuilt._active.current_record == 1
+    rebuilt.close()
+
+
+def test_counter_and_print_scope_show_the_selection_count(qapp, tmp_path):
+    win = MainWindow(discover=False)
+    win.resize(1100, 760)
+    win.show()
+    assert win.connect_csv_path(str(_rows_csv(tmp_path, "a.csv", "A")))
+    _open_database(win)
+    _select_rows(win, [1, 2, 4])
+    qapp.processEvents()
+    assert win._database_panel._counter.text() == "Datensatz 2 / 6 · 3 gewählt"
+    win._show_print_sheet()
+    qapp.processEvents()
+    assert win._scope_selected.text() == "Ausgewählte Datensätze (3)"
+    win._close_print_sheet()
+    qapp.processEvents()
+    _select_rows(win, [5])
+    qapp.processEvents()
+    assert win._database_panel._counter.text() == "Datensatz 6 / 6"
+    win._show_print_sheet()
+    qapp.processEvents()
+    assert win._scope_selected.text() == "Ausgewählte Datensätze"
+    win.close()
+
+
+def test_opening_label_with_missing_csv_shows_the_banner(qapp, tmp_path):
+    win = MainWindow(discover=False)
+    win.resize(1100, 760)
+    win.show()
+    data = {
+        "items": [],
+        "data_source": {"type": "csv", "path": "Missing.csv", "current_record": 0},
+    }
+    win._apply_document(data, document_path=str(tmp_path / "label.qlx"))
+    qapp.processEvents()
+    assert win._act_database.isChecked()
+    assert win._database_panel.isVisible()
+    banner = win._database_panel.findChild(QLabel, "database_panel_banner")
+    assert banner.isVisible() and banner.text()
+    win.close()
+
+
+def test_ctrl_and_shift_clicks_in_the_grid(qapp, tmp_path):
+    from PySide6.QtTest import QTest
+
+    win = MainWindow(discover=False)
+    win.resize(1100, 760)
+    win.show()
+    item = TextItem("x")
+    item.set_binding({"source": "database", "field": "Fixture"})
+    win._canvas.add_item(item)
+    assert win.connect_csv_path(str(_rows_csv(tmp_path, "a.csv", "A")))
+    _open_database(win)
+    qapp.processEvents()
+    grid = win._database_panel._grid
+    viewport = grid.viewport()
+
+    def click(row: int, modifier=Qt.KeyboardModifier.NoModifier) -> None:
+        center = grid.visualRect(grid.model().index(row, 0)).center()
+        QTest.mouseClick(viewport, Qt.MouseButton.LeftButton, modifier, center)
+        qapp.processEvents()
+
+    click(1)
+    click(3, Qt.KeyboardModifier.ShiftModifier)
+    assert win._database_panel.selected_records() == [1, 2, 3]
+    click(5, Qt.KeyboardModifier.ControlModifier)
+    assert win._database_panel.selected_records() == [1, 2, 3, 5]
+    assert item.text_value == "A 1"
+    click(1, Qt.KeyboardModifier.ControlModifier)
+    assert win._database_panel.selected_records() == [2, 3, 5]
+    assert item.text_value == "A 2"
+    for row in (2, 3):
+        click(row, Qt.KeyboardModifier.ControlModifier)
+    assert win._database_panel.selected_records() == [5]
+    click(5, Qt.KeyboardModifier.ControlModifier)
+    assert win._database_panel.selected_records() == [5]
     win.close()
