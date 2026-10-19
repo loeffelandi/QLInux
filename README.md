@@ -133,15 +133,15 @@ Settings (last printer, tape, print options, language, appearance) are stored in
 | Shift + arrow keys | Move the selected object in larger steps |
 | Shift + click in a table | Extend the cell selection |
 | Tab / Shift + Tab in a table | Next or previous cell while typing |
+| Ctrl + click in the database grid | Add or remove a row; the last row stays selected |
+| Shift + click in the database grid | Select a range of rows |
 | Rotating without Shift | Stick to the nearest 90° until the pointer moves clearly away |
 | Shift while rotating | Rotate in 15° steps |
 
 ### Database grid
 
-With a CSV connected, the grid under the canvas accepts several rows:
-Ctrl + click adds or removes a row, Shift + click selects a range. The canvas
-previews the first selected row. **Print** with *Selected records* prints every
-selected row. The last selected row cannot be deselected with Ctrl + click.
+The canvas previews the first selected row. **Print** with *Selected records*
+prints every selected row.
 
 ### Ruler guides
 

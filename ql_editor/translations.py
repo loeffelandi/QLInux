@@ -85,12 +85,14 @@ EN: dict[str, str] = {
         "Esc brings the normal view back."
     ),
     "Mit der Maus": "With the pointer",
-    "Strg und das Mausrad zoomen, Umschalt und das Mausrad schieben seitlich. Strg+Klick nimmt ein Objekt zur Auswahl dazu oder wieder weg. Strg gedrückt halten und ein markiertes Objekt ziehen lässt das Original liegen und bewegt die Kopie. In einer Tabelle markiert Umschalt+Klick mehrere Zellen, Tab und Umschalt+Tab gehen zur nächsten. Beim Drehen rastet der Winkel auf 90 Grad, mit gehaltener Umschalttaste in Schritten von 15 Grad.": (
+    "Strg und das Mausrad zoomen, Umschalt und das Mausrad schieben seitlich. Strg+Klick nimmt ein Objekt zur Auswahl dazu oder wieder weg. Strg gedrückt halten und ein markiertes Objekt ziehen lässt das Original liegen und bewegt die Kopie. In einer Tabelle markiert Umschalt+Klick mehrere Zellen, Tab und Umschalt+Tab gehen zur nächsten. In der Datenbank-Tabelle nimmt Strg+Klick eine Zeile dazu oder weg, Umschalt+Klick wählt einen Bereich. Beim Drehen rastet der Winkel auf 90 Grad, mit gehaltener Umschalttaste in Schritten von 15 Grad.": (
         "Ctrl and the wheel zoom, Shift and the wheel scroll sideways. "
         "Ctrl+click adds an object to the selection or drops it again. "
         "Holding Ctrl and dragging a selected object leaves the original in "
         "place and moves a copy. In a table, Shift+click marks several cells, "
-        "and Tab and Shift+Tab move to the next one. While rotating, the angle "
+        "and Tab and Shift+Tab move to the next one. In the database grid, "
+        "Ctrl+click adds or removes a row and Shift+click selects a range. "
+        "While rotating, the angle "
         "snaps to 90 degrees, and holding Shift steps by 15 degrees."
     ),
     "Tasten": "Keys",
