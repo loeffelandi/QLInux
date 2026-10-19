@@ -128,13 +128,6 @@ class InspectorPanel(QWidget):
         self._root.setContentsMargins(6, 6, 6, 6)
         self._root.setSpacing(6)
         self._title = QLabel(tr("Nichts ausgewählt"))
-        # Kein Stylesheet: ``palette(windowText)`` ist kein gültiger Token und
-        # die Schrift bleibt im Hellen dünn und grau.
-        title_font = QFont(self.font())
-        title_font.setBold(True)
-        if title_font.pointSizeF() > 0:
-            title_font.setPointSizeF(title_font.pointSizeF() + 2.0)
-        self._title.setFont(title_font)
         self._root.addWidget(self._title)
         self._root.addStretch(1)
 

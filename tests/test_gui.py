@@ -1582,32 +1582,49 @@ def test_inspector_shows_only_selected_kind(qapp):
     assert inspector._title.text() == "Nichts ausgewählt"
 
 
-def test_empty_inspector_title_stays_dark_in_light_mode(qapp, tmp_path):
-    """„Nichts ausgewählt“ ist fett und dunkel auf hellem Grund."""
-    from PySide6.QtCore import Qt
+def _title_glyph_lightness(title, prefer_light: bool) -> int:
     from PySide6.QtGui import QImage
+
+    image = QImage(title.size(), QImage.Format.Format_ARGB32)
+    image.fill(0)
+    title.render(image)
+    background = image.pixelColor(1, 1)
+    samples = []
+    for y in range(image.height()):
+        for x in range(image.width()):
+            color = image.pixelColor(x, y)
+            if color.alpha() < 200:
+                continue
+            distance = (
+                abs(color.red() - background.red())
+                + abs(color.green() - background.green())
+                + abs(color.blue() - background.blue())
+            )
+            if distance > 40:
+                samples.append(color.lightness())
+    assert samples
+    return max(samples) if prefer_light else min(samples)
+
+
+def test_empty_inspector_title_follows_the_palette(qapp, tmp_path):
+    """Normale Schrift. Hell bleibt dunkel, Dunkel wird hell."""
+    from PySide6.QtCore import Qt
 
     from ql_editor.theme import apply_theme
 
     original = qapp.palette()
     win = _temp_window(qapp, tmp_path)
     try:
-        apply_theme(qapp, Qt.ColorScheme.Light)
-        qapp.processEvents()
         title = win._inspector._title
         assert title.isVisible()
-        assert title.font().bold()
-        assert "palette(" not in title.styleSheet()
-        image = QImage(title.size(), QImage.Format.Format_ARGB32)
-        image.fill(0)
-        title.render(image)
-        dark = 0
-        for y in range(image.height()):
-            for x in range(image.width()):
-                color = image.pixelColor(x, y)
-                if color.alpha() > 200 and color.lightness() < 80:
-                    dark += 1
-        assert dark > 80
+        assert not title.font().bold()
+        assert title.font().pointSizeF() == win.font().pointSizeF()
+        apply_theme(qapp, Qt.ColorScheme.Light)
+        qapp.processEvents()
+        assert _title_glyph_lightness(title, prefer_light=False) < 80
+        apply_theme(qapp, Qt.ColorScheme.Dark)
+        qapp.processEvents()
+        assert _title_glyph_lightness(title, prefer_light=True) > 200
     finally:
         apply_theme(qapp)
         qapp.setPalette(original)
