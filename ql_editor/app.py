@@ -936,9 +936,12 @@ class MainWindow(QMainWindow):
 
         self._print_button = _PrintIconButton(widget)
         self._print_button.clicked.connect(self._on_print)
+        # Fensterweit: nach dem Oeffnen hat das Sheet den Fokus, und der
+        # Druck-Knopf sitzt im Sheet-Kopf - beide liegen ausserhalb von
+        # ``widget``. Ohne Sheet ist das Panel versteckt, der Shortcut aus.
         for key in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
             shortcut = QShortcut(QKeySequence(key), widget)
-            shortcut.setContext(Qt.ShortcutContext.WidgetWithChildrenShortcut)
+            shortcut.setContext(Qt.ShortcutContext.WindowShortcut)
             shortcut.activated.connect(self._on_print_key)
 
         quality = title_box(tr("Qualität"))

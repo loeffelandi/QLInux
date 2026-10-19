@@ -513,6 +513,49 @@ def test_enter_in_print_sheet_starts_print(qapp, monkeypatch):
     win.close()
 
 
+def test_enter_prints_right_after_opening_the_sheet(qapp, monkeypatch):
+    from PySide6.QtTest import QTest
+    from PySide6.QtWidgets import QApplication
+
+    win = MainWindow(discover=False)
+    win.resize(1100, 760)
+    win.show()
+    calls = []
+    monkeypatch.setattr(win, "_on_print", lambda: calls.append(True))
+    win._show_print_sheet()
+    qapp.processEvents()
+    win._print_button.setEnabled(True)
+    QTest.keyClick(QApplication.focusWidget(), Qt.Key.Key_Return)
+    qapp.processEvents()
+    assert calls == [True]
+    win._print_button.setFocus()
+    qapp.processEvents()
+    QTest.keyClick(win._print_button, Qt.Key.Key_Enter, Qt.KeyboardModifier.KeypadModifier)
+    qapp.processEvents()
+    assert calls == [True, True]
+    win.close()
+
+
+def test_enter_on_canvas_does_not_print_after_sheet_closed(qapp, monkeypatch):
+    from PySide6.QtTest import QTest
+
+    win = MainWindow(discover=False)
+    win.resize(1100, 760)
+    win.show()
+    calls = []
+    monkeypatch.setattr(win, "_on_print", lambda: calls.append(True))
+    win._show_print_sheet()
+    qapp.processEvents()
+    win._close_print_sheet()
+    qapp.processEvents()
+    win._canvas.setFocus()
+    qapp.processEvents()
+    QTest.keyClick(win._canvas, Qt.Key.Key_Return)
+    qapp.processEvents()
+    assert calls == []
+    win.close()
+
+
 def test_shift_click_selects_range_of_rows(qapp, tmp_path):
     from PySide6.QtCore import QItemSelection, QItemSelectionModel
 
