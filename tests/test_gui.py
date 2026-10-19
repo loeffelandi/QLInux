@@ -393,7 +393,8 @@ def test_network_hint_names_the_remembered_tape(qapp):
     height = panel._connection_stack.sizeHint().height()
 
     panel.set_loaded_tape("62 mm endlos (schwarz/rot)")
-    assert panel._net_hint.text() == "Eingelegt: 62 mm endlos (schwarz/rot)"
+    assert panel._loaded_label.full_text() == "Eingelegt: 62 mm endlos (schwarz/rot)"
+    assert not panel._loaded_label.isHidden() and panel._net_hint.isHidden()
     assert not panel._forget_button.isHidden()
     assert panel._connection_stack.sizeHint().height() == height
     panel._forget_button.click()
@@ -401,11 +402,11 @@ def test_network_hint_names_the_remembered_tape(qapp):
 
     panel.set_network_searching(True)
     assert panel._net_hint.text() == "Suche läuft …"
-    assert panel._forget_button.isHidden()
+    assert panel._loaded_label.isHidden() and panel._forget_button.isHidden()
     panel.set_network_searching(False)
     panel.set_loaded_tape("")
     assert panel._net_hint.text() == ""
-    assert panel._forget_button.isHidden()
+    assert panel._loaded_label.isHidden() and panel._forget_button.isHidden()
 
 
 def test_media_panel_restores_a_network_address_from_settings(qapp):
@@ -7482,7 +7483,7 @@ def test_remembered_tape_shows_in_the_panel_and_can_be_forgotten(
     panel = win._media_panel
     address = panel.printer_config().address
     band = media.get_label(panel.label_id()).display_name
-    assert panel._net_hint.text() == f"Eingelegt: {band}"
+    assert panel._loaded_label.full_text() == f"Eingelegt: {band}"
     assert win._act_forget_tape.isEnabled()
 
     if via == "panel":
@@ -7492,14 +7493,14 @@ def test_remembered_tape_shows_in_the_panel_and_can_be_forgotten(
         assert win._act_forget_tape in [child.action for child in printing.children]
         win._act_forget_tape.trigger()
     assert win._settings.loaded_label(address) is None
-    assert panel._net_hint.text() == ""
+    assert panel._loaded_label.isHidden()
     assert not win._act_forget_tape.isEnabled()
     win.close()
     qapp.processEvents()
 
 
 def test_long_tape_name_or_a_search_does_not_move_the_boxes_below(qapp, tmp_path, monkeypatch):
-    """Der Bandname bricht im schmalen Panel um - sein Platz ist reserviert."""
+    """Der Bandname bleibt einzeilig - umgebrochen haengt die Hoehe an der Schrift."""
     from PySide6.QtCore import QPoint
 
     from ql_editor import app as app_module
@@ -7520,8 +7521,12 @@ def test_long_tape_name_or_a_search_does_not_move_the_boxes_below(qapp, tmp_path
     top = band_top()
     win._settings.set_loaded_label(panel.printer_config().address, "62red")
     win._sync_loaded_tape()
-    assert panel._net_hint.text() == "Eingelegt: 62 mm endlos (schwarz/rot)"
+    full = "Eingelegt: 62 mm endlos (schwarz/rot)"
+    assert panel._loaded_label.full_text() == full
+    assert panel._loaded_label.toolTip() == full
     assert band_top() == top
+    panel._loaded_label.resize(60, panel._loaded_label.height())
+    assert panel._loaded_label.text().endswith("…")
     panel.set_network_searching(True)
     assert band_top() == top
     win.close()
@@ -7541,7 +7546,7 @@ def test_startup_shows_the_tape_remembered_for_the_printer(qapp, tmp_path):
     settings.address = "tcp://192.0.2.20:9100"
     settings.set_loaded_label("tcp://192.0.2.20:9100", "62red")
     win = MainWindow(settings=settings, discover=False)
-    assert win._media_panel._net_hint.text() == "Eingelegt: 62 mm endlos (schwarz/rot)"
+    assert win._media_panel._loaded_label.full_text() == "Eingelegt: 62 mm endlos (schwarz/rot)"
     assert win._act_forget_tape.isEnabled()
     win.close()
     qapp.processEvents()

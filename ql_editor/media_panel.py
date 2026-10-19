@@ -26,6 +26,7 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QPushButton,
+    QSizePolicy,
     QStackedWidget,
     QToolButton,
     QVBoxLayout,
@@ -110,6 +111,35 @@ def _network_host_only(address: str) -> str:
         end = shown.find("]")
         return shown[: end + 1] if end >= 0 else shown
     return shown.split(":", 1)[0]
+
+
+class _ElidedLabel(QLabel):
+    """Eine Zeile: was nicht passt, endet auf „…“ und steht im Tooltip."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self._full_text = ""
+        # Die Breite gibt das Layout vor, nicht der Text.
+        self.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
+
+    def full_text(self) -> str:
+        return self._full_text
+
+    def set_full_text(self, text: str) -> None:
+        self._full_text = text
+        self.setToolTip(text)
+        self._elide()
+
+    def resizeEvent(self, event) -> None:  # noqa: N802
+        super().resizeEvent(event)
+        self._elide()
+
+    def _elide(self) -> None:
+        self.setText(
+            self.fontMetrics().elidedText(
+                self._full_text, Qt.TextElideMode.ElideRight, self.width()
+            )
+        )
 
 
 class MediaPanel(QWidget):
@@ -247,13 +277,16 @@ class MediaPanel(QWidget):
         self._net_hint = QLabel()
         self._net_hint.setWordWrap(True)
         self._net_hint.setStyleSheet(HINT_STYLE)
-        self._net_hint.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
-        # Der Hinweis ist meist leer (Suche, Fehlanzeige oder das gemerkte Band
-        # fuellen ihn). Seine Hoehe bleibt trotzdem reserviert, zwei Zeilen fuer
-        # lange Bandnamen - sonst springt der Kasten darunter, sobald eine Suche
-        # laeuft oder ein Band gemerkt wird. Das Symbol zum Vergessen steht in
-        # der Spalte des Suchsymbols darueber.
+        # Der Hinweis ist meist leer (nur Suche/Fehlanzeige fuellen ihn). Seine
+        # Hoehe bleibt trotzdem reserviert - sonst springt der Kasten darunter,
+        # sobald eine Suche laeuft oder nichts findet.
+        # Sonst steht dort das gemerkte Band, immer einzeilig: umgebrochen
+        # waere die Seite je nach Schrift hoeher als die USB-Seite. Das Symbol
+        # zum Vergessen steht in der Spalte des Suchsymbols darueber.
         self._loaded_tape = ""
+        self._loaded_label = _ElidedLabel()
+        self._loaded_label.setStyleSheet(HINT_STYLE)
+        self._loaded_label.hide()
         self._forget_button = QToolButton()
         self._forget_button.setIcon(icon("delete"))
         self._forget_button.setIconSize(QSize(16, 16))
@@ -268,9 +301,10 @@ class MediaPanel(QWidget):
         net_hint_layout.setContentsMargins(0, 0, 0, 0)
         net_hint_layout.setSpacing(4)
         net_hint_layout.addWidget(self._net_hint, 1)
-        net_hint_layout.addWidget(self._forget_button, 0, Qt.AlignmentFlag.AlignTop)
+        net_hint_layout.addWidget(self._loaded_label, 1)
+        net_hint_layout.addWidget(self._forget_button)
         self._net_hint_holder.setMinimumHeight(
-            2 * QFontMetrics(self._net_hint.font()).height()
+            QFontMetrics(self._net_hint.font()).height()
         )
 
         self._usb_combo = QComboBox()
@@ -1036,7 +1070,7 @@ class MediaPanel(QWidget):
         Die Port-Angabe steht dort, wo sie gebraucht wird: in der IP-Abfrage
         (siehe :meth:`_ask_network_host`) - nicht dauerhaft im Panel.
         """
-        forget = False
+        loaded = ""
         if self._network_searching:
             text = tr("Suche läuft …")
         elif self._network_searched and not self._network_found:
@@ -1047,13 +1081,15 @@ class MediaPanel(QWidget):
             # Erster Start (keine Adresse gespeichert): der Weg steht daneben -
             # das Suchsymbol fuellt die Liste.
             text = tr("Kein Drucker gewählt.")
-        elif self._loaded_tape:
-            text = tr("Eingelegt: {band}").format(band=self._loaded_tape)
-            forget = True
         else:
             text = ""
+            if self._loaded_tape:
+                loaded = tr("Eingelegt: {band}").format(band=self._loaded_tape)
         self._net_hint.setText(text)
-        self._forget_button.setVisible(forget)
+        self._net_hint.setVisible(not loaded)
+        self._loaded_label.set_full_text(loaded)
+        self._loaded_label.setVisible(bool(loaded))
+        self._forget_button.setVisible(bool(loaded))
 
     def set_loaded_tape(self, name: str) -> None:
         """Band, das laut QLInux im Netzwerkdrucker liegt (leer: keins gemerkt)."""
