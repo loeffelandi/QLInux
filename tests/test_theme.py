@@ -19,8 +19,9 @@ def test_scheme_for_keeps_the_system_as_default():
 def test_toolbar_separator_follows_mid_on_both_palettes(qapp):
     """Trenner nehmen Mid: auf Hell grau, auf Dunkel hell genug gegen den Grund."""
     from PySide6.QtGui import QImage
+    from PySide6.QtWidgets import QMainWindow, QToolBar
 
-    from ql_editor.widgets import ToolbarSeparator
+    from ql_editor.widgets import ToolbarSeparator, add_toolbar_separator
 
     original = QPalette(qapp.palette())
 
@@ -48,6 +49,25 @@ def test_toolbar_separator_follows_mid_on_both_palettes(qapp):
         light = line_color(Qt.ColorScheme.Light)
         dark = line_color(Qt.ColorScheme.Dark)
         assert light != dark
+        window = QMainWindow()
+        bar = window.addToolBar("test")
+        action = add_toolbar_separator(bar)
+        assert action.isSeparator()
+        widget = bar.widgetForAction(action)
+        assert isinstance(widget, ToolbarSeparator)
+        # Kosmetischer Haarstrich: auch bei DPR 2 nur eine Geraetespalte Mid.
+        widget.resize(6, 28)
+        hi = QImage(12, 56, QImage.Format.Format_ARGB32)
+        hi.setDevicePixelRatio(2.0)
+        hi.fill(0)
+        widget.render(hi)
+        mid = qapp.palette().color(QPalette.ColorRole.Mid).name()
+        ink = [
+            x
+            for x in range(hi.width())
+            if hi.pixelColor(x, hi.height() // 2).name() == mid
+        ]
+        assert len(ink) == 1
     finally:
         apply_theme(qapp)
         qapp.setPalette(original)

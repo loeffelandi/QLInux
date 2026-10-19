@@ -2935,17 +2935,11 @@ def test_toolbar_has_align_dropdown_before_front(qapp, tmp_path):
     print_at = actions.index(win._act_print)
     assert win._act_print_preview not in actions
     assert win._act_print_history not in actions
-
-    def is_bar_separator(action) -> bool:
-        if action.isSeparator():
-            return True
-        widget = bar.widgetForAction(action)
-        return widget is not None and widget.objectName() == "toolbar_separator"
-
-    assert is_bar_separator(actions[csv_at - 1])
+    assert actions[csv_at - 1].isSeparator()
     assert actions[csv_at + 1] is win._act_database_separator
+    assert win._act_database_separator.isSeparator()
     assert csv_at < database_at < print_at
-    assert is_bar_separator(actions[database_at + 1])
+    assert actions[database_at + 1].isSeparator()
     assert actions[database_at + 2] is win._act_print
     win.close()
     qapp.processEvents()
@@ -6702,16 +6696,14 @@ def test_file_group_sits_right_after_the_burger(qapp, tmp_path):
 
     win = _temp_window(qapp, tmp_path)
     bar = win.findChild(QToolBar, "main_toolbar")
+    items = [
+        a for a in bar.actions() if not a.isSeparator()
+    ]
     names = []
-    for action in bar.actions():
-        if action.isSeparator():
-            continue
+    for action in items:
         if isinstance(action, QWidgetAction):
             widget = bar.widgetForAction(action)
-            name = widget.objectName() if widget else ""
-            if name == "toolbar_separator":
-                continue
-            names.append(name)
+            names.append(widget.objectName() if widget else "")
         else:
             names.append(action.objectName() or action.text())
 

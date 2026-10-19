@@ -39,7 +39,8 @@ class ToolbarSeparator(QWidget):
     Fusion malt ``QToolBarSeparator`` mit Dark. Auf dem dunklen Fenstergrund
     liegt die Linie dann dunkler als die Leiste und verschwindet. Mid ist auf
     Hell grau und auf Dunkel hell genug. Kein Stylesheet: sonst loesen sich
-    die Toolbar-Knoepfe von der Anwendungspalette.
+    die Toolbar-Knoepfe von der Anwendungspalette. Der Strich ist kosmetisch
+    (ein Geraetepixel), damit er unter Wayland mit HiDPI nicht aufdickt.
     """
 
     def __init__(self, parent: QWidget | None = None) -> None:
@@ -61,15 +62,24 @@ class ToolbarSeparator(QWidget):
         del event
         painter = QPainter(self)
         color = self.palette().color(QPalette.ColorRole.Mid)
-        painter.setPen(QPen(color, 1))
+        # Breite 0: kosmetischer Haarstrich, ein Geraetepixel bei jedem DPR.
+        pen = QPen(color, 0)
+        painter.setPen(pen)
         x = self.width() // 2
         margin = 4
         painter.drawLine(x, margin, x, max(margin, self.height() - margin))
 
 
 def add_toolbar_separator(bar: QToolBar) -> QAction:
-    """Trenner in ``bar`` einfuegen. Rueckgabe wie ``QToolBar.addSeparator``."""
-    return bar.addWidget(ToolbarSeparator(bar))
+    """Trenner in ``bar`` einfuegen.
+
+    Die Action ist ein Separator (``isSeparator()``), zeigt aber unser
+    Mid-Widget statt Fusion-Dark. Sichtbarkeit und Reihenfolge bleiben wie
+    bei ``QToolBar.addSeparator``.
+    """
+    action = bar.addWidget(ToolbarSeparator(bar))
+    action.setSeparator(True)
+    return action
 
 
 class _TitleBox(QGroupBox):
