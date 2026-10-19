@@ -12,7 +12,14 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from PySide6.QtCore import QItemSelectionModel, QMimeData, QPoint, Qt, Signal
+from PySide6.QtCore import (
+    QItemSelection,
+    QItemSelectionModel,
+    QMimeData,
+    QPoint,
+    Qt,
+    Signal,
+)
 from PySide6.QtGui import QDrag
 from PySide6.QtWidgets import (
     QApplication,
@@ -40,6 +47,17 @@ def field_mime(field: str) -> QMimeData:
     mime = QMimeData()
     mime.setData(DB_FIELD_MIME, str(field).encode("utf-8"))
     return mime
+
+
+def _row_spans(rows: list[int]) -> list[tuple[int, int]]:
+    """Zeilen zu zusammenhaengenden Bereichen ``(von, bis)``, beide einschliesslich."""
+    spans: list[tuple[int, int]] = []
+    for row in sorted(set(rows)):
+        if spans and row == spans[-1][1] + 1:
+            spans[-1] = (spans[-1][0], row)
+        else:
+            spans.append((row, row))
+    return spans
 
 
 def field_from_mime(mime) -> str | None:
@@ -334,16 +352,20 @@ class DatabasePanel(QWidget):
             self._updating = False
 
     def _select_rows(self, rows: list[int]) -> None:
-        """Genau diese Zeilen selektieren (ohne Signale, Aufrufer setzt _updating)."""
+        """Genau diese Zeilen selektieren (ohne Signale, Aufrufer setzt _updating).
+
+        Ein ``select()`` je Zeile braucht bei Tausenden Zeilen Sekunden;
+        zusammenhaengende Zeilen gehen deshalb als ein Bereich hinein.
+        """
         model = self._grid.model()
-        selection = self._grid.selectionModel()
-        self._grid.clearSelection()
-        for row in rows:
-            selection.select(
-                model.index(row, 0),
-                QItemSelectionModel.SelectionFlag.Select
-                | QItemSelectionModel.SelectionFlag.Rows,
-            )
+        selection = QItemSelection()
+        for start, end in _row_spans(rows):
+            selection.select(model.index(start, 0), model.index(end, 0))
+        self._grid.selectionModel().select(
+            selection,
+            QItemSelectionModel.SelectionFlag.ClearAndSelect
+            | QItemSelectionModel.SelectionFlag.Rows,
+        )
 
     def set_expanded(self, expanded: bool) -> None:
         """Grid ein- oder ausklappen, ohne das Signal doppelt zu verarbeiten."""

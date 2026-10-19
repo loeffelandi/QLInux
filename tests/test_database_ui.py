@@ -656,3 +656,20 @@ def test_print_sheet_greys_out_cut_at_end_for_one_row(qapp, tmp_path):
     item = win._cut_combo.model().item(win._cut_combo.findData(CUT_AT_END))
     assert not item.isEnabled()
     win.close()
+
+
+def test_restoring_a_split_selection_keeps_exactly_those_rows(qapp, tmp_path):
+    from ql_editor.database_panel import _row_spans
+
+    assert _row_spans([5, 1, 2, 3, 7, 2]) == [(1, 3), (5, 5), (7, 7)]
+    win = MainWindow(discover=False)
+    win.resize(1100, 760)
+    win.show()
+    assert win.connect_csv_path(str(_rows_csv(tmp_path, "a.csv", "A", rows=10)))
+    _open_database(win)
+    _select_rows(win, [1, 2, 3, 5, 8])
+    qapp.processEvents()
+    win._sync_database_panel()
+    qapp.processEvents()
+    assert win._database_panel.selected_records() == [1, 2, 3, 5, 8]
+    win.close()
