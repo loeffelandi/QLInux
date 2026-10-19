@@ -237,6 +237,8 @@ Am QL-820NWB nachgemessen: `ESC i S` an `tcp://…:9100` gesendet, 2 s gewartet
 kommen die 32 Statusbytes, aus denen `reader.interpret_response()` Bandtyp,
 Bandbreite und -laenge liest - die Grundlage von `printer.detect_label()`.
 `printer.READBACK_BACKENDS` haelt das fest (`pyusb`, `linux_kernel`).
+Stoerungen meldet der Netzwerkdrucker trotzdem, nur auf anderem Weg: per SNMP
+(siehe „Statusabfrage per SNMP“ unten).
 
 Falle bei pyusb: `list_available_devices()` liefert
 `usb://0x04f9:0x2015_C5Z315686`, aber der Konstruktor des Backends parst
@@ -344,6 +346,54 @@ Die Suche endet, wenn nach der letzten Antwort `SEARCH_QUIET_TIME` (0,25 s)
 Ruhe war - auf diesem Netz also nach ~0,35 s statt nach dem Zeitlimit (2 s).
 `discover_network_printers(cancel=…)` laesst sich beim Schliessen des Fensters
 abbrechen.
+
+### Statusabfrage per SNMP (gemessen am QL-820NWB)
+
+Port 9100 meldet nichts zurueck, SNMP schon. `discovery.network_printer_status()`
+fragt per Unicast-GET (UDP 161, Community `public`) zwei Werte der
+HOST-RESOURCES-MIB (RFC 2790) in einem Paket ab:
+
+| OID | Objekt | Werte |
+| --- | --- | --- |
+| `1.3.6.1.2.1.25.3.2.1.5.1` | `hrDeviceStatus` | running (2), warning (3), down (5) |
+| `1.3.6.1.2.1.25.3.5.1.2.1` | `hrPrinterDetectedErrorState` | Bitfeld; Bit 0 ist das hoechste Bit des ersten Bytes |
+
+| Zustand | `hrDeviceStatus` | `hrPrinterStatus` | Fehlerbits |
+| --- | --- | --- | --- |
+| bereit | running (2) | idle (3) | `0x00` |
+| falsches Band | down (5) | other (1) | `0x00` |
+| Klappe offen | down (5) | other (1) | `0x08` (Bit 4) |
+
+- Ein falsches Band setzt kein Fehlerbit, nur `down` verraet es. `down` ohne
+  Bit heisst deshalb „Störung, z. B. falsches Band“.
+- `hrPrinterStatus` (`…25.3.5.1.1.1`) zeigt auch beim normalen Druck kurz
+  `other` und wird deshalb nicht genutzt. Ein korrekter 50-mm-Auftrag hat
+  `hrDeviceStatus` nie auf `down` gesetzt.
+- Als Stoerung (`NetworkStatus.fault`) gilt `down` oder eines der Bits in
+  `HR_PRINTER_FATAL_BITS` (kein Papier, kein Toner, Klappe offen, Stau,
+  offline, Fach oder Material fehlt, Ausgabe voll). Die uebrigen Bits (wenig
+  Papier oder Toner, Wartung, Ausgabe fast voll) sind nur Hinweise. Am Geraet
+  geprueft sind nur falsches Band und Klappe offen.
+- Meldet der Agent `error-status` ≠ 0 (SNMPv1 `noSuchName`), zaehlt das als
+  keine Antwort.
+
+Ablauf beim Druck:
+
+1. **Vorher:** Meldete die letzte Abfrage (hoechstens `SNMP_CACHE_MAX_AGE`,
+   15 s alt) eine Stoerung, fragt QLInux vor dem Senden. Ohne frische Abfrage
+   probt der Druck-Thread selbst (`NETWORK_PROBE_ATTEMPTS`, 2 Versuche).
+2. **Nachher:** `NETWORK_CHECK_DELAY` (2 s) warten, dann bis zu
+   `NETWORK_CHECK_ATTEMPTS` (3) Versuche mit je `SNMP_STATUS_TIMEOUT` (1 s):
+   - Stoerung: `outcome == "error"`, Texte in `errors`.
+   - keine Antwort: `outcome == "unconfirmed"` („Gesendet, keine
+     Statusantwort“). Das ist kein Fehler, der Auftrag kann gedruckt sein.
+   - sauber: `outcome` bleibt `"sent"`, dazu `snmp_ok` (das gedruckte Band
+     gilt dann als eingelegt) und Hinweise in `warnings`.
+
+   Hat SNMP schon vor dem Senden nicht geantwortet (z. B. SNMP am Drucker
+   aus), entfaellt die Pruefung.
+3. **Im Hintergrund:** Solange das Fenster aktiv ist, wird alle
+   `NETWORK_POLL_MS` (5 s) abgefragt, beim Aktivieren sofort.
 
 ### Rechtelage am QL-700 (gemessen)
 
