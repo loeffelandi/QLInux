@@ -7967,6 +7967,7 @@ def test_printer_poll_waits_until_the_last_one_has_finished(qapp, tmp_path):
     """Thread fertig, sein ``finished`` aber noch nicht da: ein neuer Poll wuerde
     von diesem ``finished`` verworfen, waehrend er laeuft - Qt bricht dann ab."""
     win = _temp_window(qapp, tmp_path)
+    win._net_poll_timer.stop()
     win._media_panel.set_network_host("192.0.2.62")
     win._poll_network_printer()
     first = win._net_poll_worker
