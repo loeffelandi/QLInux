@@ -5012,7 +5012,7 @@ def test_print_options_reach_the_print_job(qapp, tmp_path, monkeypatch):
         failed = Signal(str)
         finished = Signal()
 
-        def __init__(self, image, label, config, options):
+        def __init__(self, image, label, config, options, snmp_answered=None):
             super().__init__()
             captured.update(options)
 
@@ -5045,7 +5045,7 @@ def test_second_print_after_first_finished(qapp, tmp_path, monkeypatch):
         succeeded = Signal(dict)
         failed = Signal(str)
 
-        def __init__(self, image, label, config, options):
+        def __init__(self, image, label, config, options, snmp_answered=None):
             super().__init__()
             created.append(self)
 
@@ -7218,7 +7218,7 @@ def _print_with_outcome(qapp, tmp_path, monkeypatch, outcome: str | None, error:
         failed = Signal(str)
         finished = Signal()
 
-        def __init__(self, image, label, config, options):
+        def __init__(self, image, label, config, options, snmp_answered=None):
             super().__init__()
 
         def start(self) -> None:
@@ -7266,7 +7266,7 @@ def test_print_icon_spins_until_the_job_is_done_then_closes(qapp, tmp_path, monk
         failed = Signal(str)
         finished = Signal()
 
-        def __init__(self, image, label, config, options):
+        def __init__(self, image, label, config, options, snmp_answered=None):
             super().__init__()
 
         def start(self) -> None:
@@ -7324,3 +7324,33 @@ def test_language_switch_keeps_session_print_history(qapp, tmp_path, monkeypatch
 
     new.close()
     qapp.processEvents()
+
+
+def test_network_status_worker_polls_answer_and_errors(monkeypatch, qapp):
+    from ql_editor import app
+
+    monkeypatch.setattr(app, "network_snmp_answers", lambda address: True)
+    monkeypatch.setattr(app, "network_printer_errors", lambda address: ("Klappe offen",))
+    results = []
+    worker = app.NetworkStatusWorker("tcp://192.0.2.62:9100")
+    worker.polled.connect(results.append)
+    worker.run()
+    assert results == [
+        {"address": "tcp://192.0.2.62:9100", "answered": True, "errors": ("Klappe offen",)}
+    ]
+
+
+def test_network_status_worker_without_snmp_asks_no_errors(monkeypatch, qapp):
+    from ql_editor import app
+
+    monkeypatch.setattr(app, "network_snmp_answers", lambda address: False)
+
+    def fail(address):
+        raise AssertionError("ohne SNMP keine Fehlerabfrage")
+
+    monkeypatch.setattr(app, "network_printer_errors", fail)
+    results = []
+    worker = app.NetworkStatusWorker("tcp://192.0.2.62:9100")
+    worker.polled.connect(results.append)
+    worker.run()
+    assert results == [{"address": "tcp://192.0.2.62:9100", "answered": False, "errors": None}]

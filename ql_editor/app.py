@@ -26,6 +26,7 @@ import sys
 import threading
 from datetime import datetime
 from copy import deepcopy
+from time import monotonic
 from functools import partial
 from pathlib import Path
 from typing import Any, Iterable, Mapping
@@ -95,7 +96,12 @@ from .canvas import DUPLICATE_OFFSET_DOTS, LabelCanvas
 from .command_palette import CommandPalette, PaletteEntry
 from .csv_source import CsvTable
 from .database_panel import DatabasePanel
-from .discovery import discover_network_printers
+from .discovery import (
+    confirm_network_job,
+    discover_network_printers,
+    network_printer_errors,
+    network_snmp_answers,
+)
 from .history import design_snapshot, push_if_changed
 from .i18n import (
     DEFAULT_LANGUAGE,
@@ -157,6 +163,7 @@ from .sheet import (
     Sheet,
     ask_choice,
     ask_label_printer,
+    ask_loaded_tape,
     ask_save,
     ask_text,
     choose_file,
@@ -208,13 +215,21 @@ def _forget_orphan(worker: QThread) -> None:
         return
 
 
+#: Abstand der Hintergrundabfrage des Netzwerkdruckers (Millisekunden).
+NETWORK_POLL_MS = 5000
+#: Wie alt ein Abfrageergebnis hoechstens sein darf, um den Druck zu bestimmen.
+SNMP_CACHE_MAX_AGE = 15.0
+
+
 class PrintWorker(QThread):
     """Rendert nichts, sondern konvertiert und sendet in einem Thread."""
 
     succeeded = Signal(dict)
     failed = Signal(str)
 
-    def __init__(self, image, label, config, options: dict):
+    def __init__(
+        self, image, label, config, options: dict, snmp_answered: bool | None = None
+    ):
         super().__init__(None)
         if isinstance(image, Image.Image):
             self._images = [image]
@@ -223,8 +238,12 @@ class PrintWorker(QThread):
         self._label = label
         self._config = config
         self._options = options
+        self._snmp_answered = snmp_answered
 
     def run(self) -> None:  # noqa: D401
+        snmp_answered = self._snmp_answered
+        if snmp_answered is None and self._config.backend == "network":
+            snmp_answered = network_snmp_answers(self._config.address)
         try:
             if len(self._images) == 1:
                 status = print_image(
@@ -241,7 +260,28 @@ class PrintWorker(QThread):
                 tr("Unerwarteter Fehler: {error}").format(error=exc)
             )
         else:
-            self.succeeded.emit(status)
+            self.succeeded.emit(
+                confirm_network_job(
+                    self._config, status, snmp_answered=bool(snmp_answered)
+                )
+            )
+
+
+class NetworkStatusWorker(QThread):
+    """Fragt den Netzwerkdrucker im Hintergrund per SNMP nach seinem Status."""
+
+    polled = Signal(dict)
+
+    def __init__(self, address: str):
+        super().__init__(None)
+        self._address = address
+
+    def run(self) -> None:  # noqa: D401
+        answered = network_snmp_answers(self._address)
+        errors = network_printer_errors(self._address) if answered else None
+        self.polled.emit(
+            {"address": self._address, "answered": answered, "errors": errors}
+        )
 
 
 class NetworkSearchWorker(QThread):
@@ -579,6 +619,14 @@ class MainWindow(QMainWindow):
         self._refresh_timer.setInterval(PREVIEW_REFRESH_MS)
         self._refresh_timer.timeout.connect(self._refresh_now)
         self._detect_worker: DetectLabelWorker | None = None
+
+        self._net_poll: dict | None = None
+        self._net_poll_worker: NetworkStatusWorker | None = None
+        self._net_errors_shown: tuple[str, ...] = ()
+        self._net_poll_timer = QTimer(self)
+        self._net_poll_timer.setInterval(NETWORK_POLL_MS)
+        self._net_poll_timer.timeout.connect(self._poll_network_printer)
+        self._net_poll_timer.start()
 
         self._zoom_label = QLabel(tr("Zoom 100 %"))
         self._zoom_label.setToolTip(
@@ -3536,6 +3584,38 @@ class MainWindow(QMainWindow):
             )
             return
         label = self._media_panel.label
+        loaded = self._settings.loaded_label(config.address)
+        if config.backend == "network" and loaded and loaded != label.identifier:
+            ask_loaded_tape(
+                self,
+                title=tr("Band prüfen"),
+                text=tr(
+                    "Gewählt: {selected}\nLaut QLInux eingelegt: {loaded}\n\n"
+                    "Stimmt das nicht, bricht der Drucker mit einem Fehler ab."
+                ).format(
+                    selected=self._band_name(label.identifier),
+                    loaded=self._band_name(loaded),
+                ),
+                on_choice=partial(self._on_loaded_tape_choice, config, images, label),
+            )
+            return
+        self._start_print(config, images, label)
+
+    def _band_name(self, identifier: str) -> str:
+        try:
+            return media.get_label(identifier).display_name
+        except KeyError:
+            return identifier
+
+    def _on_loaded_tape_choice(self, config, images, label, choice: str) -> None:
+        if choice == "cancel":
+            return
+        if choice == "remember":
+            self._settings.set_loaded_label(config.address, label.identifier)
+            self._settings.sync()
+        self._start_print(config, images, label)
+
+    def _start_print(self, config, images, label) -> None:
         copies = self._copies_spin.value()
         pages = len(images) * copies
         options = {
@@ -3567,7 +3647,14 @@ class MainWindow(QMainWindow):
         self.statusBar().showMessage(
             message.format(count=count, address=config.address)
         )
-        self._print_worker = PrintWorker(images, label, config, options)
+        snmp_answered = (
+            self._cached_snmp_answer(config.address)
+            if config.backend == "network"
+            else None
+        )
+        self._print_worker = PrintWorker(
+            images, label, config, options, snmp_answered=snmp_answered
+        )
         self._print_worker.succeeded.connect(self._on_print_succeeded)
         self._print_worker.failed.connect(self._on_print_failed)
         self._print_worker.finished.connect(self._on_print_finished)
@@ -3613,6 +3700,47 @@ class MainWindow(QMainWindow):
             finally:
                 self._history_suppress = False
 
+    def _poll_network_printer(self) -> None:
+        config = self._media_panel.printer_config()
+        if config.backend != "network" or not config.address:
+            self._net_poll = None
+            return
+        if self._net_poll_worker is not None and self._net_poll_worker.isRunning():
+            return
+        worker = NetworkStatusWorker(config.address)
+        worker.polled.connect(self._on_network_polled)
+        worker.finished.connect(self._on_network_poll_finished)
+        worker.finished.connect(worker.deleteLater)
+        self._net_poll_worker = worker
+        worker.start()
+
+    def _on_network_poll_finished(self) -> None:
+        self._net_poll_worker = None
+
+    def _on_network_polled(self, result: dict) -> None:
+        self._net_poll = {
+            "address": result["address"],
+            "at": monotonic(),
+            "answered": result["answered"],
+        }
+        errors = tuple(result["errors"] or ())
+        if errors != self._net_errors_shown:
+            self._net_errors_shown = errors
+            if errors:
+                self.statusBar().showMessage(
+                    tr("Drucker meldet: {errors}").format(errors=", ".join(errors)),
+                    10000,
+                )
+
+    def _cached_snmp_answer(self, address: str) -> bool | None:
+        """Letztes Abfrageergebnis, ``None`` wenn es fehlt oder veraltet ist."""
+        poll = self._net_poll
+        if poll is None or poll["address"] != address:
+            return None
+        if monotonic() - poll["at"] > SNMP_CACHE_MAX_AGE:
+            return None
+        return poll["answered"]
+
     def _on_print_finished(self) -> None:
         self._print_worker = None
         self._print_button.set_busy(False)
@@ -3626,6 +3754,17 @@ class MainWindow(QMainWindow):
             ),
             8000,
         )
+        if outcome == "error":
+            errors = "\n".join(f"• {text}" for text in status.get("errors", ()))
+            show_message(
+                self,
+                "warning",
+                tr("Drucker meldet einen Fehler"),
+                tr(
+                    "Der Drucker meldet:\n{errors}\n\n"
+                    "Band, Klappe und Papier prüfen und danach erneut drucken."
+                ).format(errors=errors),
+            )
         # USB meldet "printed", das Netzwerk "sent", sobald der Auftrag weg ist.
         if outcome not in ("error", "failed"):
             self._close_print_sheet()

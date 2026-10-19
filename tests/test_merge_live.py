@@ -282,7 +282,7 @@ def _fake_print_worker(captured: dict):
         failed = Signal(str)
         finished = Signal()
 
-        def __init__(self, image, label, config, options):
+        def __init__(self, image, label, config, options, snmp_answered=None):
             super().__init__()
             captured["images"] = image
             captured["options"] = dict(options)

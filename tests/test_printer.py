@@ -25,6 +25,7 @@ from ql_editor.printer import (
     detect_label,
     print_image,
     print_images,
+    printer_error_texts,
     probe_status,
     send_instructions,
     validate_for_print,
@@ -891,3 +892,26 @@ def test_build_raster_sequence_rejects_empty_and_oversized_jobs():
         build_raster_sequence([], label, CONFIG)
     with pytest.raises(PrinterError):
         build_raster_sequence([img, img], label, CONFIG, copies=50)
+
+
+def test_printer_error_texts_read_the_bits_from_the_top():
+    """Bit 0 ist das hoechste Bit des ersten Bytes - so steht es im MIB."""
+    assert printer_error_texts(b"\x00\x00") == ()
+    assert printer_error_texts(b"\x80\x00") == ("Papier wird knapp",)
+    assert printer_error_texts(b"\x40\x00") == ("Kein Papier oder Band eingelegt",)
+    assert printer_error_texts(b"\x00\x02") == ("Wartung überfällig",)
+    assert printer_error_texts(b"\x00\x01") == ()
+    assert len(printer_error_texts(b"\xff\xff")) == 15
+
+
+def test_loaded_label_is_stored_per_printer(tmp_path):
+    from PySide6.QtCore import QSettings
+
+    from ql_editor.settings import AppSettings
+
+    settings = AppSettings(QSettings(str(tmp_path / "qlinux.ini"), QSettings.Format.IniFormat))
+    assert settings.loaded_label(CONFIG.address) is None
+    settings.set_loaded_label(CONFIG.address, "62")
+    settings.set_loaded_label("tcp://192.0.2.99:9100", "50")
+    assert settings.loaded_label(CONFIG.address) == "62"
+    assert settings.loaded_label("tcp://192.0.2.99:9100") == "50"

@@ -486,6 +486,54 @@ def ask_label_printer(
     return sheet
 
 
+def ask_loaded_tape(
+    parent: QWidget,
+    *,
+    title: str,
+    text: str,
+    on_choice: Callable[[str], None],
+) -> Sheet:
+    """Gewaehltes Band passt nicht zum eingelegten: drucken, merken oder abbrechen.
+
+    ``on_choice`` bekommt ``"print"``, ``"remember"`` (das gewaehlte Band wird
+    als eingelegt gemerkt und gedruckt) oder ``"cancel"``. Escape und das
+    Schliessen des Sheets zaehlen als Abbrechen.
+    """
+    box = QMessageBox()
+    box.setWindowFlags(Qt.WindowType.Widget)
+    box.setIcon(QMessageBox.Icon.Warning)
+    box.setText(text)
+    cancel = box.addButton(tr("Abbrechen"), QMessageBox.ButtonRole.RejectRole)
+    cancel.setIcon(icon("close"))
+    remember = box.addButton(
+        tr("Als eingelegt merken und drucken"), QMessageBox.ButtonRole.ActionRole
+    )
+    send = box.addButton(tr("Trotzdem drucken"), QMessageBox.ButtonRole.AcceptRole)
+    box.setDefaultButton(cancel)
+    sheet = _open_sheet(parent, box, title=title, sizing="hint")
+    chosen: dict[str, str | None] = {"value": None}
+
+    def _finish(choice: str) -> None:
+        if chosen["value"] is not None:
+            return
+        chosen["value"] = choice
+        sheet.close_sheet()
+        on_choice(choice)
+
+    def _clicked(_result: int) -> None:
+        button = box.clickedButton()
+        if button is send:
+            _finish("print")
+        elif button is remember:
+            _finish("remember")
+        else:
+            _finish("cancel")
+
+    box.finished.connect(_clicked)
+    sheet.closed.connect(lambda: _finish("cancel"))
+    return sheet
+
+
 def choose_file(
     parent: QWidget,
     *,

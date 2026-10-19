@@ -233,3 +233,139 @@ class _DeadSocket:
         import socket as socket_module
 
         raise socket_module.timeout()
+
+
+class _AnswerSocket(_DeadSocket):
+    """Ein Socket, der genau ein Paket liefert."""
+
+    def __init__(self, answer: bytes):
+        self._answer = answer
+
+    def recvfrom(self, size):
+        return self._answer, ("192.0.2.62", 161)
+
+
+def _snmp_answer(oid: tuple[int, ...], tag: int, value: bytes) -> bytes:
+    """Eine GetResponse mit genau einem Wert (wie ein Drucker sie schickt)."""
+    varbind = discovery._ber(0x30, discovery._ber_oid(oid) + discovery._ber(tag, value))
+    pdu = (
+        discovery._ber_integer(1)
+        + discovery._ber_integer(0)
+        + discovery._ber_integer(0)
+        + discovery._ber(0x30, varbind)
+    )
+    return discovery._ber(
+        0x30,
+        discovery._ber_integer(0)
+        + discovery._ber(0x04, discovery.SNMP_COMMUNITY)
+        + discovery._ber(0xA2, pdu),
+    )
+
+
+def test_snmp_varbinds_keeps_the_tag_of_each_value():
+    answer = _snmp_answer(discovery.HR_PRINTER_ERROR_OID, 0x04, b"\x40\x00")
+    assert discovery.snmp_varbinds(answer) == {
+        discovery.HR_PRINTER_ERROR_OID: (0x04, b"\x40\x00")
+    }
+
+
+def test_network_printer_errors_reads_the_error_bits(monkeypatch):
+    """Bit 1 (``noPaper``) gesetzt: ein Band fehlt oder passt nicht."""
+    answer = _snmp_answer(discovery.HR_PRINTER_ERROR_OID, 0x04, b"\x40\x00")
+    monkeypatch.setattr(discovery, "_udp_socket", lambda: _AnswerSocket(answer))
+    errors = discovery.network_printer_errors("tcp://192.0.2.62:9100")
+    assert errors == ("Kein Papier oder Band eingelegt",)
+
+
+def test_network_printer_errors_is_empty_without_error(monkeypatch):
+    answer = _snmp_answer(discovery.HR_PRINTER_ERROR_OID, 0x04, b"\x00\x00")
+    monkeypatch.setattr(discovery, "_udp_socket", lambda: _AnswerSocket(answer))
+    assert discovery.network_printer_errors("tcp://192.0.2.62:9100") == ()
+
+
+def test_network_printer_errors_is_none_without_answer(monkeypatch):
+    """Kein SNMP-Antwort heisst: unbekannt, nicht "alles in Ordnung"."""
+    monkeypatch.setattr(discovery, "_udp_socket", lambda: _DeadSocket())
+    assert discovery.network_printer_errors("tcp://192.0.2.62:9100") is None
+
+
+def test_confirm_network_job_marks_an_error_after_sending(monkeypatch):
+    monkeypatch.setattr(discovery.time, "sleep", lambda seconds: None)
+    monkeypatch.setattr(
+        discovery, "network_printer_errors", lambda address, **kw: ("Papierstau",)
+    )
+    config = discovery.PrinterConfig(address="tcp://192.0.2.62:9100")
+    status = discovery.confirm_network_job(config, {"outcome": "sent"})
+    assert status == {"outcome": "error", "errors": ["Papierstau"]}
+
+
+def test_confirm_network_job_keeps_sent_without_error(monkeypatch):
+    monkeypatch.setattr(discovery.time, "sleep", lambda seconds: None)
+    monkeypatch.setattr(discovery, "network_printer_errors", lambda address, **kw: ())
+    config = discovery.PrinterConfig(address="tcp://192.0.2.62:9100")
+    assert discovery.confirm_network_job(config, {"outcome": "sent"}) == {"outcome": "sent"}
+
+
+def test_confirm_network_job_skips_usb(monkeypatch):
+    """USB meldet den Druck selbst - dort wird nicht per SNMP nachgefragt."""
+
+    def fail(*args, **kwargs):
+        raise AssertionError("kein SNMP bei USB")
+
+    monkeypatch.setattr(discovery, "network_printer_errors", fail)
+    config = discovery.PrinterConfig(address="usb://0x04f9:0x209b")
+    assert discovery.confirm_network_job(config, {"outcome": "printed"}) == {
+        "outcome": "printed"
+    }
+
+
+def test_network_printer_errors_flags_a_down_device_without_error_bits(monkeypatch):
+    """Falsches Band: kein Fehlerbit, aber das Geraet steht auf "down"."""
+    answer = _snmp_answer(discovery.HR_DEVICE_STATUS_OID, 0x02, b"\x05")
+    monkeypatch.setattr(discovery, "_udp_socket", lambda: _AnswerSocket(answer))
+    errors = discovery.network_printer_errors("tcp://192.0.2.62:9100")
+    assert errors == ("Drucker meldet eine Störung",)
+
+
+def test_network_printer_errors_is_empty_while_the_device_runs(monkeypatch):
+    answer = _snmp_answer(discovery.HR_DEVICE_STATUS_OID, 0x02, b"\x02")
+    monkeypatch.setattr(discovery, "_udp_socket", lambda: _AnswerSocket(answer))
+    assert discovery.network_printer_errors("tcp://192.0.2.62:9100") == ()
+
+
+def test_confirm_network_job_treats_silence_after_sending_as_error(monkeypatch):
+    """Antwortete der Drucker vor dem Druck per SNMP, ist Stille danach ein Fehler."""
+    monkeypatch.setattr(discovery.time, "sleep", lambda seconds: None)
+    monkeypatch.setattr(discovery, "network_printer_errors", lambda address, **kw: None)
+    config = discovery.PrinterConfig(address="tcp://192.0.2.62:9100")
+    status = discovery.confirm_network_job(
+        config, {"outcome": "sent"}, snmp_answered=True
+    )
+    assert status == {
+        "outcome": "error",
+        "errors": ["Drucker antwortet nach dem Senden nicht"],
+    }
+
+
+def test_confirm_network_job_without_snmp_never_hard_stops(monkeypatch):
+    """Ohne SNMP vor dem Druck gibt es keine Stille-Pruefung: nur "gesendet"."""
+    monkeypatch.setattr(discovery.time, "sleep", lambda seconds: None)
+    monkeypatch.setattr(discovery, "network_printer_errors", lambda address, **kw: None)
+    config = discovery.PrinterConfig(address="tcp://192.0.2.62:9100")
+    status = discovery.confirm_network_job(config, {"outcome": "sent"})
+    assert status == {"outcome": "sent"}
+
+
+def test_network_snmp_answers_only_when_the_printer_replies(monkeypatch):
+    answer = _snmp_answer(discovery.HR_DEVICE_STATUS_OID, 0x02, b"\x02")
+    monkeypatch.setattr(discovery, "_udp_socket", lambda: _AnswerSocket(answer))
+    assert discovery.network_snmp_answers("tcp://192.0.2.62:9100") is True
+    monkeypatch.setattr(discovery, "_udp_socket", lambda: _DeadSocket())
+    assert discovery.network_snmp_answers("tcp://192.0.2.62:9100") is False
+
+
+def test_network_snmp_answers_ignores_unsupported_objects(monkeypatch):
+    """Ein Drucker, der die Gerätetabelle nicht kennt (noSuchObject), zaehlt nicht als SNMP-aktiv."""
+    answer = _snmp_answer(discovery.HR_DEVICE_STATUS_OID, 0x80, b"")
+    monkeypatch.setattr(discovery, "_udp_socket", lambda: _AnswerSocket(answer))
+    assert discovery.network_snmp_answers("tcp://192.0.2.62:9100") is False

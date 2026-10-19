@@ -569,6 +569,36 @@ class PrinterStatus:
         return bool(self.errors)
 
 
+def printer_error_texts(state: bytes) -> tuple[str, ...]:
+    """Texte der gesetzten Bits aus ``hrPrinterDetectedErrorState``.
+
+    Die Bits zaehlen von oben: Bit 0 ist das hoechste Bit des ersten Bytes
+    (RFC 2790, HOST-RESOURCES-MIB). Unbekannte Bits werden ignoriert.
+    """
+    texts = (
+        tr("Papier wird knapp"),
+        tr("Kein Papier oder Band eingelegt"),
+        tr("Toner wird knapp"),
+        tr("Kein Toner"),
+        tr("Klappe offen"),
+        tr("Papierstau"),
+        tr("Drucker offline"),
+        tr("Wartung nötig"),
+        tr("Papierfach fehlt"),
+        tr("Ausgabefach fehlt"),
+        tr("Verbrauchsmaterial fehlt"),
+        tr("Ausgabefach fast voll"),
+        tr("Ausgabefach voll"),
+        tr("Papierfach leer"),
+        tr("Wartung überfällig"),
+    )
+    return tuple(
+        texts[bit]
+        for bit in range(min(len(state) * 8, len(texts)))
+        if state[bit // 8] & (0x80 >> (bit % 8))
+    )
+
+
 # --------------------------------------------------------------------------- #
 # Rasterdaten erzeugen
 # --------------------------------------------------------------------------- #
@@ -1016,6 +1046,7 @@ __all__ = [
     "probe_status",
     "detect_label",
     "preferred_usb_address",
+    "printer_error_texts",
     "usb_devices",
     "usb_printers",
     "writable",
