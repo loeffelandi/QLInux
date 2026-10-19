@@ -578,7 +578,8 @@ class MainWindow(QMainWindow):
         self._adjusting = False
         self._print_worker: PrintWorker | None = None
         self._print_jobs: list[PrintJob] = []
-        self._pending_job: tuple[datetime, str, int, str] | None = None
+        # Start, Etikettname, Kopien, Modell, Adresse, Bandkennung.
+        self._pending_job: tuple[datetime, str, int, str, str, str] | None = None
         # Netzwerksuche im Hintergrund (mDNS + SNMP); ``_network_cancel``
         # bricht sie beim Schliessen des Fensters ab.
         self._network_worker: NetworkSearchWorker | None = None
@@ -3709,7 +3710,7 @@ class MainWindow(QMainWindow):
             return
         label = self._media_panel.label
         loaded = self._settings.loaded_label(config.address)
-        if config.backend == "network" and loaded and loaded != label.identifier:
+        if config.backend == "network" and loaded and not self._fits_loaded(label, loaded):
             ask_loaded_tape(
                 self,
                 title=tr("Band prüfen"),
@@ -3730,6 +3731,25 @@ class MainWindow(QMainWindow):
             return media.get_label(identifier).display_name
         except KeyError:
             return identifier
+
+    @staticmethod
+    def _fits_loaded(label: media.LabelSpec, loaded: str) -> bool:
+        try:
+            return label.prints_on(media.get_label(loaded))
+        except KeyError:
+            return False
+
+    def _remember_printed_tape(self, address: str, identifier: str) -> None:
+        """Nach sauberer SNMP-Antwort liegt das gedruckte Band ein.
+
+        Ein gemerktes Band, auf das der Auftrag schon passte (z. B. schwarz/rot
+        fuer einen schwarzen Druck), bleibt stehen.
+        """
+        loaded = self._settings.loaded_label(address)
+        if loaded and self._fits_loaded(media.get_label(identifier), loaded):
+            return
+        self._settings.set_loaded_label(address, identifier)
+        self._settings.sync()
 
     def _on_loaded_tape_choice(self, config, images, label, choice: str) -> None:
         if choice == "cancel":
@@ -3757,6 +3777,7 @@ class MainWindow(QMainWindow):
             copies,
             config.model,
             config.address,
+            label.identifier,
         )
         self._print_button.set_busy(True)
         if len(images) > 1:
@@ -3883,7 +3904,10 @@ class MainWindow(QMainWindow):
 
     def _on_print_succeeded(self, status: dict) -> None:
         outcome = status.get("outcome") or "sent"
+        pending = self._pending_job
         self._record_print_job(outcome)
+        if status.get("snmp_ok") and pending is not None:
+            self._remember_printed_tape(pending[4], pending[5])
         self.statusBar().showMessage(
             tr("Druckauftrag gesendet (outcome={outcome}).").format(
                 outcome=outcome
@@ -3932,7 +3956,7 @@ class MainWindow(QMainWindow):
     def _record_print_job(self, outcome: str) -> None:
         if self._pending_job is None:
             return
-        started, label, copies, model, address = self._pending_job
+        started, label, copies, model, address, _tape = self._pending_job
         self._pending_job = None
         job = PrintJob(started, label, copies, model, address, outcome)
         self._print_jobs.append(job)

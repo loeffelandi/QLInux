@@ -7337,6 +7337,133 @@ def test_printer_error_is_explained_only_with_texts(
     qapp.processEvents()
 
 
+def _fake_print_worker(monkeypatch, status: dict) -> list:
+    """Ersetzt den Druck: jeder Auftrag liefert ``status``, die Liste zaehlt mit."""
+    from PySide6.QtCore import QObject, Signal
+
+    from ql_editor import app as app_module
+
+    starts = []
+
+    class FakeWorker(QObject):
+        succeeded = Signal(dict)
+        failed = Signal(str)
+        finished = Signal()
+
+        def __init__(self, image, label, config, options, **_kwargs):
+            super().__init__()
+            self._label = label
+
+        def start(self) -> None:
+            starts.append(self._label.identifier)
+            self.succeeded.emit(dict(status))
+            self.finished.emit()
+
+    monkeypatch.setattr(app_module, "PrintWorker", FakeWorker)
+    return starts
+
+
+def _network_window_with_tape(qapp, tmp_path, *, loaded: str, selected: str):
+    win = _temp_window(qapp, tmp_path)
+    win._media_panel.set_network_host("192.0.2.62")
+    address = win._media_panel.printer_config().address
+    win._settings.set_loaded_label(address, loaded)
+    assert win._media_panel.select_label(selected)
+    qapp.processEvents()
+    return win, address
+
+
+def _visible_message_box(win):
+    from PySide6.QtWidgets import QMessageBox
+
+    boxes = [box for box in win.findChildren(QMessageBox) if box.isVisible()]
+    return boxes[0] if boxes else None
+
+
+@pytest.mark.parametrize(
+    ("outcome", "details", "remembered"),
+    [
+        ("sent", {"snmp_ok": True}, True),
+        ("sent", {}, False),
+        ("unconfirmed", {}, False),
+        ("error", {"errors": ["Falsches Band"]}, False),
+    ],
+)
+def test_only_a_confirmed_network_print_remembers_the_tape(
+    qapp, tmp_path, monkeypatch, outcome, details, remembered
+):
+    """Nur mit sauberer SNMP-Antwort steht fest, welches Band eingelegt ist."""
+    win = _print_with_outcome(qapp, tmp_path, monkeypatch, outcome, details=details)
+    address = win._media_panel.printer_config().address
+    expected = win._media_panel.label_id() if remembered else None
+    assert win._settings.loaded_label(address) == expected
+    win.close()
+    qapp.processEvents()
+
+
+@pytest.mark.parametrize(
+    ("button", "printed", "remembered"),
+    [
+        ("Abbrechen", [], "62"),
+        ("Trotzdem drucken", ["50"], "62"),
+        ("Als eingelegt merken und drucken", ["50"], "50"),
+    ],
+)
+def test_other_tape_than_the_remembered_one_asks_first(
+    qapp, tmp_path, monkeypatch, button, printed, remembered
+):
+    starts = _fake_print_worker(monkeypatch, {"outcome": "sent"})
+    win, address = _network_window_with_tape(qapp, tmp_path, loaded="62", selected="50")
+    win._on_print()
+    qapp.processEvents()
+    assert starts == []
+    box = _visible_message_box(win)
+    assert "62 mm endlos" in box.text() and "50 mm endlos" in box.text()
+    next(choice for choice in box.buttons() if choice.text() == button).click()
+    qapp.processEvents()
+    assert starts == printed
+    assert win._settings.loaded_label(address) == remembered
+    win.close()
+    qapp.processEvents()
+
+
+def test_print_anyway_corrects_the_remembered_tape_once_confirmed(qapp, tmp_path, monkeypatch):
+    _fake_print_worker(monkeypatch, {"outcome": "sent", "snmp_ok": True})
+    win, address = _network_window_with_tape(qapp, tmp_path, loaded="62", selected="50")
+    win._on_print()
+    qapp.processEvents()
+    box = _visible_message_box(win)
+    next(choice for choice in box.buttons() if choice.text() == "Trotzdem drucken").click()
+    qapp.processEvents()
+    assert win._settings.loaded_label(address) == "50"
+    win.close()
+    qapp.processEvents()
+
+
+def test_black_job_on_a_remembered_red_tape_prints_without_asking(qapp, tmp_path, monkeypatch):
+    """Schwarz passt auf das schwarz/rote Band - und das bleibt gemerkt."""
+    starts = _fake_print_worker(monkeypatch, {"outcome": "sent", "snmp_ok": True})
+    win, address = _network_window_with_tape(qapp, tmp_path, loaded="62red", selected="62")
+    win._on_print()
+    qapp.processEvents()
+    assert _visible_message_box(win) is None
+    assert starts == ["62"]
+    assert win._settings.loaded_label(address) == "62red"
+    win.close()
+    qapp.processEvents()
+
+
+def test_red_job_on_a_remembered_black_tape_asks_first(qapp, tmp_path, monkeypatch):
+    starts = _fake_print_worker(monkeypatch, {"outcome": "sent"})
+    win, _address = _network_window_with_tape(qapp, tmp_path, loaded="62", selected="62red")
+    win._on_print()
+    qapp.processEvents()
+    assert _visible_message_box(win) is not None
+    assert starts == []
+    win.close()
+    qapp.processEvents()
+
+
 def test_printer_error_is_marked_red_in_status_and_history(qapp, tmp_path, monkeypatch):
     win = _print_with_outcome(qapp, tmp_path, monkeypatch, None, error="Drucker nicht erreichbar")
     status = win._history_table.item(0, 4)

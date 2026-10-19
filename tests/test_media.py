@@ -87,6 +87,14 @@ def test_two_color_label_flagged():
     assert not get_label("62").color.supports_red
 
 
+def test_black_job_prints_on_the_red_tape_but_not_the_reverse():
+    assert get_label("62").prints_on(get_label("62"))
+    assert get_label("62").prints_on(get_label("62red"))
+    assert not get_label("62red").prints_on(get_label("62"))
+    assert not get_label("50").prints_on(get_label("62"))
+    assert not get_label("62x100").prints_on(get_label("62"))
+
+
 def test_label_kinds():
     assert get_label("50").kind is Kind.ENDLESS
     assert get_label("62x100").kind is Kind.DIE_CUT
