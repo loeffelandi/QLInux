@@ -382,6 +382,32 @@ def test_network_search_shows_its_state(qapp):
     assert panel._net_hint.text() == "Kein Drucker gefunden."
 
 
+def test_network_hint_names_the_remembered_tape(qapp):
+    """Ohne andere Meldung steht dort das gemerkte Band - der Kasten waechst nicht."""
+    from ql_editor.media_panel import MediaPanel
+
+    panel = MediaPanel()
+    forgotten = []
+    panel.forget_loaded_requested.connect(lambda: forgotten.append(True))
+    panel.set_network_host("192.168.178.62")
+    height = panel._connection_stack.sizeHint().height()
+
+    panel.set_loaded_tape("62 mm endlos (schwarz/rot)")
+    assert panel._net_hint.text() == "Eingelegt: 62 mm endlos (schwarz/rot)"
+    assert not panel._forget_button.isHidden()
+    assert panel._connection_stack.sizeHint().height() == height
+    panel._forget_button.click()
+    assert forgotten == [True]
+
+    panel.set_network_searching(True)
+    assert panel._net_hint.text() == "Suche läuft …"
+    assert panel._forget_button.isHidden()
+    panel.set_network_searching(False)
+    panel.set_loaded_tape("")
+    assert panel._net_hint.text() == ""
+    assert panel._forget_button.isHidden()
+
+
 def test_media_panel_restores_a_network_address_from_settings(qapp):
     from ql_editor.media_panel import CONNECTION_NETWORK, MediaPanel
 
@@ -3147,6 +3173,7 @@ def test_no_menu_bar_but_hamburger_menu(qapp):
         win._act_print,
         win._act_print_preview,
         win._act_print_history,
+        win._act_forget_tape,
         win._act_zoom_out,
         win._act_panel_left,
         win._act_connect_csv,
@@ -7436,6 +7463,86 @@ def test_print_anyway_corrects_the_remembered_tape_once_confirmed(qapp, tmp_path
     next(choice for choice in box.buttons() if choice.text() == "Trotzdem drucken").click()
     qapp.processEvents()
     assert win._settings.loaded_label(address) == "50"
+    win.close()
+    qapp.processEvents()
+
+
+@pytest.mark.parametrize("via", ["panel", "palette"])
+def test_remembered_tape_shows_in_the_panel_and_can_be_forgotten(
+    qapp, tmp_path, monkeypatch, via
+):
+    from ql_editor import app as app_module
+    from ql_editor import discovery, media
+
+    # Nur ein Drucker mit SNMP merkt sich ein Band - und den findet die Suche.
+    found = [discovery.NetworkPrinter(host="192.168.178.62", model_id="QL-820NWB")]
+    monkeypatch.setattr(app_module, "discover_network_printers", lambda *a, **k: found)
+    win = _print_with_outcome(qapp, tmp_path, monkeypatch, "sent", details={"snmp_ok": True})
+    _wait_startup_discovery(win, qapp)
+    panel = win._media_panel
+    address = panel.printer_config().address
+    band = media.get_label(panel.label_id()).display_name
+    assert panel._net_hint.text() == f"Eingelegt: {band}"
+    assert win._act_forget_tape.isEnabled()
+
+    if via == "panel":
+        panel._forget_button.click()
+    else:
+        printing = next(e for e in win._palette_entries() if e.title == "Drucken")
+        assert win._act_forget_tape in [child.action for child in printing.children]
+        win._act_forget_tape.trigger()
+    assert win._settings.loaded_label(address) is None
+    assert panel._net_hint.text() == ""
+    assert not win._act_forget_tape.isEnabled()
+    win.close()
+    qapp.processEvents()
+
+
+def test_long_tape_name_or_a_search_does_not_move_the_boxes_below(qapp, tmp_path, monkeypatch):
+    """Der Bandname bricht im schmalen Panel um - sein Platz ist reserviert."""
+    from PySide6.QtCore import QPoint
+
+    from ql_editor import app as app_module
+    from ql_editor import discovery
+
+    found = [discovery.NetworkPrinter(host="192.168.178.62", model_id="QL-820NWB")]
+    monkeypatch.setattr(app_module, "discover_network_printers", lambda *a, **k: found)
+    win = _temp_window(qapp, tmp_path)
+    _wait_startup_discovery(win, qapp)
+    panel = win._media_panel
+    panel.set_network_host("192.168.178.62")
+
+    def band_top() -> int:
+        for _ in range(5):
+            qapp.processEvents()
+        return panel._band_combo.mapTo(win, QPoint(0, 0)).y()
+
+    top = band_top()
+    win._settings.set_loaded_label(panel.printer_config().address, "62red")
+    win._sync_loaded_tape()
+    assert panel._net_hint.text() == "Eingelegt: 62 mm endlos (schwarz/rot)"
+    assert band_top() == top
+    panel.set_network_searching(True)
+    assert band_top() == top
+    win.close()
+    qapp.processEvents()
+
+
+def test_startup_shows_the_tape_remembered_for_the_printer(qapp, tmp_path):
+    from PySide6.QtCore import QSettings
+
+    from ql_editor.app import MainWindow
+    from ql_editor.settings import AppSettings
+
+    settings = AppSettings(
+        QSettings(str(tmp_path / "settings.ini"), QSettings.Format.IniFormat)
+    )
+    settings.connection = "network"
+    settings.address = "tcp://192.0.2.20:9100"
+    settings.set_loaded_label("tcp://192.0.2.20:9100", "62red")
+    win = MainWindow(settings=settings, discover=False)
+    assert win._media_panel._net_hint.text() == "Eingelegt: 62 mm endlos (schwarz/rot)"
+    assert win._act_forget_tape.isEnabled()
     win.close()
     qapp.processEvents()
 

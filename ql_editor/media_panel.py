@@ -122,6 +122,7 @@ class MediaPanel(QWidget):
     usb_search_requested = Signal()
     network_search_requested = Signal()
     usb_permission_requested = Signal()
+    forget_loaded_requested = Signal()
 
     def __init__(self, parent: QWidget | None = None):
         super().__init__(parent)
@@ -246,15 +247,30 @@ class MediaPanel(QWidget):
         self._net_hint = QLabel()
         self._net_hint.setWordWrap(True)
         self._net_hint.setStyleSheet(HINT_STYLE)
-        # Der Hinweis ist meist leer (nur Suche/Fehlanzeige fuellen ihn). Seine
-        # Hoehe bleibt trotzdem reserviert - sonst springt der Kasten darunter,
-        # sobald eine Suche laeuft oder nichts findet.
+        self._net_hint.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
+        # Der Hinweis ist meist leer (Suche, Fehlanzeige oder das gemerkte Band
+        # fuellen ihn). Seine Hoehe bleibt trotzdem reserviert, zwei Zeilen fuer
+        # lange Bandnamen - sonst springt der Kasten darunter, sobald eine Suche
+        # laeuft oder ein Band gemerkt wird. Das Symbol zum Vergessen steht in
+        # der Spalte des Suchsymbols darueber.
+        self._loaded_tape = ""
+        self._forget_button = QToolButton()
+        self._forget_button.setIcon(icon("delete"))
+        self._forget_button.setIconSize(QSize(16, 16))
+        self._forget_button.setAutoRaise(True)
+        self._forget_button.setAccessibleName(tr("Gemerktes Band vergessen"))
+        self._forget_button.setToolTip(
+            tr("Gemerktes Band löschen, z. B. nach einem Bandwechsel am Drucker.")
+        )
+        self._forget_button.hide()
         self._net_hint_holder = QWidget()
-        net_hint_layout = QVBoxLayout(self._net_hint_holder)
+        net_hint_layout = QHBoxLayout(self._net_hint_holder)
         net_hint_layout.setContentsMargins(0, 0, 0, 0)
-        net_hint_layout.addWidget(self._net_hint)
+        net_hint_layout.setSpacing(4)
+        net_hint_layout.addWidget(self._net_hint, 1)
+        net_hint_layout.addWidget(self._forget_button, 0, Qt.AlignmentFlag.AlignTop)
         self._net_hint_holder.setMinimumHeight(
-            QFontMetrics(self._net_hint.font()).height()
+            2 * QFontMetrics(self._net_hint.font()).height()
         )
 
         self._usb_combo = QComboBox()
@@ -384,6 +400,7 @@ class MediaPanel(QWidget):
         self._usb_button.clicked.connect(self.usb_search_requested.emit)
         self._net_button.clicked.connect(self.network_search_requested.emit)
         self._access_button.clicked.connect(self.usb_permission_requested.emit)
+        self._forget_button.clicked.connect(self.forget_loaded_requested.emit)
         self._usb_combo.currentIndexChanged.connect(self._on_usb_combo_changed)
         self._net_combo.currentIndexChanged.connect(self._on_net_combo_changed)
         for mode, button in self._conn_buttons.items():
@@ -1014,11 +1031,12 @@ class MediaPanel(QWidget):
         self._sync_network_hint()
 
     def _sync_network_hint(self) -> None:
-        """Statuszeile der Netzwerk-Seite: Suche, Ergebnis - sonst leer.
+        """Statuszeile der Netzwerk-Seite: Suche, Ergebnis, gemerktes Band.
 
         Die Port-Angabe steht dort, wo sie gebraucht wird: in der IP-Abfrage
         (siehe :meth:`_ask_network_host`) - nicht dauerhaft im Panel.
         """
+        forget = False
         if self._network_searching:
             text = tr("Suche läuft …")
         elif self._network_searched and not self._network_found:
@@ -1029,9 +1047,18 @@ class MediaPanel(QWidget):
             # Erster Start (keine Adresse gespeichert): der Weg steht daneben -
             # das Suchsymbol fuellt die Liste.
             text = tr("Kein Drucker gewählt.")
+        elif self._loaded_tape:
+            text = tr("Eingelegt: {band}").format(band=self._loaded_tape)
+            forget = True
         else:
             text = ""
         self._net_hint.setText(text)
+        self._forget_button.setVisible(forget)
+
+    def set_loaded_tape(self, name: str) -> None:
+        """Band, das laut QLInux im Netzwerkdrucker liegt (leer: keins gemerkt)."""
+        self._loaded_tape = name
+        self._sync_network_hint()
 
     def _network_list_address(self) -> str:
         """Adresse, die in der Netzwerkliste ausgewaehlt sein soll.

@@ -727,6 +727,8 @@ class MainWindow(QMainWindow):
         self._media_panel.usb_search_requested.connect(self._on_usb_search)
         self._media_panel.network_search_requested.connect(self._on_network_search)
         self._media_panel.usb_permission_requested.connect(self._on_usb_permission)
+        self._media_panel.forget_loaded_requested.connect(self._forget_loaded_tape)
+        self._media_panel.changed.connect(self._sync_loaded_tape)
         self._inspector.changed.connect(self._on_inspector_changed)
         self._inspector.edit_begun.connect(self._capture_history)
         self._inspector.edit_committed.connect(self._on_inspector_edit_committed)
@@ -750,6 +752,7 @@ class MainWindow(QMainWindow):
         # Gespeicherte Einstellungen anwenden.
         self._apply_saved_settings()
         self._on_media_changed()
+        self._sync_loaded_tape()
         self._sync_margin_base()
         self._sync_media_prev()
         # Startzustand ist sauber - Medien-Sync oben zählt nicht als Bearbeitung.
@@ -1559,6 +1562,12 @@ class MainWindow(QMainWindow):
         self._act_print_history.setToolTip(tr("Druckverlauf dieser Sitzung anzeigen"))
         self._act_print_history.triggered.connect(self._show_print_sheet)
 
+        self._act_forget_tape = QAction(icon("delete"), tr("Gemerktes Band vergessen"), self)
+        self._act_forget_tape.setToolTip(
+            tr("Gemerktes Band löschen, z. B. nach einem Bandwechsel am Drucker.")
+        )
+        self._act_forget_tape.setEnabled(False)
+        self._act_forget_tape.triggered.connect(self._forget_loaded_tape)
 
         self._act_print_preview = QAction(icon("preview"), tr("Druckvorschau"), self)
         self._act_print_preview.setCheckable(True)
@@ -1996,7 +2005,7 @@ class MainWindow(QMainWindow):
             self._palette_group(
                 tr("Drucken"),
                 "print",
-                [self._act_print, self._act_print_history],
+                [self._act_print, self._act_print_history, self._act_forget_tape],
             ),
             self._palette_group(
                 tr("Sprache"),
@@ -3789,6 +3798,26 @@ class MainWindow(QMainWindow):
             return
         self._settings.set_loaded_label(address, identifier)
         self._settings.sync()
+        self._sync_loaded_tape()
+
+    def _sync_loaded_tape(self) -> None:
+        """Gemerktes Band des gewaehlten Netzwerkdruckers im Panel zeigen."""
+        config = self._media_panel.printer_config()
+        loaded = (
+            self._settings.loaded_label(config.address)
+            if config.backend == "network" and config.address
+            else None
+        )
+        self._media_panel.set_loaded_tape(self._band_name(loaded) if loaded else "")
+        self._act_forget_tape.setEnabled(bool(loaded))
+
+    def _forget_loaded_tape(self) -> None:
+        config = self._media_panel.printer_config()
+        if config.backend != "network" or not config.address:
+            return
+        self._settings.forget_loaded_label(config.address)
+        self._settings.sync()
+        self._sync_loaded_tape()
 
     def _on_loaded_tape_choice(self, config, images, label, choice: str) -> None:
         if choice == "cancel":
@@ -3796,6 +3825,7 @@ class MainWindow(QMainWindow):
         if choice == "remember":
             self._settings.set_loaded_label(config.address, label.identifier)
             self._settings.sync()
+            self._sync_loaded_tape()
         self._start_print(config, images, label)
 
     def _start_print(self, config, images, label) -> None:

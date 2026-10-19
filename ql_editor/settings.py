@@ -113,6 +113,9 @@ class AppSettings:
     def set_loaded_label(self, address: str, identifier: str) -> None:
         self.set_value(_loaded_label_key(address), identifier)
 
+    def forget_loaded_label(self, address: str) -> None:
+        self._settings.remove(_loaded_label_key(address))
+
     @property
     def image_dir(self) -> str:
         return str(self.value("files/image_dir", ""))

@@ -355,6 +355,11 @@ EN: dict[str, str] = {
     "Gewählt: {selected}\nLaut QLInux eingelegt: {loaded}\n\nStimmt das nicht, bricht der Drucker mit einem Fehler ab.": "Selected: {selected}\nLoaded according to QLInux: {loaded}\n\nIf that is wrong, the printer stops with an error.",
     "Als eingelegt merken und drucken": "Remember as loaded and print",
     "Trotzdem drucken": "Print anyway",
+    "Eingelegt: {band}": "Loaded: {band}",
+    "Gemerktes Band vergessen": "Forget remembered tape",
+    "Gemerktes Band löschen, z. B. nach einem Bandwechsel am Drucker.": (
+        "Clear the remembered tape, e.g. after changing the tape in the printer."
+    ),
     "Abbrechen": "Cancel",
     "Öffnen": "Open",
     "Speichern": "Save",

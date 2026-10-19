@@ -917,3 +917,6 @@ def test_loaded_label_is_stored_per_printer(tmp_path):
     settings.set_loaded_label("tcp://192.0.2.99:9100", "50")
     assert settings.loaded_label(CONFIG.address) == "62"
     assert settings.loaded_label("tcp://192.0.2.99:9100") == "50"
+    settings.forget_loaded_label(CONFIG.address)
+    assert settings.loaded_label(CONFIG.address) is None
+    assert settings.loaded_label("tcp://192.0.2.99:9100") == "50"
