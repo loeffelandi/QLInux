@@ -1058,9 +1058,9 @@ class MainWindow(QMainWindow):
     def _selected_print_records(self) -> list[int]:
         """Alle in der Tabelle gewählten Zeilen, sonst der aktuelle Record."""
         rows = self._database_panel.selected_records()
-        if rows or self._active is None:
-            return rows or [0]
-        return [self._active.current_record]
+        if rows:
+            return rows
+        return [self._active.current_record] if self._active is not None else [0]
 
     def _print_variants(self) -> list[merge_engine.PrintVariant]:
         records = self._active_print_records()

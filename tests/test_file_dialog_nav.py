@@ -55,3 +55,20 @@ def test_side_buttons_navigate_file_dialog(qapp, tmp_path):
     assert dialog.directory().absolutePath() == str(sub)
     parent.close()
 
+
+
+def test_history_filter_is_removed_when_unbound(qapp, tmp_path):
+    from PySide6.QtWidgets import QFileDialog
+
+    dialog = QFileDialog()
+    dialog.setOption(QFileDialog.Option.DontUseNativeDialog, True)
+    sub = tmp_path / "sub"
+    sub.mkdir()
+    dialog.setDirectory(str(sub))
+    qapp.processEvents()
+    remove = sheet._bind_history_buttons(dialog)
+    remove()
+    _press(dialog, Qt.MouseButton.BackButton)
+    qapp.processEvents()
+    assert dialog.directory().absolutePath() == str(sub)
+    dialog.close()

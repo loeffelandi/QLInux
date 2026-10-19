@@ -427,7 +427,7 @@ def ask_save(
     discard = box.addButton(tr("Verwerfen"), QMessageBox.ButtonRole.DestructiveRole)
     discard.setIcon(icon("delete"))
     cancel = box.addButton(tr("Abbrechen"), QMessageBox.ButtonRole.RejectRole)
-    cancel.setIcon(icon("close"))
+    cancel.setIcon(icon("cancel"))
     box.setDefaultButton(save)
     sheet = _open_sheet(parent, box, title=title, sizing="hint")
     chosen: dict[str, str | None] = {"value": None}
@@ -528,11 +528,17 @@ class _HistoryNavFilter(QObject):
         return True
 
 
-def _bind_history_buttons(dialog: QFileDialog) -> None:
+def _bind_history_buttons(dialog: QFileDialog) -> Callable[..., None]:
+    """Seitentasten an den Dialog binden. Der Rückgabewert entfernt den Filter wieder."""
     app = QApplication.instance()
     filter_ = _HistoryNavFilter(dialog)
     app.installEventFilter(filter_)
-    dialog.destroyed.connect(lambda *_: app.removeEventFilter(filter_))
+
+    def _remove(*_args) -> None:
+        app.removeEventFilter(filter_)
+
+    dialog.destroyed.connect(_remove)
+    return _remove
 
 
 def choose_file(
@@ -557,7 +563,7 @@ def choose_file(
     # Keine harte Mindestgroesse: die erzwingt das Sheet und schneidet sonst die
     # Schaltflaechen unten ab, wenn das Fenster niedrig ist.
     dialog.setMinimumSize(DIALOG_MIN_WIDTH, DIALOG_MIN_HEIGHT)
-    _bind_history_buttons(dialog)
+    remove_history_nav = _bind_history_buttons(dialog)
     sheet = _open_sheet(
         parent,
         dialog,
@@ -566,6 +572,7 @@ def choose_file(
         margins=DIALOG_MARGIN,
         max_size=QSize(980, 700),
     )
+    sheet.closed.connect(remove_history_nav)
 
     def _finished(result: int) -> None:
         files = dialog.selectedFiles()
@@ -602,7 +609,7 @@ def save_file(
     # Keine harte Mindestgroesse: die erzwingt das Sheet und schneidet sonst die
     # Schaltflaechen unten ab, wenn das Fenster niedrig ist.
     dialog.setMinimumSize(DIALOG_MIN_WIDTH, DIALOG_MIN_HEIGHT)
-    _bind_history_buttons(dialog)
+    remove_history_nav = _bind_history_buttons(dialog)
     sheet = _open_sheet(
         parent,
         dialog,
@@ -611,6 +618,7 @@ def save_file(
         margins=DIALOG_MARGIN,
         max_size=QSize(980, 700),
     )
+    sheet.closed.connect(remove_history_nav)
 
     def _finished(result: int) -> None:
         files = dialog.selectedFiles()

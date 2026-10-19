@@ -85,6 +85,7 @@ ICON_COLORS: dict[str, str] = {
     "open": "#5D5553",       # Zusatzfarbe warmgrau
     "new": "#5D5553",
     "close": "#5D5553",
+    "cancel": "#5D5553",
     "save": "#5D5553",
     "save_as": "#5D5553",
     "label": "#976E41",      # Zusatzfarbe orange
@@ -672,6 +673,13 @@ def _draw_close(p: QPainter, color: QColor) -> None:
     _line(p, 17.0, 7.0, 7.0, 17.0)
 
 
+def _draw_cancel(p: QPainter, color: QColor) -> None:
+    """Kreis mit Schrägstrich - Abbrechen, nicht das Kreuz von "Reiter schließen"."""
+    _stroke_only(p, color, 1.8)
+    p.drawEllipse(QRectF(3.5, 3.5, 17.0, 17.0))
+    _line(p, 7.0, 17.0, 17.0, 7.0)
+
+
 def _draw_open(p: QPainter, color: QColor) -> None:
     """Aufgeklappter Ordner - "Datei öffnen"."""
     _stroke_only(p, color, 1.7)
@@ -1173,6 +1181,7 @@ _DRAW = {
     "flag_en": _draw_flag_en,
     "new": _draw_new,
     "close": _draw_close,
+    "cancel": _draw_cancel,
     "open": _draw_open,
     "save": _draw_save,
     "save_as": _draw_save_as,

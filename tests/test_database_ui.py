@@ -511,3 +511,19 @@ def test_enter_in_print_sheet_starts_print(qapp, monkeypatch):
     qapp.processEvents()
     assert calls == [True]
     win.close()
+
+
+def test_shift_click_selects_range_of_rows(qapp, tmp_path):
+    from PySide6.QtCore import QItemSelection, QItemSelectionModel
+
+    win = _window_with_csv(qapp, tmp_path)
+    _open_database(win)
+    grid = win._database_panel._grid
+    model = grid.selectionModel()
+    first = grid.model().index(0, 0)
+    last = grid.model().index(1, 0)
+    model.select(first, QItemSelectionModel.SelectionFlag.ClearAndSelect | QItemSelectionModel.SelectionFlag.Rows)
+    model.select(QItemSelection(first, last), QItemSelectionModel.SelectionFlag.Select | QItemSelectionModel.SelectionFlag.Rows)
+    qapp.processEvents()
+    assert win._database_panel.selected_records() == [0, 1]
+    win.close()
