@@ -24,7 +24,7 @@ from typing import Callable
 
 import shiboken6
 from PySide6.QtCore import QDir, QEvent, QObject, QSize, Qt, Signal
-from PySide6.QtGui import QColor, QFont, QPainter, QPalette, QPen, QShortcut
+from PySide6.QtGui import QAction, QColor, QFont, QPainter, QPalette, QPen, QShortcut
 from PySide6.QtWidgets import (
     QApplication,
     QDialog,
@@ -262,10 +262,18 @@ class Sheet(QWidget):
         # Solange das Sheet offen ist, keine App-Tastenkombinationen
         # (Ctrl+P, Entf, ...) ausloesen - das Sheet ist modal.
         if event.type() == QEvent.Type.Shortcut and self.isVisible():
-            # QShortcut ist kein Widget: zaehlt das Widget, dem es gehoert.
-            owner = obj.parent() if isinstance(obj, QShortcut) else obj
-            inside = isinstance(owner, QWidget) and (
-                _same_object(owner, self) or self.isAncestorOf(owner)
+            # QShortcut und QAction sind keine Widgets: es zaehlen die Widgets,
+            # an denen sie haengen (z. B. Strg+Hoch im Datei-Dialog).
+            if isinstance(obj, QShortcut):
+                owners = [obj.parent()]
+            elif isinstance(obj, QAction):
+                owners = list(obj.associatedObjects())
+            else:
+                owners = [obj]
+            inside = any(
+                isinstance(owner, QWidget)
+                and (_same_object(owner, self) or self.isAncestorOf(owner))
+                for owner in owners
             )
             if not inside:
                 return True

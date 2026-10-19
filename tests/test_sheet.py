@@ -199,6 +199,55 @@ def test_sheet_blocks_app_shortcuts(qapp):
     win.close()
 
 
+def test_sheet_judges_shortcuts_and_actions_by_their_widget(qapp):
+    """QShortcut/QAction im Sheet laufen, App-Aktionen bleiben gesperrt."""
+    from PySide6.QtGui import QAction, QKeySequence, QShortcut, QShortcutEvent
+
+    win = _window(qapp)
+    sheet = show_message(win, "info", "Titel", "Text")
+    qapp.processEvents()
+    box = sheet.findChild(QMessageBox)
+    event = QShortcutEvent(QKeySequence("Ctrl+Up"), 1)
+
+    inner_shortcut = QShortcut(QKeySequence("Return"), box)
+    assert sheet.eventFilter(inner_shortcut, event) is False
+    outer_shortcut = QShortcut(QKeySequence("Return"), win)
+    assert sheet.eventFilter(outer_shortcut, event) is True
+
+    inner_action = QAction("Hoch", box)
+    box.addAction(inner_action)
+    assert sheet.eventFilter(inner_action, event) is False
+    assert sheet.eventFilter(win._act_print, event) is True
+    sheet.close_sheet()
+    win.close()
+
+
+def test_file_dialog_keeps_its_own_shortcuts_in_the_sheet(qapp, tmp_path):
+    """Strg+Hoch (uebergeordneter Ordner) ist eine QAction des Dialogs."""
+    from PySide6.QtTest import QTest
+    from PySide6.QtWidgets import QApplication
+
+    sub = tmp_path / "sub"
+    sub.mkdir()
+    win = _window(qapp)
+    sheet = choose_file(
+        win,
+        caption="Test",
+        name_filter="Alle (*)",
+        on_selected=lambda _path: None,
+        start_dir=str(sub),
+    )
+    qapp.processEvents()
+    dialog = win.findChild(QFileDialog)
+    QTest.keyClick(
+        QApplication.focusWidget(), Qt.Key.Key_Up, Qt.KeyboardModifier.ControlModifier
+    )
+    qapp.processEvents()
+    assert dialog.directory().absolutePath() == str(tmp_path)
+    sheet.close_sheet()
+    win.close()
+
+
 # --------------------------------------------------------------------------- #
 # Datei-Dialog
 # --------------------------------------------------------------------------- #
