@@ -166,7 +166,12 @@ from .sheet import (
 )
 from .symbols import SymbolPicker
 from .theme import apply_theme, scheme_for
-from .widgets import SmoothScrollArea, install_wheel_guard_recursive, title_box
+from .widgets import (
+    SmoothScrollArea,
+    add_toolbar_separator,
+    install_wheel_guard_recursive,
+    title_box,
+)
 
 BARCODE_SYMBOLOGIES = ["code128", "code39", "ean13", "ean8", "upca", "itf", "codabar"]
 
@@ -1547,18 +1552,18 @@ class MainWindow(QMainWindow):
             "QToolButton::menu-indicator { image: none; width: 0px; }"
         )
         bar.addWidget(self._menu_button)
-        bar.addSeparator()
+        add_toolbar_separator(bar)
 
         # Datei-Gruppe direkt nach dem Burger: Öffnen, Speichern, Vorlage laden.
         bar.addAction(self._act_file_new)
         bar.addAction(self._act_file_open)
         bar.addAction(self._act_file_save)
         bar.addWidget(self._build_template_button(bar))
-        bar.addSeparator()
+        add_toolbar_separator(bar)
 
         bar.addAction(self._act_undo)
         bar.addAction(self._act_redo)
-        bar.addSeparator()
+        add_toolbar_separator(bar)
 
         bar.addAction(self._act_add_text)
         bar.addAction(self._act_add_image)
@@ -1567,22 +1572,22 @@ class MainWindow(QMainWindow):
         bar.addWidget(self._build_code_button(bar))
         bar.addAction(self._act_add_table)
         bar.addAction(self._act_add_datetime)
-        bar.addSeparator()
+        add_toolbar_separator(bar)
         bar.addWidget(self._build_align_button(bar))
         bar.addAction(self._act_forward)
         bar.addAction(self._act_backward)
         bar.addAction(self._act_delete)
-        bar.addSeparator()
+        add_toolbar_separator(bar)
         bar.addAction(self._act_zoom_out)
         bar.addAction(self._act_zoom_fit)
         bar.addAction(self._act_zoom_in)
         bar.addAction(self._act_zoom_100)
         # Datenbank vor dem Drucken: CSV bleibt sichtbar, das Raster erst mit Datei.
-        bar.addSeparator()
+        add_toolbar_separator(bar)
         bar.addAction(self._act_connect_csv)
-        self._act_database_separator = bar.addSeparator()
+        self._act_database_separator = add_toolbar_separator(bar)
         bar.addAction(self._act_database)
-        bar.addSeparator()
+        add_toolbar_separator(bar)
         bar.addAction(self._act_print)
 
     def _build_template_button(self, parent: QWidget) -> QToolButton:
