@@ -73,6 +73,12 @@ def credits() -> tuple[tuple[str, str, str, str], ...]:
             "MIT",
             tr("Barcodes"),
         ),
+        (
+            "gLabels",
+            tr("Jim Evins und Mitwirkende"),
+            "GPL-3.0-or-later",
+            tr("Avery-Zweckform-Bogenmaße"),
+        ),
     )
 
 
