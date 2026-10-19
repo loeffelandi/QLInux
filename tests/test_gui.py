@@ -5264,6 +5264,42 @@ def test_print_history_scrolls_inside_its_own_box(qapp, tmp_path):
     qapp.processEvents()
 
 
+def test_print_sheet_follows_a_live_theme_switch(qapp, tmp_path):
+    """Ein offenes Druckfenster nimmt Hell und Dunkel mit, ohne neu aufzugehen."""
+    from PySide6.QtCore import Qt
+    from PySide6.QtGui import QImage
+    from PySide6.QtWidgets import QComboBox
+
+    from ql_editor.theme import apply_theme
+
+    def lightness(widget, x: int, y: int) -> int:
+        image = QImage(widget.size(), QImage.Format.Format_ARGB32)
+        image.fill(0)
+        widget.render(image)
+        return image.pixelColor(x, y).lightness()
+
+    original = qapp.palette()
+    win = _temp_window(qapp, tmp_path)
+    try:
+        apply_theme(qapp, Qt.ColorScheme.Light)
+        win._show_print_sheet()
+        qapp.processEvents()
+        card = win._print_sheet._panel
+        combo = win._print_sheet.findChild(QComboBox)
+        field = combo.mapTo(card, combo.rect().center())
+        assert lightness(card, 24, 20) > 200
+        assert lightness(card, field.x(), field.y()) > 200
+        apply_theme(qapp, Qt.ColorScheme.Dark)
+        qapp.processEvents()
+        assert lightness(card, 24, 20) < 80
+        assert lightness(card, field.x(), field.y()) < 90
+    finally:
+        apply_theme(qapp)
+        qapp.setPalette(original)
+        win.close()
+        qapp.processEvents()
+
+
 def test_toolbar_print_opens_the_sheet(qapp, tmp_path):
     """Der Toolbar-Knopf und Strg+P öffnen den Dialog, sie drucken nicht sofort."""
     from ql_editor.sheet import Sheet

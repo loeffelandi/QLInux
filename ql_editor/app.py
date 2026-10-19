@@ -390,10 +390,17 @@ class _PrintPreview(QLabel):
         self.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.setMinimumHeight(160)
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
-        self.setStyleSheet(
-            "background: palette(base); border: 1px solid palette(mid);"
-            " border-radius: 6px;"
-        )
+
+    def paintEvent(self, event) -> None:  # noqa: N802
+        # Stylesheet wuerde die Farbe beim Wechsel einfrieren.
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        palette = self.palette()
+        painter.setPen(QPen(palette.color(QPalette.ColorRole.Mid)))
+        painter.setBrush(palette.color(QPalette.ColorRole.Base))
+        painter.drawRoundedRect(self.rect().adjusted(0, 0, -1, -1), 6, 6)
+        painter.end()
+        super().paintEvent(event)
 
     def sizeHint(self) -> QSize:  # noqa: N802
         return QSize(360, 240)

@@ -24,7 +24,7 @@ from typing import Callable
 
 import shiboken6
 from PySide6.QtCore import QDir, QEvent, QObject, QSize, Qt, Signal
-from PySide6.QtGui import QColor, QFont, QPainter
+from PySide6.QtGui import QColor, QFont, QPainter, QPalette, QPen
 from PySide6.QtWidgets import (
     QApplication,
     QDialog,
@@ -134,6 +134,23 @@ def _shortcuts() -> _SheetShortcutFilter:
     return _shortcut_filter
 
 
+class _SheetCard(QFrame):
+    """Karte ohne Stylesheet.
+
+    Ein Stylesheet am Sheet zieht die Kinder aus der Anwendungspalette: nach
+    einem Wechsel bleiben Felder und Grund auf der alten Helligkeit stehen.
+    """
+
+    def paintEvent(self, event) -> None:  # noqa: N802
+        del event
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        palette = self.palette()
+        painter.setPen(QPen(palette.color(QPalette.ColorRole.Mid)))
+        painter.setBrush(palette.color(QPalette.ColorRole.Window))
+        painter.drawRoundedRect(self.rect().adjusted(0, 0, -1, -1), 12, 12)
+
+
 class Sheet(QWidget):
     """Modal-Overlay im Hauptfenster: dimmt den Hintergrund, zeigt den Inhalt.
 
@@ -169,11 +186,6 @@ class Sheet(QWidget):
 
         self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
         self.setAttribute(Qt.WidgetAttribute.WA_MouseTracking, True)
-        self.setStyleSheet(
-            "#qlSheetCard { background: palette(window); border: 1px solid palette(mid);"
-            " border-radius: 12px; }"
-            "#qlSheetTitle { color: palette(windowText); }"
-        )
         self.setGeometry(parent.rect())
         self._relayout()
 
@@ -182,7 +194,7 @@ class Sheet(QWidget):
     def _build_panel(
         content: QWidget, title: str, corner: QWidget | None = None
     ) -> QFrame:
-        card = QFrame()
+        card = _SheetCard()
         card.setObjectName("qlSheetCard")
         layout = QVBoxLayout(card)
         layout.setContentsMargins(18, 16, 18, 18)
