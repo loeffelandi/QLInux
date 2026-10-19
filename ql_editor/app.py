@@ -3956,7 +3956,9 @@ class MainWindow(QMainWindow):
         if config.backend != "network" or not config.address:
             self._net_poll = None
             return
-        if self._net_poll_worker is not None and self._net_poll_worker.isRunning():
+        # Erst nach ``finished``: sonst verwirft dessen Slot den naechsten,
+        # noch laufenden Thread, und Qt bricht das Programm ab.
+        if self._net_poll_worker is not None:
             return
         worker = NetworkStatusWorker(config.address)
         worker.polled.connect(self._on_network_polled)

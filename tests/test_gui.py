@@ -7891,6 +7891,27 @@ def test_printer_poll_runs_only_while_the_window_is_active(qapp, tmp_path, monke
     qapp.processEvents()
 
 
+def test_printer_poll_waits_until_the_last_one_has_finished(qapp, tmp_path):
+    """Thread fertig, sein ``finished`` aber noch nicht da: ein neuer Poll wuerde
+    von diesem ``finished`` verworfen, waehrend er laeuft - Qt bricht dann ab."""
+    win = _temp_window(qapp, tmp_path)
+    win._media_panel.set_network_host("192.0.2.62")
+    win._poll_network_printer()
+    first = win._net_poll_worker
+    assert first is not None
+    first.wait(2000)
+    win._poll_network_printer()
+    assert win._net_poll_worker is first
+    for _ in range(3):
+        qapp.processEvents()
+    assert win._net_poll_worker is None
+    win._poll_network_printer()
+    assert win._net_poll_worker is not None
+    win._net_poll_worker.wait(2000)
+    win.close()
+    qapp.processEvents()
+
+
 def test_closing_stops_the_printer_poll_and_cancels_the_check(qapp, tmp_path, monkeypatch):
     """Ein Thread, der das Fenster ueberlebt, bricht beim Programmende Qt ab."""
     from PySide6.QtCore import QObject, Signal
