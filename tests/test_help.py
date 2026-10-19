@@ -39,7 +39,7 @@ def test_help_text_is_short_and_follows_the_language(qapp):
     finally:
         i18n.set_language(i18n.DEFAULT_LANGUAGE)
 
-    assert "printer and the tape" in english
+    assert "printer and tape" in english
     assert "Ctrl+N" in english
     assert "Paste" in english
     assert "Einfügen" not in english

@@ -207,16 +207,24 @@ def test_sheet_target_sizes_the_canvas_to_the_label(qapp):
     assert window._canvas._label.width_dots == mm_to_dots(70)
     assert window._canvas.height_dots == mm_to_dots(41)
     assert window._sheet_hint.text() == "1 von 21 Etiketten belegt"
-    # Das Druck-Panel ist zu, bis das Sheet aufgeht. Sichtbar heißt hier:
-    # eingeblendet gegenüber diesem Panel.
+    # Sichtbar heißt: eingeblendet gegenüber dem eigenen Vorfahren. Das
+    # Druck-Panel ist zu, bis das Sheet aufgeht.
+    media = window._media_panel
     panel = window._print_panel
-    assert window._sheet_box.isVisibleTo(panel)
+    assert window._sheet_box.isVisibleTo(media)
+    assert not window._media_panel._printer_box.isVisibleTo(media)
+    assert window._sheet_hint.isVisibleTo(panel)
+    assert window._sheet_pdf_button.isVisibleTo(panel)
     assert not window._quality_box.isVisibleTo(panel)
+    assert window._left_panel.title == "Etikettenbogen"
     window._output_combo.setCurrentIndex(
         window._output_combo.findData(OUTPUT_BROTHER)
     )
     assert not str(window._canvas._label.identifier).startswith("zweckform")
     assert window._quality_box.isVisibleTo(panel)
-    assert not window._sheet_box.isVisibleTo(panel)
+    assert not window._sheet_box.isVisibleTo(media)
+    assert window._media_panel._printer_box.isVisibleTo(media)
+    assert not window._sheet_hint.isVisibleTo(panel)
+    assert window._left_panel.title == "Band & Drucker"
     window.close()
     qapp.processEvents()

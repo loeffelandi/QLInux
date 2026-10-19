@@ -45,10 +45,10 @@ The model list even appears in the app: *menu → About QLInux*.
 - **Print**: the toolbar button opens a sheet with the 1-bit preview, quality
   and output options, copies, cutting, and the session history. Printing
   starts from the button in that sheet.
-- **Avery Zweckform sheets**: the print target *Label sheet* lays the same
-  design onto an A4 sheet, using the gLabels Zweckform templates. The canvas
-  becomes one label of that product. With a CSV connected, the selected rows,
-  every row, or a from–to range fill the grid, one record per label; copies
+- **Avery Zweckform sheets**: the left panel’s target *Label sheet* lays the
+  same design onto an A4 sheet, using the gLabels Zweckform templates. The
+  canvas becomes one label of that product. With a CSV connected, the selected
+  rows, every row, or a from–to range fill the grid, one record per label; copies
   repeat a record in the next cells. The first label skips fields already
   used on a partial sheet. Save a PDF or send it to a normal printer at actual
   size. A millimetre offset nudges the whole sheet when the printer does not
