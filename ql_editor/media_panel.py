@@ -80,7 +80,7 @@ CONNECTION_BUTTON_MIN_WIDTH = 88
 #: Hoehe der Anschluss-Knoepfe (Bildschirmpixel).
 CONNECTION_BUTTON_HEIGHT = 26
 #: Hinweiszeile im Drucker-Formular, folgt der Palette.
-HINT_STYLE = "color:palette(placeholderText);"
+HINT_STYLE = "color:palette(placeholder-text);"
 #: Zeichen, die die USB-Liste mindestens zeigen soll. Laengere Geraetenamen
 #: werden abgeschnitten (der volle Text steht im Tooltip) - so bleibt die
 #: Feldspalte schmal und das Panel behaelt seine Breite.

@@ -140,6 +140,50 @@ def test_error_text_stays_readable_on_both_palettes(qapp):
         panel.deleteLater()
 
 
+def test_hint_lines_use_the_muted_palette_color(qapp):
+    """Nebenzeilen nehmen PlaceholderText. ``placeholderText`` ignoriert Qt."""
+    from PySide6.QtGui import QImage
+    from PySide6.QtWidgets import QLabel
+
+    from ql_editor.about import _HINT_STYLE as about_hint
+    from ql_editor.media_panel import HINT_STYLE
+
+    assert HINT_STYLE == "color:palette(placeholder-text);"
+    assert about_hint == HINT_STYLE
+
+    original = QPalette(qapp.palette())
+
+    def ink(scheme: Qt.ColorScheme) -> int:
+        apply_theme(qapp, scheme)
+        label = QLabel("Hinweistext")
+        label.setStyleSheet(HINT_STYLE)
+        label.resize(220, 40)
+        label.show()
+        qapp.processEvents()
+        image = QImage(label.size(), QImage.Format.Format_ARGB32)
+        image.fill(0)
+        label.render(image)
+        darkest = 255
+        lightest = 0
+        for y in range(image.height()):
+            for x in range(image.width()):
+                color = image.pixelColor(x, y)
+                if color.alpha() < 200:
+                    continue
+                light = color.lightness()
+                darkest = min(darkest, light)
+                lightest = max(lightest, light)
+        # Hell: das Glyph ist der dunkelste Punkt. Dunkel: der hellste.
+        return darkest if scheme == Qt.ColorScheme.Light else lightest
+
+    try:
+        assert 100 < ink(Qt.ColorScheme.Light) < 190
+        assert 100 < ink(Qt.ColorScheme.Dark) < 190
+    finally:
+        apply_theme(qapp)
+        qapp.setPalette(original)
+
+
 def test_text_color_glyph_follows_the_palette(qapp):
     """Das „A“ am Farbknopf nimmt die Textfarbe, nicht festes Schwarz."""
     from ql_editor.inspector import _text_color_icon

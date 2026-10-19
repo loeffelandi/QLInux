@@ -5350,6 +5350,38 @@ def test_print_sheet_follows_a_live_theme_switch(qapp, tmp_path):
         qapp.processEvents()
 
 
+def test_history_error_color_follows_a_live_theme_switch(qapp, tmp_path):
+    """Fehlerrot im Verlauf wechselt mit der Palette, ohne die Tabelle von Hand neu zu schreiben."""
+    from datetime import datetime
+
+    from PySide6.QtCore import Qt
+
+    from ql_editor.jobs import PrintJob
+    from ql_editor.theme import ERROR_TEXT, ERROR_TEXT_DARK, apply_theme
+
+    original = qapp.palette()
+    win = _temp_window(qapp, tmp_path)
+    win._print_jobs.append(
+        PrintJob(datetime.now(), "Etikett", 1, "QL-820NWB", "usb", "failed")
+    )
+    try:
+        apply_theme(qapp, Qt.ColorScheme.Light)
+        qapp.processEvents()
+        win._refresh_history_table()
+        assert win._history_table.item(0, 4).foreground().color().name() == ERROR_TEXT
+        apply_theme(qapp, Qt.ColorScheme.Dark)
+        qapp.processEvents()
+        assert win._history_table.item(0, 4).foreground().color().name() == ERROR_TEXT_DARK
+        apply_theme(qapp, Qt.ColorScheme.Light)
+        qapp.processEvents()
+        assert win._history_table.item(0, 4).foreground().color().name() == ERROR_TEXT
+    finally:
+        apply_theme(qapp)
+        qapp.setPalette(original)
+        win.close()
+        qapp.processEvents()
+
+
 def test_toolbar_print_opens_the_sheet(qapp, tmp_path):
     """Der Toolbar-Knopf und Strg+P öffnen den Dialog, sie drucken nicht sofort."""
     from ql_editor.sheet import Sheet

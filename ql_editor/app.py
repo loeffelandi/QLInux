@@ -32,6 +32,7 @@ from typing import Any, Iterable, Mapping
 
 from PIL import Image
 from PySide6.QtCore import (
+    QEvent,
     QLocale,
     QMimeData,
     QPointF,
@@ -317,10 +318,6 @@ def _put_items_on_clipboard(items) -> None:
     payload = [item.to_dict() for item in items]
     mime.setData(_CLIPBOARD_MIME, json.dumps(payload).encode("utf-8"))
     QApplication.clipboard().setMimeData(mime)
-
-
-#: Mindesthoehe des Objekt-Bereichs, wenn Objekt und Drucken untereinander stehen.
-INSPECTOR_MIN_PX = 240
 
 
 class _PrintIconButton(QPushButton):
@@ -1990,6 +1987,16 @@ class MainWindow(QMainWindow):
             self._appearance_group.addAction(action)
             submenu.addAction(action)
 
+    def changeEvent(self, event) -> None:  # noqa: N802
+        super().changeEvent(event)
+        # Der Systemwechsel ruft ``_set_appearance`` nicht. Fehlerrot in den
+        # Verlaufszellen haengt sonst am alten Grund.
+        if event.type() in (
+            QEvent.Type.PaletteChange,
+            QEvent.Type.ApplicationPaletteChange,
+        ):
+            self._refresh_history_table()
+
     def _set_appearance(self, value: str) -> None:
         """Palette umschalten. ``system`` bleibt die Vorgabe."""
         if value == self._settings.appearance:
@@ -1999,7 +2006,6 @@ class MainWindow(QMainWindow):
         app = QApplication.instance()
         if app is not None:
             apply_theme(app, scheme_for(value))
-        # Fehlerrot im Verlauf haengt am Grund. Die Zellen neu schreiben.
         self._refresh_history_table()
 
     # ------------------------------------------------------------ Sprache --

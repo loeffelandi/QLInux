@@ -25,7 +25,7 @@ DEVELOPER = "Sustain – Andreas Schäfer"
 DEVELOPER_URL = "https://www.sustain-vt.de"
 
 #: Nebenzeilen, gleiche Rolle wie die Hinweise im Panel.
-_HINT_STYLE = "color:palette(placeholderText);"
+_HINT_STYLE = "color:palette(placeholder-text);"
 
 
 def credits() -> tuple[tuple[str, str, str, str], ...]:
