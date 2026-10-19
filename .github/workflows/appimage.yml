@@ -1,6 +1,7 @@
-# Baut das aarch64-AppImage nativ auf dem ARM-Runner und hängt es an einen
-# veröffentlichten Release (workflow_dispatch liefert nur Artefakte).
-name: AppImage (aarch64)
+# Baut x86_64- und aarch64-AppImage nativ. Bei einem veröffentlichten
+# Release kommen beide Dateien (plus .zsync) erst hoch, wenn beide Builds
+# durch sind. workflow_dispatch legt nur Artefakte ab.
+name: AppImage
 
 permissions:
   contents: write
@@ -13,8 +14,16 @@ on:
 
 jobs:
   build:
-    name: build aarch64 AppImage
-    runs-on: ubuntu-24.04-arm
+    name: build ${{ matrix.arch }} AppImage
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-24.04
+            arch: x86_64
+          - os: ubuntu-24.04-arm
+            arch: aarch64
     steps:
       - uses: actions/checkout@v7
 
@@ -29,29 +38,22 @@ jobs:
           echo "name=${ImageOS:-linux}" >> "$GITHUB_OUTPUT"
           echo "version=${ImageVersion:-0}" >> "$GITHUB_OUTPUT"
 
-      - name: Cache Qt packages
-        id: qt-debs
-        uses: actions/cache@v6
-        with:
-          path: ${{ runner.temp }}/qt-offscreen-debs
-          key: qt-offscreen-${{ steps.image.outputs.name }}-${{ steps.image.outputs.version }}-${{ runner.arch }}-libegl1
-
-      - name: Qt libraries
+      # Qt braucht die XCB-Helfer auch zum *Packen*: fehlen sie auf dem
+      # Runner, laesst PyInstaller sie weg und das AppImage startet ohne
+      # xcb-Plugin.
+      - name: Qt and XCB libraries
         run: |
-          dest="${{ runner.temp }}/qt-offscreen-debs"
-          mkdir -p "$dest"
-          if compgen -G "$dest/*.deb" > /dev/null && sudo dpkg -i "$dest"/*.deb
-          then
-            exit 0
-          fi
           sudo apt-get update
           pkgs="libegl1 libgl1 libxkbcommon0 libdbus-1-3 libfontconfig1"
+          pkgs="$pkgs libxcb-cursor0 libxcb-icccm4 libxcb-image0"
+          pkgs="$pkgs libxcb-keysyms1 libxcb-render-util0 libxcb-xkb1"
+          pkgs="$pkgs libxkbcommon-x11-0 libxcb-shape0 libxcb-randr0"
+          pkgs="$pkgs libxcb-xinerama0 libxcb-xfixes0 libxcb-sync1"
+          pkgs="$pkgs libxcb-shm0 libxcb-util1"
           if ! sudo apt-get install -y --no-install-recommends $pkgs libglib2.0-0t64
           then
             sudo apt-get install -y --no-install-recommends $pkgs libglib2.0-0
           fi
-          rm -f "$dest"/*.deb
-          cp /var/cache/apt/archives/libegl1_*.deb /var/cache/apt/archives/libegl-mesa0_*.deb "$dest"/
 
       - name: Cache virtualenv
         id: venv
@@ -87,17 +89,34 @@ jobs:
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: QLInux-aarch64-AppImage
+          name: QLInux-${{ matrix.arch }}-AppImage
           path: |
-            dist/QLInux-*-aarch64.AppImage
-            dist/QLInux-*-aarch64.AppImage.zsync
+            dist/QLInux-*-${{ matrix.arch }}.AppImage
+            dist/QLInux-*-${{ matrix.arch }}.AppImage.zsync
           if-no-files-found: error
 
+  publish:
+    name: attach both AppImages
+    needs: build
+    if: github.event_name == 'release'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: QLInux-*-AppImage
+          path: dist
+          merge-multiple: true
+
       - name: Attach to release
-        if: github.event_name == 'release'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           shopt -s nullglob
-          files=(dist/QLInux-*-aarch64.AppImage dist/QLInux-*-aarch64.AppImage.zsync)
+          files=(dist/QLInux-*-x86_64.AppImage dist/QLInux-*-x86_64.AppImage.zsync \
+                 dist/QLInux-*-aarch64.AppImage dist/QLInux-*-aarch64.AppImage.zsync)
+          if [ "${#files[@]}" -ne 4 ]; then
+            echo "Erwartet 4 Dateien, gefunden ${#files[@]}: ${files[*]}" >&2
+            ls -la dist >&2
+            exit 1
+          fi
           gh release upload "${{ github.event.release.tag_name }}" "${files[@]}" --clobber

@@ -109,15 +109,18 @@ bash packaging/build_appimage.sh      # builds dist/QLInux-<version>-<arch>.AppI
 ```
 
 The script takes the architecture from the build machine (`x86_64` or
-`aarch64`). The aarch64 file is produced by
-[`.github/workflows/appimage-arm.yml`](.github/workflows/appimage-arm.yml) and
-attached to each published release.
+`aarch64`). A published GitHub release builds both files in
+[`.github/workflows/appimage.yml`](.github/workflows/appimage.yml) and attaches
+them together.
 
 The build uses PyInstaller (`requirements-dev.txt`) and fetches `appimagetool`
 once into `packaging/.cache/` (not in the repository). What is bundled: the
-application plus its Python dependencies, including the Qt runtime. Excluded is
-what the app never uses — QtWebEngine, QML/Quick, Multimedia, SQL, Charts —
-otherwise the file would be several hundred megabytes larger.
+application plus its Python dependencies, including the Qt runtime and the XCB
+helpers Qt needs to open a window. Those helpers must be installed on the
+**build** machine (e.g. `libxcb-cursor0`); otherwise PyInstaller omits them and
+the AppImage exits without a GUI. Excluded is what the app never uses —
+QtWebEngine, QML/Quick, Multimedia, SQL, Charts — otherwise the file would be
+several hundred megabytes larger.
 
 The icon comes from `packaging/make_icon.py`, the desktop entry from
 `packaging/ql-editor.desktop`: both are plain files in the repository, not
