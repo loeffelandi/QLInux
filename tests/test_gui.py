@@ -7464,6 +7464,69 @@ def test_red_job_on_a_remembered_black_tape_asks_first(qapp, tmp_path, monkeypat
     qapp.processEvents()
 
 
+def _report_printer(win, *, fault: bool, texts: tuple[str, ...]) -> str:
+    from ql_editor.discovery import NetworkStatus
+
+    address = win._media_panel.printer_config().address
+    win._on_network_polled({"address": address, "status": NetworkStatus(fault=fault, texts=texts)})
+    return address
+
+
+@pytest.mark.parametrize(("button", "printed"), [("Abbrechen", 0), ("Trotzdem drucken", 1)])
+def test_known_fault_asks_before_sending(qapp, tmp_path, monkeypatch, button, printed):
+    """Klappe offen laut letzter Abfrage: erst fragen, sonst ist der Auftrag weg."""
+    starts = _fake_print_worker(monkeypatch, {"outcome": "sent"})
+    win = _temp_window(qapp, tmp_path)
+    win._media_panel.set_network_host("192.0.2.62")
+    _report_printer(win, fault=True, texts=("Klappe offen",))
+    win._on_print()
+    qapp.processEvents()
+    assert starts == []
+    box = _visible_message_box(win)
+    assert box.text().startswith("Der Drucker meldet: Klappe offen")
+    assert box.defaultButton().text() == "Abbrechen"
+    next(choice for choice in box.buttons() if choice.text() == button).click()
+    qapp.processEvents()
+    assert len(starts) == printed
+    win.close()
+    qapp.processEvents()
+
+
+def test_print_anyway_on_a_fault_still_checks_the_tape(qapp, tmp_path, monkeypatch):
+    starts = _fake_print_worker(monkeypatch, {"outcome": "sent"})
+    win, _address = _network_window_with_tape(qapp, tmp_path, loaded="62", selected="50")
+    _report_printer(win, fault=True, texts=("Störung, z. B. falsches Band",))
+    win._on_print()
+    qapp.processEvents()
+    next(c for c in _visible_message_box(win).buttons() if c.text() == "Trotzdem drucken").click()
+    qapp.processEvents()
+    assert starts == []
+    assert "Laut QLInux eingelegt" in _visible_message_box(win).text()
+    win.close()
+    qapp.processEvents()
+
+
+def test_notes_or_an_old_fault_do_not_hold_the_job(qapp, tmp_path, monkeypatch):
+    """Ein Hinweis (Papier wird knapp) oder eine veraltete Abfrage fragt nicht."""
+    from ql_editor import app as app_module
+
+    starts = _fake_print_worker(monkeypatch, {"outcome": "sent"})
+    win = _temp_window(qapp, tmp_path)
+    win._media_panel.set_network_host("192.0.2.62")
+    _report_printer(win, fault=False, texts=("Papier wird knapp",))
+    win._on_print()
+    qapp.processEvents()
+    assert len(starts) == 1
+    _report_printer(win, fault=True, texts=("Klappe offen",))
+    win._net_poll["at"] -= app_module.SNMP_CACHE_MAX_AGE + 1
+    win._on_print()
+    qapp.processEvents()
+    assert _visible_message_box(win) is None
+    assert len(starts) == 2
+    win.close()
+    qapp.processEvents()
+
+
 def test_printer_error_is_marked_red_in_status_and_history(qapp, tmp_path, monkeypatch):
     win = _print_with_outcome(qapp, tmp_path, monkeypatch, None, error="Drucker nicht erreichbar")
     status = win._history_table.item(0, 4)

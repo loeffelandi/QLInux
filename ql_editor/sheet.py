@@ -552,6 +552,44 @@ def ask_loaded_tape(
     return sheet
 
 
+def ask_print_anyway(
+    parent: QWidget,
+    *,
+    title: str,
+    text: str,
+    on_choice: Callable[[str], None],
+) -> Sheet:
+    """Drucker meldet eine Stoerung: trotzdem drucken oder abbrechen.
+
+    ``on_choice`` bekommt ``"print"`` oder ``"cancel"``. Escape und das
+    Schliessen des Sheets zaehlen als Abbrechen.
+    """
+    box = QMessageBox()
+    box.setWindowFlags(Qt.WindowType.Widget)
+    box.setIcon(QMessageBox.Icon.Warning)
+    box.setText(text)
+    cancel = box.addButton(tr("Abbrechen"), QMessageBox.ButtonRole.RejectRole)
+    cancel.setIcon(icon("close"))
+    send = box.addButton(tr("Trotzdem drucken"), QMessageBox.ButtonRole.AcceptRole)
+    box.setDefaultButton(cancel)
+    sheet = _open_sheet(parent, box, title=title, sizing="hint")
+    chosen: dict[str, str | None] = {"value": None}
+
+    def _finish(choice: str) -> None:
+        if chosen["value"] is not None:
+            return
+        chosen["value"] = choice
+        sheet.close_sheet()
+        on_choice(choice)
+
+    def _clicked(_result: int) -> None:
+        _finish("print" if box.clickedButton() is send else "cancel")
+
+    box.finished.connect(_clicked)
+    sheet.closed.connect(lambda: _finish("cancel"))
+    return sheet
+
+
 class _HistoryNavFilter(QObject):
     """Maus-Seitentasten: Zurueck/Vor wie die Pfeile des Datei-Dialogs.
 
@@ -756,4 +794,6 @@ __all__ = [
     "ask_choice",
     "ask_save",
     "ask_label_printer",
+    "ask_loaded_tape",
+    "ask_print_anyway",
 ]

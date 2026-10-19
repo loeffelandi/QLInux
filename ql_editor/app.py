@@ -168,6 +168,7 @@ from .sheet import (
     ask_choice,
     ask_label_printer,
     ask_loaded_tape,
+    ask_print_anyway,
     ask_save,
     ask_text,
     choose_file,
@@ -3709,6 +3710,35 @@ class MainWindow(QMainWindow):
             )
             return
         label = self._media_panel.label
+        fault = self._known_fault(config)
+        if fault:
+            ask_print_anyway(
+                self,
+                title=tr("Drucker prüfen"),
+                text=tr(
+                    "Der Drucker meldet: {errors}\n\n"
+                    "Erst beheben, sonst bricht der Drucker den Auftrag ab."
+                ).format(errors=", ".join(fault)),
+                on_choice=partial(self._on_fault_choice, config, images, label),
+            )
+            return
+        self._check_loaded_tape(config, images, label)
+
+    def _known_fault(self, config) -> tuple[str, ...]:
+        """Stoerung laut letzter Abfrage (z. B. Klappe offen), sonst leer."""
+        if config.backend != "network":
+            return ()
+        poll = self._fresh_poll(config.address)
+        status = poll["status"] if poll is not None else None
+        if status is None or not status.fault:
+            return ()
+        return status.texts
+
+    def _on_fault_choice(self, config, images, label, choice: str) -> None:
+        if choice == "print":
+            self._check_loaded_tape(config, images, label)
+
+    def _check_loaded_tape(self, config, images, label) -> None:
         loaded = self._settings.loaded_label(config.address)
         if config.backend == "network" and loaded and not self._fits_loaded(label, loaded):
             ask_loaded_tape(
