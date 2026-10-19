@@ -371,9 +371,9 @@ HOST-RESOURCES-MIB (RFC 2790) in einem Paket ab:
   `hrDeviceStatus` nie auf `down` gesetzt.
 - Als Stoerung (`NetworkStatus.fault`) gilt `down` oder eines der Bits in
   `HR_PRINTER_FATAL_BITS` (kein Papier, kein Toner, Klappe offen, Stau,
-  offline, Fach oder Material fehlt, Ausgabe voll). Die uebrigen Bits (wenig
-  Papier oder Toner, Wartung, Ausgabe fast voll) sind nur Hinweise. Am Geraet
-  geprueft sind nur falsches Band und Klappe offen.
+  offline, Fach oder Material fehlt, Ausgabe voll, Papierfach leer). Die
+  uebrigen Bits (wenig Papier oder Toner, Wartung, Ausgabe fast voll) sind nur
+  Hinweise. Am Geraet geprueft sind nur falsches Band und Klappe offen.
 - Meldet der Agent `error-status` ≠ 0 (SNMPv1 `noSuchName`), zaehlt das als
   keine Antwort.
 
@@ -381,7 +381,10 @@ Ablauf beim Druck:
 
 1. **Vorher:** Meldete die letzte Abfrage (hoechstens `SNMP_CACHE_MAX_AGE`,
    15 s alt) eine Stoerung, fragt QLInux vor dem Senden. Ohne frische Abfrage
-   probt der Druck-Thread selbst (`NETWORK_PROBE_ATTEMPTS`, 2 Versuche).
+   fragt der Druck-Thread selbst kurz nach (`NETWORK_PROBE_ATTEMPTS`, 2
+   Versuche) - nur um zu entscheiden, ob nach dem Senden geprueft wird. Eine
+   Rueckfrage gibt es dann nicht. Blieb die letzte Abfrage ohne Antwort,
+   entfallen Rueckfrage und Pruefung.
 2. **Nachher:** `NETWORK_CHECK_DELAY` (2 s) warten, dann bis zu
    `NETWORK_CHECK_ATTEMPTS` (3) Versuche mit je `SNMP_STATUS_TIMEOUT` (1 s):
    - Stoerung: `outcome == "error"`, Texte in `errors`.
