@@ -167,7 +167,7 @@ the preview nor printed.
 
 ## Saving and opening labels
 
-*File → Open…* (Ctrl+O) and *File → Save* (Ctrl+S, *Save as…* Ctrl+Shift+S)
+*File → Open…* (Ctrl+O) and *File → Save* (Ctrl+S). The arrow next to the save button in the toolbar opens *Save as…* (Ctrl+Shift+S)
 store a label as a `.qlx` file — plain JSON, so it stays readable, diffable
 and diff-friendly in a repository.
 

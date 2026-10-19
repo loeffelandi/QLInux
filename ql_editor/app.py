@@ -588,7 +588,26 @@ class MainWindow(QMainWindow):
         self._zoom_label.setToolTip(
             tr("Mausrad scrollt – Strg + Mausrad (oder Zoomgeste) zoomt")
         )
-        self.statusBar().addPermanentWidget(self._zoom_label)
+        zoom_row = QWidget()
+        zoom_layout = QHBoxLayout(zoom_row)
+        zoom_layout.setContentsMargins(0, 0, 0, 0)
+        zoom_layout.setSpacing(2)
+        for act in (
+            self._act_zoom_out,
+            self._act_zoom_fit,
+            self._act_zoom_in,
+            self._act_zoom_100,
+        ):
+            button = QToolButton(zoom_row)
+            button.setDefaultAction(act)
+            button.setAutoRaise(True)
+            button.setIconSize(QSize(16, 16))
+            button.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonIconOnly)
+            button.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+            zoom_layout.addWidget(button)
+        zoom_layout.addSpacing(6)
+        zoom_layout.addWidget(self._zoom_label)
+        self.statusBar().addPermanentWidget(zoom_row)
         self._hint_label = QLabel()
         self._hint_label.setVisible(False)
         hint_row = QWidget()
@@ -1521,7 +1540,9 @@ class MainWindow(QMainWindow):
         self._act_file_open.triggered.connect(self._on_file_open)
 
         self._act_file_save = QAction(icon("save"), tr("Speichern"), self)
-        self._act_file_save.setToolTip(tr("Etikett speichern (Strg+S)"))
+        self._act_file_save.setToolTip(
+            tr("Etikett speichern (Strg+S)\nPfeil: Speichern unter… (Strg+Umschalt+S)")
+        )
         self._act_file_save.setShortcut(QKeySequence.StandardKey.Save)
         self._act_file_save.triggered.connect(self._on_file_save)
 
@@ -1529,6 +1550,7 @@ class MainWindow(QMainWindow):
         self._act_file_save_as.setToolTip(tr("Etikett unter neuem Namen speichern (Strg+Umschalt+S)"))
         self._act_file_save_as.setShortcut(QKeySequence.StandardKey.SaveAs)
         self._act_file_save_as.triggered.connect(self._on_file_save_as)
+        self.addAction(self._act_file_save_as)
 
         self._act_tab_close = QAction(icon("close"), tr("Reiter schließen"), self)
         self._act_tab_close.setToolTip(tr("Reiter schließen (Strg+W)"))
@@ -1571,7 +1593,7 @@ class MainWindow(QMainWindow):
         # Datei-Gruppe direkt nach dem Burger: Öffnen, Speichern, Vorlage laden.
         bar.addAction(self._act_file_new)
         bar.addAction(self._act_file_open)
-        bar.addAction(self._act_file_save)
+        bar.addWidget(self._build_save_button(bar))
         bar.addWidget(self._build_template_button(bar))
         add_toolbar_separator(bar)
 
@@ -1588,20 +1610,27 @@ class MainWindow(QMainWindow):
         bar.addAction(self._act_add_datetime)
         add_toolbar_separator(bar)
         bar.addWidget(self._build_align_button(bar))
-        bar.addAction(self._act_forward)
-        bar.addAction(self._act_backward)
+        bar.addWidget(self._build_layer_button(bar))
         bar.addAction(self._act_delete)
-        add_toolbar_separator(bar)
-        bar.addAction(self._act_zoom_out)
-        bar.addAction(self._act_zoom_fit)
-        bar.addAction(self._act_zoom_in)
-        bar.addAction(self._act_zoom_100)
         # Datenbank vor dem Drucken: CSV bleibt sichtbar, das Raster erst mit Datei.
         add_toolbar_separator(bar)
         bar.addAction(self._act_connect_csv)
         bar.addAction(self._act_database)
         add_toolbar_separator(bar)
         bar.addAction(self._act_print)
+
+    def _build_save_button(self, parent: QWidget) -> QToolButton:
+        """Speichern mit Klick; der kleine Pfeil öffnet „Speichern unter…“."""
+        button = QToolButton(parent)
+        button.setObjectName("save_button")
+        button.setDefaultAction(self._act_file_save)
+        button.setAutoRaise(True)
+        button.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        button.setPopupMode(QToolButton.ToolButtonPopupMode.MenuButtonPopup)
+        menu = QMenu(button)
+        menu.addAction(self._act_file_save_as)
+        button.setMenu(menu)
+        return button
 
     def _build_template_button(self, parent: QWidget) -> QToolButton:
         """Toolbar-Knopf "Vorlage laden": Klick oeffnet die Vorlagenliste."""
@@ -1668,16 +1697,34 @@ class MainWindow(QMainWindow):
         button.setMenu(menu)
         return button
 
+    def _build_layer_button(self, parent: QWidget) -> QToolButton:
+        """Toolbar-Knopf "Ebenen": Klick oeffnet vor, zurueck, Vorder- und Hintergrund."""
+        button = QToolButton(parent)
+        button.setObjectName("layer_button")
+        button.setIcon(icon("front"))
+        button.setToolTip(tr("Ebenen"))
+        button.setAutoRaise(True)
+        button.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        button.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
+        menu = QMenu(button)
+        for act in (
+            self._act_front,
+            self._act_forward,
+            self._act_backward,
+            self._act_back,
+        ):
+            menu.addAction(act)
+        button.setMenu(menu)
+        return button
+
     def _build_main_menu(self) -> QMenu:
         """Primaeres Menue: nur was keinen eigenen Schalter hat.
 
-        Speichern unter, Sprache, Erscheinungsbild, Hilfe, Ueber und Beenden.
+        Sprache, Erscheinungsbild, Hilfe, Ueber und Beenden.
         Alles andere liegt in der Toolbar, im Kontextmenue oder unter Strg+K.
         """
         menu = QMenu(self)
         self._ensure_template_menu()
-        menu.addAction(self._act_file_save_as)
-        menu.addSeparator()
         self._build_language_menu(menu)
         self._build_appearance_menu(menu)
         menu.addAction(self._act_help)

@@ -58,6 +58,7 @@ EN: dict[str, str] = {
     "Vertikal zentrieren": "Align center vertically",
     "Unten ausrichten": "Align bottom",
     "Ausrichten": "Align",
+    "Ebenen": "Layers",
     "Eigenschaften": "Properties",
     "Ränder": "Margins",
     "Reihenfolge": "Order",
@@ -335,7 +336,9 @@ EN: dict[str, str] = {
     "Änderungen an „{name}“ speichern?": "Save changes to “{name}”?",
     "Etikett bereits geöffnet: {name}": "Label already open: {name}",
     "Etikett öffnen (Strg+O)": "Open label (Ctrl+O)",
-    "Etikett speichern (Strg+S)": "Save label (Ctrl+S)",
+    "Etikett speichern (Strg+S)\nPfeil: Speichern unter… (Strg+Umschalt+S)": (
+        "Save label (Ctrl+S)\nArrow: Save as… (Ctrl+Shift+S)"
+    ),
     "Speichern unter…": "Save as…",
     "Etikett unter neuem Namen speichern (Strg+Umschalt+S)": (
         "Save label under a new name (Ctrl+Shift+S)"

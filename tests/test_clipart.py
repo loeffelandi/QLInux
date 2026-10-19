@@ -192,3 +192,14 @@ def test_main_window_inserts_from_the_sheet_and_undoes_a_swap(qapp):
     qapp.processEvents()
     mark = next(it for it in win._canvas.scene().items() if getattr(it, "kind", None) == "clipart")
     assert mark.symbol == "home"
+
+
+def test_clipart_inverted_round_trips(qapp):
+    from ql_editor.items import ClipArtItem
+
+    item = ClipArtItem("warning", 80)
+    assert not item.inverted
+    item.set_inverted(True)
+    restored = ClipArtItem.from_dict(item.to_dict())
+    assert restored.inverted
+    assert restored.to_dict()["inverted"] is True
