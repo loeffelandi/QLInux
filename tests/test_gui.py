@@ -7324,3 +7324,44 @@ def test_language_switch_keeps_session_print_history(qapp, tmp_path, monkeypatch
 
     new.close()
     qapp.processEvents()
+
+
+def test_pinch_zooms_and_pans_canvas(qapp):
+    from PySide6.QtCore import QPointF
+
+    canvas = _shown_canvas(qapp)
+    before = canvas.transform().m11()
+    canvas.apply_pinch(1.5, QPointF(0.0, 0.0))
+    assert canvas.transform().m11() > before
+    zoomed = canvas.transform().m11()
+    canvas.apply_pinch(1.0, QPointF(0.0, 0.0))
+    assert canvas.transform().m11() == zoomed
+
+
+
+def test_two_fingers_disable_rubber_band_until_released(qapp):
+    from PySide6.QtCore import QPointF
+    from PySide6.QtWidgets import QGraphicsView
+
+    canvas = _shown_canvas(qapp)
+    assert canvas.dragMode() == QGraphicsView.DragMode.RubberBandDrag
+    canvas._enter_multitouch(QPointF(20, 20))
+    assert canvas.dragMode() == QGraphicsView.DragMode.NoDrag
+    canvas._leave_multitouch()
+    assert canvas.dragMode() == QGraphicsView.DragMode.RubberBandDrag
+
+
+
+def test_pinch_zoom_keeps_point_under_fingers(qapp):
+    from PySide6.QtCore import QPointF
+
+    canvas = _shown_canvas(qapp)
+    canvas.zoom_by(2.0)
+    qapp.processEvents()
+    anchor = QPointF(120.0, 90.0)
+    before = canvas.mapToScene(anchor.toPoint())
+    canvas.apply_pinch(1.4, QPointF(0.0, 0.0), anchor)
+    qapp.processEvents()
+    after = canvas.mapFromScene(before)
+    assert abs(after.x() - anchor.x()) <= 3
+    assert abs(after.y() - anchor.y()) <= 3
