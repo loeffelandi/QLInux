@@ -16,6 +16,43 @@ def test_scheme_for_keeps_the_system_as_default():
     assert scheme_for("nope") is None
 
 
+def test_toolbar_separator_follows_mid_on_both_palettes(qapp):
+    """Trenner nehmen Mid: auf Hell grau, auf Dunkel hell genug gegen den Grund."""
+    from PySide6.QtGui import QImage
+
+    from ql_editor.widgets import ToolbarSeparator
+
+    original = QPalette(qapp.palette())
+
+    def line_color(scheme: Qt.ColorScheme) -> str:
+        apply_theme(qapp, scheme)
+        sep = ToolbarSeparator()
+        sep.resize(6, 28)
+        sep.show()
+        qapp.processEvents()
+        image = QImage(sep.size(), QImage.Format.Format_ARGB32)
+        image.fill(0)
+        sep.render(image)
+        color = image.pixelColor(sep.width() // 2, sep.height() // 2)
+        mid = qapp.palette().color(QPalette.ColorRole.Mid)
+        window = qapp.palette().color(QPalette.ColorRole.Window)
+        sep.hide()
+        assert color.name() == mid.name()
+        if scheme == Qt.ColorScheme.Dark:
+            assert mid.lightness() > window.lightness() + 20
+        else:
+            assert mid.lightness() < window.lightness() - 20
+        return color.name()
+
+    try:
+        light = line_color(Qt.ColorScheme.Light)
+        dark = line_color(Qt.ColorScheme.Dark)
+        assert light != dark
+    finally:
+        apply_theme(qapp)
+        qapp.setPalette(original)
+
+
 def test_dark_palette_is_darker_and_shares_one_accent():
     light = palette_for(Qt.ColorScheme.Light)
     dark = palette_for(Qt.ColorScheme.Dark)
