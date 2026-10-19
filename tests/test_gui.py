@@ -6328,6 +6328,142 @@ def test_closing_a_clean_last_tab_quits(qapp, tmp_path):
     assert not win.isVisible()
 
 
+def test_closing_while_typing_in_a_new_text_field_asks(qapp, tmp_path):
+    """Neues Textfeld: Tippen ohne Verlassen muss vor dem Schließen zählen."""
+    from PySide6.QtCore import QPointF
+
+    win = _temp_window(qapp, tmp_path)
+    item = win._new_text(QPointF(40, 40))
+    item.textCursor().insertText("Noch offen")
+    assert item.is_editing
+    assert win._active.is_dirty() is False
+
+    win._on_close_current_tab()
+    qapp.processEvents()
+    assert win.isVisible()
+    assert not item.is_editing
+    assert win._active.is_dirty()
+    _sheet_button(win, "Verwerfen").click()
+    qapp.processEvents()
+    assert not win.isVisible()
+
+
+def test_closing_while_editing_a_table_cell_asks(qapp, tmp_path):
+    """Offene Tabellenzelle: derselbe Weg wie beim Textfeld."""
+    from ql_editor.items import TableItem
+
+    win = _temp_window(qapp, tmp_path)
+    table = TableItem(1, 1, 200, 80)
+    win._add_item(table)
+    path = tmp_path / "tabelle.qlx"
+    win._save_document_to(str(path))
+    assert win._active.is_dirty() is False
+
+    table.begin_edit_current()
+    table.editor.textCursor().insertText("Zelle")
+    assert table.is_editing
+    assert win._active.is_dirty() is False
+
+    win._on_close_current_tab()
+    qapp.processEvents()
+    assert win.isVisible()
+    assert not table.is_editing
+    assert win._active.is_dirty()
+    _sheet_button(win, "Verwerfen").click()
+    qapp.processEvents()
+    assert not win.isVisible()
+
+
+def test_closing_with_an_open_margin_edit_asks(qapp, tmp_path):
+    """Randfeld geändert, editingFinished noch nicht: Schnappschuss zählt."""
+    win = _temp_window(qapp, tmp_path)
+    spin = win._media_panel._margin_spins["left"]
+    spin.setValue(spin.value() + 1.0)
+    wanted = spin.value()
+    assert win._history_before is not None
+    assert win._active.is_dirty() is False
+
+    win.close()
+    qapp.processEvents()
+    assert win.isVisible()
+    assert win._active.is_dirty()
+    assert [
+        win._undo_stack.command(i).text() for i in range(win._undo_stack.count())
+    ] == ["Ränder"]
+    _sheet_button(win, "Abbrechen").click()
+    qapp.processEvents()
+    assert win.isVisible()
+    assert win._active.is_dirty()
+    assert win._media_panel._margin_spins["left"].value() == wanted
+    win._accept_close = True
+    win.close()
+    qapp.processEvents()
+
+
+def test_closing_with_an_open_inspector_edit_asks(qapp, tmp_path):
+    """Inspector-Feld angefangen: Schließen committet und fragt."""
+    from PySide6.QtWidgets import QSpinBox
+
+    from ql_editor.items import TextItem
+
+    win = _temp_window(qapp, tmp_path)
+    item = TextItem("Hallo", font_pixel_size=28)
+    win._add_item(item)
+    path = tmp_path / "objekt.qlx"
+    win._save_document_to(str(path))
+    item.setSelected(True)
+    qapp.processEvents()
+    size = next(
+        spin
+        for spin in win._inspector.findChildren(QSpinBox)
+        if spin.minimum() == 4 and spin.maximum() == 2000
+    )
+    size.setValue(size.value() + 6)
+    assert win._inspector.edit_open is True
+    assert win._active.is_dirty() is False
+
+    win.close()
+    qapp.processEvents()
+    assert win.isVisible()
+    assert win._inspector.edit_open is False
+    assert win._active.is_dirty()
+    _sheet_button(win, "Verwerfen").click()
+    qapp.processEvents()
+    assert not win.isVisible()
+
+
+def test_closing_another_tab_keeps_active_typing(qapp, tmp_path):
+    """Kreuz auf dem anderen Reiter beendet Tippen im aktiven nicht."""
+    from PySide6.QtCore import QPointF
+
+    from ql_editor.items import TextItem
+
+    win = _temp_window(qapp, tmp_path)
+    win._add_item(TextItem("Eins", font_pixel_size=20))
+    win._save_document_to(str(tmp_path / "eins.qlx"))
+    win._on_file_new()
+    item = win._new_text(QPointF(40, 40))
+    item.textCursor().insertText("tipp")
+    assert item.is_editing
+    assert win._tab_bar.count() == 2
+
+    win._request_close_tab(win._tab_at(0))
+    qapp.processEvents()
+    assert win._tab_bar.count() == 1
+    assert win.isVisible()
+    assert item.is_editing
+    assert item.toPlainText() == "tipp"
+    assert win._active.is_dirty() is False
+
+    win._on_close_current_tab()
+    qapp.processEvents()
+    assert win.isVisible()
+    assert not item.is_editing
+    _sheet_button(win, "Verwerfen").click()
+    qapp.processEvents()
+    assert not win.isVisible()
+
+
 def test_closing_one_of_several_tabs_keeps_the_window(qapp, tmp_path):
     from ql_editor.items import TextItem
 

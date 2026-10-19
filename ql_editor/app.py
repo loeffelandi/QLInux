@@ -2380,6 +2380,21 @@ class MainWindow(QMainWindow):
         ):
             self._update_window_title()
 
+    def _seal_pending_edits(self) -> None:
+        """Offene Eingabe in den Undo-Stapel legen, bevor Dirty geprüft wird.
+
+        Text, Tabelle, Inspector und angefangenes Randfeld halten den
+        Schnappschuss oft noch offen. Ohne diesen Schritt wäre der Stapel
+        beim Schließen noch sauber - und die Rückfrage fiele aus.
+        """
+        self._seal_open_inspector_edit()
+        if self._active is not None:
+            self._active.canvas.cancel_editing()
+        if self._history_before is not None:
+            # Restpfad: Randfeld ohne editingFinished. Text/Tabelle/Inspector
+            # sind oben schon mit eigenem Text commitet.
+            self._commit_history(tr("Ränder"))
+
     def _restore_design(self, snapshot: dict[str, Any]) -> None:
         """Medien und Objekte aus einem Undo-Schnappschuss setzen."""
         self._adjusting = True
@@ -4174,8 +4189,7 @@ class MainWindow(QMainWindow):
             return
         previous = self._active
         if previous is not None:
-            self._seal_open_inspector_edit()
-            previous.canvas.cancel_editing()
+            self._seal_pending_edits()
             self._stash_active()
             self._unbind_tab(previous)
         self._active = tab
@@ -4299,6 +4313,9 @@ class MainWindow(QMainWindow):
 
     def _request_close_tab(self, tab: LabelTab) -> None:
         """Letzter Reiter beendet die App, sonst fällt nur dieser Reiter weg."""
+        # Anderen Reiter schließen: Tippen im aktiven lassen.
+        if tab is self._active or len(self._ordered_tabs()) <= 1:
+            self._seal_pending_edits()
         if len(self._ordered_tabs()) <= 1:
             self.close()
             return
@@ -5071,6 +5088,7 @@ class MainWindow(QMainWindow):
 
     def closeEvent(self, event) -> None:  # noqa: N802
         if not self._accept_close and self.isVisible():
+            self._seal_pending_edits()
             dirty = [tab for tab in self._ordered_tabs() if tab.is_dirty()]
             if dirty:
                 event.ignore()

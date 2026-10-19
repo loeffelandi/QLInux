@@ -2548,9 +2548,19 @@ class LabelCanvas(QGraphicsView):
         return None
 
     def cancel_editing(self) -> None:
+        """Jede offene Inline-Bearbeitung beenden, nicht nur das Fokus-Objekt.
+
+        Textfeld und Tabellenzelle setzen ``is_editing``. Vor dem Schließen
+        oder einem Reiterwechsel müssen alle fertig sein, sonst bleibt der
+        Undo-Stapel sauber und die Rückfrage fällt aus.
+        """
         focus = self._scene.focusItem()
-        item = self._focused_editor()
-        if item is not None:
+        editing = [
+            item
+            for item in self._scene.items()
+            if getattr(item, "is_editing", False)
+        ]
+        for item in editing:
             item.finish_editing()
         if focus is not None:
             focus.clearFocus()
