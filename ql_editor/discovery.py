@@ -501,10 +501,15 @@ def snmp_get(
     request = snmp_request(oids)
     with _udp_socket() as sock:
         sock.settimeout(timeout)
+        # Verbunden wird ein Name nur einmal aufgeloest, und "Port nicht
+        # erreichbar" (SNMP aus) kommt sofort an statt erst nach dem Timeout.
+        sock.connect((host, SNMP_PORT))
         for _ in range(max(1, attempts)):
-            sock.sendto(request, (host, SNMP_PORT))
+            sock.send(request)
             try:
                 data, _address = sock.recvfrom(PACKET_LIMIT)
+            except ConnectionRefusedError:
+                break
             except OSError:
                 continue
             return snmp_varbinds(data)

@@ -5623,7 +5623,7 @@ class MainWindow(QMainWindow):
         )
         self._print_worker = None
         polling = self._net_poll_worker
-        # Die Abfrage endet nach hoechstens zwei Sekunden: nicht darauf warten.
+        # Die kurze Abfrage nicht abwarten - das tut erst das Programmende.
         self._disconnect_worker(
             polling,
             [

@@ -226,6 +226,12 @@ class _DeadSocket:
     def sendto(self, *args):
         return None
 
+    def connect(self, address):
+        self.peer = address
+
+    def send(self, data):
+        return self.sendto(data, self.peer)
+
     def settimeout(self, value):
         self.timeout = value
 
@@ -449,6 +455,32 @@ def test_network_printer_status_asks_again_after_a_lost_packet(monkeypatch):
         fault=False
     )
     assert sock.sent == 2
+
+
+def test_snmp_get_resolves_the_name_once_and_stops_when_refused(monkeypatch):
+    """Ein Name wird einmal aufgeloest. "Port nicht erreichbar" (SNMP aus)
+    beendet die Abfrage sofort, statt jeden Versuch auszusitzen."""
+
+    class RefusedSocket(_DeadSocket):
+        def __init__(self):
+            self.peers = []
+            self.sent = 0
+
+        def connect(self, address):
+            self.peers.append(address)
+            super().connect(address)
+
+        def sendto(self, *args):
+            self.sent += 1
+
+        def recvfrom(self, size):
+            raise ConnectionRefusedError()
+
+    sock = RefusedSocket()
+    monkeypatch.setattr(discovery, "_udp_socket", lambda: sock)
+    assert discovery.snmp_get("drucker.local", (_DEVICE,), attempts=3) == {}
+    assert sock.peers == [("drucker.local", discovery.SNMP_PORT)]
+    assert sock.sent == 1
 
 
 def test_confirm_network_job_skips_the_check_when_cancelled(monkeypatch):
