@@ -24,12 +24,13 @@ from typing import Callable
 
 import shiboken6
 from PySide6.QtCore import QDir, QEvent, QObject, QSize, Qt, Signal
-from PySide6.QtGui import QColor, QFont, QPainter
+from PySide6.QtGui import QColor, QFont, QPainter, QPalette, QPen
 from PySide6.QtWidgets import (
     QApplication,
     QDialog,
     QFileDialog,
     QFrame,
+    QHBoxLayout,
     QInputDialog,
     QLabel,
     QMessageBox,
@@ -133,6 +134,23 @@ def _shortcuts() -> _SheetShortcutFilter:
     return _shortcut_filter
 
 
+class _SheetCard(QFrame):
+    """Karte ohne Stylesheet.
+
+    Ein Stylesheet am Sheet zieht die Kinder aus der Anwendungspalette: nach
+    einem Wechsel bleiben Felder und Grund auf der alten Helligkeit stehen.
+    """
+
+    def paintEvent(self, event) -> None:  # noqa: N802
+        del event
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        palette = self.palette()
+        painter.setPen(QPen(palette.color(QPalette.ColorRole.Mid)))
+        painter.setBrush(palette.color(QPalette.ColorRole.Window))
+        painter.drawRoundedRect(self.rect().adjusted(0, 0, -1, -1), 12, 12)
+
+
 class Sheet(QWidget):
     """Modal-Overlay im Hauptfenster: dimmt den Hintergrund, zeigt den Inhalt.
 
@@ -152,6 +170,7 @@ class Sheet(QWidget):
         margins: int = 40,
         max_size: QSize | None = None,
         close_on_outside: bool = False,
+        corner: QWidget | None = None,
     ) -> None:
         super().__init__(parent)
         self.setObjectName("qlSheet")
@@ -162,35 +181,46 @@ class Sheet(QWidget):
         self._closing = False
         self._filtering_parent = False
 
-        self._panel = self._build_panel(content, title)
+        self._panel = self._build_panel(content, title, corner)
         self._panel.setParent(self)
 
         self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
         self.setAttribute(Qt.WidgetAttribute.WA_MouseTracking, True)
-        self.setStyleSheet(
-            "#qlSheetCard { background: palette(window); border: 1px solid palette(mid);"
-            " border-radius: 12px; }"
-            "#qlSheetTitle { color: palette(windowText); }"
-        )
         self.setGeometry(parent.rect())
         self._relayout()
 
     # --------------------------------------------------------------- Aufbau --
     @staticmethod
-    def _build_panel(content: QWidget, title: str) -> QFrame:
-        card = QFrame()
+    def _build_panel(
+        content: QWidget, title: str, corner: QWidget | None = None
+    ) -> QFrame:
+        card = _SheetCard()
         card.setObjectName("qlSheetCard")
         layout = QVBoxLayout(card)
         layout.setContentsMargins(18, 16, 18, 18)
         layout.setSpacing(12)
-        if title:
-            label = QLabel(title)
-            label.setObjectName("qlSheetTitle")
-            font = QFont(label.font())
-            font.setBold(True)
-            font.setPointSizeF(font.pointSizeF() + 2.0)
-            label.setFont(font)
-            layout.addWidget(label)
+        if title or corner is not None:
+            header = QWidget()
+            row = QHBoxLayout(header)
+            row.setContentsMargins(0, 0, 0, 0)
+            row.setSpacing(8)
+            if title:
+                label = QLabel(title)
+                label.setObjectName("qlSheetTitle")
+                font = QFont(label.font())
+                font.setBold(True)
+                font.setPointSizeF(font.pointSizeF() + 2.0)
+                label.setFont(font)
+                row.addWidget(label, 1)
+            else:
+                row.addStretch(1)
+            if corner is not None:
+                row.addWidget(
+                    corner,
+                    0,
+                    Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter,
+                )
+            layout.addWidget(header)
         layout.addWidget(content, 1)
         return card
 
@@ -320,6 +350,7 @@ def show_widget(
     max_size: QSize | None = None,
     margins: int = 40,
     close_on_outside: bool = False,
+    corner: QWidget | None = None,
 ) -> Sheet:
     """Eigenen Inhalt als Sheet zeigen (z. B. "Über QLInux").
 
@@ -335,6 +366,7 @@ def show_widget(
         max_size=max_size,
         margins=margins,
         close_on_outside=close_on_outside,
+        corner=corner,
     )
 
 

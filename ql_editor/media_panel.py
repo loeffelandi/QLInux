@@ -1,6 +1,6 @@
 """Media-Panel (Vorbild: P-touch Editor "Paper"-Tab).
 
-Bandauswahl, Laenge (auto/fest, Gesamt- oder Inhaltsmass), Margins in mm,
+Bandauswahl, Laenge (automatisch oder fest, immer Gesamtlänge), Margins in mm,
 Farbe (schwarz / schwarz-rot) und Drucker-Einstellungen.
 
 Das Panel ist die einzige Stelle, an der die Band-/Laengen-Parameter gesetzt
@@ -15,7 +15,7 @@ from __future__ import annotations
 import logging
 from typing import Any, Mapping
 
-from PySide6.QtCore import QLocale, QSize, Qt, Signal
+from PySide6.QtCore import QEvent, QSize, Qt, Signal
 from PySide6.QtGui import QAction, QActionGroup, QFontMetrics
 from PySide6.QtWidgets import (
     QButtonGroup,
@@ -23,7 +23,6 @@ from PySide6.QtWidgets import (
     QComboBox,
     QDoubleSpinBox,
     QFormLayout,
-    QGroupBox,
     QHBoxLayout,
     QLabel,
     QPushButton,
@@ -36,6 +35,8 @@ from PySide6.QtWidgets import (
 from . import media
 from .discovery import NetworkPrinter, discover_network_printers
 from .i18n import tr
+from .theme import error_text_color
+from .widgets import title_box
 from .icons import icon
 from .media import (
     DEFAULT_MODEL,
@@ -78,8 +79,8 @@ PRINTER_LABELS = (
 CONNECTION_BUTTON_MIN_WIDTH = 88
 #: Hoehe der Anschluss-Knoepfe (Bildschirmpixel).
 CONNECTION_BUTTON_HEIGHT = 26
-#: Hinweiszeile im Drucker-Formular (zurueckgenommen grau).
-HINT_STYLE = "color:#6b7280;"
+#: Hinweiszeile im Drucker-Formular, folgt der Palette.
+HINT_STYLE = "color:palette(placeholder-text);"
 #: Zeichen, die die USB-Liste mindestens zeigen soll. Laengere Geraetenamen
 #: werden abgeschnitten (der volle Text steht im Tooltip) - so bleibt die
 #: Feldspalte schmal und das Panel behaelt seine Breite.
@@ -128,9 +129,6 @@ class MediaPanel(QWidget):
         # Toolbar, damit sie ohne Panel-Gefummel erreichbar ist); das Panel
         # haelt den Zustand und ist damit die einzige Quelle der Wahrheit.
         self._orientation = Orientation.ACROSS
-        # Aktuelle Inhaltslaenge in Bandrichtung - nur fuer die Ergebnis-Anzeige;
-        # das Hauptfenster meldet sie nach jeder Neuberechnung.
-        self._content_dots = 0
         # Unterdrueckt Nebenwirkungen, waehrend Felder programmatisch gesetzt
         # werden (z. B. beim Laden der Einstellungen).
         self._adjusting = False
@@ -154,6 +152,21 @@ class MediaPanel(QWidget):
         self._populate_bands()
         self._sync_enabled()
 
+    def changeEvent(self, event) -> None:  # noqa: N802
+        super().changeEvent(event)
+        if event.type() == QEvent.Type.PaletteChange:
+            self._apply_access_color()
+
+    def _apply_access_color(self) -> None:
+        """Fehlendes USB-Recht rot, aber lesbar auf dem aktuellen Grund."""
+        label = getattr(self, "_access_label", None)
+        if label is None:
+            return
+        color = error_text_color().name()
+        sheet = f"color:{color};"
+        if label.styleSheet() != sheet:
+            label.setStyleSheet(sheet)
+
     # ------------------------------------------------------------------ UI --
     def _build_ui(self) -> None:
         outer = QVBoxLayout(self)
@@ -163,7 +176,7 @@ class MediaPanel(QWidget):
         # Kein Adressfeld zum Auswendiglernen: erst den Anschluss waehlen
         # ("Netzwerk" braucht nur die IP, "USB" findet das Geraet selbst),
         # darunter erscheint nur das, was dazu noetig ist.
-        printer_box = QGroupBox(tr("Drucker"))
+        printer_box = title_box(tr("Drucker"))
         printer_form = QFormLayout(printer_box)
         printer_form.setRowWrapPolicy(QFormLayout.RowWrapPolicy.WrapLongRows)
         printer_form.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.AllNonFixedFieldsGrow)
@@ -265,7 +278,7 @@ class MediaPanel(QWidget):
         # Knopf, der die udev-Regel einrichtet (Passwort-Dialog des Systems).
         self._access_label = QLabel()
         self._access_label.setWordWrap(True)
-        self._access_label.setStyleSheet("color:#b3261e;")
+        self._apply_access_color()
         self._access_button = QPushButton(icon("detect"), tr("Zugriff einrichten"))
         self._access_button.setToolTip(
             tr("Richtet eine udev-Regel ein, die den USB-Drucker für dich "
@@ -306,7 +319,7 @@ class MediaPanel(QWidget):
         self._sync_connection_rows()
 
         # -- Band -----------------------------------------------------------
-        media_box = QGroupBox(tr("Band"))
+        media_box = title_box(tr("Band"))
         media_form = QFormLayout(media_box)
         media_form.setRowWrapPolicy(QFormLayout.RowWrapPolicy.WrapLongRows)
         media_form.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.AllNonFixedFieldsGrow)
@@ -320,30 +333,25 @@ class MediaPanel(QWidget):
         outer.addWidget(media_box)
 
         # -- Laenge ---------------------------------------------------------
-        length_box = QGroupBox(tr("Länge"))
+        length_box = title_box(tr("Länge"))
         length_form = QFormLayout(length_box)
         length_form.setRowWrapPolicy(QFormLayout.RowWrapPolicy.WrapLongRows)
         length_form.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.AllNonFixedFieldsGrow)
-        self._auto_check = QCheckBox(tr("Automatische Länge (Inhalt)"))
+        self._auto_check = QCheckBox(tr("Automatische Länge"))
         self._auto_check.setChecked(True)
         self._length_spin = QDoubleSpinBox()
         self._length_spin.setSuffix(" mm")
         self._length_spin.setDecimals(1)
         self._length_spin.setRange(1.0, 1000.0)
         self._length_spin.setValue(40.0)
-        self._mode_combo = QComboBox()
-        self._mode_combo.addItem(tr("Gesamtlänge (inkl. Rand)"), LengthMode.FINISHED.value)
-        self._mode_combo.addItem(tr("nur Inhalt"), LengthMode.CONTENT.value)
-        self._size_label = QLabel("-")
-        self._size_label.setStyleSheet("color:#444;")
+        # Die Zahl ist immer die Gesamtlänge inklusive Rand. Die Ausdehnung
+        # des Inhalts zeigt die Schraffur auf der Fläche, nicht noch eine Zeile.
         length_form.addRow(self._auto_check)
         length_form.addRow(tr("Länge"), self._length_spin)
-        length_form.addRow(tr("Bedeutung"), self._mode_combo)
-        length_form.addRow(tr("Ergebnis"), self._size_label)
         outer.addWidget(length_box)
 
         # -- Margins --------------------------------------------------------
-        margin_box = QGroupBox(tr("Ränder (mm)"))
+        margin_box = title_box(tr("Ränder (mm)"))
         margin_form = QFormLayout(margin_box)
         margin_form.setRowWrapPolicy(QFormLayout.RowWrapPolicy.WrapLongRows)
         margin_form.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.AllNonFixedFieldsGrow)
@@ -370,7 +378,6 @@ class MediaPanel(QWidget):
         self._color_combo.currentIndexChanged.connect(self._on_media_changed)
         self._auto_check.toggled.connect(self._on_media_changed)
         self._length_spin.valueChanged.connect(self._on_media_changed)
-        self._mode_combo.currentIndexChanged.connect(self._on_media_changed)
         for spin in self._margin_spins.values():
             spin.valueChanged.connect(self._on_media_changed)
         self._detect_button.clicked.connect(self.detect_requested.emit)
@@ -594,7 +601,8 @@ class MediaPanel(QWidget):
         return self._length_spin.value()
 
     def length_mode(self) -> LengthMode:
-        return LengthMode(self._mode_combo.currentData())
+        """Die eingegebene Länge ist immer die Gesamtlänge inklusive Rand."""
+        return LengthMode.FINISHED
 
     def orientation(self) -> Orientation:
         return self._orientation
@@ -682,7 +690,7 @@ class MediaPanel(QWidget):
             "color": self._color_combo.currentData(),
             "auto_length": self._auto_check.isChecked(),
             "length_mm": self._length_spin.value(),
-            "length_mode": self._mode_combo.currentData(),
+            "length_mode": LengthMode.FINISHED.value,
             "margins": {key: spin.value() for key, spin in self._margin_spins.items()},
             "orientation": self._orientation.value,
         }
@@ -728,9 +736,7 @@ class MediaPanel(QWidget):
         self._length_spin.setValue(
             float(state.get("length_mm", self._length_spin.value()))
         )
-        mode = self._mode_combo.findData(state.get("length_mode"))
-        if mode >= 0:
-            self._mode_combo.setCurrentIndex(mode)
+        # Gespeichertes "nur Inhalt" bleibt unbeachtet: die Länge ist Gesamtlänge.
         margins = state.get("margins") or {}
         for key, spin in self._margin_spins.items():
             if key in margins:
@@ -1235,18 +1241,6 @@ class MediaPanel(QWidget):
             spin.blockSignals(False)
         self.margins_reset.emit()
 
-    def set_content_dots(self, content_dots: int) -> None:
-        """Aktuelle Inhaltslaenge (Dots, Bandrichtung) fuer die Ergebnis-Anzeige.
-
-        Aendert nur die Darstellung - es wird bewusst **kein** :attr:`changed`
-        emittiert (sonst Rueckkopplung mit der Neuberechnung des Canvas).
-        """
-        content_dots = max(0, int(content_dots))
-        if content_dots == self._content_dots:
-            return
-        self._content_dots = content_dots
-        self._update_result()
-
     # ----------------------------------------------------------- Slots -----
     def _on_net_combo_changed(self, index: int) -> None:
         """Nutzer hat einen Drucker gewaehlt - oder die IP-Eingabe geoeffnet."""
@@ -1323,7 +1317,6 @@ class MediaPanel(QWidget):
     def _sync_enabled(self) -> None:
         auto = self._auto_check.isChecked()
         self._length_spin.setEnabled(not auto)
-        self._mode_combo.setEnabled(not auto)
 
         label = self.label
         # Rot nur bei Zwei-Farb-Modell UND farbigem Band.
@@ -1331,28 +1324,6 @@ class MediaPanel(QWidget):
         self._color_combo.setEnabled(red_possible)
         if not red_possible and self._color_combo.currentData() == "red":
             self._color_combo.setCurrentIndex(0)
-
-        self._update_result()
-
-    def _update_result(self) -> None:
-        """Zeige Designflaeche und fertige Etikettenlaenge (mit echter Inhaltslaenge)."""
-        label = self.label
-        length = self.label_length_dots(self._content_dots)
-        width, height = self.canvas_size(self._content_dots)
-        total = (
-            media.finished_length_mm(label, length)
-            if label.is_endless
-            else media.dots_to_mm(length)
-        )
-        self._size_label.setText(
-            tr(
-                "{width} x {height} mm Inhalt\n→ Etikett ~{total} mm"
-            ).format(
-                width=QLocale().toString(media.dots_to_mm(width), "f", 1),
-                height=QLocale().toString(media.dots_to_mm(height), "f", 1),
-                total=QLocale().toString(total, "f", 1),
-            )
-        )
 
 
 __all__ = ["MediaPanel"]

@@ -131,8 +131,10 @@ SIZE_LABEL_COLOR = "#5a6472"
 FIT_MARGIN_MM = 2.5
 #: Arbeitsflaeche um das Etikett (View-Hintergrund).
 WORKSPACE_COLOR = "#dfe3e8"
-#: Durchgehender Bandstreifen: andere Graustufe als die Arbeitsflaeche.
-TAPE_BAND_COLOR = "#c8cfd6"
+#: Durchgehender Bandstreifen, deutlich dunkler als die Arbeitsflaeche.
+TAPE_BAND_COLOR = "#aeb6c0"
+#: Rand des Etiketts und des Bandstreifens.
+TAPE_OUTLINE_COLOR = "#66707c"
 #: Mit dieser Taste zoomt das Mausrad, statt zu scrollen (auf dem Mac Cmd).
 ZOOM_MODIFIER = Qt.KeyboardModifier.ControlModifier
 #: Faktor pro Rad-Raste beim Zoomen.
@@ -1114,7 +1116,7 @@ class LabelCanvas(QGraphicsView):
         painter.fillRect(band, QColor(TAPE_BAND_COLOR))
         painter.fillRect(tape, QColor("#ffffff"))
         self._hatch_nonprintable(painter, tape, printable)
-        pen = QPen(QColor("#9aa3ad"))
+        pen = QPen(QColor(TAPE_OUTLINE_COLOR))
         pen.setWidthF(0)
         painter.setPen(pen)
         painter.setBrush(Qt.BrushStyle.NoBrush)
@@ -1126,7 +1128,7 @@ class LabelCanvas(QGraphicsView):
             painter.drawLine(band.topLeft(), band.bottomLeft())
             painter.drawLine(band.topRight(), band.bottomRight())
         if any(self._margins_mm):
-            margin_pen = QPen(QColor("#9aa5b1"))
+            margin_pen = QPen(QColor(TAPE_OUTLINE_COLOR))
             margin_pen.setStyle(Qt.PenStyle.DotLine)
             margin_pen.setWidthF(0)
             painter.setPen(margin_pen)
