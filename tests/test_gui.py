@@ -634,19 +634,16 @@ def test_detect_button_only_works_where_readback_is_possible(qapp):
     assert not panel._detect_button.isVisibleTo(panel)
 
 
-def test_media_panel_finished_vs_content(qapp):
+def test_media_panel_length_is_always_the_total(qapp):
+    """40 mm sind die Gesamtlänge: der Inhalt wird um den Druckerrand kürzer."""
     from ql_editor.media_panel import MediaPanel
     from ql_editor.media import LengthMode
 
     panel = MediaPanel()
     panel._auto_check.setChecked(False)
     panel._length_spin.setValue(40)
-
-    panel._mode_combo.setCurrentIndex(panel._mode_combo.findData(LengthMode.FINISHED.value))
+    assert panel.length_mode() is LengthMode.FINISHED
     assert panel.canvas_size() == (554, 389)
-
-    panel._mode_combo.setCurrentIndex(panel._mode_combo.findData(LengthMode.CONTENT.value))
-    assert panel.canvas_size() == (554, 472)
 
 
 def test_media_panel_model_switch_repopulates_bands(qapp):
@@ -1140,9 +1137,6 @@ def test_mainwindow_render_matches_canvas(qapp):
     win = MainWindow()
     win._media_panel._auto_check.setChecked(False)
     win._media_panel._length_spin.setValue(40)
-    win._media_panel._mode_combo.setCurrentIndex(
-        win._media_panel._mode_combo.findData("finished")
-    )
     win._on_media_changed()
     win._add_text()
     win._recompute_canvas()
@@ -1573,16 +1567,69 @@ def test_canvas_keyboard_delete_and_nudge(qapp):
 
 
 def test_inspector_shows_only_selected_kind(qapp):
+    from PySide6.QtWidgets import QGroupBox
+
     from ql_editor.inspector import InspectorPanel
     from ql_editor.items import QRItem
 
     inspector = InspectorPanel()
     inspector.set_item(TextItem("x"))
     assert inspector._title.text() == "Text"
+    assert {box.title() for box in inspector.findChildren(QGroupBox)} >= {"Text", "Lage"}
     inspector.set_item(QRItem("y", 100))
     assert inspector._title.text() == "QR-Code"
     inspector.set_item(None)
     assert inspector._title.text() == "Nichts ausgewählt"
+
+
+def _title_glyph_lightness(title, prefer_light: bool) -> int:
+    from PySide6.QtGui import QImage
+
+    image = QImage(title.size(), QImage.Format.Format_ARGB32)
+    image.fill(0)
+    title.render(image)
+    background = image.pixelColor(1, 1)
+    samples = []
+    for y in range(image.height()):
+        for x in range(image.width()):
+            color = image.pixelColor(x, y)
+            if color.alpha() < 200:
+                continue
+            distance = (
+                abs(color.red() - background.red())
+                + abs(color.green() - background.green())
+                + abs(color.blue() - background.blue())
+            )
+            if distance > 40:
+                samples.append(color.lightness())
+    assert samples
+    return max(samples) if prefer_light else min(samples)
+
+
+def test_empty_inspector_title_follows_the_palette(qapp, tmp_path):
+    """Normale Schrift. Hell bleibt dunkel, Dunkel wird hell."""
+    from PySide6.QtCore import Qt
+
+    from ql_editor.theme import apply_theme
+
+    original = qapp.palette()
+    win = _temp_window(qapp, tmp_path)
+    try:
+        title = win._inspector._title
+        assert title.isVisible()
+        assert not title.font().bold()
+        assert title.font().pointSizeF() == win.font().pointSizeF()
+        apply_theme(qapp, Qt.ColorScheme.Light)
+        qapp.processEvents()
+        assert _title_glyph_lightness(title, prefer_light=False) < 80
+        apply_theme(qapp, Qt.ColorScheme.Dark)
+        qapp.processEvents()
+        assert _title_glyph_lightness(title, prefer_light=True) > 200
+    finally:
+        apply_theme(qapp)
+        qapp.setPalette(original)
+        win.close()
+        qapp.processEvents()
 
 
 def test_inspector_puts_x_and_y_on_one_row(qapp):
@@ -2883,12 +2930,16 @@ def test_toolbar_has_align_dropdown_before_front(qapp, tmp_path):
         win._act_add_barcode,
         win._act_add_qr,
     ]
-    history_at = actions.index(win._act_print_history)
-    assert actions[history_at + 1].isSeparator()
-    assert actions[history_at + 1] is not win._act_database_separator
-    assert actions[history_at + 2] is win._act_connect_csv
-    assert actions[history_at + 3] is win._act_database_separator
-    assert actions[history_at + 4] is win._act_database
+    csv_at = actions.index(win._act_connect_csv)
+    database_at = actions.index(win._act_database)
+    print_at = actions.index(win._act_print)
+    assert win._act_print_preview not in actions
+    assert win._act_print_history not in actions
+    assert actions[csv_at - 1].isSeparator()
+    assert actions[csv_at + 1] is win._act_database_separator
+    assert csv_at < database_at < print_at
+    assert actions[database_at + 1].isSeparator()
+    assert actions[database_at + 2] is win._act_print
     win.close()
     qapp.processEvents()
 
@@ -3000,6 +3051,7 @@ def test_no_menu_bar_but_hamburger_menu(qapp):
         "Speichern unter…",
         "|",
         "Sprache",
+        "Erscheinungsbild",
         "Hilfe",
         "Über QLInux",
         "Beenden",
@@ -3027,6 +3079,7 @@ def test_no_menu_bar_but_hamburger_menu(qapp):
         "Ansicht",
         "Drucken",
         "Sprache",
+        "Erscheinungsbild",
         "Hilfe",
         "Über QLInux",
         "Beenden",
@@ -3078,10 +3131,12 @@ def test_no_menu_bar_but_hamburger_menu(qapp):
         win._act_zoom_fit,
         win._act_zoom_in,
         win._act_zoom_100,
-        win._act_print_history,
+        win._act_print,
     ):
         assert act in bar.actions()
         assert act in leaves
+    assert win._act_print_preview not in bar.actions()
+    assert win._act_print_history not in bar.actions()
     assert win._act_commands in win.actions()
     assert win._act_commands.shortcut().toString() == "Ctrl+K"
     assert [
@@ -3207,7 +3262,7 @@ def test_menu_actions_have_icons(qapp):
     menu = win._menu_button.menu()
     assert menu is not None
     items = [a for a in menu.actions() if not a.isSeparator()]
-    assert len(items) == 5
+    assert len(items) == 6
     assert all(not a.icon().isNull() for a in items)
 
 
@@ -3357,20 +3412,34 @@ def test_print_preview_image_stays_canvas_aligned(qapp):
     assert image.height() == int(rect.height())
 
 
-def test_panel_result_shows_real_content_length(qapp):
+def test_panel_group_titles_are_bold(qapp):
+    from PySide6.QtWidgets import QGroupBox
+
+    from ql_editor.media_panel import MediaPanel
+
+    panel = MediaPanel()
+    box = next(item for item in panel.findChildren(QGroupBox) if item.title() == "Drucker")
+    assert box.font().bold()
+
+
+def test_length_panel_has_no_meaning_and_no_result(qapp):
+    """Gesamtlänge bleibt. Bedeutung und die Ergebniszeile gibt es nicht mehr."""
+    from PySide6.QtWidgets import QComboBox, QLabel
+
     from ql_editor.app import MainWindow
-    from ql_editor.items import TextItem
 
     win = MainWindow()
-    win._add_item(TextItem("Hallo Welt", font_pixel_size=90))
-    win._canvas.cancel_editing()
-    assert "Inhalt" in win._media_panel._size_label.text()
-    across = win._media_panel._size_label.text()
-
-    win._media_panel.set_orientation(media.Orientation.ALONG)
-    along = win._media_panel._size_label.text()
-    assert across != along
-    assert win._media_panel._act_orient_along.isChecked()
+    labels = [label.text() for label in win._media_panel.findChildren(QLabel)]
+    assert "Länge" in labels
+    assert "Bedeutung" not in labels
+    assert "Ergebnis" not in labels
+    choices = [
+        combo.itemText(index)
+        for combo in win._media_panel.findChildren(QComboBox)
+        for index in range(combo.count())
+    ]
+    assert "nur Inhalt" not in choices
+    assert "Gesamtlänge (inkl. Rand)" not in choices
 
 
 # --------------------------------------------------------------------------- #
@@ -5211,18 +5280,196 @@ def test_resolution_combo_follows_a_model_change(qapp, tmp_path):
     assert "QL-500" in win._resolution_combo.toolTip()
 
 
-def test_print_options_fit_on_a_small_screen(qapp, tmp_path):
-    """Auf dem Reiter "Drucken" braucht das Panel wenig Hoehe - der Drucken-
-    Knopf bleibt ohne Scrollen sichtbar, auch auf kleinen Bildschirmen."""
-    win = _temp_window(qapp, tmp_path)
-    from ql_editor.adaptive import TABS
+def test_print_history_scrolls_inside_its_own_box(qapp, tmp_path):
+    """Mehr Aufträge scrollen in der Tabelle. Sheet und Kasten bleiben gleich hoch."""
+    from datetime import datetime
 
-    win._right_pages.set_mode(TABS)
-    win._right_pages.show_page(1)
+    from PySide6.QtCore import Qt
+
+    from ql_editor.jobs import PrintJob
+
+    win = _temp_window(qapp, tmp_path)
+    win._show_print_sheet()
     qapp.processEvents()
-    page = win._right_pages.page(1)
-    assert page.widget().sizeHint().height() <= 310
+    sheet_height = win._print_sheet.height()
+    box_height = win._history_table.height()
+    bar = win._history_table.verticalScrollBar()
+    assert bar.maximum() == 0
+    assert not bar.isVisible()
+    win._print_jobs = [
+        PrintJob(datetime.now(), f"Etikett {index}", 1, "QL-820NWB", "usb", "sent")
+        for index in range(12)
+    ]
+    win._refresh_history_table()
+    qapp.processEvents()
+    assert win._history_table.height() == box_height
+    assert win._print_sheet.height() == sheet_height
+    assert win._history_table.verticalScrollBar().maximum() > 0
+    assert win._history_table.verticalScrollBar().isVisible()
+    assert (
+        win._history_table.verticalScrollBarPolicy()
+        == Qt.ScrollBarPolicy.ScrollBarAsNeeded
+    )
+    win.close()
+    qapp.processEvents()
+
+
+def test_print_sheet_follows_a_live_theme_switch(qapp, tmp_path):
+    """Ein offenes Druckfenster nimmt Hell und Dunkel mit, ohne neu aufzugehen."""
+    from PySide6.QtCore import Qt
+    from PySide6.QtGui import QImage
+    from PySide6.QtWidgets import QComboBox
+
+    from ql_editor.theme import apply_theme
+
+    def lightness(widget, x: int, y: int) -> int:
+        image = QImage(widget.size(), QImage.Format.Format_ARGB32)
+        image.fill(0)
+        widget.render(image)
+        return image.pixelColor(x, y).lightness()
+
+    original = qapp.palette()
+    win = _temp_window(qapp, tmp_path)
+    try:
+        apply_theme(qapp, Qt.ColorScheme.Light)
+        win._show_print_sheet()
+        qapp.processEvents()
+        card = win._print_sheet._panel
+        combo = win._print_sheet.findChild(QComboBox)
+        field = combo.mapTo(card, combo.rect().center())
+        assert lightness(card, 24, 20) > 200
+        assert lightness(card, field.x(), field.y()) > 200
+        apply_theme(qapp, Qt.ColorScheme.Dark)
+        qapp.processEvents()
+        assert lightness(card, 24, 20) < 80
+        assert lightness(card, field.x(), field.y()) < 90
+    finally:
+        apply_theme(qapp)
+        qapp.setPalette(original)
+        win.close()
+        qapp.processEvents()
+
+
+def test_history_error_color_follows_a_live_theme_switch(qapp, tmp_path):
+    """Fehlerrot im Verlauf wechselt mit der Palette, ohne die Tabelle von Hand neu zu schreiben."""
+    from datetime import datetime
+
+    from PySide6.QtCore import Qt
+
+    from ql_editor.jobs import PrintJob
+    from ql_editor.theme import ERROR_TEXT, ERROR_TEXT_DARK, apply_theme
+
+    original = qapp.palette()
+    win = _temp_window(qapp, tmp_path)
+    win._print_jobs.append(
+        PrintJob(datetime.now(), "Etikett", 1, "QL-820NWB", "usb", "failed")
+    )
+    try:
+        apply_theme(qapp, Qt.ColorScheme.Light)
+        qapp.processEvents()
+        win._refresh_history_table()
+        assert win._history_table.item(0, 4).foreground().color().name() == ERROR_TEXT
+        apply_theme(qapp, Qt.ColorScheme.Dark)
+        qapp.processEvents()
+        assert win._history_table.item(0, 4).foreground().color().name() == ERROR_TEXT_DARK
+        apply_theme(qapp, Qt.ColorScheme.Light)
+        qapp.processEvents()
+        assert win._history_table.item(0, 4).foreground().color().name() == ERROR_TEXT
+    finally:
+        apply_theme(qapp)
+        qapp.setPalette(original)
+        win.close()
+        qapp.processEvents()
+
+
+def test_toolbar_print_opens_the_sheet(qapp, tmp_path):
+    """Der Toolbar-Knopf und Strg+P öffnen den Dialog, sie drucken nicht sofort."""
+    from ql_editor.sheet import Sheet
+
+    win = _temp_window(qapp, tmp_path)
+    assert win._act_print.toolTip() == "Druckdialog (Ctrl+P)"
+    win._act_print.trigger()
+    qapp.processEvents()
+    sheet = win.findChild(Sheet)
+    assert sheet is not None and sheet.isVisible()
+    assert win._print_sheet is sheet
+    assert win._print_worker is None
+    win.close()
+    qapp.processEvents()
+
+
+def test_print_button_opens_sheet_with_preview_settings_and_history(qapp, tmp_path):
+    """Rechts bleibt nur der Knopf. Er oeffnet Vorschau, Optionen und Verlauf."""
+    from PySide6.QtWidgets import QGroupBox, QPushButton
+
+    from ql_editor.sheet import Sheet
+
+    win = _temp_window(qapp, tmp_path)
+    assert win._open_print_button.text() == ""
+    assert not win._open_print_button.icon().isNull()
+    assert win._open_print_button.minimumHeight() >= 48
+    assert win._open_print_button.isVisible()
+    assert not win._right_panel.isAncestorOf(win._resolution_combo)
+    assert not win._right_panel.isAncestorOf(win._print_button)
+    assert not win._print_button.isVisible()
+
+    win._open_print_button.click()
+    qapp.processEvents()
+    sheet = win.findChild(Sheet)
+    assert sheet is not None and sheet.isVisible()
+    assert win._print_preview.isVisible()
     assert win._print_button.isVisible()
+    assert win._history_table.isVisible()
+    assert sheet.isAncestorOf(win._print_preview)
+    assert sheet.isAncestorOf(win._print_button)
+    assert sheet.isAncestorOf(win._history_table)
+    titles = {box.title() for box in sheet.findChildren(QGroupBox)}
+    assert {"Druckvorschau", "Qualität", "Ausgabe", "Datenbank", "Druckverlauf"} <= titles
+    assert isinstance(win._print_button, QPushButton)
+    assert win._print_button.text() == ""
+    assert win._print_button.toolTip() == "Drucken"
+    assert win._print_button.width() >= 72
+    assert win._print_button.width() > win._print_button.height()
+    assert win._print_preview.pixmap() is not None
+    assert not win._print_preview.pixmap().isNull()
+    assert win._print_preview.height() >= 160
+    assert win._print_preview.height() > win._history_table.height()
+    button_bottom = win._print_button.mapToGlobal(
+        win._print_button.rect().bottomLeft()
+    ).y()
+    preview_top = win._print_preview.mapToGlobal(win._print_preview.rect().topLeft()).y()
+    quality = next(box for box in sheet.findChildren(QGroupBox) if box.title() == "Qualität")
+    output = next(box for box in sheet.findChildren(QGroupBox) if box.title() == "Ausgabe")
+    assert abs(
+        quality.mapToGlobal(quality.rect().topLeft()).y()
+        - output.mapToGlobal(output.rect().topLeft()).y()
+    ) <= 2
+    assert quality.mapToGlobal(quality.rect().topLeft()).x() < output.mapToGlobal(
+        output.rect().topLeft()
+    ).x()
+    history_top = win._history_table.mapToGlobal(win._history_table.rect().topLeft()).y()
+    assert button_bottom <= preview_top <= history_top
+    assert sheet._close_on_outside is True
+    from PySide6.QtCore import QEvent, QPointF
+    from PySide6.QtGui import QMouseEvent
+
+    outside = QPointF(4, 4)
+    sheet.mousePressEvent(
+        QMouseEvent(
+            QEvent.Type.MouseButtonPress,
+            outside,
+            outside,
+            Qt.MouseButton.LeftButton,
+            Qt.MouseButton.LeftButton,
+            Qt.KeyboardModifier.NoModifier,
+        )
+    )
+    assert win._print_sheet is None
+    assert not sheet.isVisible()
+    qapp.processEvents()
+    assert win._resolution_combo.isEnabled()
+    win.close()
+    qapp.processEvents()
 
 
 def test_print_preview_in_600dpi_is_reduced_to_canvas_size(qapp, tmp_path):
@@ -5351,19 +5598,17 @@ def test_media_panel_state_round_trip(qapp):
     panel = MediaPanel()
     panel._auto_check.setChecked(False)
     panel._length_spin.setValue(66.5)
-    panel._mode_combo.setCurrentIndex(
-        panel._mode_combo.findData(LengthMode.CONTENT.value)
-    )
     panel._margin_spins["top"].setValue(3.5)
     panel._margin_spins["left"].setValue(2.5)
     panel.set_orientation(Orientation.ALONG)
     state = panel.state()
+    state["length_mode"] = LengthMode.CONTENT.value
 
     other = MediaPanel()
     other.apply_state(state)
     assert other.auto_length() is False
     assert other.length_mm() == pytest.approx(66.5)
-    assert other.length_mode() is LengthMode.CONTENT
+    assert other.length_mode() is LengthMode.FINISHED
     assert other.margins().top == pytest.approx(3.5)
     assert other.margins().left == pytest.approx(2.5)
     assert other.orientation() is Orientation.ALONG
@@ -5397,7 +5642,7 @@ def test_language_switch_keeps_content_and_media(qapp, tmp_path):
     assert new._settings.language == "en"
     # Englische Oberflaeche ...
     assert new._act_about.text() == "About QLInux"
-    assert new._media_panel._auto_check.text() == "Automatic length (content)"
+    assert new._media_panel._auto_check.text() == "Automatic length"
     assert new._left_panel._title == "Label & printer"
     # ... bei unveraendertem Inhalt und unveraenderter Bandauswahl.
     assert len(new._canvas.items_serialized()) == 1
@@ -5437,6 +5682,45 @@ def test_language_switch_is_offered_in_the_menu(qapp, tmp_path):
                 blue += 1
     assert blue > 8
     win.close()
+
+
+def test_appearance_menu_switches_between_light_and_dark(qapp, tmp_path):
+    """Hell und Dunkel schalten die Palette um. Vorgabe bleibt das System."""
+    from PySide6.QtGui import QPalette
+
+    from ql_editor.theme import ACCENT, apply_theme
+
+    original = QPalette(qapp.palette())
+    win = _temp_window(qapp, tmp_path)
+    try:
+        menu = win._menu_button.menu()
+        submenu = next(
+            action.menu()
+            for action in menu.actions()
+            if action.menu() is not None and action.menu().title() == "Erscheinungsbild"
+        )
+        choices = {action.text(): action for action in submenu.actions()}
+        assert all(not action.icon().isNull() for action in choices.values())
+        assert len({action.icon().cacheKey() for action in choices.values()}) == 3
+        assert choices["Wie das System"].isChecked()
+        choices["Dunkel"].trigger()
+        qapp.processEvents()
+        assert win._settings.appearance == "dark"
+        assert qapp.palette().color(QPalette.ColorRole.Window).name() == "#1e2430"
+        assert qapp.palette().color(QPalette.ColorRole.Highlight).name() == ACCENT
+        choices["Hell"].trigger()
+        qapp.processEvents()
+        assert win._settings.appearance == "light"
+        assert qapp.palette().color(QPalette.ColorRole.Window).name() == "#fafafa"
+        choices["Wie das System"].trigger()
+        qapp.processEvents()
+        assert win._settings.appearance == "system"
+        assert qapp.palette().color(QPalette.ColorRole.Window).name() == "#fafafa"
+    finally:
+        apply_theme(qapp)
+        qapp.setPalette(original)
+        win.close()
+        qapp.processEvents()
 
 
 def test_english_ui_has_no_german_leftovers(qapp, tmp_path):
@@ -6256,6 +6540,19 @@ def test_the_template_menu_offers_builtins_and_saving(qapp, tmp_path, monkeypatc
     qapp.processEvents()
 
 
+def test_tabs_sit_above_the_toolbar(qapp, tmp_path):
+    """Die Reiterleiste steht über der Werkzeugleiste."""
+    from PySide6.QtWidgets import QToolBar
+
+    win = _temp_window(qapp, tmp_path)
+    tabs = win._tab_chrome.mapToGlobal(win._tab_chrome.rect().bottomLeft()).y()
+    bar = win.findChild(QToolBar, "main_toolbar")
+    tools = bar.mapToGlobal(bar.rect().topLeft()).y()
+    assert tabs <= tools
+    win.close()
+    qapp.processEvents()
+
+
 def test_file_group_sits_right_after_the_burger(qapp, tmp_path):
     """Burger, dann Neu, Öffnen, Speichern, Vorlage laden - danach die Werkzeuge."""
     from PySide6.QtWidgets import QToolBar, QToolButton, QWidgetAction
@@ -6303,27 +6600,32 @@ def test_orientation_row_cannot_wrap_at_narrow_panel_width(qapp):
     row.deleteLater()
 
 
-def test_right_panel_stacks_when_tall_and_tabs_when_short(qapp, tmp_path):
-    """Viel Hoehe: Objekt und Drucken untereinander. Wenig: als Reiter."""
-    from ql_editor.adaptive import STACKED, TABS
+def test_right_panel_keeps_inspector_and_print_button(qapp, tmp_path):
+    """Viel oder wenig Hoehe: Inspector und der Druckknopf bleiben unten."""
+    from PySide6.QtWidgets import QScrollArea
 
     win = _temp_window(qapp, tmp_path)
     win.resize(1280, 900)
     win.show()
     qapp.processEvents()
-    assert win._right_pages.mode == STACKED
-    assert win._right_pages.page(0).isVisible()
-    assert win._right_pages.page(1).isVisible()
+    area = next(
+        candidate
+        for candidate in win._right_panel.findChildren(QScrollArea)
+        if candidate.widget() is win._inspector
+    )
+    assert area.isVisible()
+    assert win._open_print_button.isVisible()
+    area_bottom = area.mapTo(win._right_panel, area.rect().bottomLeft()).y()
+    button_top = win._open_print_button.mapTo(
+        win._right_panel, win._open_print_button.rect().topLeft()
+    ).y()
+    assert area_bottom <= button_top
 
     win.resize(1280, 420)
     qapp.processEvents()
-    assert win._right_pages.mode == TABS
-
-    win.resize(1280, 900)
-    qapp.processEvents()
-    assert win._right_pages.mode == STACKED
-    assert win._right_pages.page(0).isVisible()
-    assert win._right_pages.page(1).isVisible()
+    assert area.isVisible()
+    assert win._open_print_button.isVisible()
+    assert not win._print_button.isVisible()
     win.close()
     qapp.processEvents()
 
@@ -6799,8 +7101,9 @@ def _print_with_outcome(qapp, tmp_path, monkeypatch, outcome: str | None, error:
 
 def test_network_send_is_reported_as_sent_not_as_error(qapp, tmp_path, monkeypatch):
     win = _print_with_outcome(qapp, tmp_path, monkeypatch, "sent")
-    assert "An Drucker gesendet" in win._last_job_label.text()
-    assert "#b00020" not in win._last_job_label.styleSheet()
+    status = win._history_table.item(0, 4)
+    assert status.text() == "An Drucker gesendet"
+    assert status.foreground().color().name() != "#b00020"
     assert [job.outcome for job in win._print_jobs] == ["sent"]
     win.close()
     qapp.processEvents()
@@ -6808,14 +7111,15 @@ def test_network_send_is_reported_as_sent_not_as_error(qapp, tmp_path, monkeypat
 
 def test_printer_error_is_marked_red_in_status_and_history(qapp, tmp_path, monkeypatch):
     win = _print_with_outcome(qapp, tmp_path, monkeypatch, None, error="Drucker nicht erreichbar")
-    assert "#b00020" in win._last_job_label.styleSheet()
+    status = win._history_table.item(0, 4)
+    assert status.foreground().color().name() == "#b00020"
     assert win._print_jobs[-1].is_error
     assert win._print_jobs[-1].status_text() == "Nicht gesendet"
     win.close()
     qapp.processEvents()
 
 
-def test_status_area_keeps_its_height_while_printing(qapp, tmp_path, monkeypatch):
+def test_print_icon_spins_until_the_job_is_done_then_closes(qapp, tmp_path, monkeypatch):
     from PySide6.QtCore import QObject, Signal
 
     from ql_editor import app as app_module
@@ -6834,31 +7138,33 @@ def test_status_area_keeps_its_height_while_printing(qapp, tmp_path, monkeypatch
     monkeypatch.setattr(app_module, "PrintWorker", SlowWorker)
     win = _temp_window(qapp, tmp_path)
     win._media_panel.set_network_host("192.168.178.62")
+    win._show_print_sheet()
     qapp.processEvents()
-    height_idle = win._status_stack.height()
+    assert win._print_sheet.isVisible()
     win._on_print()
     qapp.processEvents()
-    assert win._status_stack.currentWidget() is win._feed_indicator
-    assert win._status_stack.height() == height_idle
+    assert win._print_button.is_busy()
     assert not win._print_button.isEnabled()
     win._on_print_succeeded({"outcome": "printed"})
     win._on_print_finished()
     qapp.processEvents()
-    assert win._status_stack.currentWidget() is win._last_job_label
-    assert win._status_stack.height() == height_idle
+    assert win._print_sheet is None
+    assert not win._print_button.is_busy()
     assert win._print_button.isEnabled()
     win.close()
     qapp.processEvents()
 
 
-def test_print_and_history_buttons_share_height_and_row(qapp, tmp_path):
-    win = _temp_window(qapp, tmp_path)
-    page = win._right_pages.page(1)
-    page.resize(176, 400)
-    page.show()
+def test_print_sheet_lists_history_under_the_print_button(qapp, tmp_path, monkeypatch):
+    """Der Verlauf steht im Sheet unter dem Druckknopf, neueste Zeile oben."""
+    win = _print_with_outcome(qapp, tmp_path, monkeypatch, "sent")
+    win._show_print_sheet()
     qapp.processEvents()
-    assert win._print_button.height() == win._history_button.height()
-    assert win._print_button.y() == win._history_button.y()
+    assert win._history_table.rowCount() == 1
+    assert win._history_table.item(0, 4).text() == "An Drucker gesendet"
+    print_bottom = win._print_button.mapToGlobal(win._print_button.rect().bottomLeft()).y()
+    history_top = win._history_table.mapToGlobal(win._history_table.rect().topLeft()).y()
+    assert history_top >= print_bottom
     win.close()
     qapp.processEvents()
 
@@ -6876,8 +7182,8 @@ def test_language_switch_keeps_session_print_history(qapp, tmp_path, monkeypatch
     new = app_module._current_window
     assert new is not win
     assert new._print_jobs == [previous]
-    assert "Sent to printer" in new._last_job_label.text()
-    assert previous.model in new._last_job_label.text()
+    assert new._history_table.item(0, 4).text() == "Sent to printer"
+    assert previous.model in new._history_table.item(0, 3).text()
 
     new.close()
     qapp.processEvents()

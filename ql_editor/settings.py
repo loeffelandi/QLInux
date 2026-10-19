@@ -255,6 +255,21 @@ class AppSettings:
     def language(self, value: str) -> None:
         self.set_value("ui/language", str(value))
 
+    # -- Erscheinungsbild ---------------------------------------------------
+    @property
+    def appearance(self) -> str:
+        """``system`` (Vorgabe), ``light`` oder ``dark``."""
+        value = str(self.value("ui/appearance", "") or "")
+        if value in {"system", "light", "dark"}:
+            return value
+        return "system"
+
+    @appearance.setter
+    def appearance(self, value: str) -> None:
+        if value not in {"system", "light", "dark"}:
+            value = "system"
+        self.set_value("ui/appearance", value)
+
     # -- Fenster ------------------------------------------------------------
     def save_geometry(self, geometry: QByteArray) -> None:
         self.set_value("window/geometry", geometry)

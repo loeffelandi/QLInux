@@ -14,7 +14,7 @@ sofort bei Schaltern).
 
 from __future__ import annotations
 
-from PySide6.QtCore import QDate, QRectF, QSize, QTime, Qt, QTimer, Signal
+from PySide6.QtCore import QDate, QEvent, QRectF, QSize, QTime, Qt, QTimer, Signal
 from PySide6.QtGui import QActionGroup, QColor, QFont, QIcon, QPainter, QPixmap
 from PySide6.QtWidgets import (
     QButtonGroup,
@@ -25,6 +25,7 @@ from PySide6.QtWidgets import (
     QFontComboBox,
     QFormLayout,
     QFrame,
+    QGroupBox,
     QHBoxLayout,
     QLabel,
     QLineEdit,
@@ -48,7 +49,7 @@ from .datetime_text import (
     unit_label,
 )
 from .i18n import tr
-from .icons import icon
+from .icons import icon, text_color
 from .items import (
     FILL_CHOICES,
     LINE_STYLE_CHOICES,
@@ -58,13 +59,13 @@ from .items import (
 from .sheet import show_widget
 from .symbols import SymbolPicker, symbol_label
 from .media import dots_to_mm, mm_to_dots
-from .widgets import install_wheel_guard_recursive
+from .widgets import install_wheel_guard_recursive, title_box
 
 BARCODE_SYMBOLOGIES = ["code128", "code39", "ean13", "ean8", "upca", "itf", "codabar"]
 
 
 def _text_color_icon(value: str | None) -> QIcon:
-    """„A“ mit Balken in der Schriftfarbe (nicht der nackte Buchstabe)."""
+    """„A“ in der Oberflächenfarbe, Balken in der Schriftfarbe."""
     pixmap = QPixmap(24, 24)
     pixmap.fill(Qt.GlobalColor.transparent)
     painter = QPainter(pixmap)
@@ -73,7 +74,7 @@ def _text_color_icon(value: str | None) -> QIcon:
     font.setBold(True)
     font.setPixelSize(15)
     painter.setFont(font)
-    painter.setPen(QColor("#222222"))
+    painter.setPen(text_color())
     painter.drawText(QRectF(0, 0, 24, 18), Qt.AlignmentFlag.AlignCenter, "A")
     if value == "red":
         bar = QColor("red")
@@ -82,6 +83,10 @@ def _text_color_icon(value: str | None) -> QIcon:
     else:
         bar = QColor("#888888")
     painter.fillRect(QRectF(5, 19, 14, 3), bar)
+    # Schwarze Tinte verschwindet sonst auf dem dunklen Knopf.
+    if bar.lightness() < 60 and text_color().lightness() > 128:
+        painter.setPen(text_color())
+        painter.drawRect(QRectF(4.5, 18.5, 15, 4))
     painter.end()
     return QIcon(pixmap)
 
@@ -119,10 +124,10 @@ class InspectorPanel(QWidget):
         self._datetime_example_refresh = None
 
         self._root = QVBoxLayout(self)
-        self._root.setContentsMargins(8, 8, 8, 8)
+        # Dieselben Abstaende wie die Gruppenkaesten im linken Panel.
+        self._root.setContentsMargins(6, 6, 6, 6)
         self._root.setSpacing(6)
         self._title = QLabel(tr("Nichts ausgewählt"))
-        self._title.setStyleSheet("font-weight:600; color:#333;")
         self._root.addWidget(self._title)
         self._root.addStretch(1)
 
@@ -167,18 +172,18 @@ class InspectorPanel(QWidget):
         item = self._item
         if item is None:
             self._title.setText(tr("Nichts ausgewählt"))
+            self._title.show()
             self._root.addStretch(1)
             return
 
         kind = getattr(item, "kind", "?")
         title = _KIND_TITLES.get(kind)
         self._title.setText(tr(title) if title else tr("Objekt"))
+        # Der Titel steht am Kasten, wie "Drucker" oder "Band" links.
+        self._title.hide()
 
-        body = QWidget()
-        form = QFormLayout(body)
-        form.setContentsMargins(0, 0, 0, 0)
-        form.setLabelAlignment(Qt.AlignmentFlag.AlignRight)
-        form.setRowWrapPolicy(QFormLayout.RowWrapPolicy.WrapLongRows)
+        box = title_box(self._title.text())
+        form = self._group_form(box)
 
         builder = {
             "text": self._build_text,
@@ -195,13 +200,17 @@ class InspectorPanel(QWidget):
         if builder is not None:
             builder(item, form)
 
-        self._build_common(item, form)
-        self._root.addWidget(body)
+        place = title_box(tr("Lage"))
+        self._build_common(item, self._group_form(place))
+        self._root.addWidget(box)
+        self._root.addWidget(place)
         # addWidget zeigt das neue Formular nicht immer (z. B. nach
         # Zellenwechsel). Versteckt bliebe der Inspector sonst leer.
-        body.show()
+        box.show()
+        place.show()
         self._root.addStretch(1)
-        install_wheel_guard_recursive(body)
+        install_wheel_guard_recursive(box)
+        install_wheel_guard_recursive(place)
 
     # -- Typ-spezifisch -----------------------------------------------------
     def _build_database_binding(self, item, form: QFormLayout) -> None:
@@ -546,6 +555,8 @@ class InspectorPanel(QWidget):
     def _color_menu_button(self, tip: str, current, apply_fn) -> QToolButton:
         """Farbknopf mit „A“ und Farbstrich. ``current`` ist None bei Mischauswahl."""
         button = QToolButton()
+        button.setObjectName("inspector_text_color")
+        button.setProperty("ink_color", "" if current is None else current)
         button.setIcon(_text_color_icon(current))
         button.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonIconOnly)
         button.setToolTip(tip)
@@ -566,8 +577,17 @@ class InspectorPanel(QWidget):
         return button
 
     def _choose_text_color(self, button: QToolButton, apply_fn, value: str) -> None:
+        button.setProperty("ink_color", value)
         button.setIcon(_text_color_icon(value))
         self._apply_now(lambda: apply_fn(value))
+
+    def changeEvent(self, event) -> None:  # noqa: N802
+        super().changeEvent(event)
+        if event.type() != QEvent.Type.PaletteChange:
+            return
+        for button in self.findChildren(QToolButton, "inspector_text_color"):
+            raw = button.property("ink_color")
+            button.setIcon(_text_color_icon(raw or None))
 
     def _color_button(self, item) -> QToolButton:
         """Farbknopf: Symbol mit der aktuellen Schriftfarbe, Menue Schwarz/Rot."""
@@ -599,17 +619,25 @@ class InspectorPanel(QWidget):
         box.toggled.connect(lambda v: self._apply_now(lambda: apply_fn(v)))
         return box
 
+    def _group_form(self, box: QGroupBox) -> QFormLayout:
+        """Formular in einem Kasten, gleiche Zeilenregeln wie links."""
+        form = QFormLayout(box)
+        form.setLabelAlignment(Qt.AlignmentFlag.AlignRight)
+        form.setRowWrapPolicy(QFormLayout.RowWrapPolicy.WrapLongRows)
+        form.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.AllNonFixedFieldsGrow)
+        return form
+
     def _divider(self) -> QFrame:
         line = QFrame()
         line.setFrameShape(QFrame.Shape.VLine)
         line.setFrameShadow(QFrame.Shadow.Sunken)
         return line
 
-    def _rule(self) -> QFrame:
-        line = QFrame()
-        line.setFrameShape(QFrame.Shape.HLine)
-        line.setFrameShadow(QFrame.Shadow.Sunken)
-        return line
+    def _rule(self) -> QWidget:
+        """Abstand zwischen Feldgruppen, ohne eingeprägte Trennlinie."""
+        gap = QWidget()
+        gap.setFixedHeight(6)
+        return gap
 
     def _build_shape(self, item, form: QFormLayout) -> None:
         shape = QComboBox()
