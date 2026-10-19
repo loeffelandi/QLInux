@@ -25,6 +25,7 @@ from ql_editor.printer import (
     detect_label,
     print_image,
     print_images,
+    printer_error_bits,
     printer_error_texts,
     probe_status,
     send_instructions,
@@ -902,6 +903,7 @@ def test_printer_error_texts_read_the_bits_from_the_top():
     assert printer_error_texts(b"\x00\x02") == ("Wartung überfällig",)
     assert printer_error_texts(b"\x00\x01") == ()
     assert len(printer_error_texts(b"\xff\xff")) == 15
+    assert printer_error_bits(b"\x88\x01") == (0, 4, 15)
 
 
 def test_loaded_label_is_stored_per_printer(tmp_path):

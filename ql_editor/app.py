@@ -23,6 +23,7 @@ gedruckt ueber :mod:`ql_editor.printer` (in einem Worker-Thread).
 from __future__ import annotations
 
 import json
+import logging
 import math
 import sys
 import threading
@@ -102,8 +103,7 @@ from .database_panel import DatabasePanel
 from .discovery import (
     confirm_network_job,
     discover_network_printers,
-    network_printer_errors,
-    network_snmp_answers,
+    network_printer_status,
 )
 from .history import design_snapshot, push_if_changed
 from .i18n import (
@@ -182,6 +182,8 @@ from .widgets import (
     install_wheel_guard_recursive,
     title_box,
 )
+
+logger = logging.getLogger(__name__)
 
 BARCODE_SYMBOLOGIES = ["code128", "code39", "ean13", "ean8", "upca", "itf", "codabar"]
 
@@ -265,7 +267,7 @@ class PrintWorker(QThread):
     def run(self) -> None:  # noqa: D401
         snmp_answered = self._snmp_answered
         if snmp_answered is None and self._config.backend == "network":
-            snmp_answered = network_snmp_answers(self._config.address)
+            snmp_answered = network_printer_status(self._config.address) is not None
         try:
             if len(self._images) == 1:
                 status = print_image(
@@ -282,30 +284,33 @@ class PrintWorker(QThread):
                 tr("Unerwarteter Fehler: {error}").format(error=exc)
             )
         else:
-            self.succeeded.emit(
-                confirm_network_job(
+            try:
+                status = confirm_network_job(
                     self._config,
                     status,
                     snmp_answered=bool(snmp_answered),
                     cancel=self._cancel,
                 )
-            )
+            except Exception:  # pragma: no cover - defensiv
+                logger.exception("SNMP-Pruefung nach dem Senden fehlgeschlagen")
+            self.succeeded.emit(status)
 
 
 class NetworkStatusWorker(QThread):
-    """Fragt den Netzwerkdrucker im Hintergrund per SNMP nach seinem Status."""
+    """Fragt den Netzwerkdrucker im Hintergrund per SNMP nach seinem Status.
 
-    polled = Signal(dict)
+    ``polled`` liefert ``{"address": ..., "status": NetworkStatus | None}``.
+    """
+
+    polled = Signal(object)
 
     def __init__(self, address: str):
         super().__init__(None)
         self._address = address
 
     def run(self) -> None:  # noqa: D401
-        answered = network_snmp_answers(self._address)
-        errors = network_printer_errors(self._address) if answered else None
         self.polled.emit(
-            {"address": self._address, "answered": answered, "errors": errors}
+            {"address": self._address, "status": network_printer_status(self._address)}
         )
 
 
@@ -3836,28 +3841,35 @@ class MainWindow(QMainWindow):
         self._net_poll_worker = None
 
     def _on_network_polled(self, result: dict) -> None:
-        self._net_poll = {
-            "address": result["address"],
-            "at": monotonic(),
-            "answered": result["answered"],
-        }
-        errors = tuple(result["errors"] or ())
-        if errors != self._net_errors_shown:
-            self._net_errors_shown = errors
-            if errors:
+        status = result["status"]
+        self._net_poll = {"address": result["address"], "at": monotonic(), "status": status}
+        texts = status.texts if status is not None else ()
+        if texts != self._net_errors_shown:
+            self._net_errors_shown = texts
+            if texts:
+                message = (
+                    tr("Drucker meldet: {errors}")
+                    if status.fault
+                    else tr("Hinweis vom Drucker: {texts}")
+                )
                 self.statusBar().showMessage(
-                    tr("Drucker meldet: {errors}").format(errors=", ".join(errors)),
+                    message.format(errors=", ".join(texts), texts=", ".join(texts)),
                     10000,
                 )
 
-    def _cached_snmp_answer(self, address: str) -> bool | None:
-        """Letztes Abfrageergebnis, ``None`` wenn es fehlt oder veraltet ist."""
+    def _fresh_poll(self, address: str) -> dict | None:
+        """Letzte Abfrage dieses Druckers, ``None`` wenn sie fehlt oder veraltet ist."""
         poll = self._net_poll
         if poll is None or poll["address"] != address:
             return None
         if monotonic() - poll["at"] > SNMP_CACHE_MAX_AGE:
             return None
-        return poll["answered"]
+        return poll
+
+    def _cached_snmp_answer(self, address: str) -> bool | None:
+        """Hat der Drucker zuletzt per SNMP geantwortet? ``None``: unbekannt."""
+        poll = self._fresh_poll(address)
+        return None if poll is None else poll["status"] is not None
 
     def _on_print_finished(self) -> None:
         self._print_worker = None

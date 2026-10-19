@@ -343,6 +343,7 @@ EN: dict[str, str] = {
     "Der Drucker meldet:\n{errors}\n\nBand, Klappe und Papier prüfen und danach erneut drucken.": "The printer reports:\n{errors}\n\nCheck tape, cover and paper, then print again.",
     "Drucker meldet eine Störung": "Printer reports a fault",
     "Drucker meldet: {errors}": "Printer reports: {errors}",
+    "Hinweis vom Drucker: {texts}": "Note from the printer: {texts}",
     "Drucker antwortet nach dem Senden nicht": "Printer does not respond after sending",
     "Band prüfen": "Check tape",
     "Gewählt: {selected}\nLaut QLInux eingelegt: {loaded}\n\nStimmt das nicht, bricht der Drucker mit einem Fehler ab.": "Selected: {selected}\nLoaded according to QLInux: {loaded}\n\nIf that is wrong, the printer stops with an error.",

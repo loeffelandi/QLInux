@@ -7361,34 +7361,45 @@ def test_language_switch_keeps_session_print_history(qapp, tmp_path, monkeypatch
     qapp.processEvents()
 
 
-def test_network_status_worker_polls_answer_and_errors(monkeypatch, qapp):
+def test_network_status_worker_polls_once(monkeypatch, qapp):
     from ql_editor import app
+    from ql_editor.discovery import NetworkStatus
 
-    monkeypatch.setattr(app, "network_snmp_answers", lambda address: True)
-    monkeypatch.setattr(app, "network_printer_errors", lambda address: ("Klappe offen",))
+    asked = []
+    status = NetworkStatus(fault=True, texts=("Klappe offen",))
+    monkeypatch.setattr(
+        app, "network_printer_status", lambda address: asked.append(address) or status
+    )
     results = []
     worker = app.NetworkStatusWorker("tcp://192.0.2.62:9100")
     worker.polled.connect(results.append)
     worker.run()
-    assert results == [
-        {"address": "tcp://192.0.2.62:9100", "answered": True, "errors": ("Klappe offen",)}
-    ]
+    assert asked == ["tcp://192.0.2.62:9100"]
+    assert results == [{"address": "tcp://192.0.2.62:9100", "status": status}]
 
 
-def test_network_status_worker_without_snmp_asks_no_errors(monkeypatch, qapp):
-    from ql_editor import app
+def test_printer_poll_shows_faults_and_notes_in_the_status_bar(qapp, tmp_path):
+    from ql_editor import app as app_module
+    from ql_editor.discovery import NetworkStatus
 
-    monkeypatch.setattr(app, "network_snmp_answers", lambda address: False)
-
-    def fail(address):
-        raise AssertionError("ohne SNMP keine Fehlerabfrage")
-
-    monkeypatch.setattr(app, "network_printer_errors", fail)
-    results = []
-    worker = app.NetworkStatusWorker("tcp://192.0.2.62:9100")
-    worker.polled.connect(results.append)
-    worker.run()
-    assert results == [{"address": "tcp://192.0.2.62:9100", "answered": False, "errors": None}]
+    win = _temp_window(qapp, tmp_path)
+    address = "tcp://192.0.2.62:9100"
+    win._on_network_polled(
+        {"address": address, "status": NetworkStatus(fault=True, texts=("Klappe offen",))}
+    )
+    assert win.statusBar().currentMessage() == "Drucker meldet: Klappe offen"
+    assert win._cached_snmp_answer(address) is True
+    win._on_network_polled(
+        {"address": address, "status": NetworkStatus(fault=False, texts=("Papier wird knapp",))}
+    )
+    assert win.statusBar().currentMessage() == "Hinweis vom Drucker: Papier wird knapp"
+    win._on_network_polled({"address": address, "status": None})
+    assert win._cached_snmp_answer(address) is False
+    assert win._cached_snmp_answer("tcp://192.0.2.99:9100") is None
+    win._net_poll["at"] -= app_module.SNMP_CACHE_MAX_AGE + 1
+    assert win._cached_snmp_answer(address) is None
+    win.close()
+    qapp.processEvents()
 
 
 def test_closing_stops_the_printer_poll_and_cancels_the_check(qapp, tmp_path, monkeypatch):
@@ -7398,7 +7409,7 @@ def test_closing_stops_the_printer_poll_and_cancels_the_check(qapp, tmp_path, mo
     from ql_editor import app as app_module
 
     class RunningPoll(QObject):
-        polled = Signal(dict)
+        polled = Signal(object)
         finished = Signal()
 
         def __init__(self, address):
@@ -7425,7 +7436,7 @@ def test_closing_stops_the_printer_poll_and_cancels_the_check(qapp, tmp_path, mo
     assert not win._net_poll_timer.isActive()
     assert win._print_cancel.is_set()
     assert win._net_poll_worker is None
-    worker.polled.emit({"address": "tcp://192.0.2.62:9100", "answered": True, "errors": ()})
+    worker.polled.emit({"address": "tcp://192.0.2.62:9100", "status": None})
     assert win._net_poll is None
     assert worker in app_module._orphan_workers
     worker.finished.emit()

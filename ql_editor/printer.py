@@ -569,11 +569,21 @@ class PrinterStatus:
         return bool(self.errors)
 
 
+def printer_error_bits(state: bytes) -> tuple[int, ...]:
+    """Gesetzte Bits aus ``hrPrinterDetectedErrorState``.
+
+    Die Bits zaehlen von oben: Bit 0 ist das hoechste Bit des ersten Bytes
+    (RFC 2790, HOST-RESOURCES-MIB).
+    """
+    return tuple(
+        bit for bit in range(len(state) * 8) if state[bit // 8] & (0x80 >> (bit % 8))
+    )
+
+
 def printer_error_texts(state: bytes) -> tuple[str, ...]:
     """Texte der gesetzten Bits aus ``hrPrinterDetectedErrorState``.
 
-    Die Bits zaehlen von oben: Bit 0 ist das hoechste Bit des ersten Bytes
-    (RFC 2790, HOST-RESOURCES-MIB). Unbekannte Bits werden ignoriert.
+    Unbekannte Bits werden ignoriert (siehe :func:`printer_error_bits`).
     """
     texts = (
         tr("Papier wird knapp"),
@@ -592,11 +602,7 @@ def printer_error_texts(state: bytes) -> tuple[str, ...]:
         tr("Papierfach leer"),
         tr("Wartung überfällig"),
     )
-    return tuple(
-        texts[bit]
-        for bit in range(min(len(state) * 8, len(texts)))
-        if state[bit // 8] & (0x80 >> (bit % 8))
-    )
+    return tuple(texts[bit] for bit in printer_error_bits(state) if bit < len(texts))
 
 
 # --------------------------------------------------------------------------- #
@@ -1046,6 +1052,7 @@ __all__ = [
     "probe_status",
     "detect_label",
     "preferred_usb_address",
+    "printer_error_bits",
     "printer_error_texts",
     "usb_devices",
     "usb_printers",
