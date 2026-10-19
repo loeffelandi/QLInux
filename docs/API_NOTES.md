@@ -393,7 +393,9 @@ Ablauf beim Druck:
    Hat SNMP schon vor dem Senden nicht geantwortet (z. B. SNMP am Drucker
    aus), entfaellt die Pruefung.
 3. **Im Hintergrund:** Solange das Fenster aktiv ist, wird alle
-   `NETWORK_POLL_MS` (5 s) abgefragt, beim Aktivieren sofort.
+   `NETWORK_POLL_MS` (5 s) abgefragt, beim Aktivieren sofort. Auch hier mit
+   `NETWORK_PROBE_ATTEMPTS` Versuchen: Ein verlorenes Paket sieht sonst aus
+   wie „SNMP aus“, und die Pruefung nach dem naechsten Druck entfiele.
 
 ### Rechtelage am QL-700 (gemessen)
 

@@ -317,9 +317,10 @@ class NetworkStatusWorker(QThread):
         self._address = address
 
     def run(self) -> None:  # noqa: D401
-        self.polled.emit(
-            {"address": self._address, "status": network_printer_status(self._address)}
-        )
+        # Ein verlorenes Paket hiesse "kein SNMP" - dann entfiele die Pruefung
+        # nach dem naechsten Druck. Die Wiederholung kostet nur diesen Thread.
+        status = network_printer_status(self._address, attempts=NETWORK_PROBE_ATTEMPTS)
+        self.polled.emit({"address": self._address, "status": status})
 
 
 class NetworkSearchWorker(QThread):

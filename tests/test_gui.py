@@ -7779,19 +7779,23 @@ def test_language_switch_keeps_session_print_history(qapp, tmp_path, monkeypatch
 
 
 def test_network_status_worker_polls_once(monkeypatch, qapp):
+    """Eine Abfrage, aber mit Wiederholung: ein verlorenes Paket ist kein "SNMP aus"."""
     from ql_editor import app
-    from ql_editor.discovery import NetworkStatus
+    from ql_editor.discovery import NETWORK_PROBE_ATTEMPTS, NetworkStatus
 
     asked = []
     status = NetworkStatus(fault=True, texts=("Klappe offen",))
-    monkeypatch.setattr(
-        app, "network_printer_status", lambda address: asked.append(address) or status
-    )
+
+    def query(address, **kwargs):
+        asked.append((address, kwargs.get("attempts")))
+        return status
+
+    monkeypatch.setattr(app, "network_printer_status", query)
     results = []
     worker = app.NetworkStatusWorker("tcp://192.0.2.62:9100")
     worker.polled.connect(results.append)
     worker.run()
-    assert asked == ["tcp://192.0.2.62:9100"]
+    assert asked == [("tcp://192.0.2.62:9100", NETWORK_PROBE_ATTEMPTS)]
     assert results == [{"address": "tcp://192.0.2.62:9100", "status": status}]
 
 
