@@ -5396,7 +5396,7 @@ def test_print_button_opens_sheet_with_preview_settings_and_history(qapp, tmp_pa
     assert isinstance(win._print_button, QPushButton)
     assert win._print_button.text() == ""
     assert win._print_button.toolTip() == "Drucken"
-    assert win._print_button.width() >= 56
+    assert win._print_button.width() >= 72
     assert win._print_button.width() > win._print_button.height()
     assert win._print_preview.pixmap() is not None
     assert not win._print_preview.pixmap().isNull()

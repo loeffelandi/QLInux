@@ -335,7 +335,7 @@ class _PrintIconButton(QPushButton):
         self.setIcon(icon("print"))
         self.setIconSize(QSize(22, 22))
         # Breiter als hoch, damit links und rechts vom Icon Luft bleibt.
-        self.setFixedSize(56, 36)
+        self.setFixedSize(72, 36)
         self.setToolTip(tr("Drucken"))
         self.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         self._angle = 0
