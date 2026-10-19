@@ -610,3 +610,49 @@ def test_reconnecting_after_disconnect_starts_with_one_row(qapp, tmp_path):
     qapp.processEvents()
     assert win._database_panel.selected_records() == [0]
     win.close()
+
+
+def test_grid_click_keeps_cut_at_end(qapp, tmp_path):
+    from ql_editor.app import CUT_AT_END
+
+    win = MainWindow(discover=False)
+    win.resize(1100, 760)
+    win.show()
+    assert win.connect_csv_path(str(_rows_csv(tmp_path, "a.csv", "A")))
+    _open_database(win)
+    _select_rows(win, [0, 1, 2])
+    qapp.processEvents()
+    win._cut_combo.setCurrentIndex(win._cut_combo.findData(CUT_AT_END))
+    _select_rows(win, [4])
+    _select_rows(win, [4, 5])
+    qapp.processEvents()
+    assert win._cut_combo.currentData() == CUT_AT_END
+    win._show_print_sheet()
+    qapp.processEvents()
+    item = win._cut_combo.model().item(win._cut_combo.findData(CUT_AT_END))
+    assert item.isEnabled()
+    assert win._cut_combo.currentData() == CUT_AT_END
+    win.close()
+
+
+def test_print_sheet_greys_out_cut_at_end_for_one_row(qapp, tmp_path):
+    from ql_editor.app import CUT_AT_END
+
+    win = MainWindow(discover=False)
+    win.resize(1100, 760)
+    win.show()
+    assert win.connect_csv_path(str(_rows_csv(tmp_path, "a.csv", "A")))
+    _open_database(win)
+    _select_rows(win, [0, 1])
+    qapp.processEvents()
+    win._show_print_sheet()
+    qapp.processEvents()
+    win._close_print_sheet()
+    qapp.processEvents()
+    _select_rows(win, [3])
+    qapp.processEvents()
+    win._show_print_sheet()
+    qapp.processEvents()
+    item = win._cut_combo.model().item(win._cut_combo.findData(CUT_AT_END))
+    assert not item.isEnabled()
+    win.close()

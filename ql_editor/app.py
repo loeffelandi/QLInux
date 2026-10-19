@@ -3734,6 +3734,9 @@ class MainWindow(QMainWindow):
 
     def _show_print_sheet(self) -> None:
         """Druckvorschau, Optionen und Verlauf im Sheet."""
+        # Erst hier: jeder Grid-Klick davor wuerde „Am Ende" bei einer
+        # einzelnen Zeile dauerhaft auf „Jede Kopie" stellen.
+        self._sync_cut_options()
         if self._print_sheet_open():
             self._print_sheet.raise_()
             self._refresh_history_table()
@@ -4741,7 +4744,6 @@ class MainWindow(QMainWindow):
     def _on_database_record_selected(self, index: int) -> None:
         """Tabellenzeile → ``current_record`` + Live-Merge (D15, ohne Undo)."""
         self.set_current_record(index, mark_dirty=True)
-        self._sync_cut_options()
 
     def set_current_record(self, index: int, *, mark_dirty: bool = False) -> None:
         """Record wechseln und gebundene Canvas-Objekte aktualisieren (D10/D15)."""
