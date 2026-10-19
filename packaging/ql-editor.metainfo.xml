@@ -32,6 +32,11 @@
     </screenshot>
   </screenshots>
   <releases>
+    <release version="0.3.0" date="2026-10-19">
+      <description>
+        <p>Tables, date and time stamps, clip art, shapes and richer text. A CSV database with record ranges and numbering. Printing opens as a sheet. Light and dark appearance, ruler guides, copy and paste, and in-app help.</p>
+      </description>
+    </release>
     <release version="0.2.0" date="2026-10-17">
       <description>
         <p>Several labels as tabs in one window, align menu in the toolbar, undo and redo icons, and Brother .lbx import. Several fixes for printing, rotation, large images and the inspector.</p>
