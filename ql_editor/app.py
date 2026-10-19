@@ -5,12 +5,14 @@ Aufbau:
 * links: :class:`~ql_editor.media_panel.MediaPanel` (Band, Laenge, Margins)
 * mitte: :class:`~ql_editor.canvas.LabelCanvas` (feste Pixelgroesse, Lineale)
 * rechts: Objekteigenschaften; der Knopf unten oeffnet Drucken als Sheet
-* Toolbar: Items einfuegen, Reihenfolge, Loeschen, Zoom, Datenbank, Drucken
+* Toolbar: Datei (Speichern mit Pfeil fuer Speichern unter), Items einfuegen,
+  Ausrichten, Ebenen, Loeschen, Datenbank, Drucken
+* Statusleiste: Zoom-Knoepfe und Zoomstufe
 * Reiter: mehrere Etiketten in einem Fenster (Canvas, Band, Undo je Reiter)
 
 Es gibt **keine klassische Menueleiste**. Haeufige Befehle liegen in der
 Toolbar. Das Hamburger-Menue behaelt nur, was keinen eigenen Schalter hat:
-Speichern unter, Sprache, Erscheinungsbild, Hilfe, Ueber und Beenden.
+Sprache, Erscheinungsbild, Hilfe, Ueber und Beenden.
 Strg+K listet alle Befehle.
 
 Die GUI haelt keine eigene Wahrheit ueber Bandmasse: alles kommt aus
