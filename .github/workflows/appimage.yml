@@ -25,7 +25,10 @@ jobs:
           - os: ubuntu-24.04-arm
             arch: aarch64
     steps:
+      # release: github.sha ist der Stand von main, nicht der Tag.
       - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event_name == 'release' && github.event.release.tag_name || github.sha }}
 
       - uses: actions/setup-python@v7
         id: python

@@ -18,7 +18,15 @@
 set -euo pipefail
 
 _missing=()
-for _lib in libxcb-cursor.so.0 libxkbcommon-x11.so.0 libxcb-icccm.so.4; do
+for _lib in \
+    libxcb-cursor.so.0 \
+    libxkbcommon-x11.so.0 \
+    libxcb-icccm.so.4 \
+    libxcb-image.so.0 \
+    libxcb-keysyms.so.1 \
+    libxcb-render-util.so.0 \
+    libxcb-xkb.so.1
+do
     if ! ldconfig -p 2>/dev/null | grep -q "$_lib"; then
         _missing+=("$_lib")
     fi
