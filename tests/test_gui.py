@@ -1582,6 +1582,39 @@ def test_inspector_shows_only_selected_kind(qapp):
     assert inspector._title.text() == "Nichts ausgewählt"
 
 
+def test_empty_inspector_title_stays_dark_in_light_mode(qapp, tmp_path):
+    """„Nichts ausgewählt“ ist fett und dunkel auf hellem Grund."""
+    from PySide6.QtCore import Qt
+    from PySide6.QtGui import QImage
+
+    from ql_editor.theme import apply_theme
+
+    original = qapp.palette()
+    win = _temp_window(qapp, tmp_path)
+    try:
+        apply_theme(qapp, Qt.ColorScheme.Light)
+        qapp.processEvents()
+        title = win._inspector._title
+        assert title.isVisible()
+        assert title.font().bold()
+        assert "palette(" not in title.styleSheet()
+        image = QImage(title.size(), QImage.Format.Format_ARGB32)
+        image.fill(0)
+        title.render(image)
+        dark = 0
+        for y in range(image.height()):
+            for x in range(image.width()):
+                color = image.pixelColor(x, y)
+                if color.alpha() > 200 and color.lightness() < 80:
+                    dark += 1
+        assert dark > 80
+    finally:
+        apply_theme(qapp)
+        qapp.setPalette(original)
+        win.close()
+        qapp.processEvents()
+
+
 def test_inspector_puts_x_and_y_on_one_row(qapp):
     from PySide6.QtWidgets import QLabel, QSpinBox
 
