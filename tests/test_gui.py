@@ -6008,6 +6008,34 @@ def test_a_stuck_close_prompt_asks_again(qapp, tmp_path):
     assert not win.isVisible()
 
 
+def test_removing_the_last_tab_quits_without_asking_again(qapp, tmp_path):
+    """Ist der Reiter schon zum Schließen freigegeben, kommt keine zweite Frage."""
+    from ql_editor.items import TextItem
+
+    win = _temp_window(qapp, tmp_path)
+    win._add_item(TextItem("Weg", font_pixel_size=20))
+    win._remove_tab(win._active)
+    qapp.processEvents()
+    assert not win.isVisible()
+
+
+def test_a_help_sheet_does_not_swallow_close(qapp, tmp_path):
+    """Hilfe ist kein Speicher-Sheet: ein hängendes Flag fragt trotzdem noch."""
+    from ql_editor.items import TextItem
+
+    win = _temp_window(qapp, tmp_path)
+    win._add_item(TextItem("Weg", font_pixel_size=20))
+    win._show_help()
+    qapp.processEvents()
+    win._close_prompt = True
+    win.close()
+    qapp.processEvents()
+    assert win.isVisible()
+    _sheet_button(win, "Verwerfen").click()
+    qapp.processEvents()
+    assert not win.isVisible()
+
+
 def test_closing_a_clean_last_tab_quits(qapp, tmp_path):
     win = _temp_window(qapp, tmp_path)
     assert win._tab_bar.count() == 1
