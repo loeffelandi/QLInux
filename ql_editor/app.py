@@ -2391,7 +2391,9 @@ class MainWindow(QMainWindow):
         if self._active is not None:
             self._active.canvas.cancel_editing()
         if self._history_before is not None:
-            self._commit_history()
+            # Restpfad: Randfeld ohne editingFinished. Text/Tabelle/Inspector
+            # sind oben schon mit eigenem Text commitet.
+            self._commit_history(tr("Ränder"))
 
     def _restore_design(self, snapshot: dict[str, Any]) -> None:
         """Medien und Objekte aus einem Undo-Schnappschuss setzen."""
@@ -4311,7 +4313,9 @@ class MainWindow(QMainWindow):
 
     def _request_close_tab(self, tab: LabelTab) -> None:
         """Letzter Reiter beendet die App, sonst fällt nur dieser Reiter weg."""
-        self._seal_pending_edits()
+        # Anderen Reiter schließen: Tippen im aktiven lassen.
+        if tab is self._active or len(self._ordered_tabs()) <= 1:
+            self._seal_pending_edits()
         if len(self._ordered_tabs()) <= 1:
             self.close()
             return
