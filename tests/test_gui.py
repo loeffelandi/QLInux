@@ -7985,10 +7985,13 @@ def test_printer_poll_waits_until_the_last_one_has_finished(qapp, tmp_path):
 
 
 def test_closing_stops_the_printer_poll_and_cancels_the_check(qapp, tmp_path, monkeypatch):
-    """Ein Thread, der das Fenster ueberlebt, bricht beim Programmende Qt ab."""
+    """Ein Thread, der das Fenster ueberlebt, bricht beim Programmende Qt ab.
+    Auf die kurze Abfrage wartet das Schliessen nicht, erst das Programmende."""
     from PySide6.QtCore import QObject, Signal
 
     from ql_editor import app as app_module
+
+    waited = []
 
     class RunningPoll(QObject):
         polled = Signal(object)
@@ -8003,7 +8006,8 @@ def test_closing_stops_the_printer_poll_and_cancels_the_check(qapp, tmp_path, mo
         def isRunning(self) -> bool:  # noqa: N802
             return True
 
-        def wait(self, _ms) -> bool:
+        def wait(self, ms) -> bool:
+            waited.append(ms)
             return False
 
     monkeypatch.setattr(app_module, "NetworkStatusWorker", RunningPoll)
@@ -8018,6 +8022,7 @@ def test_closing_stops_the_printer_poll_and_cancels_the_check(qapp, tmp_path, mo
     assert not win._net_poll_timer.isActive()
     assert win._print_cancel.is_set()
     assert win._net_poll_worker is None
+    assert waited == []
     worker.polled.emit({"address": "tcp://192.0.2.62:9100", "status": None})
     assert win._net_poll is None
     assert worker in app_module._orphan_workers

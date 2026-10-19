@@ -5524,11 +5524,18 @@ class MainWindow(QMainWindow):
         return True
 
     # -------------------------------------------------------------- Close ---
-    def _disconnect_worker(self, worker: QThread | None, slots: list[tuple]) -> None:
+    def _disconnect_worker(
+        self,
+        worker: QThread | None,
+        slots: list[tuple],
+        wait_ms: int = NETWORK_CANCEL_WAIT_MS,
+    ) -> None:
         """Ergebnis-Signale loesen, warten, und einen haengenden Thread behalten.
 
         Ohne Qt-Parent ueberlebt der Thread das Fenster. Die Slots duerfen das
         geschlossene Fenster nicht mehr ansprechen; ``deleteLater`` bleibt.
+        ``wait_ms=0`` behaelt ihn sofort (auf ihn wartet dann nur das
+        Programmende, siehe :func:`_wait_for_orphans`).
         """
         if worker is None or not hasattr(worker, "isRunning"):
             return
@@ -5539,7 +5546,8 @@ class MainWindow(QMainWindow):
                 continue
         if not worker.isRunning():
             return
-        worker.wait(NETWORK_CANCEL_WAIT_MS)
+        if wait_ms:
+            worker.wait(wait_ms)
         if worker.isRunning():
             _orphan_workers.append(worker)
             worker.finished.connect(lambda worker=worker: _forget_orphan(worker))
@@ -5615,6 +5623,7 @@ class MainWindow(QMainWindow):
         )
         self._print_worker = None
         polling = self._net_poll_worker
+        # Die Abfrage endet nach hoechstens zwei Sekunden: nicht darauf warten.
         self._disconnect_worker(
             polling,
             [
@@ -5623,6 +5632,7 @@ class MainWindow(QMainWindow):
             ]
             if polling is not None
             else [],
+            wait_ms=0,
         )
         self._net_poll_worker = None
         self._settings.save_geometry(self.saveGeometry())
