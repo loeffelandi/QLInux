@@ -71,16 +71,25 @@ from PySide6.QtCore import (
 from PySide6.QtGui import (
     QBrush,
     QColor,
+    QEventPoint,
     QFont,
     QFontMetricsF,
     QImage,
+    QMouseEvent,
     QPainter,
     QPainterPath,
     QPen,
     QPolygonF,
     QTransform,
 )
-from PySide6.QtWidgets import QGraphicsItem, QGraphicsScene, QGraphicsView, QWidget
+from PySide6.QtWidgets import (
+    QApplication,
+    QGraphicsItem,
+    QGraphicsScene,
+    QGraphicsView,
+    QPinchGesture,
+    QWidget,
+)
 from PIL import Image
 
 from . import items as items_mod
@@ -500,6 +509,9 @@ class MmRuler(QWidget):
 class LabelCanvas(QGraphicsView):
     """Editor-Canvas mit fester Pixelgroesse und direkter Mausbearbeitung."""
 
+    _multitouch = False
+    _print_preview = False
+
     text_requested = Signal(QPointF)
     item_double_clicked = Signal(object)
     context_menu_requested = Signal(QPoint, QPointF)
@@ -540,6 +552,8 @@ class LabelCanvas(QGraphicsView):
         self.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
         self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
         self.setAcceptDrops(True)
+        self.viewport().setAttribute(Qt.WidgetAttribute.WA_AcceptTouchEvents, True)
+        self.grabGesture(Qt.GestureType.PinchGesture)
         # Hintergrund (Bandstreifen) cachen -> fluessigeres Scrollen.
         self.setCacheMode(QGraphicsView.CacheModeFlag.CacheBackground)
         self._v_scroller = SmoothScroller(self, self.verticalScrollBar())
@@ -1013,7 +1027,94 @@ class LabelCanvas(QGraphicsView):
                 if factor > 0:
                     self.zoom_by(factor)
                 return True
+        if event.type() == QEvent.Type.Gesture:
+            pinch = event.gesture(Qt.GestureType.PinchGesture)
+            if pinch is not None:
+                self._on_pinch(pinch)
+                return True
+        if event.type() in (QEvent.Type.TouchBegin, QEvent.Type.TouchUpdate):
+            if len(event.points()) >= 2:
+                self._enter_multitouch(event.points()[0].position())
+                return True
+        if event.type() in (QEvent.Type.TouchEnd, QEvent.Type.TouchCancel):
+            if all(p.state() == QEventPoint.State.Released for p in event.points()):
+                self._leave_multitouch()
+        if self._multitouch and event.type() in (
+            QEvent.Type.MouseButtonPress,
+            QEvent.Type.MouseMove,
+            QEvent.Type.MouseButtonRelease,
+        ):
+            if event.source() != Qt.MouseEventSource.MouseEventNotSynthesized:
+                return True
         return super().event(event)
+
+    def _enter_multitouch(self, pos: QPointF) -> None:
+        """Zwei Finger: die Mausemulation des ersten Fingers stoppen, kein Gummiband."""
+        if self._multitouch:
+            return
+        self._multitouch = True
+        self.setDragMode(QGraphicsView.DragMode.NoDrag)
+        point = pos.toPoint()
+        release = QMouseEvent(
+            QEvent.Type.MouseButtonRelease,
+            QPointF(point),
+            QPointF(self.viewport().mapToGlobal(point)),
+            Qt.MouseButton.LeftButton,
+            Qt.MouseButton.NoButton,
+            Qt.KeyboardModifier.NoModifier,
+        )
+        QApplication.sendEvent(self.viewport(), release)
+
+    def _leave_multitouch(self) -> None:
+        if not self._multitouch:
+            return
+        self._multitouch = False
+        self.setDragMode(
+            QGraphicsView.DragMode.NoDrag
+            if self._print_preview
+            else QGraphicsView.DragMode.RubberBandDrag
+        )
+
+    def _on_pinch(self, pinch) -> None:
+        """Zwei Finger: Abstand zoomt, Mitte verschiebt den Ausschnitt.
+
+        ``scaleFactor()`` ist schon der Schritt seit dem letzten Event, nicht
+        seit Gestenbeginn. Die Mittelpunkte liegen in globalen Koordinaten.
+        Angelegt wird an der vorigen Mitte: ihr Punkt landet nach Zoom und
+        ``pan`` unter der neuen. Das Ende-Event wiederholt den letzten Schritt.
+        """
+        if pinch.state() in (Qt.GestureState.GestureFinished, Qt.GestureState.GestureCanceled):
+            return
+        flags = pinch.changeFlags()
+        ratio = 1.0
+        if flags & QPinchGesture.ChangeFlag.ScaleFactorChanged:
+            ratio = pinch.scaleFactor()
+        pan = QPointF(0.0, 0.0)
+        if flags & QPinchGesture.ChangeFlag.CenterPointChanged:
+            pan = pinch.centerPoint() - pinch.lastCenterPoint()
+        self.apply_pinch(ratio, pan, self.viewport().mapFromGlobal(pinch.lastCenterPoint()))
+
+    def apply_pinch(self, ratio: float, pan: QPointF, center: QPointF | None = None) -> None:
+        """Ein Schritt der Zwei-Finger-Geste: um die Fingermitte zoomen, dann verschieben.
+
+        Der Punkt des Etiketts unter der Fingermitte bleibt dort, die Mitte
+        wandert mit ``pan`` mit. Die Scrollbalken werden direkt gesetzt, ohne
+        die Glättung, sonst hinkt der Ausschnitt den Fingern hinterher.
+        """
+        anchor = center if center is not None else QPointF(self.viewport().rect().center())
+        scene_point = self.mapToScene(anchor.toPoint())
+        if ratio > 0 and abs(ratio - 1.0) > 1e-9:
+            previous = self.transformationAnchor()
+            self.setTransformationAnchor(QGraphicsView.ViewportAnchor.NoAnchor)
+            self.zoom_by(ratio)
+            self.setTransformationAnchor(previous)
+        moved = self.mapFromScene(scene_point)
+        dx = moved.x() - anchor.x() - pan.x()
+        dy = moved.y() - anchor.y() - pan.y()
+        self._v_scroller.stop()
+        self._h_scroller.stop()
+        self.horizontalScrollBar().setValue(round(self.horizontalScrollBar().value() + dx))
+        self.verticalScrollBar().setValue(round(self.verticalScrollBar().value() + dy))
 
     def zoom_by(self, factor: float) -> None:
         current = self.transform().m11()
