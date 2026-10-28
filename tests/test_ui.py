@@ -9,7 +9,6 @@ from __future__ import annotations
 import pytest
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication, QCheckBox, QToolButton
-
 from ql_editor.items import ImageItem, TextItem
 from ql_editor.printer import CUT_AT_END, CUT_EACH, CUT_MODES, resolution_options
 
@@ -130,7 +129,10 @@ def test_modellwechsel_laesst_gueltiges_band(window):
 
     assert panel.model_id() == "QL-820NWB"
     assert panel.label.identifier == panel.label_id()
-    assert panel.label.restricted_to_models == () or "QL-820NWB" in panel.label.restricted_to_models
+    assert (
+        panel.label.restricted_to_models == ()
+        or "QL-820NWB" in panel.label.restricted_to_models
+    )
 
 
 # --------------------------------------------------------------------------- #
@@ -191,7 +193,6 @@ def test_inspector_fett_und_kursiv_fuer_text(window):
 
 def test_inspector_bild_hat_keine_textoptionen(window, tmp_path, monkeypatch):
     from PIL import Image
-
     from ql_editor import app as app_module
 
     path = tmp_path / "bild.png"
@@ -208,7 +209,9 @@ def test_inspector_bild_hat_keine_textoptionen(window, tmp_path, monkeypatch):
     window._inspector.set_item(image)
     QApplication.processEvents()
 
-    assert not [c for c in window._inspector.findChildren(QCheckBox) if c.text() == "Fett"]
+    assert not [
+        c for c in window._inspector.findChildren(QCheckBox) if c.text() == "Fett"
+    ]
 
 
 # --------------------------------------------------------------------------- #
@@ -259,7 +262,9 @@ def test_undo_und_redo_fuer_text(window):
     QTest.keyClicks(window._canvas.viewport(), "Undo")
     text.finish_editing()
     QApplication.processEvents()
-    count = lambda: len([i for i in window._canvas.ordered_items() if isinstance(i, TextItem)])
+    count = lambda: len(
+        [i for i in window._canvas.ordered_items() if isinstance(i, TextItem)]
+    )
     assert count() == 1
 
     window._act_undo.trigger()
@@ -306,7 +311,9 @@ def test_neuer_tab_hat_eigenen_zustand(window):
 
     assert window._tab_bar.count() == 2
     assert window._canvas is not first
-    assert len([i for i in window._canvas.ordered_items() if isinstance(i, TextItem)]) == 0
+    assert (
+        len([i for i in window._canvas.ordered_items() if isinstance(i, TextItem)]) == 0
+    )
 
 
 def test_dokument_speichern_enthaelt_den_text(window, tmp_path):

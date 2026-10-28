@@ -6,7 +6,6 @@ Diese Tests laufen headless (keine Qt-, keine Druckerabhaengigkeit).
 from __future__ import annotations
 
 import pytest
-
 from ql_editor import media
 from ql_editor.media import (
     Color,
@@ -116,22 +115,35 @@ def test_die_cut_canvas_size_is_band_size():
     model = get_model(MODEL)
     # auto_length/fixed werden bei Die-cut ignoriert.
     assert canvas_size_dots(label, model, auto_length=True) == (696, 1109)
-    assert canvas_size_dots(label, model, auto_length=False, fixed_length_mm=5) == (696, 1109)
+    assert canvas_size_dots(label, model, auto_length=False, fixed_length_mm=5) == (
+        696,
+        1109,
+    )
 
 
 def test_auto_length_uses_minimum_when_empty():
     label = get_label("50")
     model = get_model(MODEL)
     lo, _hi = model.min_max_length_dots
-    assert canvas_size_dots(label, model, auto_length=True, content_length_dots=0) == (554, lo)
+    assert canvas_size_dots(label, model, auto_length=True, content_length_dots=0) == (
+        554,
+        lo,
+    )
 
 
 def test_length_is_clamped_to_model_bounds():
     label = get_label("50")
     model = get_model(MODEL)
     lo, hi = model.min_max_length_dots
-    assert canvas_size_dots(label, model, auto_length=True, content_length_dots=1)[1] == lo
-    assert canvas_size_dots(label, model, auto_length=True, content_length_dots=10_000_000)[1] == hi
+    assert (
+        canvas_size_dots(label, model, auto_length=True, content_length_dots=1)[1] == lo
+    )
+    assert (
+        canvas_size_dots(
+            label, model, auto_length=True, content_length_dots=10_000_000
+        )[1]
+        == hi
+    )
 
 
 def test_default_margins_are_zero():
@@ -141,7 +153,9 @@ def test_default_margins_are_zero():
     assert label.feed_margin == 35  # der Vorschub ist vorhanden ...
     margins = label.default_margins()
     assert isinstance(margins, Margins)
-    assert margins == Margins(left=0.0, right=0.0, top=0.0, bottom=0.0)  # ... aber kein Rand
+    assert margins == Margins(
+        left=0.0, right=0.0, top=0.0, bottom=0.0
+    )  # ... aber kein Rand
 
 
 # --- Laengen-Kompensation (Gesamtlaenge statt Inhalt) ---
@@ -161,7 +175,10 @@ def test_finished_length_mode_reduces_content():
     model = get_model(MODEL)
     # 40 mm Gesamtlaenge -> 472 - 83 = 389 Dots Inhalt, Breite bleibt 554.
     size = media.canvas_size_dots(
-        label, model, auto_length=False, fixed_length_mm=40,
+        label,
+        model,
+        auto_length=False,
+        fixed_length_mm=40,
         length_mode=media.LengthMode.FINISHED,
     )
     assert size == (554, 389)
@@ -171,7 +188,10 @@ def test_content_mode_is_unchanged_dod2():
     label = get_label("50")
     model = get_model(MODEL)
     size = media.canvas_size_dots(
-        label, model, auto_length=False, fixed_length_mm=40,
+        label,
+        model,
+        auto_length=False,
+        fixed_length_mm=40,
         length_mode=media.LengthMode.CONTENT,
     )
     assert size == (554, 472)
@@ -189,7 +209,10 @@ def test_finished_length_mode_ignored_for_die_cut():
     label = get_label("62x100")
     model = get_model(MODEL)
     size = media.canvas_size_dots(
-        label, model, auto_length=False, fixed_length_mm=40,
+        label,
+        model,
+        auto_length=False,
+        fixed_length_mm=40,
         length_mode=media.LengthMode.FINISHED,
     )
     assert size == (696, 1109)
@@ -206,9 +229,10 @@ def test_orientation_flags():
 def test_canvas_size_for_orientation_swaps_axes():
     label = get_label("50")
     assert media.canvas_size_for_orientation(label, 472) == (554, 472)
-    assert media.canvas_size_for_orientation(
-        label, 472, media.Orientation.ALONG
-    ) == (472, 554)
+    assert media.canvas_size_for_orientation(label, 472, media.Orientation.ALONG) == (
+        472,
+        554,
+    )
 
 
 def test_canvas_size_along_puts_length_on_width():
@@ -229,7 +253,10 @@ def test_canvas_size_along_contains_printable_width():
     label = get_label("50")
     model = get_model(MODEL)
     width, height = media.canvas_size_dots(
-        label, model, auto_length=True, content_length_dots=300,
+        label,
+        model,
+        auto_length=True,
+        content_length_dots=300,
         orientation=media.Orientation.ALONG,
     )
     assert width == 300
@@ -239,12 +266,14 @@ def test_canvas_size_along_contains_printable_width():
 def test_label_length_dots_is_orientation_independent():
     label = get_label("50")
     model = get_model(MODEL)
-    assert media.label_length_dots(
-        label, model, auto_length=True, content_length_dots=300
-    ) == 300
-    assert media.label_length_dots(
-        label, model, auto_length=False, fixed_length_mm=40
-    ) == 472
+    assert (
+        media.label_length_dots(label, model, auto_length=True, content_length_dots=300)
+        == 300
+    )
+    assert (
+        media.label_length_dots(label, model, auto_length=False, fixed_length_mm=40)
+        == 472
+    )
 
 
 def test_die_cut_orientation_swaps_axes():

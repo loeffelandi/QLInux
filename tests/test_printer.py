@@ -12,7 +12,6 @@ import os
 
 import pytest
 from PIL import Image
-
 from ql_editor import printer
 from ql_editor.media import get_label, get_model
 from ql_editor.printer import (
@@ -109,7 +108,7 @@ def test_usb_devices_normalizes_pyusb_identifiers(monkeypatch):
 
 def test_usb_devices_includes_kernel_paths(monkeypatch):
     monkeypatch.setattr(
-        printer, "backend_factory", lambda name: {"list_available_devices": lambda: []}
+        printer, "backend_factory", lambda name: {"list_available_devices": list}
     )
     monkeypatch.setattr(
         printer.glob, "glob", lambda pattern: ["/dev/usb/lp1", "/dev/usb/lp0"]
@@ -119,6 +118,7 @@ def test_usb_devices_includes_kernel_paths(monkeypatch):
 
 def test_usb_devices_survives_a_broken_libusb(monkeypatch):
     """Ohne libusb/Rechte gibt es eine leere Liste - keinen Absturz."""
+
     def boom(name):
         raise OSError("libusb nicht verfuegbar")
 
@@ -203,7 +203,7 @@ def test_build_raster_cut_none_sends_no_auto_cut_and_no_cut_at_end():
 
     assert len(data) > 0
     auto_cut = _flags(data, b"\x1b\x69\x4d")
-    assert auto_cut == [0] * len(auto_cut) and auto_cut   # Auto Cut ausdruecklich aus
+    assert auto_cut == [0] * len(auto_cut) and auto_cut  # Auto Cut ausdruecklich aus
     flags = _flags(data, b"\x1b\x69\x4b")
     assert flags, "Expanded Mode fehlt"
     assert all(not f & printer.CUT_AT_END_BIT for f in flags)
@@ -225,7 +225,7 @@ def test_build_raster_cut_each_is_the_default():
     img = Image.new("RGB", (label.width_dots, 472), "white")
     data = build_raster(img, label, CONFIG, copies=3)
 
-    assert b"\x1b\x69\x41\x01" in data              # "cut each * labels"
+    assert b"\x1b\x69\x41\x01" in data  # "cut each * labels"
     auto_cut = _flags(data, b"\x1b\x69\x4d")
     assert auto_cut == [printer.AUTO_CUT_BIT] * 3
     cut_at_end = _flags(data, b"\x1b\x69\x4b")
@@ -244,9 +244,7 @@ def test_build_raster_cut_at_end_turns_auto_cut_off():
     img = Image.new("RGB", (label.width_dots, 472), "white")
     data = build_raster(img, label, CONFIG, copies=3, cut_mode=printer.CUT_AT_END)
 
-    assert not any(
-        f & printer.AUTO_CUT_BIT for f in _flags(data, b"\x1b\x69\x4d")
-    )
+    assert not any(f & printer.AUTO_CUT_BIT for f in _flags(data, b"\x1b\x69\x4d"))
     cut_at_end = _flags(data, b"\x1b\x69\x4b")
     assert cut_at_end == [printer.CUT_AT_END_BIT] * 3
 
@@ -379,7 +377,10 @@ def test_build_raster_600dpi_sets_high_resolution_and_doubles_rows(monkeypatch):
     high = build_raster(
         Image.new(
             "RGB",
-            (label.width_dots * printer.DPI_600_SCALE, design_height * printer.DPI_600_SCALE),
+            (
+                label.width_dots * printer.DPI_600_SCALE,
+                design_height * printer.DPI_600_SCALE,
+            ),
             "white",
         ),
         label,
@@ -413,7 +414,11 @@ def test_build_raster_600dpi_die_cut_keeps_the_label_size(monkeypatch):
     sizes = _capture_raster_images(monkeypatch)
     width, height = label.dots_printable
     build_raster(
-        Image.new("RGB", (width * printer.DPI_600_SCALE, height * printer.DPI_600_SCALE), "white"),
+        Image.new(
+            "RGB",
+            (width * printer.DPI_600_SCALE, height * printer.DPI_600_SCALE),
+            "white",
+        ),
         label,
         CONFIG,
         dpi_600=True,
@@ -453,7 +458,9 @@ def test_print_images_logs_page_count_including_copies(monkeypatch, caplog):
 def test_print_image_calls_send_with_config(monkeypatch):
     captured = {}
 
-    def fake_send(instructions, printer_identifier=None, backend_identifier=None, blocking=True):
+    def fake_send(
+        instructions, printer_identifier=None, backend_identifier=None, blocking=True
+    ):
         captured.update(
             instructions=instructions,
             identifier=printer_identifier,
@@ -506,12 +513,14 @@ def _install_fake_backend(monkeypatch, payload: bytes):
             b._payload = payload
             return b
 
-        return {"backend_class": cls, "list_available_devices": lambda: []}
+        return {"backend_class": cls, "list_available_devices": list}
 
     monkeypatch.setattr(printer, "backend_factory", factory)
 
 
-def _status_bytes(media_width=50, media_type=0x0A, media_length=0, errors=(0, 0)) -> bytes:
+def _status_bytes(
+    media_width=50, media_type=0x0A, media_length=0, errors=(0, 0)
+) -> bytes:
     data = bytearray(32)
     data[0:3] = b"\x80\x20\x42"
     data[8] = errors[0]
@@ -603,7 +612,9 @@ def test_detect_label_respects_model_restriction(monkeypatch):
 def test_usb_id_from_identifier():
     assert printer.usb_id_from_identifier("usb://0x04f9:0x2042") == "04f9:2042"
     # Serialnummer (mit Unterstrich) und Pfadform werden toleriert.
-    assert printer.usb_id_from_identifier("usb://0x04f9:0x2015_C5Z315686") == "04f9:2015"
+    assert (
+        printer.usb_id_from_identifier("usb://0x04f9:0x2015_C5Z315686") == "04f9:2015"
+    )
     assert printer.usb_id_from_identifier("usb://0x04f9:0x2015/SN") == "04f9:2015"
     assert printer.usb_id_from_identifier("/dev/usb/lp0") is None
     assert printer.usb_id_from_identifier("usb://kaputt") is None
@@ -620,8 +631,13 @@ def test_usb_id_for_path_reads_sysfs(tmp_path):
     (tmp_path / "class" / "usbmisc" / "lp1").mkdir(parents=True)
     (tmp_path / "class" / "usbmisc" / "lp1" / "device").symlink_to(interface)
 
-    assert printer.usb_id_for_path("/dev/usb/lp1", sysfs_root=str(tmp_path)) == "04f9:2042"
-    assert printer.usb_id_for_path("file:///dev/usb/lp1", sysfs_root=str(tmp_path)) == "04f9:2042"
+    assert (
+        printer.usb_id_for_path("/dev/usb/lp1", sysfs_root=str(tmp_path)) == "04f9:2042"
+    )
+    assert (
+        printer.usb_id_for_path("file:///dev/usb/lp1", sysfs_root=str(tmp_path))
+        == "04f9:2042"
+    )
     assert printer.usb_id_for_path("/dev/usb/lp7", sysfs_root=str(tmp_path)) is None
 
 
@@ -684,9 +700,9 @@ def test_usb_printers_offer_one_entry_per_printer(monkeypatch):
     monkeypatch.setattr(
         printer,
         "model_for_address",
-        lambda address: "QL-700"
-        if address in ("usb://0x04f9:0x2042", "/dev/usb/lp1")
-        else None,
+        lambda address: (
+            "QL-700" if address in ("usb://0x04f9:0x2042", "/dev/usb/lp1") else None
+        ),
     )
 
     # Der libusb-Eintrag faellt weg, weil der Kernel-Anschluss denselben
@@ -731,13 +747,25 @@ def test_preferred_usb_address_keeps_libusb_when_two_same_models(monkeypatch):
 # Netzwerkadresse: nur die IP eintippen
 # --------------------------------------------------------------------------- #
 def test_parse_network_address_fills_prefix_and_port():
-    assert printer.parse_network_address("192.168.178.62") == "tcp://192.168.178.62:9100"
-    assert printer.parse_network_address(" 192.168.178.62 ") == "tcp://192.168.178.62:9100"
-    assert printer.parse_network_address("tcp://192.168.178.62:9100") == "tcp://192.168.178.62:9100"
-    assert printer.parse_network_address("192.168.178.62/") == "tcp://192.168.178.62:9100"
+    assert (
+        printer.parse_network_address("192.168.178.62") == "tcp://192.168.178.62:9100"
+    )
+    assert (
+        printer.parse_network_address(" 192.168.178.62 ") == "tcp://192.168.178.62:9100"
+    )
+    assert (
+        printer.parse_network_address("tcp://192.168.178.62:9100")
+        == "tcp://192.168.178.62:9100"
+    )
+    assert (
+        printer.parse_network_address("192.168.178.62/") == "tcp://192.168.178.62:9100"
+    )
     assert printer.parse_network_address("ql820.local") == "tcp://ql820.local:9100"
     # Abweichender Port bleibt erhalten.
-    assert printer.parse_network_address("192.168.178.62:9101") == "tcp://192.168.178.62:9101"
+    assert (
+        printer.parse_network_address("192.168.178.62:9101")
+        == "tcp://192.168.178.62:9101"
+    )
     # IPv6 in Klammern wird nicht am Doppelpunkt zerschnitten.
     assert printer.parse_network_address("[::1]") == "tcp://[::1]:9100"
     assert printer.parse_network_address("[::1]:9101") == "tcp://[::1]:9101"
@@ -842,7 +870,6 @@ def test_usb_access_resolves_the_raw_node_for_libusb(tmp_path):
     )
 
 
-
 def test_copies_are_one_job_with_form_feeds_between_pages():
     """Zwischen den Kopien ``0x0C`` (Form Feed), nur am Ende ``0x1A``.
 
@@ -908,10 +935,11 @@ def test_printer_error_texts_read_the_bits_from_the_top():
 
 def test_loaded_label_is_stored_per_printer(tmp_path):
     from PySide6.QtCore import QSettings
-
     from ql_editor.settings import AppSettings
 
-    settings = AppSettings(QSettings(str(tmp_path / "qlinux.ini"), QSettings.Format.IniFormat))
+    settings = AppSettings(
+        QSettings(str(tmp_path / "qlinux.ini"), QSettings.Format.IniFormat)
+    )
     assert settings.loaded_label(CONFIG.address) is None
     settings.set_loaded_label(CONFIG.address, "62")
     settings.set_loaded_label("tcp://192.0.2.99:9100", "50")

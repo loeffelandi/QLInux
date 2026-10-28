@@ -7,7 +7,6 @@ from PIL import Image
 from PySide6.QtCore import QRectF
 from PySide6.QtGui import QBrush, QColor, QPen
 from PySide6.QtWidgets import QGraphicsRectItem, QGraphicsScene
-
 from ql_editor.media import get_label
 from ql_editor.renderer import (
     RenderError,

@@ -6,7 +6,7 @@ kehrt zur gemerkten Zeile zurueck. Ein Filter haengt nur am Suchfeld.
 
 from __future__ import annotations
 
-from PySide6.QtCore import QEvent, QTimer, Qt
+from PySide6.QtCore import QEvent, Qt, QTimer
 from PySide6.QtGui import QAction, QIcon, QKeySequence
 from PySide6.QtWidgets import (
     QLabel,
@@ -57,7 +57,9 @@ class PaletteEntry:
 class CommandPalette(QWidget):
     """Suchfeld plus Liste. Enter fuehrt einen Befehl aus oder oeffnet die Gruppe."""
 
-    def __init__(self, entries: list[PaletteEntry], parent: QWidget | None = None) -> None:
+    def __init__(
+        self, entries: list[PaletteEntry], parent: QWidget | None = None
+    ) -> None:
         super().__init__(parent)
         self.setObjectName("command_palette")
         self._root = list(entries)
@@ -157,7 +159,9 @@ class CommandPalette(QWidget):
                 label = f"{label}    {shortcut}"
         return label
 
-    def _search(self, entries: list[PaletteEntry], words: list[str]) -> list[PaletteEntry]:
+    def _search(
+        self, entries: list[PaletteEntry], words: list[str]
+    ) -> list[PaletteEntry]:
         found: list[PaletteEntry] = []
         for entry in entries:
             haystack = entry.title.casefold().replace("…", "")

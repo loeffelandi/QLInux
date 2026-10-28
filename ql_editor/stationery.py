@@ -10,11 +10,11 @@ Kein Qt. Die Seite malt :mod:`ql_editor.sheet_output`.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, replace
-from functools import lru_cache
 import re
 import sys
 import xml.etree.ElementTree as ET
+from dataclasses import dataclass, replace
+from functools import lru_cache
 from pathlib import Path
 
 from .i18n import tr
@@ -384,9 +384,9 @@ __all__ = [
     "SheetTemplate",
     "as_label_spec",
     "description_text",
-    "get_template",
     "fill_caption",
     "filled_per_page",
+    "get_template",
     "page_count",
     "parse_length",
     "plan_sheet",

@@ -4,8 +4,14 @@ from __future__ import annotations
 
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QPalette
-
-from ql_editor.theme import ACCENT, DARK_WINDOW, LIGHT_WINDOW, apply_theme, palette_for, scheme_for
+from ql_editor.theme import (
+    ACCENT,
+    DARK_WINDOW,
+    LIGHT_WINDOW,
+    apply_theme,
+    palette_for,
+    scheme_for,
+)
 
 
 def test_scheme_for_keeps_the_system_as_default():
@@ -19,8 +25,7 @@ def test_scheme_for_keeps_the_system_as_default():
 def test_toolbar_separator_follows_mid_on_both_palettes(qapp):
     """Trenner nehmen Mid: auf Hell grau, auf Dunkel hell genug gegen den Grund."""
     from PySide6.QtGui import QImage
-    from PySide6.QtWidgets import QMainWindow, QToolBar
-
+    from PySide6.QtWidgets import QMainWindow
     from ql_editor.widgets import ToolbarSeparator, add_toolbar_separator
 
     original = QPalette(qapp.palette())
@@ -87,7 +92,10 @@ def test_dark_palette_is_darker_and_shares_one_accent():
         assert palette.color(QPalette.ColorRole.Accent).name() == ACCENT
         assert palette.color(QPalette.ColorRole.Link).name() == ACCENT
         # Leiste und Knoepfe nutzen Button, die Flaeche Window.
-        assert palette.color(QPalette.ColorRole.Button).name() != palette.color(window).name()
+        assert (
+            palette.color(QPalette.ColorRole.Button).name()
+            != palette.color(window).name()
+        )
 
 
 def test_apply_theme_uses_desktop_scheme_unless_overridden(qapp):
@@ -139,7 +147,6 @@ def test_group_fields_follow_the_application_palette(qapp):
     """Felder im Kasten bleiben hell im Hellen und dunkel im Dunkeln."""
     from PySide6.QtGui import QImage
     from PySide6.QtWidgets import QComboBox, QVBoxLayout
-
     from ql_editor.widgets import title_box
 
     original = QPalette(qapp.palette())
@@ -201,7 +208,6 @@ def test_hint_lines_use_the_muted_palette_color(qapp):
     """Nebenzeilen nehmen PlaceholderText. ``placeholderText`` ignoriert Qt."""
     from PySide6.QtGui import QImage
     from PySide6.QtWidgets import QLabel
-
     from ql_editor.about import _HINT_STYLE as about_hint
     from ql_editor.media_panel import HINT_STYLE
 

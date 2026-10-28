@@ -17,8 +17,8 @@ from __future__ import annotations
 
 import base64
 import io
-import zipfile
 import xml.etree.ElementTree as ET
+import zipfile
 from collections import Counter
 from pathlib import Path
 from typing import Any
@@ -109,9 +109,7 @@ class _Lbx:
                     )
                 )
             else:
-                self.warnings.append(
-                    tr("Nicht übernommen: {kind}").format(kind=kind)
-                )
+                self.warnings.append(tr("Nicht übernommen: {kind}").format(kind=kind))
 
 
 def load(path: str | Path) -> dict[str, Any]:
@@ -164,15 +162,15 @@ def lbx_media(lbx: _Lbx) -> dict[str, Any]:
     auto = paper.get("autoLength") == "true" or abs(height_mm - _ENDLESS_PAGE_MM) < 5
     landscape = paper.get("orientation") == "landscape"
     orientation = (
-        media.Orientation.ALONG.value
-        if landscape
-        else media.Orientation.ACROSS.value
+        media.Orientation.ALONG.value if landscape else media.Orientation.ACROSS.value
     )
     state: dict[str, Any] = {
         "color": "black",
         "margins": {"left": 0.0, "right": 0.0, "top": 0.0, "bottom": 0.0},
         "orientation": orientation,
     }
+    label: media.LabelSpec
+    guessed = False
     if auto:
         label, guessed = _endless_for_width(width_mm)
         state.update(
@@ -181,8 +179,9 @@ def lbx_media(lbx: _Lbx) -> dict[str, Any]:
             length_mode=media.LengthMode.CONTENT.value,
         )
     else:
-        label = _fixed_label(width_mm, height_mm)
-        if label is not None:
+        fixed = _fixed_label(width_mm, height_mm)
+        if fixed is not None:
+            label = fixed
             guessed = False
             state.update(
                 label=label.identifier,
@@ -200,9 +199,9 @@ def lbx_media(lbx: _Lbx) -> dict[str, Any]:
             )
     if guessed:
         lbx.warnings.append(
-            tr(
-                "Kein passendes Band für {size} mm – {name} wird verwendet."
-            ).format(size=f"{width_mm:.0f} × {height_mm:.0f}", name=label.display_name)
+            tr("Kein passendes Band für {size} mm – {name} wird verwendet.").format(
+                size=f"{width_mm:.0f} × {height_mm:.0f}", name=label.display_name
+            )
         )
     return state
 
@@ -226,7 +225,9 @@ def lbx_items(lbx: _Lbx) -> list[dict[str, Any]]:
     return items
 
 
-def _take(lbx: _Lbx, element: ET.Element, items: list[dict[str, Any]], *, nested: bool) -> None:
+def _take(
+    lbx: _Lbx, element: ET.Element, items: list[dict[str, Any]], *, nested: bool
+) -> None:
     local = _local(element.tag)
     if local in _CONTENT:
         item = _content_item(lbx, element, local)
@@ -308,8 +309,9 @@ def _fixed_label(width_mm: float, height_mm: float) -> media.LabelSpec | None:
         return None
     return min(
         found,
-        key=lambda label: abs(label.tape_size[0] - width_mm)
-        + abs(label.tape_size[1] - height_mm),
+        key=lambda label: (
+            abs(label.tape_size[0] - width_mm) + abs(label.tape_size[1] - height_mm)
+        ),
     )
 
 
@@ -349,7 +351,8 @@ def _text_item(lbx: _Lbx, element: ET.Element) -> dict[str, Any] | None:
         font_pixel_size=max(4, round(size_pt * DOTS_PER_PT)),
         bold=weight >= 700,
         italic=(log_font.get("italic") == "true") if log_font is not None else False,
-        color=(font_ext.get("textColor") if font_ext is not None else None) or "#000000",
+        color=(font_ext.get("textColor") if font_ext is not None else None)
+        or "#000000",
         align=align,
         text_width=text_width,
     )
@@ -374,8 +377,7 @@ def _read_database(lbx: _Lbx) -> None:
     database_path = (element.get("databasePath") or "").strip()
     merge_table = (element.get("mergeTable") or "").strip()
     current = _int(element.get("currentRecord"), 0)
-    if current < 0:
-        current = 0
+    current = max(current, 0)
     contains = (element.get("containsFieldName") or "").strip().lower() == "true"
     found = _find_merge_csv(lbx.path, database_path, merge_table)
     source: dict[str, Any] = {
@@ -405,9 +407,7 @@ def _read_database(lbx: _Lbx) -> None:
         )
         return
     index = clamp_record_index(current, len(table.records))
-    loaded = csv_source.data_source_dict(
-        table, path=found, current_record=index
-    )
+    loaded = csv_source.data_source_dict(table, path=found, current_record=index)
     loaded["containsFieldName"] = contains
     lbx.data_source = loaded
 
@@ -440,7 +440,9 @@ def _merge_field_name(element: ET.Element, styles: dict[str, str]) -> str | None
     return field or None
 
 
-def _find_merge_csv(lbx_path: Path, database_path: str, merge_table: str) -> Path | None:
+def _find_merge_csv(
+    lbx_path: Path, database_path: str, merge_table: str
+) -> Path | None:
     """CSV neben der ``.lbx`` suchen (D3/D12)."""
     folder = lbx_path.parent
     if database_path:
@@ -502,12 +504,12 @@ def _image_item(lbx: _Lbx, element: ET.Element) -> dict[str, Any] | None:
     item, local_w, local_h = _base(lbx, style, "image")
     image_style = element.find(f"{{{_IMAGE}}}imageStyle")
     filename = image_style.get("fileName") if image_style is not None else None
-    if not filename:
+    if image_style is None or not filename:
         lbx.warnings.append(tr("Bild ohne Datei – nicht übernommen."))
         return None
     try:
         raw = lbx.archive.read(filename)
-        image = Image.open(io.BytesIO(raw))
+        image: Image.Image = Image.open(io.BytesIO(raw))
         image.load()
     except (KeyError, OSError, ValueError, Image.DecompressionBombError) as exc:
         lbx.warnings.append(
@@ -540,14 +542,18 @@ def _image_item(lbx: _Lbx, element: ET.Element) -> dict[str, Any] | None:
     image.save(buffer, format="PNG")
     item.update(
         data_b64=base64.b64encode(buffer.getvalue()).decode("ascii"),
-        source_path=image_style.get("originalName") if image_style is not None else None,
+        source_path=image_style.get("originalName")
+        if image_style is not None
+        else None,
         scale_x=target_w / image.width,
         scale_y=target_h / image.height,
     )
     return item
 
 
-def _apply_transparency(image: Image.Image, image_style: ET.Element | None) -> Image.Image:
+def _apply_transparency(
+    image: Image.Image, image_style: ET.Element | None
+) -> Image.Image:
     if image_style is None:
         return image
     transparent = image_style.find(f"{{{_IMAGE}}}transparent")
@@ -607,7 +613,9 @@ def _rect_item(lbx: _Lbx, element: ET.Element) -> dict[str, Any]:
     return item
 
 
-def _base(lbx: _Lbx, style: ET.Element, kind: str) -> tuple[dict[str, Any], float, float]:
+def _base(
+    lbx: _Lbx, style: ET.Element, kind: str
+) -> tuple[dict[str, Any], float, float]:
     """Position, Drehung und **lokale** Breite/Höhe.
 
     ``x``/``y``/``width``/``height`` in der Datei sind der achsenparallele

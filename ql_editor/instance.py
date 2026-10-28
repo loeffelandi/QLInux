@@ -22,7 +22,7 @@ import getpass
 import json
 import os
 import time
-from typing import Callable, Sequence
+from collections.abc import Callable, Sequence
 
 from PySide6.QtNetwork import QLocalServer, QLocalSocket
 
@@ -138,7 +138,7 @@ def listen(
             nonlocal done
             if done:
                 return
-            buffer.extend(bytes(conn.readAll()))
+            buffer.extend(conn.readAll().data())
             line, newline, _ = bytes(buffer).partition(b"\n")
             if not newline:
                 return

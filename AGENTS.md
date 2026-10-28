@@ -8,7 +8,9 @@
 ## Workflow
 - Work on a feature branch. Never commit directly to `main`.
 - Do not commit, push or open a PR unless the user asks for it.
-- Run `.venv/bin/python -m pytest -q` before committing and report any failure.
+- Run `.venv/bin/ruff check .`, `.venv/bin/ruff format --check .`,
+  `.venv/bin/mypy` and `.venv/bin/python -m pytest -q` before committing
+  and report any failure.
 - After changing the app icons, regenerate them with
   `.venv/bin/python packaging/make_icon.py`.
 

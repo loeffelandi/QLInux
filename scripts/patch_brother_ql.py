@@ -11,10 +11,11 @@ Dieses Skript ersetzt ausschliesslich dieses Vorkommen durch
 Das Skript ist idempotent: ist der Patch bereits vorhanden, passiert nichts.
 Es wird niemals etwas anderes an der Datei geaendert.
 """
+
 from __future__ import annotations
 
-import sys
 import re
+import sys
 from pathlib import Path
 
 
@@ -46,7 +47,9 @@ def apply_patch(conversion_file: Path, *, verbose: bool = True) -> bool:
         raise SystemExit("[patch] interner Fehler: Ersetzung ohne Effekt.")
     conversion_file.write_text(new_text, encoding="utf-8")
     if verbose:
-        print(f"[patch] Image.ANTIALIAS -> Image.LANCZOS angewandt auf {conversion_file}")
+        print(
+            f"[patch] Image.ANTIALIAS -> Image.LANCZOS angewandt auf {conversion_file}"
+        )
     return True
 
 

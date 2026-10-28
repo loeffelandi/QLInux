@@ -11,7 +11,6 @@ import struct
 from pathlib import Path
 
 import pytest
-
 from ql_editor import discovery
 
 DATA = Path(__file__).parent / "data"
@@ -23,9 +22,7 @@ SNMP_ANSWER = (DATA / "snmp_ql820nwb.bin").read_bytes()
 def _record(name: str, rtype: int, data: bytes) -> bytes:
     """Ein Resource Record ohne Namenskomprimierung."""
     return (
-        discovery.dns_name(name)
-        + struct.pack(">HHIH", rtype, 1, 120, len(data))
-        + data
+        discovery.dns_name(name) + struct.pack(">HHIH", rtype, 1, 120, len(data)) + data
     )
 
 
@@ -158,9 +155,7 @@ def test_discovery_ignores_broken_packets():
 
 def test_discovery_stops_when_nothing_answers(monkeypatch):
     """Ohne Antwort endet die Suche nach dem Zeitlimit."""
-    monkeypatch.setattr(
-        discovery, "_udp_socket", lambda *args, **kwargs: _DeadSocket()
-    )
+    monkeypatch.setattr(discovery, "_udp_socket", lambda *args, **kwargs: _DeadSocket())
     assert discovery.mdns_printers(timeout=0.05) == []
 
 
@@ -236,9 +231,8 @@ class _DeadSocket:
         self.timeout = value
 
     def recvfrom(self, size):
-        import socket as socket_module
 
-        raise socket_module.timeout()
+        raise TimeoutError()
 
 
 class _AnswerSocket(_DeadSocket):
@@ -251,7 +245,9 @@ class _AnswerSocket(_DeadSocket):
         return self._answer, ("192.0.2.62", 161)
 
 
-def _snmp_answer(*values: tuple[tuple[int, ...], int, bytes], error_status: int = 0) -> bytes:
+def _snmp_answer(
+    *values: tuple[tuple[int, ...], int, bytes], error_status: int = 0
+) -> bytes:
     """Eine GetResponse mit den Werten ``(OID, Tag, Inhalt)`` (wie ein Drucker sie schickt)."""
     varbinds = b"".join(
         discovery._ber(0x30, discovery._ber_oid(oid) + discovery._ber(tag, value))
@@ -383,7 +379,11 @@ def test_confirm_network_job_confirms_a_clean_job(monkeypatch):
 def test_confirm_network_job_keeps_sent_with_a_warning(monkeypatch):
     printer = discovery.NetworkStatus(fault=False, texts=("Papier wird knapp",))
     status = _status_after_job(monkeypatch, printer, snmp_answered=True)
-    assert status == {"outcome": "sent", "snmp_ok": True, "warnings": ["Papier wird knapp"]}
+    assert status == {
+        "outcome": "sent",
+        "snmp_ok": True,
+        "warnings": ["Papier wird knapp"],
+    }
 
 
 def test_confirm_network_job_skips_usb(monkeypatch):
@@ -405,12 +405,13 @@ def test_confirm_network_job_reports_silence_as_unconfirmed(monkeypatch):
 
     def silent(address, **kwargs):
         asked.append(kwargs.get("attempts"))
-        return None
 
     monkeypatch.setattr(discovery.time, "sleep", lambda seconds: None)
     monkeypatch.setattr(discovery, "network_printer_status", silent)
     config = discovery.PrinterConfig(address=_PRINTER)
-    status = discovery.confirm_network_job(config, {"outcome": "sent"}, snmp_answered=True)
+    status = discovery.confirm_network_job(
+        config, {"outcome": "sent"}, snmp_answered=True
+    )
     assert status == {"outcome": "unconfirmed"}
     assert asked == [discovery.NETWORK_CHECK_ATTEMPTS]
 
@@ -424,7 +425,9 @@ def test_confirm_network_job_without_snmp_neither_waits_nor_asks(monkeypatch):
     monkeypatch.setattr(discovery.time, "sleep", fail)
     monkeypatch.setattr(discovery, "network_printer_status", fail)
     config = discovery.PrinterConfig(address=_PRINTER)
-    assert discovery.confirm_network_job(config, {"outcome": "sent"}) == {"outcome": "sent"}
+    assert discovery.confirm_network_job(config, {"outcome": "sent"}) == {
+        "outcome": "sent"
+    }
 
 
 class _LossySocket(_AnswerSocket):
@@ -440,9 +443,7 @@ class _LossySocket(_AnswerSocket):
 
     def recvfrom(self, size):
         if self.sent <= self.losses:
-            import socket as socket_module
-
-            raise socket_module.timeout()
+            raise TimeoutError()
         return super().recvfrom(size)
 
 
@@ -451,9 +452,9 @@ def test_network_printer_status_asks_again_after_a_lost_packet(monkeypatch):
     monkeypatch.setattr(discovery, "_udp_socket", lambda: sock)
     assert discovery.network_printer_status(_PRINTER, attempts=1) is None
     sock.sent = 0
-    assert discovery.network_printer_status(_PRINTER, attempts=2) == discovery.NetworkStatus(
-        fault=False
-    )
+    assert discovery.network_printer_status(
+        _PRINTER, attempts=2
+    ) == discovery.NetworkStatus(fault=False)
     assert sock.sent == 2
 
 

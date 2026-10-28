@@ -9,7 +9,6 @@ Benutzer.
 from __future__ import annotations
 
 import pytest
-
 from ql_editor import document, media, templates
 from ql_editor.items import item_from_dict
 

@@ -11,9 +11,10 @@ from __future__ import annotations
 import csv
 import hashlib
 import io
+from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Mapping
+from typing import Any
 
 from .i18n import tr
 
@@ -147,9 +148,7 @@ def parse_csv_text(
             continue
         # Zu kurze Zeilen auffuellen; ueberzaehlige Zellen verwerfen.
         values = list(row) + [""] * max(0, len(fields) - len(row))
-        records.append(
-            {name: values[i] for i, name in enumerate(fields)}
-        )
+        records.append({name: values[i] for i, name in enumerate(fields)})
     return fields, tuple(records), delim
 
 
@@ -160,9 +159,7 @@ def load(path: str | Path, *, delimiter: str | None = None) -> CsvTable:
         raw = file_path.read_bytes()
     except OSError as exc:
         raise CsvSourceError(
-            tr("Konnte {path} nicht lesen: {error}").format(
-                path=file_path, error=exc
-            )
+            tr("Konnte {path} nicht lesen: {error}").format(path=file_path, error=exc)
         ) from exc
     text, encoding = decode_csv_bytes(raw)
     fields, records, delim = parse_csv_text(text, delimiter=delimiter)
@@ -214,8 +211,7 @@ def data_source_dict(
         else str(raw_path)
     )
     index = int(current_record)
-    if index < 0:
-        index = 0
+    index = max(index, 0)
     if table.records and index >= len(table.records):
         index = len(table.records) - 1
     return {

@@ -6,8 +6,7 @@ import pytest
 from PySide6.QtCore import QEvent, QPointF, Qt
 from PySide6.QtGui import QKeyEvent, QMouseEvent
 from PySide6.QtWidgets import QApplication, QPlainTextEdit
-
-from ql_editor.canvas import LabelCanvas, _TABLE_MOVE_THRESHOLD_PX
+from ql_editor.canvas import _TABLE_MOVE_THRESHOLD_PX, LabelCanvas
 from ql_editor.items import TableCell, TableItem, item_from_dict
 from ql_editor.media import get_label
 
@@ -189,21 +188,45 @@ def test_canvas_drag_resizes_a_column_and_double_click_edits(qapp):
     boundary = QPointF(item.pos().x() + item.col_widths[0], item.pos().y() + 30)
     target = QPointF(boundary.x() + 24, boundary.y())
     canvas.mousePressEvent(
-        _mouse(QEvent.Type.MouseButtonPress, canvas, boundary, Qt.MouseButton.LeftButton, Qt.MouseButton.LeftButton)
+        _mouse(
+            QEvent.Type.MouseButtonPress,
+            canvas,
+            boundary,
+            Qt.MouseButton.LeftButton,
+            Qt.MouseButton.LeftButton,
+        )
     )
     assert canvas._op == "table-divider"
     canvas.mouseMoveEvent(
-        _mouse(QEvent.Type.MouseMove, canvas, target, Qt.MouseButton.NoButton, Qt.MouseButton.LeftButton)
+        _mouse(
+            QEvent.Type.MouseMove,
+            canvas,
+            target,
+            Qt.MouseButton.NoButton,
+            Qt.MouseButton.LeftButton,
+        )
     )
     canvas.mouseReleaseEvent(
-        _mouse(QEvent.Type.MouseButtonRelease, canvas, target, Qt.MouseButton.LeftButton, Qt.MouseButton.NoButton)
+        _mouse(
+            QEvent.Type.MouseButtonRelease,
+            canvas,
+            target,
+            Qt.MouseButton.LeftButton,
+            Qt.MouseButton.NoButton,
+        )
     )
     assert item.col_widths[0] == pytest.approx(120 + 24, abs=1.5)
     assert item.table_width == pytest.approx(240, abs=1.5)
 
     cell = QPointF(item.pos().x() + 20, item.pos().y() + 20)
     canvas.mouseDoubleClickEvent(
-        _mouse(QEvent.Type.MouseButtonDblClick, canvas, cell, Qt.MouseButton.LeftButton, Qt.MouseButton.LeftButton)
+        _mouse(
+            QEvent.Type.MouseButtonDblClick,
+            canvas,
+            cell,
+            Qt.MouseButton.LeftButton,
+            Qt.MouseButton.LeftButton,
+        )
     )
     assert item.is_editing
     item.editor.setPlainText("Kabel")
@@ -286,7 +309,6 @@ def _tool(inspector, tip: str):
 
 def test_main_window_inserts_a_compact_one_by_two_table(qapp):
     from PySide6.QtWidgets import QTabBar, QToolButton
-
     from ql_editor.app import MainWindow
     from ql_editor.media import dots_to_mm
 
@@ -296,7 +318,9 @@ def test_main_window_inserts_a_compact_one_by_two_table(qapp):
     qapp.processEvents()
     win._act_add_table.trigger()
     qapp.processEvents()
-    tables = [it for it in win._canvas.scene().items() if getattr(it, "kind", None) == "table"]
+    tables = [
+        it for it in win._canvas.scene().items() if getattr(it, "kind", None) == "table"
+    ]
     assert len(tables) == 1
     table = tables[0]
     assert table.rows == 1 and table.cols == 2
@@ -307,14 +331,20 @@ def test_main_window_inserts_a_compact_one_by_two_table(qapp):
     assert win._inspector._title.text() == "Tabelle"
     tabs = win._inspector.findChild(QTabBar, "table_inspector_tabs")
     assert tabs is not None
-    assert [tabs.tabText(i) for i in range(tabs.count())] == ["Text", "Zelle", "Tabelle"]
+    assert [tabs.tabText(i) for i in range(tabs.count())] == [
+        "Text",
+        "Zelle",
+        "Tabelle",
+    ]
     # Zellentext wird auf der Flaeche bearbeitet, nicht im Inspector.
     assert not win._inspector.findChildren(QPlainTextEdit)
     assert "Schrift" in _page_labels(win._inspector, 0)
     assert not any(
         button.text()
         for button in win._inspector.findChildren(QToolButton)
-        if button.icon() is not None and not button.icon().isNull() and button.text() not in ("", "A")
+        if button.icon() is not None
+        and not button.icon().isNull()
+        and button.text() not in ("", "A")
     )
     # Fuellung gehoert auf die Zellen-Seite, nicht zu Text oder Tabelle.
     assert "Füllung" in _page_labels(win._inspector, 1)
@@ -383,7 +413,6 @@ def test_table_inspector_tabs_follow_the_ui_language(qapp):
 
 def test_negative_table_page_stays_on_the_first_tab(qapp):
     from PySide6.QtWidgets import QStackedWidget, QTabBar
-
     from ql_editor.inspector import InspectorPanel
 
     panel = InspectorPanel()
@@ -506,7 +535,9 @@ def test_shift_click_selects_cells_without_starting_move(qapp):
 
 
 def _live_table(win):
-    return next(it for it in win._canvas.scene().items() if getattr(it, "kind", None) == "table")
+    return next(
+        it for it in win._canvas.scene().items() if getattr(it, "kind", None) == "table"
+    )
 
 
 def _select_table(win, table) -> None:

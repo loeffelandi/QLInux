@@ -20,7 +20,8 @@ Alle Helfer sind **asynchron** (Callback statt Rueckgabewert), weil das Sheet
 
 from __future__ import annotations
 
-from typing import Callable
+from collections.abc import Callable
+from typing import ClassVar
 
 import shiboken6
 from PySide6.QtCore import QDir, QEvent, QObject, QSize, Qt, Signal
@@ -601,7 +602,7 @@ class _HistoryNavFilter(QObject):
     spaeter erzeugt. Nur Klicks innerhalb des Dialogs zaehlen.
     """
 
-    _BUTTONS = {
+    _BUTTONS: ClassVar[dict[Qt.MouseButton, str]] = {
         Qt.MouseButton.BackButton: "backButton",
         Qt.MouseButton.ForwardButton: "forwardButton",
     }
@@ -633,10 +634,12 @@ class _HistoryNavFilter(QObject):
 def _bind_history_buttons(dialog: QFileDialog) -> Callable[..., None]:
     """Seitentasten an den Dialog binden. Der Rückgabewert entfernt den Filter wieder."""
     app = QApplication.instance()
+    if not isinstance(app, QApplication):
+        return lambda *_args: None
     filter_ = _HistoryNavFilter(dialog)
     app.installEventFilter(filter_)
 
-    def _remove(*_args) -> None:
+    def _remove(*_args: object) -> None:
         app.removeEventFilter(filter_)
 
     dialog.destroyed.connect(_remove)
@@ -792,12 +795,12 @@ def ask_choice(
 
 __all__ = [
     "Sheet",
-    "show_message",
-    "choose_file",
-    "ask_text",
     "ask_choice",
-    "ask_save",
     "ask_label_printer",
     "ask_loaded_tape",
     "ask_print_anyway",
+    "ask_save",
+    "ask_text",
+    "choose_file",
+    "show_message",
 ]

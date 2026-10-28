@@ -8,7 +8,6 @@ from pathlib import Path
 import pytest
 from PySide6.QtCore import QSettings
 from PySide6.QtWidgets import QCheckBox, QLabel, QSpinBox
-
 from ql_editor import csv_source, document
 from ql_editor.app import MainWindow
 from ql_editor.items import BarcodeItem, QRItem, TextItem
@@ -37,10 +36,7 @@ def _inspector_child(win, type_, name: str):
 def _write_fixture(tmp_path: Path) -> tuple[Path, Path]:
     csv_path = tmp_path / "Fixture Data.csv"
     csv_path.write_text(
-        "Fixture;Circuit;Channel\n"
-        "Spot A;PB 1;11\n"
-        "Spot B;PB 2;22\n"
-        "Spot C;PB 3;33\n",
+        "Fixture;Circuit;Channel\nSpot A;PB 1;11\nSpot B;PB 2;22\nSpot C;PB 3;33\n",
         encoding="utf-8-sig",
     )
     items = [
@@ -132,16 +128,14 @@ def test_opening_document_merges_current_record(qapp, tmp_path):
     assert texts["Channel"] == "11"
     qr = next(i for i in win._canvas.ordered_items() if isinstance(i, QRItem))
     assert qr.to_dict()["data"] == "PB 1"
-    barcode = next(
-        i for i in win._canvas.ordered_items() if isinstance(i, BarcodeItem)
-    )
+    barcode = next(i for i in win._canvas.ordered_items() if isinstance(i, BarcodeItem))
     assert barcode.value == "0100"
     # Statischer Prefix bleibt.
-    static = [
+    static = next(
         i
         for i in win._canvas.ordered_items()
         if isinstance(i, TextItem) and not i.binding
-    ][0]
+    )
     assert static.text_value == "CH:"
 
 
@@ -245,9 +239,7 @@ def test_missing_csv_keeps_stored_snapshots_and_status(qapp, tmp_path):
     qr = next(i for i in win._canvas.ordered_items() if isinstance(i, QRItem))
     assert qr.to_dict()["data"] == "Stored Circuit"
     # Serial-Vorschau (Index 0) darf ohne CSV weiterlaufen.
-    barcode = next(
-        i for i in win._canvas.ordered_items() if isinstance(i, BarcodeItem)
-    )
+    barcode = next(i for i in win._canvas.ordered_items() if isinstance(i, BarcodeItem))
     assert barcode.value == "0100"
     status = win.statusBar().currentMessage()
     assert "CSV nicht geladen" in status
@@ -269,9 +261,10 @@ def test_sha_drift_shows_status_after_open(qapp, tmp_path):
     status = win.statusBar().currentMessage()
     assert "Hash" in status or "geändert" in status
     # Meta wird auf aktuellen Hash aktualisiert.
-    assert win._active.data_source["content_sha256"] == csv_source.load(
-        csv_path
-    ).content_sha256
+    assert (
+        win._active.data_source["content_sha256"]
+        == csv_source.load(csv_path).content_sha256
+    )
 
 
 def _fake_print_worker(captured: dict):
@@ -293,9 +286,7 @@ def _fake_print_worker(captured: dict):
     return FakeWorker
 
 
-def test_print_ranges_render_selected_all_and_record_range(
-    qapp, tmp_path, monkeypatch
-):
+def test_print_ranges_render_selected_all_and_record_range(qapp, tmp_path, monkeypatch):
     """Selected / All / Record Range gehen als Bildliste in einen Auftrag."""
     from ql_editor import app as app_module
     from ql_editor.printer import CUT_AT_END
@@ -475,9 +466,7 @@ def test_shorter_csv_does_not_forget_the_record_range(qapp, tmp_path):
     assert again._range_to.value() == 8
 
 
-def test_print_recomputes_auto_length_per_serial_step(
-    qapp, tmp_path, monkeypatch
-):
+def test_print_recomputes_auto_length_per_serial_step(qapp, tmp_path, monkeypatch):
     """Zwei Serien-Schritte bekommen je ihre eigene Bandlaenge."""
     from ql_editor import app as app_module
 
@@ -537,9 +526,7 @@ def test_serial_prints_inside_each_record_and_hides_without_csv(
     win._media_panel.set_network_host("192.168.178.62")
 
     fixture = next(
-        item
-        for item in _bound_texts(win)
-        if item.binding["field"] == "Fixture"
+        item for item in _bound_texts(win) if item.binding["field"] == "Fixture"
     )
     win._canvas.scene().clearSelection()
     fixture.setSelected(True)
@@ -547,7 +534,9 @@ def test_serial_prints_inside_each_record_and_hides_without_csv(
     locked = _inspector_child(win, QCheckBox, "inspector_serial_enabled")
     assert locked.isEnabled() is False
     assert _inspector_child(win, QLabel, "inspector_serial_locked") is not None
-    assert _inspector_child(win, QSpinBox, "inspector_serial_count").isEnabled() is False
+    assert (
+        _inspector_child(win, QSpinBox, "inspector_serial_count").isEnabled() is False
+    )
 
     barcode = next(
         item for item in win._canvas.ordered_items() if isinstance(item, BarcodeItem)

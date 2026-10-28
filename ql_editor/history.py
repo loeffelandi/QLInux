@@ -7,16 +7,17 @@ Randverschiebung nicht ein zweites Mal zuschlaegt.
 
 from __future__ import annotations
 
+from collections.abc import Callable, Mapping, Sequence
 from copy import deepcopy
-from typing import Any, Callable, Mapping, Sequence
+from typing import Any
 
 from PySide6.QtGui import QUndoCommand, QUndoStack
 
 
 def design_snapshot(
     media: Mapping[str, Any],
-    items: list[Mapping[str, Any]],
-    selection: list[Mapping[str, Any]] | None = None,
+    items: Sequence[Mapping[str, Any]],
+    selection: Sequence[Mapping[str, Any]] | None = None,
     serial: Mapping[str, Any] | None = None,
     guides: Sequence[Mapping[str, Any]] | None = None,
 ) -> dict[str, Any]:
@@ -60,7 +61,7 @@ class DesignCommand(QUndoCommand):
         self,
         before: Mapping[str, Any],
         after: Mapping[str, Any],
-        restore: Callable[[Mapping[str, Any]], None],
+        restore: Callable[[dict[str, Any]], None],
         text: str = "",
     ) -> None:
         super().__init__(text)
@@ -95,7 +96,7 @@ def push_if_changed(
     stack: QUndoStack,
     before: Mapping[str, Any] | None,
     after: Mapping[str, Any],
-    restore: Callable[[Mapping[str, Any]], None],
+    restore: Callable[[dict[str, Any]], None],
     text: str = "",
 ) -> bool:
     """Befehl ablegen, wenn sich Medien, Objekte oder Hilfslinien geaendert haben."""

@@ -6,7 +6,6 @@ import pytest
 from PySide6.QtCore import QEvent, QPointF, Qt
 from PySide6.QtGui import QMouseEvent
 from PySide6.QtWidgets import QApplication, QFileDialog, QToolButton, QWidget
-
 from ql_editor import sheet
 
 pytestmark = pytest.mark.usefixtures("qapp")
