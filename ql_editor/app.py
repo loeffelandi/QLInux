@@ -27,12 +27,13 @@ import logging
 import math
 import sys
 import threading
-from datetime import datetime
+from collections.abc import Iterable, Mapping, Sequence
 from copy import deepcopy
-from time import monotonic
+from datetime import datetime
 from functools import partial
 from pathlib import Path
-from typing import Any, Iterable, Mapping, Sequence
+from time import monotonic
+from typing import Any
 
 from PIL import Image
 from PySide6.QtCore import (
@@ -43,9 +44,9 @@ from PySide6.QtCore import (
     QProcess,
     QRectF,
     QSize,
+    Qt,
     QThread,
     QTimer,
-    Qt,
     Signal,
 )
 from PySide6.QtGui import (
@@ -59,6 +60,7 @@ from PySide6.QtGui import (
     QPen,
     QPixmap,
     QShortcut,
+    QStandardItemModel,
     QUndoGroup,
     QUndoStack,
 )
@@ -79,7 +81,6 @@ from PySide6.QtWidgets import (
     QScrollArea,
     QSizePolicy,
     QSpinBox,
-    QSplitter,
     QStackedWidget,
     QTabBar,
     QToolButton,
@@ -87,18 +88,20 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from . import access
-from . import about
+from . import (
+    about,
+    access,
+    csv_source,
+    document,
+    instance,
+    lbx,
+    media,
+    resources,
+    stationery,
+    templates,
+)
 from . import help as app_help
-from . import csv_source
-from . import document
-from . import instance, lbx
-from . import media
 from . import merge as merge_engine
-from . import resources
-from . import stationery
-from . import templates
-from .sheet_output import print_sheets, render_page_image, system_printers, write_pdf
 from .canvas import DUPLICATE_OFFSET_DOTS, LabelCanvas
 from .command_palette import CommandPalette, PaletteEntry
 from .csv_source import CsvTable
@@ -122,7 +125,6 @@ from .i18n import (
     tr,
 )
 from .icons import icon
-from .jobs import PrintJob, fill_history_table, make_history_table
 from .inspector import InspectorPanel
 from .items import (
     BarcodeItem,
@@ -137,6 +139,7 @@ from .items import (
     TextItem,
     item_from_dict,
 )
+from .jobs import PrintJob, fill_history_table, make_history_table
 from .media_panel import CONNECTION_USB, MediaPanel
 from .panels import OverlayPanel, PanelHost
 from .preview import (
@@ -154,10 +157,10 @@ from .printer import (
     CUT_AT_END,
     CUT_EACH,
     CUT_NONE,
-    PrintResolution,
-    PrinterError,
     RESOLUTION_HIGH,
     RESOLUTION_STANDARD,
+    PrinterError,
+    PrintResolution,
     backend_for_address,
     detect_label,
     maximum_resolution,
@@ -180,6 +183,7 @@ from .sheet import (
     show_message,
     show_widget,
 )
+from .sheet_output import print_sheets, render_page_image, system_printers, write_pdf
 from .symbols import SymbolPicker
 from .theme import apply_theme, scheme_for
 from .widgets import (
@@ -235,7 +239,7 @@ def _wait_for_orphans(timeout_ms: int = ORPHAN_EXIT_WAIT_MS) -> None:
     ganze Programm ab. ``timeout_ms`` gilt fuer alle zusammen.
     """
     deadline = monotonic() + timeout_ms / 1000
-    for worker in list(_orphan_workers):
+    for worker in _orphan_workers:
         remaining = max(0, int((deadline - monotonic()) * 1000))
         try:
             worker.wait(remaining)
@@ -276,7 +280,7 @@ class PrintWorker(QThread):
         self._snmp_answered = snmp_answered
         self._cancel = cancel
 
-    def run(self) -> None:  # noqa: D401
+    def run(self) -> None:
         snmp_answered = self._snmp_answered
         if snmp_answered is None and self._config.backend == "network":
             snmp_answered = (
@@ -297,9 +301,7 @@ class PrintWorker(QThread):
         except PrinterError as exc:
             self.failed.emit(str(exc))
         except Exception as exc:  # pragma: no cover - defensiv
-            self.failed.emit(
-                tr("Unerwarteter Fehler: {error}").format(error=exc)
-            )
+            self.failed.emit(tr("Unerwarteter Fehler: {error}").format(error=exc))
         else:
             try:
                 status = confirm_network_job(
@@ -341,7 +343,7 @@ class SheetOutputWorker(QThread):
         self._printer_name = printer_name
         self._path = path
 
-    def run(self) -> None:  # noqa: D401
+    def run(self) -> None:
         try:
             if self._kind == "pdf":
                 write_pdf(
@@ -379,7 +381,7 @@ class NetworkStatusWorker(QThread):
         super().__init__(None)
         self._address = address
 
-    def run(self) -> None:  # noqa: D401
+    def run(self) -> None:
         # Ein verlorenes Paket hiesse "kein SNMP" - dann entfiele die Pruefung
         # nach dem naechsten Druck. Die Wiederholung kostet nur diesen Thread.
         status = network_printer_status(self._address, attempts=NETWORK_PROBE_ATTEMPTS)
@@ -396,7 +398,7 @@ class NetworkSearchWorker(QThread):
         super().__init__(None)
         self._cancel = cancel
 
-    def run(self) -> None:  # noqa: D401
+    def run(self) -> None:
         printers = []
         try:
             printers = discover_network_printers(cancel=self._cancel)
@@ -416,7 +418,7 @@ class DetectLabelWorker(QThread):
         super().__init__(None)
         self._config = config
 
-    def run(self) -> None:  # noqa: D401
+    def run(self) -> None:
         try:
             label = detect_label(self._config)
         except Exception as exc:  # pragma: no cover - defensiv
@@ -451,7 +453,7 @@ def _items_on_clipboard() -> list[dict[str, Any]] | None:
     if mime is None or not mime.hasFormat(_CLIPBOARD_MIME):
         return None
     try:
-        payload = json.loads(bytes(mime.data(_CLIPBOARD_MIME)).decode("utf-8"))
+        payload = json.loads(bytes(mime.data(_CLIPBOARD_MIME).data()).decode("utf-8"))
     except (UnicodeError, json.JSONDecodeError, TypeError, ValueError):
         return None
     if not isinstance(payload, list) or not payload:
@@ -651,11 +653,11 @@ class MainWindow(QMainWindow):
         #: True, solange der Bogen aufgebaut wird und der Dialog zu bleibt.
         self._sheet_preparing = False
         self._sheet_return_on_error = False
-        self._sheet_meta = None
+        self._sheet_meta: tuple[str, str, int, int, str, str] | None = None
         self._print_jobs: list[PrintJob] = []
         # Start, Etikettname, Kopien, Modell, Adresse, Bandkennung.
         self._pending_job: tuple[datetime, str, int, str, str, str] | None = None
-        self._pending_sheet = None
+        self._pending_sheet: tuple[Any, Any, Any, int] | None = None
         # Netzwerksuche im Hintergrund (mDNS + SNMP); ``_network_cancel``
         # bricht sie beim Schliessen des Fensters ab.
         self._network_worker: NetworkSearchWorker | None = None
@@ -787,8 +789,7 @@ class MainWindow(QMainWindow):
         self._media_panel.changed.connect(self._on_media_changed)
         self._media_panel.margins_reset.connect(self._sync_margin_base)
         self._margin_prev = {
-            key: spin.value()
-            for key, spin in self._media_panel._margin_spins.items()
+            key: spin.value() for key, spin in self._media_panel._margin_spins.items()
         }
         for key, spin in self._media_panel._margin_spins.items():
             spin.valueChanged.connect(
@@ -908,7 +909,7 @@ class MainWindow(QMainWindow):
         )
         self._host.add_panel(self._left_panel)
 
-        self._print_sheet = None
+        self._print_sheet: Sheet | None = None
         self._print_panel = self._build_print_panel()
         self._print_panel.hide()
 
@@ -924,7 +925,9 @@ class MainWindow(QMainWindow):
         self._open_print_button.setObjectName("open_print_button")
         self._open_print_button.setIconSize(QSize(28, 28))
         self._open_print_button.setMinimumHeight(48)
-        self._open_print_button.setToolTip(tr("Druckvorschau, Einstellungen und Verlauf"))
+        self._open_print_button.setToolTip(
+            tr("Druckvorschau, Einstellungen und Verlauf")
+        )
         self._open_print_button.clicked.connect(self._show_print_sheet)
         footer_layout.addWidget(self._open_print_button)
         layout.addWidget(footer)
@@ -980,16 +983,20 @@ class MainWindow(QMainWindow):
         self._hq_check = QCheckBox(tr("Hohe Druckqualität (HQ)"))
         self._hq_check.setChecked(True)
         self._hq_check.setToolTip(
-            tr("Der Drucker arbeitet dann mit Vorrang für Qualität statt Tempo "
-            "(das pquality-Flag aus der Brother-Rasterreferenz).\n"
-            "Die Auflösung ändert das nicht - die steht im Feld darüber.")
+            tr(
+                "Der Drucker arbeitet dann mit Vorrang für Qualität statt Tempo "
+                "(das pquality-Flag aus der Brother-Rasterreferenz).\n"
+                "Die Auflösung ändert das nicht - die steht im Feld darüber."
+            )
         )
 
         self._dither_check = QCheckBox(tr("Graustufen (Dithering)"))
         self._dither_check.setToolTip(
-            tr("Graustufen werden gepunktet statt hart geschwellt - für Fotos.\n"
-            "Ohne Dithering entscheidet die Tintenmenge unten, welche Helligkeit "
-            "Tinte wird.")
+            tr(
+                "Graustufen werden gepunktet statt hart geschwellt - für Fotos.\n"
+                "Ohne Dithering entscheidet die Tintenmenge unten, welche Helligkeit "
+                "Tinte wird."
+            )
         )
 
         # Tintenmenge = brother_ql-Schwelle ("-t"). Sie wirkt nur ohne
@@ -1006,8 +1013,10 @@ class MainWindow(QMainWindow):
         self._threshold_label.setToolTip(self._threshold_spin.toolTip())
         self._ink_label = QLabel(tr("Tinte: –"))
         self._ink_label.setToolTip(
-            tr("Anteil der bedruckten Fläche - sofort sichtbar, was Tintenmenge "
-            "und Dithering bewirken.")
+            tr(
+                "Anteil der bedruckten Fläche - sofort sichtbar, was Tintenmenge "
+                "und Dithering bewirken."
+            )
         )
         threshold_holder = QWidget()
         threshold_row = QHBoxLayout(threshold_holder)
@@ -1046,10 +1055,12 @@ class MainWindow(QMainWindow):
             self._cut_combo.addItem(text, mode)
         self._cut_combo.setCurrentIndex(self._cut_combo.findData(CUT_EACH))
         self._cut_combo.setToolTip(
-            tr("Nach jeder Kopie: einzelne Etiketten.\n"
-               "Nur am Ende: die Etiketten hängen zusammen und werden zuletzt "
-               "getrennt - nur bei mehreren Etiketten.\n"
-               "Nicht schneiden: der Streifen bleibt am Band.")
+            tr(
+                "Nach jeder Kopie: einzelne Etiketten.\n"
+                "Nur am Ende: die Etiketten hängen zusammen und werden zuletzt "
+                "getrennt - nur bei mehreren Etiketten.\n"
+                "Nicht schneiden: der Streifen bleibt am Band."
+            )
         )
         self._cut_label.setToolTip(self._cut_combo.toolTip())
 
@@ -1244,9 +1255,7 @@ class MainWindow(QMainWindow):
         self._sheet_part_combo.setMinimumContentsLength(18)
         locale = QLocale()
         for template in stationery.templates():
-            text = tr(
-                "{part} · {width} × {height} mm · {count} pro Bogen"
-            ).format(
+            text = tr("{part} · {width} × {height} mm · {count} pro Bogen").format(
                 part=template.part,
                 width=locale.toString(template.label_width_mm, "f", 1),
                 height=locale.toString(template.label_height_mm, "f", 1),
@@ -1446,7 +1455,12 @@ class MainWindow(QMainWindow):
         springt nicht. Mehrere Datensaetze zaehlen mit, nicht nur Kopien.
         """
         several = self._planned_page_count() > 1
-        item = self._cut_combo.model().item(self._cut_combo.findData(CUT_AT_END))
+        model = self._cut_combo.model()
+        item = (
+            model.item(self._cut_combo.findData(CUT_AT_END))
+            if isinstance(model, QStandardItemModel)
+            else None
+        )
         if item is not None:
             item.setEnabled(several)
         if not several and self._cut_combo.currentData() == CUT_AT_END:
@@ -1514,7 +1528,11 @@ class MainWindow(QMainWindow):
         """
         model_id = self._media_panel.model_id()
         options = resolution_options(model_id)
-        wanted = prefer or self._resolution_combo.currentData() or self._settings.print_resolution
+        wanted = (
+            prefer
+            or self._resolution_combo.currentData()
+            or self._settings.print_resolution
+        )
 
         self._resolution_combo.blockSignals(True)
         self._resolution_combo.clear()
@@ -1528,9 +1546,7 @@ class MainWindow(QMainWindow):
 
         chosen = self._resolution()
         self._resolution_combo.setToolTip(
-            tr("{label}: {detail}.").format(
-                label=chosen.label, detail=chosen.detail
-            )
+            tr("{label}: {detail}.").format(label=chosen.label, detail=chosen.detail)
         )
         self._update_resolution_hint()
         self._sync_threshold_enabled()
@@ -1610,7 +1626,9 @@ class MainWindow(QMainWindow):
         self._act_add_table.triggered.connect(self._add_table)
 
         self._act_add_datetime = QAction(icon("datetime"), tr("Datum/Uhrzeit"), self)
-        self._act_add_datetime.setToolTip(tr("Aktuelles Datum und aktuelle Uhrzeit einfügen"))
+        self._act_add_datetime.setToolTip(
+            tr("Aktuelles Datum und aktuelle Uhrzeit einfügen")
+        )
         self._act_add_datetime.triggered.connect(self._add_datetime)
 
         self._act_undo = self._undo_group.createUndoAction(self, tr("Rückgängig"))
@@ -1652,14 +1670,18 @@ class MainWindow(QMainWindow):
         self._act_bold.setEnabled(False)
         self._act_bold.setToolTip(tr("Fett (Strg+B)"))
         self._act_bold.setShortcut("Ctrl+B")
-        self._act_bold.triggered.connect(lambda _checked=False: self._toggle_text_style("bold"))
+        self._act_bold.triggered.connect(
+            lambda _checked=False: self._toggle_text_style("bold")
+        )
 
         self._act_italic = QAction(icon("italic"), tr("Kursiv"), self)
         self._act_italic.setCheckable(True)
         self._act_italic.setEnabled(False)
         self._act_italic.setToolTip(tr("Kursiv (Strg+I)"))
         self._act_italic.setShortcut("Ctrl+I")
-        self._act_italic.triggered.connect(lambda _checked=False: self._toggle_text_style("italic"))
+        self._act_italic.triggered.connect(
+            lambda _checked=False: self._toggle_text_style("italic")
+        )
 
         self._act_underline = QAction(icon("underline"), tr("Unterstrichen"), self)
         self._act_underline.setCheckable(True)
@@ -1678,7 +1700,9 @@ class MainWindow(QMainWindow):
         self._act_forward.setToolTip(tr("Eine Ebene nach vorn"))
         self._act_forward.triggered.connect(lambda: self._step_stack(+1))
 
-        self._act_backward = QAction(icon("backward"), tr("Eine Ebene nach hinten"), self)
+        self._act_backward = QAction(
+            icon("backward"), tr("Eine Ebene nach hinten"), self
+        )
         self._act_backward.setToolTip(tr("Eine Ebene nach hinten"))
         self._act_backward.triggered.connect(lambda: self._step_stack(-1))
 
@@ -1690,7 +1714,9 @@ class MainWindow(QMainWindow):
         self._act_back.setToolTip(tr("In den Hintergrund"))
         self._act_back.triggered.connect(lambda: self._stack_extreme(front=False))
 
-        self._act_snap_guides = QAction(icon("align_left"), tr("An Hilfslinien ausrichten"), self)
+        self._act_snap_guides = QAction(
+            icon("align_left"), tr("An Hilfslinien ausrichten"), self
+        )
         self._act_snap_guides.setToolTip(tr("An Hilfslinien ausrichten"))
         self._act_snap_guides.triggered.connect(self._snap_selection_to_guides)
         for act in (
@@ -1754,8 +1780,7 @@ class MainWindow(QMainWindow):
 
         self._act_zoom_100 = QAction(icon("zoom_100"), tr("1:1"), self)
         self._act_zoom_100.setToolTip(
-            tr("Zoom 1:1 (Strg+1) - echte Druckpunkte,\n"
-            "so wie der Drucker sie setzt")
+            tr("Zoom 1:1 (Strg+1) - echte Druckpunkte,\nso wie der Drucker sie setzt")
         )
         self._act_zoom_100.setShortcut("Ctrl+1")
         self._act_zoom_100.triggered.connect(lambda: self._canvas.zoom_100())
@@ -1765,11 +1790,15 @@ class MainWindow(QMainWindow):
         self._act_print.setShortcut("Ctrl+P")
         self._act_print.triggered.connect(self._show_print_sheet)
 
-        self._act_print_history = QAction(icon("history"), tr("Druckverlauf anzeigen"), self)
+        self._act_print_history = QAction(
+            icon("history"), tr("Druckverlauf anzeigen"), self
+        )
         self._act_print_history.setToolTip(tr("Druckverlauf dieser Sitzung anzeigen"))
         self._act_print_history.triggered.connect(self._show_print_sheet)
 
-        self._act_forget_tape = QAction(icon("delete"), tr("Gemerktes Band vergessen"), self)
+        self._act_forget_tape = QAction(
+            icon("delete"), tr("Gemerktes Band vergessen"), self
+        )
         self._act_forget_tape.setToolTip(
             tr("Gemerktes Band löschen, z. B. nach einem Bandwechsel am Drucker.")
         )
@@ -1778,7 +1807,9 @@ class MainWindow(QMainWindow):
 
         self._act_print_preview = QAction(icon("preview"), tr("Druckvorschau"), self)
         self._act_print_preview.setCheckable(True)
-        self._act_print_preview.setToolTip(tr("Druckvorschau: echte 1-bit-Ausgabe (Ctrl+Shift+P)"))
+        self._act_print_preview.setToolTip(
+            tr("Druckvorschau: echte 1-bit-Ausgabe (Ctrl+Shift+P)")
+        )
         self._act_print_preview.setShortcut("Ctrl+Shift+P")
         self._act_print_preview.toggled.connect(self._on_toggle_print_preview)
 
@@ -1788,9 +1819,11 @@ class MainWindow(QMainWindow):
         self._act_panel_left.setCheckable(True)
         self._act_panel_left.setChecked(True)
         self._act_panel_left.setToolTip(
-            tr("Panel links ein-/ausklappen (F9)\n"
-            "Eingeklappt bleibt ein Streifen mit Pfeil; er klappt beim "
-            "Überfahren über dem Canvas auf")
+            tr(
+                "Panel links ein-/ausklappen (F9)\n"
+                "Eingeklappt bleibt ein Streifen mit Pfeil; er klappt beim "
+                "Überfahren über dem Canvas auf"
+            )
         )
         self._act_panel_left.setShortcut("F9")
         self._act_panel_left.toggled.connect(self._left_panel.set_docked)
@@ -1800,7 +1833,9 @@ class MainWindow(QMainWindow):
         self._act_panel_right.setCheckable(True)
         self._act_panel_right.setChecked(True)
         self._act_panel_right.setToolTip(
-            tr("Panel rechts ein-/ausklappen (Umschalt+F9)\nEigenschaften und Druckoptionen")
+            tr(
+                "Panel rechts ein-/ausklappen (Umschalt+F9)\nEigenschaften und Druckoptionen"
+            )
         )
         self._act_panel_right.setShortcut("Shift+F9")
         self._act_panel_right.toggled.connect(self._right_panel.set_docked)
@@ -1863,7 +1898,9 @@ class MainWindow(QMainWindow):
         self._act_file_save.triggered.connect(self._on_file_save)
 
         self._act_file_save_as = QAction(icon("save_as"), tr("Speichern unter…"), self)
-        self._act_file_save_as.setToolTip(tr("Etikett unter neuem Namen speichern (Strg+Umschalt+S)"))
+        self._act_file_save_as.setToolTip(
+            tr("Etikett unter neuem Namen speichern (Strg+Umschalt+S)")
+        )
         self._act_file_save_as.setShortcut(QKeySequence.StandardKey.SaveAs)
         self._act_file_save_as.triggered.connect(self._on_file_save_as)
         self.addAction(self._act_file_save_as)
@@ -2232,7 +2269,9 @@ class MainWindow(QMainWindow):
     def _palette_leaf(self, action: QAction) -> PaletteEntry:
         return PaletteEntry(action.text(), action=action)
 
-    def _palette_group(self, title: str, icon_name: str, children: list) -> PaletteEntry:
+    def _palette_group(
+        self, title: str, icon_name: str, children: list
+    ) -> PaletteEntry:
         nodes: list[PaletteEntry] = []
         for child in children:
             if isinstance(child, PaletteEntry):
@@ -2318,9 +2357,7 @@ class MainWindow(QMainWindow):
             self,
             title=tr("Als Vorlage speichern"),
             label=tr("Name der Vorlage:"),
-            default=(
-                Path(self._document_path).stem if self._document_path else ""
-            ),
+            default=(Path(self._document_path).stem if self._document_path else ""),
             on_ok=self._save_template_named,
         )
 
@@ -2395,7 +2432,7 @@ class MainWindow(QMainWindow):
         self._settings.appearance = value
         self._settings.sync()
         app = QApplication.instance()
-        if app is not None:
+        if isinstance(app, QApplication):
             apply_theme(app, scheme_for(value))
         self._refresh_history_table()
 
@@ -2703,8 +2740,7 @@ class MainWindow(QMainWindow):
         margins = self._media_panel.margins()
         self._margin_base = (margins.left, margins.top)
         self._margin_prev = {
-            key: spin.value()
-            for key, spin in self._media_panel._margin_spins.items()
+            key: spin.value() for key, spin in self._media_panel._margin_spins.items()
         }
 
     def _on_margin_spin_changed(self, key: str, value: float) -> None:
@@ -2772,7 +2808,11 @@ class MainWindow(QMainWindow):
         )
 
     def _capture_history(self) -> None:
-        if self._adjusting or self._history_suppress or self._history_before is not None:
+        if (
+            self._adjusting
+            or self._history_suppress
+            or self._history_before is not None
+        ):
             return
         self._history_before = self._design_snapshot()
 
@@ -2782,9 +2822,7 @@ class MainWindow(QMainWindow):
         before = self._history_before
         self._history_before = None
         after = self._design_snapshot()
-        if push_if_changed(
-            self._undo_stack, before, after, self._restore_design, text
-        ):
+        if push_if_changed(self._undo_stack, before, after, self._restore_design, text):
             self._update_window_title()
 
     def _seal_open_inspector_edit(self) -> None:
@@ -2874,9 +2912,7 @@ class MainWindow(QMainWindow):
     def _align_selected(self, mode: str) -> None:
         """Auswahl aneinander oder am Randrahmen ausrichten."""
         items = [
-            item
-            for item in self._canvas.selected_items()
-            if hasattr(item, "to_dict")
+            item for item in self._canvas.selected_items() if hasattr(item, "to_dict")
         ]
         if not items:
             return
@@ -2988,9 +3024,7 @@ class MainWindow(QMainWindow):
         try:
             image = self._current_render(scale=scale)
         except Exception as exc:  # pragma: no cover - defensiv
-            self.statusBar().showMessage(
-                tr("Renderfehler: {error}").format(error=exc)
-            )
+            self.statusBar().showMessage(tr("Renderfehler: {error}").format(error=exc))
             return
         options = self._preview_options()
         if self._canvas.print_preview or self._print_sheet_open():
@@ -3001,9 +3035,7 @@ class MainWindow(QMainWindow):
                 self._print_preview.set_image(display)
         ratio = ink_ratio(image, options)
         self._ink_label.setText(
-            tr("Tinte: {value} %").format(
-                value=QLocale().toString(ratio * 100, "f", 1)
-            )
+            tr("Tinte: {value} %").format(value=QLocale().toString(ratio * 100, "f", 1))
         )
 
     def _preview_options(self) -> PreviewOptions:
@@ -3282,7 +3314,10 @@ class MainWindow(QMainWindow):
     def _on_selection_changed(self) -> None:
         selection = self._canvas.selected_items()
         item = selection[0] if len(selection) == 1 else None
-        allow_red = self._media_panel.model.two_color and self._media_panel.label.color.supports_red
+        allow_red = (
+            self._media_panel.model.two_color
+            and self._media_panel.label.color.supports_red
+        )
         fields: list[str] = []
         tab = self._active
         if tab is not None and tab.csv_table is not None:
@@ -3377,7 +3412,9 @@ class MainWindow(QMainWindow):
         merged["count"] = max(1, min(99, int(count)))
         # Gebundene Objekte drucken die Serie; ein reiner Parameter-Edit
         # schaltet sie ein, ohne das Binding anzufassen.
-        merged["enabled"] = bool(tab.serial.get("enabled")) or self._any_serial_binding()
+        merged["enabled"] = (
+            bool(tab.serial.get("enabled")) or self._any_serial_binding()
+        )
         if merged == tab.serial:
             return
         tab.serial = merged
@@ -3429,9 +3466,7 @@ class MainWindow(QMainWindow):
 
     def _selected_serializable(self) -> list:
         return [
-            item
-            for item in self._canvas.selected_items()
-            if hasattr(item, "to_dict")
+            item for item in self._canvas.selected_items() if hasattr(item, "to_dict")
         ]
 
     def _sync_clipboard_actions(self) -> None:
@@ -3501,7 +3536,9 @@ class MainWindow(QMainWindow):
             tr("Duplizieren"),
         )
 
-    def _spawn_copies(self, payload: list[dict[str, Any]], dx: float, dy: float, undo_text: str) -> None:
+    def _spawn_copies(
+        self, payload: list[dict[str, Any]], dx: float, dy: float, undo_text: str
+    ) -> None:
         """Kopien einsetzen. Ein Undo-Schritt, wie beim Einfuegen eines Objekts."""
         self._seal_open_inspector_edit()
         self._capture_history()
@@ -3587,7 +3624,9 @@ class MainWindow(QMainWindow):
         text = text.strip()
         if not text:
             return
-        self._add_item(TextItem(text, font_pixel_size=self._default_font_size()), scene_pos)
+        self._add_item(
+            TextItem(text, font_pixel_size=self._default_font_size()), scene_pos
+        )
 
     def _build_context_menu(self, scene_pos: QPointF) -> QMenu:
         menu = QMenu(self)
@@ -3688,7 +3727,12 @@ class MainWindow(QMainWindow):
     def _add_rect(self) -> None:
         height = self._canvas.height_dots
         item = RectItem(
-            QRectF(0, 0, int(self._canvas.printable_rect().width() * 0.6), int(max(40, height * 0.4)))
+            QRectF(
+                0,
+                0,
+                int(self._canvas.printable_rect().width() * 0.6),
+                int(max(40, height * 0.4)),
+            )
         )
         self._add_item(item)
 
@@ -3762,9 +3806,9 @@ class MainWindow(QMainWindow):
         """Ausgewaehlte Objekte, die Fett, Kursiv und Unterstrichen tragen."""
         targets = []
         for item in self._canvas.selected_items():
-            if getattr(item, "kind", None) == "table":
-                targets.append(item)
-            elif all(hasattr(item, f"set_{name}") for name in ("bold", "italic", "underline")):
+            if getattr(item, "kind", None) == "table" or all(
+                hasattr(item, f"set_{name}") for name in ("bold", "italic", "underline")
+            ):
                 targets.append(item)
         return targets
 
@@ -3791,7 +3835,11 @@ class MainWindow(QMainWindow):
         if not targets:
             return
         turn_on = not all(self._text_style_value(item, name) for item in targets)
-        labels = {"bold": tr("Fett"), "italic": tr("Kursiv"), "underline": tr("Unterstrichen")}
+        labels = {
+            "bold": tr("Fett"),
+            "italic": tr("Kursiv"),
+            "underline": tr("Unterstrichen"),
+        }
         typing = (
             self._canvas._focused_editor() is not None and not self._inspector.edit_open
         )
@@ -3830,13 +3878,9 @@ class MainWindow(QMainWindow):
     def _sync_arrange_actions(self) -> None:
         """Stapel-Befehle nur mit Auswahl und weiteren Objekten; Snap mit Auswahl."""
         selected = [
-            item
-            for item in self._canvas.selected_items()
-            if hasattr(item, "to_dict")
+            item for item in self._canvas.selected_items() if hasattr(item, "to_dict")
         ]
-        others = [
-            item for item in self._canvas.ordered_items() if item not in selected
-        ]
+        others = [item for item in self._canvas.ordered_items() if item not in selected]
         can_stack = bool(selected and others)
         for act in (
             self._act_forward,
@@ -3920,9 +3964,7 @@ class MainWindow(QMainWindow):
     def _snap_selection_to_guides(self) -> None:
         """Einmal einrasten: Hilfslinien, Bandkanten und andere Objekte."""
         items = [
-            item
-            for item in self._canvas.selected_items()
-            if hasattr(item, "to_dict")
+            item for item in self._canvas.selected_items() if hasattr(item, "to_dict")
         ]
         if not items:
             return
@@ -3978,7 +4020,9 @@ class MainWindow(QMainWindow):
             widget.blockSignals(True)
         try:
             output = (
-                stationery.OUTPUT_SHEET if tab.sheet_output else stationery.OUTPUT_BROTHER
+                stationery.OUTPUT_SHEET
+                if tab.sheet_output
+                else stationery.OUTPUT_BROTHER
             )
             index = self._output_combo.findData(output)
             if index >= 0:
@@ -4095,9 +4139,7 @@ class MainWindow(QMainWindow):
             )
             page0 = [place for place in placements if place.page == 0]
             indexes = sorted({place.image_index for place in page0})
-            rendered = self._render_print_images(
-                for_sheet=True, only_indexes=indexes
-            )
+            rendered = self._render_print_images(for_sheet=True, only_indexes=indexes)
             remap = {old: new for new, old in enumerate(indexes)}
             preview_places = [
                 stationery.Placement(
@@ -4121,9 +4163,7 @@ class MainWindow(QMainWindow):
             self._set_sheet_preview_caption(0)
         except Exception as exc:  # pragma: no cover - defensiv
             self._set_sheet_preview_caption(0)
-            self.statusBar().showMessage(
-                tr("Renderfehler: {error}").format(error=exc)
-            )
+            self.statusBar().showMessage(tr("Renderfehler: {error}").format(error=exc))
 
     def _set_sheet_preview_caption(self, pages: int) -> None:
         """Nur bei mehreren Bögen: die Vorschau ist die erste Seite."""
@@ -4168,9 +4208,7 @@ class MainWindow(QMainWindow):
 
     def _sheet_busy(self) -> bool:
         worker = self._sheet_worker
-        return self._sheet_preparing or (
-            worker is not None and worker.isRunning()
-        )
+        return self._sheet_preparing or (worker is not None and worker.isRunning())
 
     def _on_sheet_print(self) -> None:
         if self._sheet_busy():
@@ -4427,7 +4465,10 @@ class MainWindow(QMainWindow):
         Hat ein anderer Knopf den Fokus, bekommt er den Klick.
         """
         focus = QApplication.focusWidget()
-        if isinstance(focus, (QPushButton, QToolButton)) and focus is not self._print_button:
+        if (
+            isinstance(focus, (QPushButton, QToolButton))
+            and focus is not self._print_button
+        ):
             focus.click()
             return
         if self._print_button.isEnabled():
@@ -4462,9 +4503,7 @@ class MainWindow(QMainWindow):
                 self,
                 "critical",
                 tr("Rendern"),
-                tr("Etikett konnte nicht gerendert werden:\n{error}").format(
-                    error=exc
-                ),
+                tr("Etikett konnte nicht gerendert werden:\n{error}").format(error=exc),
             )
             return
         label = self._media_panel.label
@@ -4528,7 +4567,11 @@ class MainWindow(QMainWindow):
 
     def _check_loaded_tape(self, config, images, label, from_sheet: bool) -> None:
         loaded = self._settings.loaded_label(config.address)
-        if config.backend == "network" and loaded and not self._fits_loaded(label, loaded):
+        if (
+            config.backend == "network"
+            and loaded
+            and not self._fits_loaded(label, loaded)
+        ):
             ask_loaded_tape(
                 self,
                 title=tr("Band prüfen"),
@@ -4764,7 +4807,9 @@ class MainWindow(QMainWindow):
                 else tr("Hinweis vom Drucker: {texts}")
             )
             texts = ", ".join(status.texts)
-            self.statusBar().showMessage(message.format(errors=texts, texts=texts), 10000)
+            self.statusBar().showMessage(
+                message.format(errors=texts, texts=texts), 10000
+            )
         elif before is not None and before.fault:
             self.statusBar().showMessage(tr("Drucker wieder bereit"), 5000)
 
@@ -4793,9 +4838,7 @@ class MainWindow(QMainWindow):
         if status.get("snmp_ok") and pending is not None:
             self._remember_printed_tape(pending[4], pending[5])
         self.statusBar().showMessage(
-            tr("Druckauftrag gesendet (outcome={outcome}).").format(
-                outcome=outcome
-            ),
+            tr("Druckauftrag gesendet (outcome={outcome}).").format(outcome=outcome),
             8000,
         )
         warnings = status.get("warnings") or ()
@@ -4864,12 +4907,13 @@ class MainWindow(QMainWindow):
         self._sync_print_scope_ui()
         if self._sheet_output():
             self._reload_system_printers()
-        if self._print_sheet_open():
-            self._print_sheet.raise_()
+        sheet = self._print_sheet
+        if sheet is not None and sheet.isVisible():
+            sheet.raise_()
             self._refresh_history_table()
             self._refresh_now()
             return
-        self._print_sheet = show_widget(
+        sheet = show_widget(
             self,
             title=tr("Drucken"),
             content=self._print_panel,
@@ -4878,10 +4922,11 @@ class MainWindow(QMainWindow):
             close_on_outside=True,
             corner=self._print_button,
         )
+        self._print_sheet = sheet
         # hide() am Fenster bleibt sonst stehen: ein Layout zeigt das Widget
         # nicht von selbst wieder.
         self._print_panel.show()
-        self._print_sheet.closed.connect(self._on_print_sheet_closed)
+        sheet.closed.connect(self._on_print_sheet_closed)
         self._refresh_history_table()
         self._refresh_now()
 
@@ -4931,7 +4976,9 @@ class MainWindow(QMainWindow):
 
     def _on_permission_finished(self, code: int, _status=None) -> None:
         self._permission_timer.stop()
-        stderr = bytes(self._permission_process.readAllStandardError()).decode(
+        raw = self._permission_process.readAllStandardError()
+        # Der Prozess liefert ein QByteArray; Tests setzen ein bytes-Objekt ein.
+        stderr = (raw if isinstance(raw, bytes) else bytes(raw.data())).decode(
             "utf-8", "replace"
         )
         if code == 0:
@@ -4954,7 +5001,9 @@ class MainWindow(QMainWindow):
         if allowed is False and self._access_attempts > 0:
             self._access_attempts -= 1
             self._access_retry.start()
-            self.statusBar().showMessage(tr("Zugriff einrichten: Rechte werden geprüft …"))
+            self.statusBar().showMessage(
+                tr("Zugriff einrichten: Rechte werden geprüft …")
+            )
             return
         self._access_retry.stop()
         if allowed is False:
@@ -4972,9 +5021,7 @@ class MainWindow(QMainWindow):
             self,
             "info",
             tr("USB-Zugriff"),
-            tr(
-                "{reason}\n\nEinmalig im Terminal ausführen:\n\n    {command}"
-            ).format(
+            tr("{reason}\n\nEinmalig im Terminal ausführen:\n\n    {command}").format(
                 reason=access.reason_no_prompt(), command=access.manual_command()
             ),
             selectable=True,
@@ -5105,15 +5152,11 @@ class MainWindow(QMainWindow):
         if startup:
             return
         if not found:
-            self.statusBar().showMessage(
-                tr("Keine Netzwerk-Drucker gefunden."), 8000
-            )
+            self.statusBar().showMessage(tr("Keine Netzwerk-Drucker gefunden."), 8000)
             return
         if len(found) == 1:
             self.statusBar().showMessage(
-                tr("Netzwerk-Drucker gefunden: {device}").format(
-                    device=found[0].host
-                ),
+                tr("Netzwerk-Drucker gefunden: {device}").format(device=found[0].host),
                 8000,
             )
             return
@@ -5550,7 +5593,9 @@ class MainWindow(QMainWindow):
         def _saved() -> None:
             self._remove_tab(tab)
 
-        self._ask_about_tab(tab, on_save=_saved, on_discard=_saved, on_cancel=lambda: None)
+        self._ask_about_tab(
+            tab, on_save=_saved, on_discard=_saved, on_cancel=lambda: None
+        )
 
     def _ask_about_tab(self, tab: LabelTab, *, on_save, on_discard, on_cancel) -> Sheet:
         name = Path(tab.path).name if tab.path else tr("Unbenannt")
@@ -5749,9 +5794,7 @@ class MainWindow(QMainWindow):
             self._queue_database_status(tab.database_notice)
             return
         base = document_path if document_path is not None else (tab.path or None)
-        csv_path = merge_engine.resolve_csv_path(
-            stored_path, document_path=base
-        )
+        csv_path = merge_engine.resolve_csv_path(stored_path, document_path=base)
         try:
             table = csv_source.load(
                 csv_path,
@@ -5765,9 +5808,7 @@ class MainWindow(QMainWindow):
         tab.database_notice = None
         stored_sha = str(raw_source.get("content_sha256") or "")
         if stored_sha and stored_sha != table.content_sha256:
-            tab.database_notice = tr(
-                "CSV-Inhalt hat sich geändert (Hash weicht ab)."
-            )
+            tab.database_notice = tr("CSV-Inhalt hat sich geändert (Hash weicht ab).")
             self._queue_database_status(tab.database_notice)
         tab.csv_table = table
         tab.current_record = merge_engine.clamp_record_index(
@@ -5780,13 +5821,9 @@ class MainWindow(QMainWindow):
             current_record=tab.current_record,
         )
         if "containsFieldName" in raw_source:
-            tab.data_source["containsFieldName"] = raw_source.get(
-                "containsFieldName"
-            )
+            tab.data_source["containsFieldName"] = raw_source.get("containsFieldName")
 
-    def _restore_tab_database(
-        self, tab: LabelTab, spec: Mapping[str, Any]
-    ) -> None:
+    def _restore_tab_database(self, tab: LabelTab, spec: Mapping[str, Any]) -> None:
         """Merge-Zustand eines Reiters aus ``_state``/``apply_state`` wiederherstellen."""
         raw_serial = spec.get("serial")
         tab.serial = document.merge_serial(
@@ -6050,9 +6087,7 @@ class MainWindow(QMainWindow):
         index = merge_engine.clamp_record_index(tab.current_record, len(table.records))
         return str(table.record(index).get(field, ""))
 
-    def _apply_document(
-        self, data: dict, *, document_path: str | None = None
-    ) -> None:
+    def _apply_document(self, data: dict, *, document_path: str | None = None) -> None:
         """Dokumentdaten uebernehmen - Adresse und Anschluss bleiben stehen.
 
         ``document_path`` erlaubt die relative CSV-Aufloesung schon beim Laden,
@@ -6439,7 +6474,9 @@ class MainWindow(QMainWindow):
         self._settings.sheet_start = self._sheet_start.value()
         self._settings.sheet_offset_x = self._sheet_offset_x.value()
         self._settings.sheet_offset_y = self._sheet_offset_y.value()
-        self._settings.sheet_printer = str(self._sheet_printer_combo.currentData() or "")
+        self._settings.sheet_printer = str(
+            self._sheet_printer_combo.currentData() or ""
+        )
         self._settings.sync()
         super().closeEvent(event)
 
@@ -6492,7 +6529,8 @@ def _open_from_outside(window: MainWindow, paths: list[str]) -> None:
 
 def main(argv: list[str] | None = None) -> int:
     argv = list(sys.argv if argv is None else argv)
-    app = QApplication.instance() or QApplication(argv)
+    existing = QApplication.instance()
+    app = existing if isinstance(existing, QApplication) else QApplication(argv)
     app.setApplicationName("QLInux")
     files = _document_args(argv)
     # Läuft schon eine Instanz, öffnet sie die Dateien als Reiter bzw. holt das

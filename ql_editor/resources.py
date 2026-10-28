@@ -28,7 +28,7 @@ def assets_dir() -> Path:
     override = os.environ.get(ASSETS_ENV)
     if override:
         return Path(override)
-    bundled = getattr(sys, "_MEIPASS", None)   # PyInstaller (AppImage)
+    bundled = getattr(sys, "_MEIPASS", None)  # PyInstaller (AppImage)
     if bundled:
         return Path(bundled) / "assets"
     return Path(__file__).resolve().parents[1] / "assets"

@@ -12,8 +12,6 @@ import functools
 import re
 from pathlib import Path
 
-import pytest
-
 from ql_editor import i18n
 from ql_editor.i18n import tr
 from ql_editor.translations import EN
@@ -32,11 +30,17 @@ def source_keys() -> set[str]:
             if not isinstance(node, ast.Call):
                 continue
             func = node.func
-            name = func.attr if isinstance(func, ast.Attribute) else getattr(func, "id", "")
+            name = (
+                func.attr
+                if isinstance(func, ast.Attribute)
+                else getattr(func, "id", "")
+            )
             if name != "tr":
                 continue
             for argument in node.args:
-                if isinstance(argument, ast.Constant) and isinstance(argument.value, str):
+                if isinstance(argument, ast.Constant) and isinstance(
+                    argument.value, str
+                ):
                     keys.add(argument.value)
     return keys
 

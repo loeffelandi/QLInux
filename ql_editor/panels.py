@@ -107,7 +107,7 @@ class OverlayPanel(QWidget):
         self._anim.finished.connect(self._on_animation_finished)
 
         app = QApplication.instance()
-        if app is not None:
+        if isinstance(app, QApplication):
             app.focusChanged.connect(self._on_focus_changed)
 
         self._update_button()
@@ -213,7 +213,7 @@ class OverlayPanel(QWidget):
     @property
     def reserved_width(self) -> int:
         """Platz, den das Panel im offenen Zustand beansprucht."""
-        return int(round(self._expanded))
+        return round(self._expanded)
 
     @property
     def canvas_reserved(self) -> int:
@@ -229,7 +229,7 @@ class OverlayPanel(QWidget):
     @property
     def visible_width(self) -> int:
         """Aktuell sichtbare Breite (waehrend der Animation)."""
-        return int(round(self._width))
+        return round(self._width)
 
     def set_overlay(self, overlay: bool) -> None:
         """Offenes Panel liegt ueber dem Canvas statt ihn zu verkleinern."""
@@ -292,7 +292,9 @@ class OverlayPanel(QWidget):
 
     def _sync_content_visibility(self) -> None:
         """Inhalt nur zeigen, wenn das Panel (fast) offen ist."""
-        self._content.setVisible(self._is_open() or self._peeking or self._width > STRIP_WIDTH + 1)
+        self._content.setVisible(
+            self._is_open() or self._peeking or self._width > STRIP_WIDTH + 1
+        )
 
     # -- Hover --------------------------------------------------------------
     def enterEvent(self, event) -> None:  # noqa: N802
@@ -323,7 +325,9 @@ class OverlayPanel(QWidget):
 
     def _content_has_focus(self) -> bool:
         focus = QApplication.focusWidget()
-        return focus is not None and (focus is self._content or self._content.isAncestorOf(focus))
+        return focus is not None and (
+            focus is self._content or self._content.isAncestorOf(focus)
+        )
 
     def _set_peeking(self, peeking: bool) -> None:
         peeking = bool(peeking)
@@ -337,7 +341,8 @@ class OverlayPanel(QWidget):
     def _apply_elevation(self) -> None:
         """Peek-Panel liegt ueber dem Canvas - der Schatten macht das sichtbar."""
         if not self._peeking:
-            self.setGraphicsEffect(None)
+            # None nimmt den Schatten weg. Die Stubs lassen das Argument nicht zu.
+            self.setGraphicsEffect(None)  # type: ignore[arg-type]
             return
         effect = QGraphicsDropShadowEffect(self)
         effect.setBlurRadius(24)
@@ -350,7 +355,10 @@ class OverlayPanel(QWidget):
         if self._side == Qt.Edge.LeftEdge:
             return QRectF(0.0, 0.0, float(STRIP_WIDTH), float(self.height()))
         return QRectF(
-            float(max(0, self.width() - STRIP_WIDTH)), 0.0, float(STRIP_WIDTH), float(self.height())
+            float(max(0, self.width() - STRIP_WIDTH)),
+            0.0,
+            float(STRIP_WIDTH),
+            float(self.height()),
         )
 
     def resizeEvent(self, event) -> None:  # noqa: N802
@@ -401,9 +409,14 @@ class OverlayPanel(QWidget):
         painter.fillRect(strip, window.darker(106))
         painter.setPen(QPen(palette.color(QPalette.ColorRole.Mid), 1))
         if self._side == Qt.Edge.LeftEdge:
-            painter.drawLine(QPointF(strip.right(), 0.0), QPointF(strip.right(), float(self.height())))
+            painter.drawLine(
+                QPointF(strip.right(), 0.0),
+                QPointF(strip.right(), float(self.height())),
+            )
         else:
-            painter.drawLine(QPointF(strip.left(), 0.0), QPointF(strip.left(), float(self.height())))
+            painter.drawLine(
+                QPointF(strip.left(), 0.0), QPointF(strip.left(), float(self.height()))
+            )
 
         self._draw_strip_title(painter, strip)
 
@@ -417,10 +430,14 @@ class OverlayPanel(QWidget):
         painter.setPen(colour)
 
         available = max(0.0, strip.height() - BUTTON_SIZE - 26)
-        text = QFontMetrics(font).elidedText(self._title, Qt.TextElideMode.ElideRight, int(available))
+        text = QFontMetrics(font).elidedText(
+            self._title, Qt.TextElideMode.ElideRight, int(available)
+        )
         if not text or available < 20:
             return
-        centre = QPointF(strip.center().x(), strip.y() + BUTTON_SIZE + 14 + available / 2)
+        centre = QPointF(
+            strip.center().x(), strip.y() + BUTTON_SIZE + 14 + available / 2
+        )
         painter.save()
         painter.setClipRect(strip)
         painter.translate(centre)
@@ -508,8 +525,12 @@ class PanelHost(QWidget):
         open_panels = [panel for panel in panels if panel.docked or panel.peeking]
         if not open_panels:
             return
-        strips = sum(panel.canvas_reserved for panel in panels if panel not in open_panels)
-        share = (max(1, self.width()) - self._canvas.minimumWidth() - strips) / len(open_panels)
+        strips = sum(
+            panel.canvas_reserved for panel in panels if panel not in open_panels
+        )
+        share = (max(1, self.width()) - self._canvas.minimumWidth() - strips) / len(
+            open_panels
+        )
         target = int(min(PANEL_WIDTH, max(PANEL_MIN_WIDTH, share)))
         # Passen die offenen Panels nicht mehr neben den Canvas, liegen sie
         # darueber (Overlay) - der Canvas wird nicht zusammengedrueckt.
@@ -531,10 +552,10 @@ class PanelHost(QWidget):
 
 
 __all__ = [
-    "OverlayPanel",
-    "PanelHost",
-    "PANEL_WIDTH",
-    "STRIP_WIDTH",
     "AUTO_COLLAPSE_LEFT_PX",
     "AUTO_COLLAPSE_RIGHT_PX",
+    "PANEL_WIDTH",
+    "STRIP_WIDTH",
+    "OverlayPanel",
+    "PanelHost",
 ]

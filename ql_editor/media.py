@@ -19,12 +19,17 @@ Deprecation-Warnung beim Import.
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass
 from enum import Enum
 from functools import lru_cache
+from typing import Any, Protocol
 
-from brother_ql.labels import FormFactor as _FormFactor, Color as _Color, LabelsManager
-from brother_ql.models import Model as _Model, ModelsManager
+from brother_ql.labels import Color as _Color
+from brother_ql.labels import FormFactor as _FormFactor
+from brother_ql.labels import LabelsManager
+from brother_ql.models import Model as _Model
+from brother_ql.models import ModelsManager
 
 from .i18n import tr
 
@@ -64,7 +69,7 @@ def mm_to_dots(mm: float) -> int:
     """
     if mm < 0:
         raise ValueError(f"Negative Laenge nicht erlaubt: {mm!r} mm")
-    return int(round(mm * DOTS_PER_MM))
+    return round(mm * DOTS_PER_MM)
 
 
 def dots_to_mm(dots: float) -> float:
@@ -88,7 +93,7 @@ class Kind(str, Enum):
     ROUND_DIE_CUT = "round"
 
     @classmethod
-    def from_library(cls, form_factor: _FormFactor) -> "Kind":
+    def from_library(cls, form_factor: _FormFactor) -> Kind:
         return _KIND_FROM_FORM_FACTOR[form_factor]
 
     @property
@@ -124,7 +129,7 @@ class Color(str, Enum):
     BLACK_RED_WHITE = "black_red_white"
 
     @classmethod
-    def from_library(cls, color: _Color) -> "Color":
+    def from_library(cls, color: _Color) -> Color:
         return _COLOR_FROM_LIBRARY[color]
 
     @property
@@ -151,7 +156,12 @@ class Margins:
     bottom: float = 0.0
 
     def as_dict(self) -> dict[str, float]:
-        return {"left": self.left, "right": self.right, "top": self.top, "bottom": self.bottom}
+        return {
+            "left": self.left,
+            "right": self.right,
+            "top": self.top,
+            "bottom": self.bottom,
+        }
 
 
 @dataclass(frozen=True)
@@ -230,9 +240,7 @@ class LabelSpec:
                 width=self.tape_size[0], height=self.tape_size[1], kind=kind
             )
         else:
-            base = tr("{width} mm {kind}").format(
-                width=self.tape_size[0], kind=kind
-            )
+            base = tr("{width} mm {kind}").format(width=self.tape_size[0], kind=kind)
         if self.color.supports_red:
             base += f" {tr('(schwarz/rot)')}"
         return base
@@ -247,7 +255,7 @@ class LabelSpec:
             return True
         return model_identifier in self.restricted_to_models
 
-    def prints_on(self, loaded: "LabelSpec") -> bool:
+    def prints_on(self, loaded: LabelSpec) -> bool:
         """True, wenn ein Auftrag fuer dieses Band auf das eingelegte passt.
 
         Groesse und Art muessen stimmen. Rot braucht ein schwarz/rotes Band,
@@ -308,7 +316,22 @@ class ModelSpec:
 # --------------------------------------------------------------------------- #
 # Registry / Zugriff
 # --------------------------------------------------------------------------- #
-def _label_spec_from_library(label: object) -> LabelSpec:
+class _LibraryLabel(Protocol):
+    """Die Felder, die ``brother_ql`` an einem Bandobjekt bereitstellt."""
+
+    identifier: str
+    name: str
+    tape_size: Sequence[Any]
+    form_factor: Any
+    color: Any
+    dots_printable: Sequence[Any]
+    dots_total: Sequence[Any]
+    offset_r: Any
+    feed_margin: Any
+    restricted_to_models: Sequence[Any] | None
+
+
+def _label_spec_from_library(label: _LibraryLabel) -> LabelSpec:
     return LabelSpec(
         identifier=label.identifier,
         name=label.name,
@@ -502,7 +525,9 @@ def label_length_dots(
     if auto_length:
         length = max(int(content_length_dots), 0)
         # Kleinstes sinnvolles Etikett = Modell-Minimum.
-        return model.clamp_length_dots(length) if length else model.min_max_length_dots[0]
+        return (
+            model.clamp_length_dots(length) if length else model.min_max_length_dots[0]
+        )
 
     if fixed_length_mm is None:
         raise ValueError("fixed_length_mm ist erforderlich, wenn auto_length=False")
@@ -559,33 +584,33 @@ def length_bounds_mm(model: ModelSpec) -> tuple[float, float]:
 
 
 __all__ = [
+    "CUT_OFFSET_DOTS",
+    "DEFAULT_LABEL",
+    "DEFAULT_MODEL",
+    "DOTS_PER_MM",
     "DPI",
     "MM_PER_INCH",
-    "DOTS_PER_MM",
-    "DEFAULT_MODEL",
-    "DEFAULT_LABEL",
-    "CUT_OFFSET_DOTS",
-    "Kind",
     "Color",
-    "LengthMode",
-    "Orientation",
-    "Margins",
+    "Kind",
     "LabelSpec",
+    "LengthMode",
+    "Margins",
     "ModelSpec",
-    "mm_to_dots",
-    "dots_to_mm",
-    "dots_to_px",
+    "Orientation",
     "all_labels",
     "all_models",
+    "canvas_size_dots",
+    "canvas_size_for_orientation",
+    "content_dots_for_finished_length",
+    "dots_to_mm",
+    "dots_to_px",
+    "finished_length_mm",
     "get_label",
     "get_model",
-    "labels_for_model",
     "has_two_color_support",
-    "printer_extra_dots",
-    "content_dots_for_finished_length",
-    "finished_length_mm",
     "label_length_dots",
-    "canvas_size_for_orientation",
-    "canvas_size_dots",
+    "labels_for_model",
     "length_bounds_mm",
+    "mm_to_dots",
+    "printer_extra_dots",
 ]

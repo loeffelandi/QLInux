@@ -67,7 +67,7 @@ def binarize(image: Image.Image, options: PreviewOptions | None = None) -> Image
     inverted = ImageOps.invert(gray)
 
     if options.dither:
-        ink = inverted.convert("1", dither=Image.FLOYDSTEINBERG)  # 255 = Tinte
+        ink = inverted.convert("1", dither=Image.Dither.FLOYDSTEINBERG)  # 255 = Tinte
     else:
         thr = options.library_threshold()
         ink = inverted.point(lambda x: 0 if x < thr else 255, mode="1")  # 255 = Tinte
@@ -142,8 +142,8 @@ __all__ = [
     "THRESHOLD_MIN",
     "PreviewOptions",
     "binarize",
+    "ink_ratio",
     "preview_to_convert_parity",
     "reduce_for_display",
-    "ink_ratio",
     "to_qimage",
 ]

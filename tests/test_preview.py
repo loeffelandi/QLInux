@@ -2,9 +2,7 @@
 
 from __future__ import annotations
 
-import pytest
 from PIL import Image
-
 from ql_editor.preview import (
     PreviewOptions,
     binarize,
@@ -25,7 +23,7 @@ def test_white_stays_paper_black_becomes_ink():
     white = Image.new("L", (10, 10), 255)
     black = Image.new("L", (10, 10), 0)
     assert binarize(white).convert("L").getextrema() == (255, 255)  # nur Papier
-    assert binarize(black).convert("L").getextrema() == (0, 0)      # nur Tinte
+    assert binarize(black).convert("L").getextrema() == (0, 0)  # nur Tinte
 
 
 def test_threshold_boundary_matches_convert():
@@ -35,16 +33,20 @@ def test_threshold_boundary_matches_convert():
 
     dark_enough = Image.new("L", (1, 1), 179)
     too_light = Image.new("L", (1, 1), 180)
-    assert binarize(dark_enough, opts).convert("L").getpixel((0, 0)) == 0     # Tinte
-    assert binarize(too_light, opts).convert("L").getpixel((0, 0)) == 255     # Papier
+    assert binarize(dark_enough, opts).convert("L").getpixel((0, 0)) == 0  # Tinte
+    assert binarize(too_light, opts).convert("L").getpixel((0, 0)) == 255  # Papier
 
 
 def test_higher_threshold_means_more_ink():
     img = Image.new("L", (1, 1), 200)
     # threshold=70 -> Schwelle 76 -> invertiert 55 < 76 -> Papier.
-    assert binarize(img, PreviewOptions(threshold=70)).convert("L").getpixel((0, 0)) == 255
+    assert (
+        binarize(img, PreviewOptions(threshold=70)).convert("L").getpixel((0, 0)) == 255
+    )
     # threshold=90 -> Schwelle 25 -> invertiert 55 >= 25 -> Tinte.
-    assert binarize(img, PreviewOptions(threshold=90)).convert("L").getpixel((0, 0)) == 0
+    assert (
+        binarize(img, PreviewOptions(threshold=90)).convert("L").getpixel((0, 0)) == 0
+    )
 
 
 def test_dither_produces_mixed_output():
@@ -104,7 +106,6 @@ def test_preview_is_pixel_identical_to_the_printer_data():
     Threshold-/Dither-Kombinationen.
     """
     from brother_ql.raster import BrotherQLRaster
-
     from ql_editor.media import get_label
     from ql_editor.printer import PrinterConfig, build_raster
 
@@ -132,9 +133,13 @@ def test_preview_is_pixel_identical_to_the_printer_data():
 
                 # convert liefert 255 = Tinte; binarize 0 = Tinte.
                 sent = captured["image"]
-                sent_visual = sent.convert("L").point(lambda x: 0 if x else 255, mode="1")
+                sent_visual = sent.convert("L").point(
+                    lambda x: 0 if x else 255, mode="1"
+                )
                 offset = sent.width - render.width - label.right_margin_dots
-                crop = sent_visual.crop((offset, 0, offset + render.width, render.height))
+                crop = sent_visual.crop(
+                    (offset, 0, offset + render.width, render.height)
+                )
 
                 assert crop.tobytes() == binarize(render, options).tobytes(), (
                     f"Vorschau weicht bei threshold={threshold}, dither={dither} ab"

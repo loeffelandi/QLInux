@@ -10,7 +10,6 @@ import math
 
 import pytest
 from PySide6.QtCore import QSettings, Qt
-
 from ql_editor import media
 from ql_editor.canvas import ROTATE_OFFSET_PX, LabelCanvas
 from ql_editor.items import BarcodeItem, QRItem, TextItem, item_from_dict
@@ -139,7 +138,7 @@ def test_media_panel_switches_between_network_and_usb_rows(qapp, monkeypatch):
     from ql_editor import media_panel as media_panel_module
     from ql_editor.media_panel import CONNECTION_NETWORK, CONNECTION_USB, MediaPanel
 
-    monkeypatch.setattr(media_panel_module, "usb_printers", lambda: [])
+    monkeypatch.setattr(media_panel_module, "usb_printers", list)
     panel = MediaPanel()
     assert panel.connection() == CONNECTION_NETWORK
     assert panel._net_combo.isVisibleTo(panel)
@@ -161,7 +160,6 @@ def test_connection_tabs_keep_the_layout_stable(qapp, monkeypatch):
     Beschriftungsspalte ist fest breit.
     """
     from PySide6.QtCore import QPoint
-
     from ql_editor import media_panel as media_panel_module
     from ql_editor.media_panel import CONNECTION_NETWORK, CONNECTION_USB, MediaPanel
 
@@ -243,7 +241,7 @@ def test_network_address_is_taken_over_from_the_sheet(qapp, monkeypatch):
     from ql_editor import media_panel as media_panel_module
     from ql_editor.media_panel import MediaPanel
 
-    monkeypatch.setattr(media_panel_module, "usb_printers", lambda: [])
+    monkeypatch.setattr(media_panel_module, "usb_printers", list)
     panel = MediaPanel()
 
     panel.set_network_host("192.168.178.99")
@@ -482,7 +480,7 @@ def test_media_panel_keeps_a_stored_usb_address_when_unplugged(qapp, monkeypatch
     from ql_editor import media_panel as media_panel_module
     from ql_editor.media_panel import CONNECTION_USB, MediaPanel
 
-    monkeypatch.setattr(media_panel_module, "usb_printers", lambda: [])
+    monkeypatch.setattr(media_panel_module, "usb_printers", list)
     panel = MediaPanel()
     panel.set_address("usb://0x04f9:0x2042")
 
@@ -520,7 +518,7 @@ def test_media_panel_pulls_the_model_when_the_printer_shows_up_later(qapp, monke
 
     # Beim Start haengt der Drucker noch nicht am Kabel - das Modell bleibt
     # also stehen, wie es in den Einstellungen stand.
-    monkeypatch.setattr(media_panel_module, "usb_printers", lambda: [])
+    monkeypatch.setattr(media_panel_module, "usb_printers", list)
     monkeypatch.setattr(media_panel_module, "model_for_address", lambda address: None)
     panel = MediaPanel()
     panel.set_address("/dev/usb/lp1")
@@ -563,7 +561,7 @@ def test_media_panel_takes_the_single_printer_after_a_replug(qapp, monkeypatch):
     from ql_editor.media_panel import MediaPanel
 
     # Gespeichert war lp1; der Kernel hat nach dem Umstecken lp0 vergeben.
-    monkeypatch.setattr(media_panel_module, "usb_printers", lambda: [])
+    monkeypatch.setattr(media_panel_module, "usb_printers", list)
     monkeypatch.setattr(media_panel_module, "model_for_address", lambda address: None)
     panel = MediaPanel()
     panel.set_address("/dev/usb/lp1")
@@ -587,7 +585,7 @@ def test_media_panel_keeps_the_stored_printer_when_several_are_attached(
     from ql_editor import media_panel as media_panel_module
     from ql_editor.media_panel import MediaPanel
 
-    monkeypatch.setattr(media_panel_module, "usb_printers", lambda: [])
+    monkeypatch.setattr(media_panel_module, "usb_printers", list)
     monkeypatch.setattr(media_panel_module, "model_for_address", lambda address: None)
     panel = MediaPanel()
     panel.set_address("/dev/usb/lp1")
@@ -684,8 +682,8 @@ def test_detect_button_only_works_where_readback_is_possible(qapp):
 
 def test_media_panel_length_is_always_the_total(qapp):
     """40 mm sind die Gesamtlänge: der Inhalt wird um den Druckerrand kürzer."""
-    from ql_editor.media_panel import MediaPanel
     from ql_editor.media import LengthMode
+    from ql_editor.media_panel import MediaPanel
 
     panel = MediaPanel()
     panel._auto_check.setChecked(False)
@@ -853,7 +851,6 @@ def test_unprintable_edge_is_hatched_band_beyond_label_is_plain(qapp):
     """Kanten schraffiert; der graue Streifen hinter dem Etikett bleibt ohne Muster."""
     from PySide6.QtCore import QPoint, QPointF
     from PySide6.QtGui import QColor, QImage, QPainter
-
     from ql_editor.canvas import TAPE_BAND_COLOR
 
     canvas = LabelCanvas()
@@ -883,7 +880,9 @@ def test_unprintable_edge_is_hatched_band_beyond_label_is_plain(qapp):
                 found.add((color.red(), color.green(), color.blue()))
         return found
 
-    hatch = colors_at(QPointF(printable.center().x(), (tape.top() + printable.top()) / 2.0), 4)
+    hatch = colors_at(
+        QPointF(printable.center().x(), (tape.top() + printable.top()) / 2.0), 4
+    )
     assert len(hatch) > 1
     # Schnittversatz hinter der letzten Zeile: bei ALONG links, noch Teil des Etiketts.
     cut = colors_at(
@@ -912,7 +911,9 @@ def test_unprintable_edge_is_hatched_band_beyond_label_is_plain(qapp):
     painter.end()
     inner = canvas.margin_rect()
     printable = canvas.printable_rect()
-    margin_sample = QPointF(printable.center().x(), (printable.top() + inner.top()) / 2.0)
+    margin_sample = QPointF(
+        printable.center().x(), (printable.top() + inner.top()) / 2.0
+    )
     assert colors_at(margin_sample, 2) == {(255, 255, 255)}
 
 
@@ -956,7 +957,9 @@ def test_ruler_totals_match_the_label_size(qapp):
     """Was das Lineal beschriftet, ist die Groesse des Etiketts."""
     canvas = LabelCanvas()
     canvas.set_label(get_label("50"), 472)
-    finished = media.dots_to_mm(472 + 2 * get_label("50").feed_margin + media.CUT_OFFSET_DOTS)
+    finished = media.dots_to_mm(
+        472 + 2 * get_label("50").feed_margin + media.CUT_OFFSET_DOTS
+    )
     assert canvas._h_ruler.total_mm == pytest.approx(49.95, abs=0.05)
     assert canvas._v_ruler.total_mm == pytest.approx(finished, abs=0.05)
     canvas.set_label(get_label("50"), 472, orientation=media.Orientation.ALONG)
@@ -1196,7 +1199,6 @@ def test_mainwindow_render_matches_canvas(qapp):
 def test_canvas_print_preview_mode(qapp):
     from PIL import Image
     from PySide6.QtCore import QPointF
-
     from ql_editor.preview import binarize, to_qimage
 
     canvas = _prepared_canvas(qapp)
@@ -1253,12 +1255,20 @@ def test_canvas_print_preview_esc_requests_exit(qapp):
     canvas.print_preview_exit_requested.connect(lambda: seen.append(1))
     canvas.set_print_preview(True)
 
-    canvas.keyPressEvent(QKeyEvent(QEvent.Type.KeyPress, Qt.Key.Key_Escape, Qt.KeyboardModifier.NoModifier))
+    canvas.keyPressEvent(
+        QKeyEvent(
+            QEvent.Type.KeyPress, Qt.Key.Key_Escape, Qt.KeyboardModifier.NoModifier
+        )
+    )
     assert seen == [1]
 
     # Ausserhalb des Vorschau-Modus darf Esc das Signal nicht ausloesen.
     canvas.set_print_preview(False)
-    canvas.keyPressEvent(QKeyEvent(QEvent.Type.KeyPress, Qt.Key.Key_Escape, Qt.KeyboardModifier.NoModifier))
+    canvas.keyPressEvent(
+        QKeyEvent(
+            QEvent.Type.KeyPress, Qt.Key.Key_Escape, Qt.KeyboardModifier.NoModifier
+        )
+    )
     assert seen == [1]
 
 
@@ -1290,7 +1300,9 @@ def test_escape_ends_inline_editing(qapp):
     assert item.is_editing is True
 
     canvas.keyPressEvent(
-        QKeyEvent(QEvent.Type.KeyPress, Qt.Key.Key_Escape, Qt.KeyboardModifier.NoModifier)
+        QKeyEvent(
+            QEvent.Type.KeyPress, Qt.Key.Key_Escape, Qt.KeyboardModifier.NoModifier
+        )
     )
     assert item.is_editing is False
     assert item.isSelected() is False
@@ -1299,7 +1311,6 @@ def test_escape_ends_inline_editing(qapp):
 def test_new_text_is_empty_and_not_selected(qapp):
     """Doppelklick legt ein leeres Feld an - nichts ist markiert."""
     from PySide6.QtCore import QPointF
-
     from ql_editor.app import MainWindow
 
     win = MainWindow()
@@ -1365,7 +1376,6 @@ def test_empty_text_field_stays_when_editing_ends(qapp):
     """Wegklicken loescht ein leeres Textfeld nicht; es bleibt selektiert."""
     from PySide6.QtCore import QPointF
     from PySide6.QtWidgets import QSpinBox
-
     from ql_editor.app import MainWindow
 
     win = MainWindow()
@@ -1400,7 +1410,6 @@ def test_empty_text_stays_selected_after_click_on_empty_canvas(qapp):
     """Der Mausklick loescht die Auswahl erst danach; das leere Feld kommt zurueck."""
     from PySide6.QtCore import QEvent, QPointF, Qt
     from PySide6.QtGui import QKeyEvent
-
     from ql_editor.app import MainWindow
 
     win = MainWindow()
@@ -1417,7 +1426,9 @@ def test_empty_text_stays_selected_after_click_on_empty_canvas(qapp):
     assert item.isSelected()
 
     win._canvas.keyPressEvent(
-        QKeyEvent(QEvent.Type.KeyPress, Qt.Key.Key_Escape, Qt.KeyboardModifier.NoModifier)
+        QKeyEvent(
+            QEvent.Type.KeyPress, Qt.Key.Key_Escape, Qt.KeyboardModifier.NoModifier
+        )
     )
     qapp.processEvents()
     assert item.scene() is not None
@@ -1427,7 +1438,6 @@ def test_empty_text_stays_selected_after_click_on_empty_canvas(qapp):
 
 def test_text_field_with_content_survives_editing(qapp):
     from PySide6.QtCore import QPointF
-
     from ql_editor.app import MainWindow
 
     win = MainWindow()
@@ -1545,8 +1555,14 @@ def test_double_click_on_empty_canvas_requests_new_text(qapp):
 def test_apply_resize_for_all_types(qapp):
     from PySide6.QtCore import QRectF
     from PySide6.QtGui import QPixmap
-
-    from ql_editor.items import BarcodeItem, ImageItem, LineItem, QRItem, RectItem, ShapeItem
+    from ql_editor.items import (
+        BarcodeItem,
+        ImageItem,
+        LineItem,
+        QRItem,
+        RectItem,
+        ShapeItem,
+    )
 
     qr = QRItem("x", 100)
     qr.apply_resize(200, 180)
@@ -1605,25 +1621,31 @@ def test_canvas_keyboard_delete_and_nudge(qapp):
     canvas.add_item(item)
     item.setPos(50, 50)
 
-    nudge = QKeyEvent(QEvent.Type.KeyPress, Qt.Key.Key_Right, Qt.KeyboardModifier.NoModifier)
+    nudge = QKeyEvent(
+        QEvent.Type.KeyPress, Qt.Key.Key_Right, Qt.KeyboardModifier.NoModifier
+    )
     canvas.keyPressEvent(nudge)
     assert item.pos().x() == pytest.approx(51)
 
-    delete = QKeyEvent(QEvent.Type.KeyPress, Qt.Key.Key_Delete, Qt.KeyboardModifier.NoModifier)
+    delete = QKeyEvent(
+        QEvent.Type.KeyPress, Qt.Key.Key_Delete, Qt.KeyboardModifier.NoModifier
+    )
     canvas.keyPressEvent(delete)
     assert canvas.items_serialized() == []
 
 
 def test_inspector_shows_only_selected_kind(qapp):
     from PySide6.QtWidgets import QGroupBox
-
     from ql_editor.inspector import InspectorPanel
     from ql_editor.items import QRItem
 
     inspector = InspectorPanel()
     inspector.set_item(TextItem("x"))
     assert inspector._title.text() == "Text"
-    assert {box.title() for box in inspector.findChildren(QGroupBox)} >= {"Text", "Lage"}
+    assert {box.title() for box in inspector.findChildren(QGroupBox)} >= {
+        "Text",
+        "Lage",
+    }
     inspector.set_item(QRItem("y", 100))
     assert inspector._title.text() == "QR-Code"
     inspector.set_item(None)
@@ -1657,7 +1679,6 @@ def _title_glyph_lightness(title, prefer_light: bool) -> int:
 def test_empty_inspector_title_follows_the_palette(qapp, tmp_path):
     """Normale Schrift. Hell bleibt dunkel, Dunkel wird hell."""
     from PySide6.QtCore import Qt
-
     from ql_editor.theme import apply_theme
 
     original = qapp.palette()
@@ -1682,7 +1703,6 @@ def test_empty_inspector_title_follows_the_palette(qapp, tmp_path):
 
 def test_inspector_puts_x_and_y_on_one_row(qapp):
     from PySide6.QtWidgets import QLabel, QSpinBox
-
     from ql_editor.inspector import InspectorPanel
 
     inspector = InspectorPanel()
@@ -1703,7 +1723,6 @@ def test_inspector_puts_x_and_y_on_one_row(qapp):
 
 def test_inspector_rotation_field_is_left_aligned(qapp):
     from PySide6.QtWidgets import QLabel, QSpinBox
-
     from ql_editor.inspector import InspectorPanel
 
     inspector = InspectorPanel()
@@ -1717,11 +1736,14 @@ def test_inspector_rotation_field_is_left_aligned(qapp):
     rot_label = labels["Drehung"]
     xy_row = x_label.parentWidget()
     rot_row = rot_label.parentWidget()
-    rot_spin = next(spin for spin in rot_row.findChildren(QSpinBox) if "°" in spin.suffix())
+    rot_spin = next(
+        spin for spin in rot_row.findChildren(QSpinBox) if "°" in spin.suffix()
+    )
 
-    assert rot_row.mapTo(inspector, rot_row.rect().topLeft()).x() == xy_row.mapTo(
-        inspector, xy_row.rect().topLeft()
-    ).x()
+    assert (
+        rot_row.mapTo(inspector, rot_row.rect().topLeft()).x()
+        == xy_row.mapTo(inspector, xy_row.rect().topLeft()).x()
+    )
     assert rot_label.x() <= 2
     assert rot_spin.x() == rot_label.x() + rot_label.width() + 6
     assert rot_spin.width() <= rot_spin.sizeHint().width() + 4
@@ -1730,7 +1752,6 @@ def test_inspector_rotation_field_is_left_aligned(qapp):
 
 def test_mainwindow_double_click_creates_text(qapp):
     from PySide6.QtCore import QPointF
-
     from ql_editor.app import MainWindow
 
     win = MainWindow()
@@ -1784,15 +1805,20 @@ def _wheel_event(modifiers, dy, dx=0, x=100, y=100):
 
     pos = QPointF(x, y)
     return QWheelEvent(
-        pos, pos, QPoint(dx, dy), QPoint(dx, dy),
-        Qt.MouseButton.NoButton, modifiers, Qt.ScrollPhase.NoScrollPhase, False,
+        pos,
+        pos,
+        QPoint(dx, dy),
+        QPoint(dx, dy),
+        Qt.MouseButton.NoButton,
+        modifiers,
+        Qt.ScrollPhase.NoScrollPhase,
+        False,
     )
 
 
 def test_wheel_guard_prevents_unfocused_change(qapp):
     from PySide6.QtCore import Qt
     from PySide6.QtWidgets import QSpinBox, QVBoxLayout, QWidget
-
     from ql_editor.widgets import install_wheel_guard_recursive
 
     host = QWidget()
@@ -1913,7 +1939,6 @@ def test_smooth_scroll_area_wheel_scrolls_and_guard_keeps_value(qapp):
 
     from PySide6.QtCore import Qt
     from PySide6.QtWidgets import QSpinBox, QVBoxLayout, QWidget
-
     from ql_editor.widgets import SmoothScrollArea, install_wheel_guard_recursive
 
     content = QWidget()
@@ -1950,7 +1975,7 @@ def test_smooth_scroll_area_wheel_scrolls_and_guard_keeps_value(qapp):
         qapp.processEvents()
         time.sleep(0.01)
     assert vbar.value() != before  # Panel scrollt
-    assert target.value() == 0     # Feldwert bleibt
+    assert target.value() == 0  # Feldwert bleibt
 
 
 def test_side_panels_use_smooth_scroll_area(qapp):
@@ -2033,7 +2058,6 @@ def test_manual_zoom_persists_across_resize(qapp):
 
 def test_side_panels_are_scrollable(qapp):
     from PySide6.QtWidgets import QScrollArea
-
     from ql_editor.app import MainWindow
 
     win = MainWindow()
@@ -2046,7 +2070,7 @@ def test_side_panels_are_scrollable(qapp):
 # Moderne Maus-Bearbeitung: Verschieben, Groesse, Drehen, Snapping, Drag&Drop
 # --------------------------------------------------------------------------- #
 def _mouse_event(kind, canvas, scene_pos, button, buttons, mods):
-    from PySide6.QtCore import QEvent, QPointF
+    from PySide6.QtCore import QPointF
     from PySide6.QtGui import QMouseEvent
 
     vp = canvas.mapFromScene(scene_pos)
@@ -2058,7 +2082,14 @@ def _press(canvas, scene_pos, mods=None):
 
     mods = Qt.KeyboardModifier.NoModifier if mods is None else mods
     canvas.mousePressEvent(
-        _mouse_event(QEvent.Type.MouseButtonPress, canvas, scene_pos, Qt.MouseButton.LeftButton, Qt.MouseButton.LeftButton, mods)
+        _mouse_event(
+            QEvent.Type.MouseButtonPress,
+            canvas,
+            scene_pos,
+            Qt.MouseButton.LeftButton,
+            Qt.MouseButton.LeftButton,
+            mods,
+        )
     )
 
 
@@ -2095,7 +2126,14 @@ def _drag_to(canvas, scene_pos, mods=None):
 
     mods = Qt.KeyboardModifier.NoModifier if mods is None else mods
     canvas.mouseMoveEvent(
-        _mouse_event(QEvent.Type.MouseMove, canvas, scene_pos, Qt.MouseButton.NoButton, Qt.MouseButton.LeftButton, mods)
+        _mouse_event(
+            QEvent.Type.MouseMove,
+            canvas,
+            scene_pos,
+            Qt.MouseButton.NoButton,
+            Qt.MouseButton.LeftButton,
+            mods,
+        )
     )
 
 
@@ -2103,7 +2141,14 @@ def _release(canvas, scene_pos):
     from PySide6.QtCore import QEvent, Qt
 
     canvas.mouseReleaseEvent(
-        _mouse_event(QEvent.Type.MouseButtonRelease, canvas, scene_pos, Qt.MouseButton.LeftButton, Qt.MouseButton.NoButton, Qt.KeyboardModifier.NoModifier)
+        _mouse_event(
+            QEvent.Type.MouseButtonRelease,
+            canvas,
+            scene_pos,
+            Qt.MouseButton.LeftButton,
+            Qt.MouseButton.NoButton,
+            Qt.KeyboardModifier.NoModifier,
+        )
     )
 
 
@@ -2131,7 +2176,6 @@ def test_canvas_has_eight_handles_and_rotate(qapp):
 def _tick_points(canvas, item):
     """Stub, Eckstrich, Luecke und Drehgriff in Szenenkoordinaten."""
     from PySide6.QtCore import QPointF
-
     from ql_editor.canvas import FRAME_TICK_PX
 
     top = canvas._handle_points(item)["n"]
@@ -2174,7 +2218,6 @@ def _bluish(canvas, image, scene_pt, radius):
 def test_handles_appear_on_first_click_and_ticks_follow_pointer(qapp):
     """Erster Klick zeigt die Anfasser; Marken blenden mit dem Zeiger."""
     from PySide6.QtCore import QEvent, QObject, QPointF, QRect
-
     from ql_editor.items import RectItem
 
     canvas = _prepared_canvas(qapp)
@@ -2358,7 +2401,6 @@ def test_new_text_field_shows_handles_while_editing(qapp):
 
 def test_double_click_on_edit_border_creates_no_text(qapp):
     from PySide6.QtCore import QEvent, QPointF, Qt
-
     from ql_editor.canvas import EDIT_BORDER_PX
 
     canvas = _prepared_canvas(qapp)
@@ -2372,11 +2414,17 @@ def test_double_click_on_edit_border_creates_no_text(qapp):
     canvas.text_requested.connect(requested.append)
 
     box = item.sceneBoundingRect()
-    on_border = QPointF(box.center().x(), box.top() - EDIT_BORDER_PX * 0.5 / canvas._scale())
+    on_border = QPointF(
+        box.center().x(), box.top() - EDIT_BORDER_PX * 0.5 / canvas._scale()
+    )
     canvas.mouseDoubleClickEvent(
         _mouse_event(
-            QEvent.Type.MouseButtonDblClick, canvas, on_border,
-            Qt.MouseButton.LeftButton, Qt.MouseButton.LeftButton, Qt.KeyboardModifier.NoModifier,
+            QEvent.Type.MouseButtonDblClick,
+            canvas,
+            on_border,
+            Qt.MouseButton.LeftButton,
+            Qt.MouseButton.LeftButton,
+            Qt.KeyboardModifier.NoModifier,
         )
     )
     assert requested == []
@@ -2461,7 +2509,6 @@ def test_rotate_handle_shows_a_rotation_cursor(qapp):
     Pixmap-Zeiger gesetzt (siehe :func:`ql_editor.icons.cursor`).
     """
     from PySide6.QtCore import QEvent, Qt
-
     from ql_editor import icons
 
     canvas = _prepared_canvas(qapp)
@@ -2577,10 +2624,9 @@ def test_canvas_small_drag_does_not_stick_to_own_edges(qapp):
 
 
 def test_mainwindow_drop_image_and_text(qapp, tmp_path):
-    from PySide6.QtCore import QMimeData, QPointF, QUrl, Qt
-    from PySide6.QtGui import QDropEvent
     from PIL import Image as PILImage
-
+    from PySide6.QtCore import QMimeData, QPointF, Qt, QUrl
+    from PySide6.QtGui import QDropEvent
     from ql_editor.app import MainWindow
     from ql_editor.items import ImageItem
 
@@ -2596,8 +2642,11 @@ def test_mainwindow_drop_image_and_text(qapp, tmp_path):
     mime = QMimeData()
     mime.setUrls([QUrl.fromLocalFile(str(path))])
     ev = QDropEvent(
-        QPointF(300, 200), Qt.DropAction.CopyAction, mime,
-        Qt.MouseButton.LeftButton, Qt.KeyboardModifier.NoModifier,
+        QPointF(300, 200),
+        Qt.DropAction.CopyAction,
+        mime,
+        Qt.MouseButton.LeftButton,
+        Qt.KeyboardModifier.NoModifier,
     )
     canvas.dropEvent(ev)
     images = [i for i in canvas.scene().items() if isinstance(i, ImageItem)]
@@ -2609,11 +2658,18 @@ def test_mainwindow_drop_image_and_text(qapp, tmp_path):
     mime2 = QMimeData()
     mime2.setText("Hallo Welt")
     ev2 = QDropEvent(
-        QPointF(120, 200), Qt.DropAction.CopyAction, mime2,
-        Qt.MouseButton.LeftButton, Qt.KeyboardModifier.NoModifier,
+        QPointF(120, 200),
+        Qt.DropAction.CopyAction,
+        mime2,
+        Qt.MouseButton.LeftButton,
+        Qt.KeyboardModifier.NoModifier,
     )
     canvas.dropEvent(ev2)
-    texts = [i.to_dict().get("text") for i in canvas.scene().items() if getattr(i, "kind", None) == "text"]
+    texts = [
+        i.to_dict().get("text")
+        for i in canvas.scene().items()
+        if getattr(i, "kind", None) == "text"
+    ]
     assert "Hallo Welt" in texts
 
 
@@ -2628,7 +2684,12 @@ def test_canvas_ignores_text_dragged_out_of_its_own_text_field(qapp):
     mime = QMimeData()
     mime.setText("asdf")
     pos = QPointF(150, 120)
-    args = (Qt.DropAction.MoveAction, mime, Qt.MouseButton.LeftButton, Qt.KeyboardModifier.NoModifier)
+    args = (
+        Qt.DropAction.MoveAction,
+        mime,
+        Qt.MouseButton.LeftButton,
+        Qt.KeyboardModifier.NoModifier,
+    )
 
     # Qt haengt die Quelle an den laufenden Drag, nicht an den Event-Konstruktor.
     class _OwnMove(QDragMoveEvent):
@@ -2658,7 +2719,6 @@ def test_canvas_ignores_text_dragged_out_of_its_own_text_field(qapp):
 def test_image_item_serialization_roundtrip(qapp):
     """Regression: Pixmap-Serialisierung muss ohne BytesIO funktionieren."""
     from PySide6.QtGui import QPixmap
-
     from ql_editor.items import ImageItem
 
     item = ImageItem(QPixmap(40, 20))
@@ -2677,7 +2737,6 @@ def test_rotation_cannot_push_object_past_the_printable_edge(qapp, tmp_path):
 
     from PySide6.QtCore import QPointF
     from PySide6.QtGui import QColor, QImage
-
     from ql_editor.items import ImageItem
 
     path = tmp_path / "p.png"
@@ -2700,7 +2759,9 @@ def test_rotation_cannot_push_object_past_the_printable_edge(qapp, tmp_path):
         canvas._op_rotate_start = 0.0
         canvas._op_rotate_center = center
         rad = math.radians(angle)
-        canvas._do_rotate(QPointF(center.x() + 100 * math.cos(rad), center.y() + 100 * math.sin(rad)))
+        canvas._do_rotate(
+            QPointF(center.x() + 100 * math.cos(rad), center.y() + 100 * math.sin(rad))
+        )
         assert canvas._inside_printable(item), angle
 
     # Ein Bild, das die ganze Breite fuellt, ragt schon bei kleinem Winkel ueber den Rand.
@@ -2722,7 +2783,6 @@ def test_rotation_cannot_push_object_past_the_printable_edge(qapp, tmp_path):
 def test_webp_with_alpha_loads_and_stays_transparent_on_print(qapp, tmp_path):
     """WebP mit Transparenz: laden, und transparente Stellen werden auf dem Band weiss."""
     from PySide6.QtGui import QColor, QImage
-
     from ql_editor.items import ImageItem
 
     source = QImage(400, 200, QImage.Format.Format_ARGB32)
@@ -2749,7 +2809,6 @@ def test_old_png_items_still_load(qapp):
     from io import BytesIO
 
     from PIL import Image
-
     from ql_editor.items import ImageItem
 
     buf = BytesIO()
@@ -2772,7 +2831,6 @@ def test_old_png_items_still_load(qapp):
 def test_large_image_is_downscaled_but_keeps_its_size(qapp, tmp_path):
     """Grosse Fotos werden beim Laden verkleinert; die Groesse im Etikett bleibt."""
     from PySide6.QtGui import QColor, QImage
-
     from ql_editor.items import IMAGE_MAX_SIDE_PX, ImageItem
 
     path = tmp_path / "big.png"
@@ -2817,7 +2875,6 @@ def test_icon_unknown_name_raises(qapp):
 
 def test_icon_color_is_configurable(qapp):
     from PySide6.QtGui import QColor
-
     from ql_editor import icons
 
     red = icons.icon("print", QColor("#ff0000"))
@@ -2835,7 +2892,6 @@ def _save_button_action(win):
 
 def test_save_button_splits_save_and_save_as(qapp):
     from PySide6.QtWidgets import QToolButton
-
     from ql_editor.app import MainWindow
 
     win = MainWindow()
@@ -2851,7 +2907,6 @@ def test_save_button_splits_save_and_save_as(qapp):
 def test_toolbar_has_undo_and_redo(qapp):
     """Rückgängig und Wiederholen liegen als eigene Icons in der Toolbar."""
     from PySide6.QtWidgets import QToolBar
-
     from ql_editor.app import MainWindow
 
     win = MainWindow()
@@ -2885,7 +2940,6 @@ def _icon_bytes(action):
 def test_stack_steps_one_place_and_extremes_keep_order(qapp, tmp_path):
     """Eine Ebene tauscht mit dem Nachbarn; Extrem legt die Gruppe ganz nach vorn oder hinten."""
     from PySide6.QtCore import QRectF
-
     from ql_editor.items import RectItem
 
     win = _temp_window(qapp, tmp_path)
@@ -2953,7 +3007,10 @@ def test_snap_to_guides_applies_drag_snap_once(qapp, tmp_path):
     assert item.sceneBoundingRect().left() == pytest.approx(left, abs=0.6)
     assert win._undo_stack.undoText() == "An Hilfslinien ausrichten"
     assert canvas._guides
-    assert any(axis == "v" and coord == pytest.approx(left, abs=0.6) for axis, coord in canvas._guides)
+    assert any(
+        axis == "v" and coord == pytest.approx(left, abs=0.6)
+        for axis, coord in canvas._guides
+    )
     win.close()
     qapp.processEvents()
 
@@ -2973,7 +3030,7 @@ def test_tab_switch_clears_the_rotate_hint(qapp, tmp_path):
 
 def test_toolbar_has_align_dropdown_before_front(qapp, tmp_path):
     """Ausrichten liegt als Dropdown in der Toolbar, vor Vordergrund und Hintergrund."""
-    from PySide6.QtWidgets import QToolButton, QToolBar
+    from PySide6.QtWidgets import QToolBar, QToolButton
 
     win = _temp_window(qapp, tmp_path)
     bar = win.findChild(QToolBar, "main_toolbar")
@@ -2988,7 +3045,9 @@ def test_toolbar_has_align_dropdown_before_front(qapp, tmp_path):
         win._act_align_bottom,
     ]
     actions = bar.actions()
-    button_at = next(i for i, a in enumerate(actions) if bar.widgetForAction(a) is button)
+    button_at = next(
+        i for i, a in enumerate(actions) if bar.widgetForAction(a) is button
+    )
     layer = win.findChild(QToolButton, "layer_button")
     assert layer.menu().actions() == [
         win._act_front,
@@ -3027,7 +3086,6 @@ def test_shapes_menu_and_inspector_smoke(qapp, tmp_path):
     """Formen-Menue legt ShapeItem an; Inspector zeigt Form-Felder."""
     from PySide6.QtCore import QPointF
     from PySide6.QtWidgets import QComboBox, QToolButton
-
     from ql_editor.items import ShapeItem
 
     win = _temp_window(qapp, tmp_path)
@@ -3038,6 +3096,7 @@ def test_shapes_menu_and_inspector_smoke(qapp, tmp_path):
     assert "Rahmen" in menu_labels
     assert "Stern" in menu_labels
     assert "Ellipse" in menu_labels
+
     def _texts(menu):
         found = []
         for action in menu.actions():
@@ -3052,7 +3111,15 @@ def test_shapes_menu_and_inspector_smoke(qapp, tmp_path):
     for label in menu_labels:
         assert label in context_labels
     top_level = [action.text() for action in win._menu_button.menu().actions()]
-    for label in ("Ellipse", "Dreieck", "Stern", "Pfeil rechts", "Pfeil links", "Doppelpfeil", "Formen"):
+    for label in (
+        "Ellipse",
+        "Dreieck",
+        "Stern",
+        "Pfeil rechts",
+        "Pfeil links",
+        "Doppelpfeil",
+        "Formen",
+    ):
         assert label not in top_level
     shapes = button.menu()
     assert shapes.actions()[0] is win._act_add_line
@@ -3064,7 +3131,9 @@ def test_shapes_menu_and_inspector_smoke(qapp, tmp_path):
     assert [action.text() for action in codes.actions()] == ["Barcode…", "QR-Code…"]
 
     win._add_shape("star")
-    shapes = [item for item in win._canvas.scene().items() if isinstance(item, ShapeItem)]
+    shapes = [
+        item for item in win._canvas.scene().items() if isinstance(item, ShapeItem)
+    ]
     assert len(shapes) == 1
     assert shapes[0].shape_name == "star"
 
@@ -3085,7 +3154,6 @@ def test_shapes_menu_and_inspector_smoke(qapp, tmp_path):
 def test_toolbar_is_icon_only(qapp):
     from PySide6.QtCore import Qt
     from PySide6.QtWidgets import QToolBar, QWidgetAction
-
     from ql_editor.app import MainWindow
 
     win = MainWindow()
@@ -3106,7 +3174,6 @@ def test_no_menu_bar_but_hamburger_menu(qapp):
     """Keine Menueleiste. Der Burger haelt nur, was die Toolbar nicht zeigt."""
     from PySide6.QtGui import QAction, QKeySequence
     from PySide6.QtWidgets import QMenuBar, QToolBar, QToolButton
-
     from ql_editor.app import MainWindow
 
     win = MainWindow()
@@ -3218,7 +3285,12 @@ def test_no_menu_bar_but_hamburger_menu(qapp):
         win._act_zoom_in,
         win._act_zoom_100,
     }
-    for act in (win._act_zoom_out, win._act_zoom_fit, win._act_zoom_in, win._act_zoom_100):
+    for act in (
+        win._act_zoom_out,
+        win._act_zoom_fit,
+        win._act_zoom_in,
+        win._act_zoom_100,
+    ):
         assert act not in bar.actions()
     assert win._act_print_preview not in bar.actions()
     assert win._act_print_history not in bar.actions()
@@ -3245,7 +3317,6 @@ def test_no_menu_bar_but_hamburger_menu(qapp):
     from PySide6.QtCore import QPointF, QRectF, Qt
     from PySide6.QtTest import QTest
     from PySide6.QtWidgets import QLineEdit, QListWidget
-
     from ql_editor.items import RectItem
     from ql_editor.sheet import Sheet
 
@@ -3264,9 +3335,10 @@ def test_no_menu_bar_but_hamburger_menu(qapp):
         if action.menu() is not None and action.text() == "Layout"
     )
     assert [win._act_forward, win._act_front, win._act_backward, win._act_back] == [
-        action for action in layout.actions() if action in (
-            win._act_forward, win._act_front, win._act_backward, win._act_back
-        )
+        action
+        for action in layout.actions()
+        if action
+        in (win._act_forward, win._act_front, win._act_backward, win._act_back)
     ]
 
     def _open_palette():
@@ -3303,7 +3375,9 @@ def test_no_menu_bar_but_hamburger_menu(qapp):
     shapes_row = listing.currentRow()
     assert shapes_row > 0
     QTest.keyClick(edit, Qt.Key.Key_Right)
-    assert any(listing.item(i).text().startswith("Stern") for i in range(listing.count()))
+    assert any(
+        listing.item(i).text().startswith("Stern") for i in range(listing.count())
+    )
     QTest.keyClick(edit, Qt.Key.Key_Down)
     assert listing.currentRow() == 1
     QTest.keyClick(edit, Qt.Key.Key_Left)
@@ -3315,7 +3389,9 @@ def test_no_menu_bar_but_hamburger_menu(qapp):
 
     edit.setText("Neu")
     shown = [listing.item(i).text() for i in range(listing.count())]
-    native = win._act_file_new.shortcut().toString(QKeySequence.SequenceFormat.NativeText)
+    native = win._act_file_new.shortcut().toString(
+        QKeySequence.SequenceFormat.NativeText
+    )
     assert any(text.startswith("Neu") and text.endswith(native) for text in shown)
     assert all(not text.startswith("Einfügen") for text in shown)
     edit.setText("kein-treffer")
@@ -3353,7 +3429,6 @@ def test_menu_actions_have_icons(qapp):
 
 def test_context_menu_has_icons(qapp):
     from PySide6.QtCore import QPointF
-
     from ql_editor.app import MainWindow
 
     win = MainWindow()
@@ -3413,7 +3488,6 @@ def test_orientation_ignored_when_unchanged(qapp):
 
 def test_toolbar_has_no_orientation_buttons(qapp):
     from PySide6.QtWidgets import QToolBar
-
     from ql_editor.app import MainWindow
 
     win = MainWindow()
@@ -3428,7 +3502,9 @@ def test_orientation_is_in_the_command_list_not_the_burger(qapp):
 
     win = MainWindow()
     items = win._menu_button.menu().actions()
-    etikett = next(entry for entry in win._palette_entries() if entry.title == "Etikett")
+    etikett = next(
+        entry for entry in win._palette_entries() if entry.title == "Etikett"
+    )
     for act in win._media_panel.orientation_actions():
         assert act not in items
         assert act in [child.action for child in etikett.children]
@@ -3436,7 +3512,6 @@ def test_orientation_is_in_the_command_list_not_the_burger(qapp):
 
 def test_orientation_changes_canvas_and_print_image(qapp):
     from PySide6.QtCore import QSize
-
     from ql_editor.app import MainWindow
 
     win = MainWindow()
@@ -3448,10 +3523,14 @@ def test_orientation_changes_canvas_and_print_image(qapp):
     win._canvas.cancel_editing()
     label = win._media_panel.label
     length = win._canvas.length_dots
-    assert win._canvas.printable_rect().size().toSize() == QSize(label.width_dots, length)
+    assert win._canvas.printable_rect().size().toSize() == QSize(
+        label.width_dots, length
+    )
 
     win._media_panel.set_orientation(media.Orientation.ALONG)
-    assert win._canvas.printable_rect().size().toSize() == QSize(length, label.width_dots)
+    assert win._canvas.printable_rect().size().toSize() == QSize(
+        length, label.width_dots
+    )
     assert win._canvas.length_dots == length
     # Das Druckbild ist in beiden Ausrichtungen bandbreit.
     assert win._for_print().size == (label.width_dots, length)
@@ -3477,7 +3556,9 @@ def test_orientation_moves_side_border_to_tape_edges(qapp):
     # Letzte Druckzeile ist links (ROTATE_90), dort sitzt der Schnittversatz.
     assert tape.top() == pytest.approx(-label.side_border_dots)
     assert tape.bottom() == pytest.approx(printable.bottom() + label.side_border_dots)
-    assert printable.left() - tape.left() == pytest.approx(label.feed_margin + media.CUT_OFFSET_DOTS)
+    assert printable.left() - tape.left() == pytest.approx(
+        label.feed_margin + media.CUT_OFFSET_DOTS
+    )
     assert tape.right() - printable.right() == pytest.approx(label.feed_margin)
 
 
@@ -3499,18 +3580,18 @@ def test_print_preview_image_stays_canvas_aligned(qapp):
 
 def test_panel_group_titles_are_bold(qapp):
     from PySide6.QtWidgets import QGroupBox
-
     from ql_editor.media_panel import MediaPanel
 
     panel = MediaPanel()
-    box = next(item for item in panel.findChildren(QGroupBox) if item.title() == "Drucker")
+    box = next(
+        item for item in panel.findChildren(QGroupBox) if item.title() == "Drucker"
+    )
     assert box.font().bold()
 
 
 def test_length_panel_has_no_meaning_and_no_result(qapp):
     """Gesamtlänge bleibt. Bedeutung und die Ergebniszeile gibt es nicht mehr."""
     from PySide6.QtWidgets import QComboBox, QLabel
-
     from ql_editor.app import MainWindow
 
     win = MainWindow()
@@ -3532,7 +3613,6 @@ def test_length_panel_has_no_meaning_and_no_result(qapp):
 # --------------------------------------------------------------------------- #
 def test_panel_actions_are_in_the_menu_not_the_toolbar(qapp):
     from PySide6.QtWidgets import QToolBar
-
     from ql_editor.app import MainWindow
 
     win = MainWindow()
@@ -3565,7 +3645,9 @@ def test_panel_actions_are_in_the_menu_not_the_toolbar(qapp):
     assert win._act_panel_left not in win._menu_button.menu().actions()
     assert win._act_panel_right not in win._menu_button.menu().actions()
     assert win._act_panel_left in win.actions()
-    ansicht = next(entry for entry in win._palette_entries() if entry.title == "Ansicht")
+    ansicht = next(
+        entry for entry in win._palette_entries() if entry.title == "Ansicht"
+    )
     assert win._act_panel_left in [child.action for child in ansicht.children]
     assert win._act_panel_right in [child.action for child in ansicht.children]
 
@@ -3573,7 +3655,6 @@ def test_panel_actions_are_in_the_menu_not_the_toolbar(qapp):
 def test_rich_text_shortcuts_and_moved_panel_keys(qapp):
     from PySide6.QtGui import QKeySequence
     from PySide6.QtWidgets import QCheckBox
-
     from ql_editor.app import MainWindow
     from ql_editor.command_palette import CommandPalette
     from ql_editor.items import DateTimeItem, TableItem, TextItem
@@ -3586,7 +3667,9 @@ def test_rich_text_shortcuts_and_moved_panel_keys(qapp):
     assert win._right_panel.wanted_docked is False
 
     menu = win._menu_button.menu()
-    bearbeiten = next(entry for entry in win._palette_entries() if entry.title == "Bearbeiten")
+    bearbeiten = next(
+        entry for entry in win._palette_entries() if entry.title == "Bearbeiten"
+    )
     palette_actions = [child.action for child in bearbeiten.children]
     for action, shortcut in (
         (win._act_bold, "Ctrl+B"),
@@ -3613,7 +3696,9 @@ def test_rich_text_shortcuts_and_moved_panel_keys(qapp):
     assert win._act_bold.isChecked()
     assert win._undo_stack.undoText() == "Unterstrichen"
     win._act_undo.trigger()
-    text = [item for item in win._canvas.ordered_items() if isinstance(item, TextItem)][-1]
+    text = [item for item in win._canvas.ordered_items() if isinstance(item, TextItem)][
+        -1
+    ]
     assert text.bold and text.italic
     assert text.underline is False
 
@@ -3623,11 +3708,15 @@ def test_rich_text_shortcuts_and_moved_panel_keys(qapp):
     assert text.is_editing and text.underline
     assert win._undo_stack.undoText() == "Unterstrichen"
     win._act_undo.trigger()
-    text = [item for item in win._canvas.ordered_items() if isinstance(item, TextItem)][-1]
+    text = [item for item in win._canvas.ordered_items() if isinstance(item, TextItem)][
+        -1
+    ]
     assert text.toPlainText() == "Hallo!"
     assert text.underline is False
     win._act_undo.trigger()
-    text = [item for item in win._canvas.ordered_items() if isinstance(item, TextItem)][-1]
+    text = [item for item in win._canvas.ordered_items() if isinstance(item, TextItem)][
+        -1
+    ]
     assert text.toPlainText() == "Hallo"
 
     palette = CommandPalette(win._palette_entries(), win)
@@ -3636,13 +3725,25 @@ def test_rich_text_shortcuts_and_moved_panel_keys(qapp):
         palette._edit.setText(query)
         return [palette._list.item(i).text() for i in range(palette._list.count())]
 
-    bold_native = win._act_bold.shortcut().toString(QKeySequence.SequenceFormat.NativeText)
-    panel_native = win._act_panel_left.shortcut().toString(QKeySequence.SequenceFormat.NativeText)
-    right_native = win._act_panel_right.shortcut().toString(QKeySequence.SequenceFormat.NativeText)
-    assert any(label.startswith("Fett") and bold_native in label for label in _labels("Fett"))
-    assert any(label.startswith("Panel links") and panel_native in label for label in _labels("Panel links"))
+    bold_native = win._act_bold.shortcut().toString(
+        QKeySequence.SequenceFormat.NativeText
+    )
+    panel_native = win._act_panel_left.shortcut().toString(
+        QKeySequence.SequenceFormat.NativeText
+    )
+    right_native = win._act_panel_right.shortcut().toString(
+        QKeySequence.SequenceFormat.NativeText
+    )
     assert any(
-        label.startswith("Panel rechts") and right_native in label for label in _labels("Panel rechts")
+        label.startswith("Fett") and bold_native in label for label in _labels("Fett")
+    )
+    assert any(
+        label.startswith("Panel links") and panel_native in label
+        for label in _labels("Panel links")
+    )
+    assert any(
+        label.startswith("Panel rechts") and right_native in label
+        for label in _labels("Panel rechts")
     )
 
     stamp = DateTimeItem(font_pixel_size=32)
@@ -3667,7 +3768,6 @@ def test_rich_text_shortcuts_and_moved_panel_keys(qapp):
 
 def test_panel_arrow_sits_in_the_panel(qapp):
     from PySide6.QtCore import QPointF
-
     from ql_editor.app import MainWindow
 
     win = MainWindow()
@@ -3939,7 +4039,6 @@ def test_panel_icons_available(qapp):
 # --------------------------------------------------------------------------- #
 def _wide_image(width: int = 2400, height: int = 1600):
     from PySide6.QtGui import QPixmap
-
     from ql_editor.items import ImageItem
 
     pixmap = QPixmap(width, height)
@@ -3964,7 +4063,6 @@ def test_pasteboard_gives_scrollbars_for_oversized_items(qapp):
 
 
 def test_pasteboard_keeps_visible_area_when_items_grow(qapp):
-    from PySide6.QtCore import QPointF
 
     canvas = _prepared_canvas(qapp)
     canvas.zoom_by(2.0)
@@ -4139,7 +4237,10 @@ def _rotate_to(canvas, item, degrees_from_start: float, *, snap: bool = False) -
     canvas._op_rotate_start = 0.0
     canvas._op_start_rotation = 0.0
     rad = math.radians(degrees_from_start)
-    canvas._do_rotate(QPointF(center.x() + 100 * math.cos(rad), center.y() + 100 * math.sin(rad)), snap=snap)
+    canvas._do_rotate(
+        QPointF(center.x() + 100 * math.cos(rad), center.y() + 100 * math.sin(rad)),
+        snap=snap,
+    )
     return item.rotation()
 
 
@@ -4155,21 +4256,6 @@ def test_rotation_is_free_except_sticky_90_degree_detent(qapp):
     # ... danach wieder frei.
     assert _rotate_to(canvas, item, 99.0) == pytest.approx(99, abs=0.01)
     assert _rotate_to(canvas, item, 45.0) == pytest.approx(45, abs=0.01)
-
-
-def _hover(canvas, scene_pos):
-    from PySide6.QtCore import QEvent, Qt
-
-    canvas.mouseMoveEvent(
-        _mouse_event(
-            QEvent.Type.MouseMove,
-            canvas,
-            scene_pos,
-            Qt.MouseButton.NoButton,
-            Qt.MouseButton.NoButton,
-            Qt.KeyboardModifier.NoModifier,
-        )
-    )
 
 
 def test_rotate_hint_follows_rotate_handle_hover(qapp):
@@ -4203,7 +4289,9 @@ def test_rotate_handle_distance_is_constant_for_scaled_items(qapp):
     top = canvas._handle_points(item)["n"]
     handle = canvas._rotate_handle_point(item)
     distance = math.hypot(handle.x() - top.x(), handle.y() - top.y())
-    assert distance == pytest.approx(ROTATE_OFFSET_PX / canvas.transform().m11(), rel=0.01)
+    assert distance == pytest.approx(
+        ROTATE_OFFSET_PX / canvas.transform().m11(), rel=0.01
+    )
 
 
 def test_handle_cursor_follows_rotation(qapp):
@@ -4233,7 +4321,6 @@ def test_rotated_item_is_clamped_by_rotated_hull(qapp):
 
 def test_inspector_image_size_in_millimetres(qapp):
     from PySide6.QtWidgets import QDoubleSpinBox
-
     from ql_editor.inspector import InspectorPanel
     from ql_editor.media import DOTS_PER_MM
 
@@ -4272,7 +4359,6 @@ def _render_1bit(canvas):
 def _sample_items():
     from PySide6.QtCore import QRectF
     from PySide6.QtGui import QColor, QPixmap
-
     from ql_editor.items import ImageItem, LineItem, RectItem
 
     pixmap = QPixmap(120, 80)
@@ -4411,7 +4497,9 @@ def test_ink_readout_tracks_threshold(qapp):
     win._refresh_now()
     high = win._ink_label.text()
     assert low.startswith("Tinte:") and high.startswith("Tinte:")
-    assert float(low.split()[1].replace(",", ".")) < float(high.split()[1].replace(",", "."))
+    assert float(low.split()[1].replace(",", ".")) < float(
+        high.split()[1].replace(",", ".")
+    )
 
 
 def _temp_window(qapp, tmp_path):
@@ -4421,7 +4509,6 @@ def _temp_window(qapp, tmp_path):
     schreiben auch nicht hinein).
     """
     from PySide6.QtCore import QSettings
-
     from ql_editor.app import MainWindow
     from ql_editor.settings import AppSettings
 
@@ -4443,13 +4530,12 @@ def test_startup_keeps_the_stored_printer_address(qapp, tmp_path, monkeypatch):
     Start weg (und das Modell, das daran haengt, gleich mit).
     """
     from PySide6.QtCore import QSettings
-
     from ql_editor import media_panel as media_panel_module
     from ql_editor.app import MainWindow
     from ql_editor.media_panel import CONNECTION_USB
     from ql_editor.settings import AppSettings
 
-    monkeypatch.setattr(media_panel_module, "usb_printers", lambda: [])
+    monkeypatch.setattr(media_panel_module, "usb_printers", list)
     monkeypatch.setattr(media_panel_module, "model_for_address", lambda address: None)
     settings = AppSettings(
         QSettings(str(tmp_path / "settings.ini"), QSettings.Format.IniFormat)
@@ -4520,7 +4606,6 @@ def test_fresh_start_leaves_the_network_field_empty(qapp, tmp_path):
 def test_startup_selects_the_saved_network_printer(qapp, tmp_path, monkeypatch):
     """Der letzte Netzwerkdrucker wird gewaehlt, wenn die Suche ihn findet."""
     from PySide6.QtCore import QSettings
-
     from ql_editor import app as app_module
     from ql_editor import discovery
     from ql_editor.app import MainWindow
@@ -4553,7 +4638,6 @@ def test_startup_selects_the_saved_network_printer(qapp, tmp_path, monkeypatch):
 def test_startup_falls_back_to_the_first_network_printer(qapp, tmp_path, monkeypatch):
     """Fehlt der letzte Drucker in den Treffern, gilt der erste."""
     from PySide6.QtCore import QSettings
-
     from ql_editor import app as app_module
     from ql_editor import discovery
     from ql_editor.app import MainWindow
@@ -4592,7 +4676,6 @@ def test_startup_picks_the_first_network_printer_without_a_saved_one(
     qapp, tmp_path, monkeypatch
 ):
     from PySide6.QtCore import QSettings
-
     from ql_editor import app as app_module
     from ql_editor import discovery
     from ql_editor.app import MainWindow
@@ -4638,7 +4721,6 @@ def test_startup_keeps_a_saved_address_when_the_network_is_empty(qapp, tmp_path)
 
 def test_startup_selects_the_saved_usb_printer(qapp, tmp_path, monkeypatch):
     from PySide6.QtCore import QSettings
-
     from ql_editor import media_panel as media_panel_module
     from ql_editor.app import MainWindow
     from ql_editor.media_panel import CONNECTION_USB
@@ -4667,7 +4749,6 @@ def test_startup_selects_the_saved_usb_printer(qapp, tmp_path, monkeypatch):
 
 def test_startup_falls_back_to_the_first_usb_printer(qapp, tmp_path, monkeypatch):
     from PySide6.QtCore import QSettings
-
     from ql_editor import media_panel as media_panel_module
     from ql_editor.app import MainWindow
     from ql_editor.media_panel import CONNECTION_USB
@@ -4723,7 +4804,6 @@ def test_startup_keeps_a_loaded_label_until_the_user_adapts(
 ):
     """Ein geoeffnetes Etikett behaelt Modell und Raender, bis man zustimmt."""
     from PySide6.QtCore import QSettings
-
     from ql_editor import app as app_module
     from ql_editor import discovery, document
     from ql_editor.app import MainWindow
@@ -4767,7 +4847,6 @@ def test_startup_keeps_a_loaded_label_until_the_user_adapts(
 def test_startup_adapt_label_is_an_undo_step(qapp, tmp_path, monkeypatch):
     """Wer anpasst, bekommt einen Undo-Schritt und den Stern."""
     from PySide6.QtCore import QSettings
-
     from ql_editor import app as app_module
     from ql_editor import discovery, document
     from ql_editor.app import MainWindow
@@ -4812,7 +4891,6 @@ def test_startup_does_not_ask_when_the_model_already_matches(
     qapp, tmp_path, monkeypatch
 ):
     from PySide6.QtCore import QSettings
-
     from ql_editor import app as app_module
     from ql_editor import discovery, document
     from ql_editor.app import MainWindow
@@ -4848,12 +4926,9 @@ def test_startup_does_not_ask_when_the_model_already_matches(
     qapp.processEvents()
 
 
-def test_startup_ignores_an_address_typed_while_searching(
-    qapp, tmp_path, monkeypatch
-):
+def test_startup_ignores_an_address_typed_while_searching(qapp, tmp_path, monkeypatch):
     """Eine IP aus der Suchsekunde wird nicht durch den ersten Treffer ersetzt."""
     from PySide6.QtCore import QSettings
-
     from ql_editor import discovery
     from ql_editor.app import MainWindow
     from ql_editor.settings import AppSettings
@@ -4885,7 +4960,6 @@ def test_startup_ignores_an_address_typed_while_searching(
 def test_startup_ignores_a_usb_switch_while_searching(qapp, tmp_path, monkeypatch):
     """Wer waehrend der Suche auf USB geht, behaelt Anschluss und Modell."""
     from PySide6.QtCore import QSettings
-
     from ql_editor import discovery
     from ql_editor import media_panel as media_panel_module
     from ql_editor.app import MainWindow
@@ -4917,7 +4991,6 @@ def test_startup_ignores_a_usb_switch_while_searching(qapp, tmp_path, monkeypatc
 def test_startup_matches_the_same_host_on_another_port(qapp, tmp_path, monkeypatch):
     """Gleicher Host, anderer Port: dieser Drucker, nicht der erste Treffer."""
     from PySide6.QtCore import QSettings
-
     from ql_editor import app as app_module
     from ql_editor import discovery
     from ql_editor.app import MainWindow
@@ -4984,7 +5057,6 @@ def test_close_drops_the_network_worker_before_delete_later(qapp, tmp_path):
     ruft ``isRunning()`` auf einem schon geloeschten C++-Objekt auf.
     """
     from PySide6.QtCore import QSettings
-
     from ql_editor.app import MainWindow
     from ql_editor.settings import AppSettings
 
@@ -5085,7 +5157,6 @@ def test_cut_at_end_needs_several_copies(qapp, tmp_path):
 def test_print_options_reach_the_print_job(qapp, tmp_path, monkeypatch):
     """Kopien und Zuschnitt kommen wirklich im Auftrag an (bis in die Schicht)."""
     from PySide6.QtCore import QObject, Signal
-
     from ql_editor import app as app_module
     from ql_editor.printer import CUT_AT_END
 
@@ -5119,9 +5190,8 @@ def test_print_options_reach_the_print_job(qapp, tmp_path, monkeypatch):
 def test_second_print_after_first_finished(qapp, tmp_path, monkeypatch):
     """Nach einem abgeschlossenen Druck darf ein zweiter Druck nicht abstuerzen."""
     from PySide6.QtCore import QThread, Signal
-    from shiboken6 import delete
-
     from ql_editor import app as app_module
+    from shiboken6 import delete
 
     created: list = []
 
@@ -5181,7 +5251,7 @@ class _FakePermissionProcess:
         self._stderr = stderr
         self.killed = False
 
-    def readAllStandardError(self) -> bytes:
+    def readAllStandardError(self) -> bytes:  # noqa: N802
         return self._stderr
 
     def kill(self) -> None:
@@ -5193,7 +5263,6 @@ def test_permission_button_without_a_prompt_shows_the_one_liner(
 ):
     """Ohne Passwort-Dialog bleibt der Befehl zum Abschreiben."""
     from PySide6.QtWidgets import QMessageBox
-
     from ql_editor import access
 
     win = _temp_window(qapp, tmp_path)
@@ -5214,7 +5283,6 @@ def test_permission_button_without_a_prompt_shows_the_one_liner(
 
 def test_permission_failure_explains_the_abort(qapp, tmp_path, monkeypatch):
     from PySide6.QtWidgets import QMessageBox
-
     from ql_editor import access
 
     win = _temp_window(qapp, tmp_path)
@@ -5284,12 +5352,9 @@ def test_permission_success_without_effect_hints_at_replugging(
     assert "ab- und anstecken" in win.statusBar().currentMessage()
 
 
-def test_permission_timeout_kills_and_shows_the_one_liner(
-    qapp, tmp_path, monkeypatch
-):
+def test_permission_timeout_kills_and_shows_the_one_liner(qapp, tmp_path, monkeypatch):
     """Ein Agent, der nicht fragt, darf die Anzeige nicht blockieren."""
     from PySide6.QtWidgets import QMessageBox
-
     from ql_editor import access
 
     win = _temp_window(qapp, tmp_path)
@@ -5370,7 +5435,6 @@ def test_print_history_scrolls_inside_its_own_box(qapp, tmp_path):
     from datetime import datetime
 
     from PySide6.QtCore import Qt
-
     from ql_editor.jobs import PrintJob
 
     win = _temp_window(qapp, tmp_path)
@@ -5404,7 +5468,6 @@ def test_print_sheet_follows_a_live_theme_switch(qapp, tmp_path):
     from PySide6.QtCore import Qt
     from PySide6.QtGui import QImage
     from PySide6.QtWidgets import QComboBox
-
     from ql_editor.theme import apply_theme
 
     def lightness(widget, x: int, y: int) -> int:
@@ -5440,7 +5503,6 @@ def test_history_error_color_follows_a_live_theme_switch(qapp, tmp_path):
     from datetime import datetime
 
     from PySide6.QtCore import Qt
-
     from ql_editor.jobs import PrintJob
     from ql_editor.theme import ERROR_TEXT, ERROR_TEXT_DARK, apply_theme
 
@@ -5456,7 +5518,9 @@ def test_history_error_color_follows_a_live_theme_switch(qapp, tmp_path):
         assert win._history_table.item(0, 4).foreground().color().name() == ERROR_TEXT
         apply_theme(qapp, Qt.ColorScheme.Dark)
         qapp.processEvents()
-        assert win._history_table.item(0, 4).foreground().color().name() == ERROR_TEXT_DARK
+        assert (
+            win._history_table.item(0, 4).foreground().color().name() == ERROR_TEXT_DARK
+        )
         apply_theme(qapp, Qt.ColorScheme.Light)
         qapp.processEvents()
         assert win._history_table.item(0, 4).foreground().color().name() == ERROR_TEXT
@@ -5486,7 +5550,6 @@ def test_toolbar_print_opens_the_sheet(qapp, tmp_path):
 def test_print_button_opens_sheet_with_preview_settings_and_history(qapp, tmp_path):
     """Rechts bleibt nur der Knopf. Er oeffnet Vorschau, Optionen und Verlauf."""
     from PySide6.QtWidgets import QGroupBox, QPushButton
-
     from ql_editor.sheet import Sheet
 
     win = _temp_window(qapp, tmp_path)
@@ -5509,7 +5572,13 @@ def test_print_button_opens_sheet_with_preview_settings_and_history(qapp, tmp_pa
     assert sheet.isAncestorOf(win._print_button)
     assert sheet.isAncestorOf(win._history_table)
     titles = {box.title() for box in sheet.findChildren(QGroupBox)}
-    assert {"Druckvorschau", "Qualität", "Ausgabe", "Datenbank", "Druckverlauf"} <= titles
+    assert {
+        "Druckvorschau",
+        "Qualität",
+        "Ausgabe",
+        "Datenbank",
+        "Druckverlauf",
+    } <= titles
     assert isinstance(win._print_button, QPushButton)
     assert win._print_button.text() == ""
     assert win._print_button.toolTip() == "Drucken"
@@ -5522,17 +5591,29 @@ def test_print_button_opens_sheet_with_preview_settings_and_history(qapp, tmp_pa
     button_bottom = win._print_button.mapToGlobal(
         win._print_button.rect().bottomLeft()
     ).y()
-    preview_top = win._print_preview.mapToGlobal(win._print_preview.rect().topLeft()).y()
-    quality = next(box for box in sheet.findChildren(QGroupBox) if box.title() == "Qualität")
-    output = next(box for box in sheet.findChildren(QGroupBox) if box.title() == "Ausgabe")
-    assert abs(
-        quality.mapToGlobal(quality.rect().topLeft()).y()
-        - output.mapToGlobal(output.rect().topLeft()).y()
-    ) <= 2
-    assert quality.mapToGlobal(quality.rect().topLeft()).x() < output.mapToGlobal(
-        output.rect().topLeft()
-    ).x()
-    history_top = win._history_table.mapToGlobal(win._history_table.rect().topLeft()).y()
+    preview_top = win._print_preview.mapToGlobal(
+        win._print_preview.rect().topLeft()
+    ).y()
+    quality = next(
+        box for box in sheet.findChildren(QGroupBox) if box.title() == "Qualität"
+    )
+    output = next(
+        box for box in sheet.findChildren(QGroupBox) if box.title() == "Ausgabe"
+    )
+    assert (
+        abs(
+            quality.mapToGlobal(quality.rect().topLeft()).y()
+            - output.mapToGlobal(output.rect().topLeft()).y()
+        )
+        <= 2
+    )
+    assert (
+        quality.mapToGlobal(quality.rect().topLeft()).x()
+        < output.mapToGlobal(output.rect().topLeft()).x()
+    )
+    history_top = win._history_table.mapToGlobal(
+        win._history_table.rect().topLeft()
+    ).y()
     assert button_bottom <= preview_top <= history_top
     assert sheet._close_on_outside is True
     from PySide6.QtCore import QEvent, QPointF
@@ -5622,16 +5703,15 @@ def test_threshold_has_an_explanatory_tooltip(qapp, tmp_path):
     win = _temp_window(qapp, tmp_path)
     tooltip = win._threshold_spin.toolTip()
     assert tooltip == win._threshold_label.toolTip()
-    assert "Schwärze" in tooltip          # was der Wert bedeutet
-    assert "kräftiger" in tooltip         # hoeher = mehr Tinte
-    assert "Dithering" in tooltip         # wann er nicht wirkt
+    assert "Schwärze" in tooltip  # was der Wert bedeutet
+    assert "kräftiger" in tooltip  # hoeher = mehr Tinte
+    assert "Dithering" in tooltip  # wann er nicht wirkt
     assert "40 %" in tooltip and "90 %" in tooltip  # waehlbare Spanne
 
 
 def test_old_settings_are_migrated(qapp, tmp_path):
     """Bestehende Einstellungen (print/quality, print/hq) werden uebersetzt."""
     from PySide6.QtCore import QSettings
-
     from ql_editor.settings import AppSettings
 
     raw = QSettings(str(tmp_path / "migration.ini"), QSettings.Format.IniFormat)
@@ -5664,7 +5744,6 @@ def test_old_settings_are_migrated(qapp, tmp_path):
 
 def test_fresh_settings_use_the_standard_resolution(qapp, tmp_path):
     from PySide6.QtCore import QSettings
-
     from ql_editor.settings import AppSettings
 
     raw = QSettings(str(tmp_path / "fresh.ini"), QSettings.Format.IniFormat)
@@ -5703,7 +5782,8 @@ def test_media_panel_state_round_trip(qapp):
 
 def test_language_switch_keeps_content_and_media(qapp, tmp_path):
     """DE -> EN: neues Fenster mit englischen Texten, Inhalt bleibt."""
-    from ql_editor import app as app_module, i18n
+    from ql_editor import app as app_module
+    from ql_editor import i18n
     from ql_editor import printer as printer_module
     from ql_editor.items import TextItem
     from ql_editor.media import Orientation
@@ -5714,9 +5794,7 @@ def test_language_switch_keeps_content_and_media(qapp, tmp_path):
     win._media_panel._auto_check.setChecked(False)
     win._media_panel._length_spin.setValue(55.0)
     win._copies_spin.setValue(3)
-    win._cut_combo.setCurrentIndex(
-        win._cut_combo.findData(printer_module.CUT_AT_END)
-    )
+    win._cut_combo.setCurrentIndex(win._cut_combo.findData(printer_module.CUT_AT_END))
 
     win.switch_language("en")
     qapp.processEvents()
@@ -5763,7 +5841,11 @@ def test_language_switch_is_offered_in_the_menu(qapp, tmp_path):
     for px in range(english.width()):
         for py in range(english.height()):
             pixel = english.pixelColor(px, py)
-            if pixel.blue() > 80 and pixel.blue() > pixel.red() + 30 and pixel.alpha() > 200:
+            if (
+                pixel.blue() > 80
+                and pixel.blue() > pixel.red() + 30
+                and pixel.alpha() > 200
+            ):
                 blue += 1
     assert blue > 8
     win.close()
@@ -5772,7 +5854,6 @@ def test_language_switch_is_offered_in_the_menu(qapp, tmp_path):
 def test_appearance_menu_switches_between_light_and_dark(qapp, tmp_path):
     """Hell und Dunkel schalten die Palette um. Vorgabe bleibt das System."""
     from PySide6.QtGui import QPalette
-
     from ql_editor.theme import ACCENT, apply_theme
 
     original = QPalette(qapp.palette())
@@ -5815,7 +5896,8 @@ def test_english_ui_has_no_german_leftovers(qapp, tmp_path):
     Tooltips, Aktionen) - deutsche Umlaute und die deutschen Anfuehrungszeichen
     verraten jeden vergessenen Text.
     """
-    from PySide6.QtCore import QPointF, QSettings
+    from PIL import Image
+    from PySide6.QtCore import QPointF, QRectF, QSettings
     from PySide6.QtWidgets import (
         QCheckBox,
         QComboBox,
@@ -5826,10 +5908,6 @@ def test_english_ui_has_no_german_leftovers(qapp, tmp_path):
         QToolButton,
         QWidget,
     )
-
-    from PySide6.QtCore import QRectF
-    from PIL import Image
-
     from ql_editor import i18n
     from ql_editor.app import MainWindow
     from ql_editor.items import (
@@ -5876,9 +5954,7 @@ def test_english_ui_has_no_german_leftovers(qapp, tmp_path):
         if isinstance(widget, QGroupBox):
             texts.append(widget.title())
         if isinstance(widget, QComboBox):
-            texts.extend(
-                widget.itemText(index) for index in range(widget.count())
-            )
+            texts.extend(widget.itemText(index) for index in range(widget.count()))
         if isinstance(widget, QLineEdit):
             texts.append(widget.placeholderText())
         texts.append(widget.toolTip())
@@ -5939,8 +6015,7 @@ def test_about_lists_models_licence_dank_and_developer(qapp, tmp_path):
     Genau das muss dort stehen, samt freier Lizenz und Danksagung.
     """
     from PySide6.QtWidgets import QLabel
-
-    from ql_editor import media
+    from ql_editor import media, stationery
     from ql_editor.about import DEVELOPER, DEVELOPER_URL, PROJECT_URL, credits
     from ql_editor.sheet import Sheet
 
@@ -5964,6 +6039,8 @@ def test_about_lists_models_licence_dank_and_developer(qapp, tmp_path):
         assert name in joined, name
         assert license_id in joined, license_id
     assert "brother_ql" in joined
+    assert "Etikettenbögen" in joined
+    assert str(len(stationery.templates())) in joined
     # Entwickler aus dem Impressum.
     assert DEVELOPER in joined
     assert DEVELOPER_URL in joined
@@ -6040,9 +6117,7 @@ def test_a_design_survives_saving_and_opening(qapp, tmp_path):
     qapp.processEvents()
 
 
-def test_editing_marks_the_document_and_opening_a_broken_file_does_not(
-    qapp, tmp_path
-):
+def test_editing_marks_the_document_and_opening_a_broken_file_does_not(qapp, tmp_path):
     """Ein Stern im Titel zeigt Aenderungen; eine kaputte Datei aendert nichts."""
     from ql_editor.sheet import Sheet
 
@@ -6198,7 +6273,6 @@ def test_opening_an_lbx_merges_the_csv_beside_it(qapp, tmp_path):
 def test_an_lbx_warning_is_shown(qapp, tmp_path):
     """Was nicht übernommen wird, steht danach in einem Hinweis."""
     from PySide6.QtWidgets import QLabel
-
     from ql_editor.sheet import Sheet
     from tests.lbx_samples import write_lbx
 
@@ -6222,7 +6296,6 @@ def test_an_lbx_warning_is_shown(qapp, tmp_path):
 
 def _sheet_button(win, label: str):
     from PySide6.QtWidgets import QMessageBox
-
     from ql_editor.sheet import Sheet
 
     sheet = next(
@@ -6327,7 +6400,6 @@ def test_cancelling_a_tab_close_keeps_the_label(qapp, tmp_path):
     """Abbrechen behält den Reiter, und Schließen lässt sich danach noch drücken."""
     from PySide6.QtCore import Qt
     from PySide6.QtTest import QTest
-
     from ql_editor.items import TextItem
 
     win = _temp_window(qapp, tmp_path)
@@ -6488,7 +6560,6 @@ def test_closing_with_an_open_margin_edit_asks(qapp, tmp_path):
 def test_closing_with_an_open_inspector_edit_asks(qapp, tmp_path):
     """Inspector-Feld angefangen: Schließen committet und fragt."""
     from PySide6.QtWidgets import QSpinBox
-
     from ql_editor.items import TextItem
 
     win = _temp_window(qapp, tmp_path)
@@ -6520,7 +6591,6 @@ def test_closing_with_an_open_inspector_edit_asks(qapp, tmp_path):
 def test_closing_another_tab_keeps_active_typing(qapp, tmp_path):
     """Kreuz auf dem anderen Reiter beendet Tippen im aktiven nicht."""
     from PySide6.QtCore import QPointF
-
     from ql_editor.items import TextItem
 
     win = _temp_window(qapp, tmp_path)
@@ -6594,7 +6664,6 @@ def test_switching_tabs_commits_an_open_inspector_edit_and_keeps_empty_text(
 ):
     from PySide6.QtCore import QPointF
     from PySide6.QtWidgets import QSpinBox
-
     from ql_editor.items import TextItem
 
     win = _temp_window(qapp, tmp_path)
@@ -6624,13 +6693,13 @@ def test_switching_tabs_commits_an_open_inspector_edit_and_keeps_empty_text(
     qapp.processEvents()
 
     first = win._tab_at(0)
-    assert [
-        first.undo.command(i).text() for i in range(first.undo.count())
-    ] == ["Einfügen", "Eigenschaften", "Text"]
+    assert [first.undo.command(i).text() for i in range(first.undo.count())] == [
+        "Einfügen",
+        "Eigenschaften",
+        "Text",
+    ]
     texts = [
-        entry
-        for entry in first.canvas.scene().items()
-        if isinstance(entry, TextItem)
+        entry for entry in first.canvas.scene().items() if isinstance(entry, TextItem)
     ]
     assert sorted(entry.toPlainText() for entry in texts) == ["", "Hallo"]
     win._accept_close = True
@@ -6668,13 +6737,12 @@ def test_closing_the_window_saves_each_modified_tab(qapp, tmp_path):
     assert [i["text"] for i in document.load(second)["items"]] == ["Zwei"]
 
 
-
 # --------------------------------------------------------------------------- #
 # Mitgelieferte Dateien (App-Symbol, Bundle-Pfade)
 # --------------------------------------------------------------------------- #
 def test_the_window_carries_the_app_icon(qapp, tmp_path):
     """Das Fenster hat das Symbol aus assets/ - nicht das Qt-Standardsymbol."""
-    import ql_editor.resources as resources
+    from ql_editor import resources
 
     assert resources.asset(resources.APP_ICON).exists(), "Symbol fehlt in assets/"
     win = _temp_window(qapp, tmp_path)
@@ -6780,9 +6848,7 @@ def test_file_group_sits_right_after_the_burger(qapp, tmp_path):
 
     win = _temp_window(qapp, tmp_path)
     bar = win.findChild(QToolBar, "main_toolbar")
-    items = [
-        a for a in bar.actions() if not a.isSeparator()
-    ]
+    items = [a for a in bar.actions() if not a.isSeparator()]
     names = []
     for action in items:
         if isinstance(action, QWidgetAction):
@@ -6879,7 +6945,6 @@ def test_margin_edit_moves_objects_and_frame(qapp, tmp_path):
 def test_margin_edit_moves_full_label_and_grows_length(qapp, tmp_path):
     """Voller Inhalt: oberer Rand verschiebt trotzdem, die Laenge waechst mit."""
     from PySide6.QtCore import QRectF
-
     from ql_editor import media
     from ql_editor.items import RectItem
 
@@ -6906,7 +6971,6 @@ def test_margin_edit_moves_full_label_and_grows_length(qapp, tmp_path):
 def test_content_length_ceils_fractional_dots(qapp, tmp_path):
     """Bruchteile eines Punktes in der Huelle runden die Laenge nach oben."""
     from PySide6.QtCore import QPointF, QRectF
-
     from ql_editor import media
     from ql_editor.items import RectItem
 
@@ -6937,18 +7001,18 @@ def test_loading_a_document_does_not_shift_its_objects(qapp, tmp_path):
     win._add_item(TextItem("Bleib", font_pixel_size=40))
     path = tmp_path / "rand.qlx"
     win._save_document_to(str(path))
-    saved_x = next(
-        i for i in win._canvas.scene().items() if isinstance(i, TextItem)
-    ).pos().x()
+    saved_x = (
+        next(i for i in win._canvas.scene().items() if isinstance(i, TextItem))
+        .pos()
+        .x()
+    )
     win.close()
     qapp.processEvents()
 
     again = _temp_window(qapp, tmp_path)
     again._open_document_chosen(str(path))
     qapp.processEvents()
-    loaded = next(
-        i for i in again._canvas.scene().items() if isinstance(i, TextItem)
-    )
+    loaded = next(i for i in again._canvas.scene().items() if isinstance(i, TextItem))
     assert loaded.pos().x() == saved_x
     again.close()
     qapp.processEvents()
@@ -6990,7 +7054,6 @@ def test_undo_redo_restores_item_position(qapp, tmp_path):
 def test_align_left_and_undo(qapp, tmp_path):
     """Zwei Objekte links ausrichten; Undo stellt beide x-Werte zurueck."""
     from PySide6.QtCore import QPointF, QRectF
-
     from ql_editor.items import RectItem
 
     win = _temp_window(qapp, tmp_path)
@@ -7051,7 +7114,6 @@ def test_band_change_is_an_undo_step_and_keeps_the_star(qapp, tmp_path):
     """Bandwechsel liegt auf dem Stapel: Undo dreht ihn zurueck, und ein
     Undo eines spaeteren Schritts laesst das Band in Ruhe."""
     from PySide6.QtCore import QPointF, QRectF
-
     from ql_editor.items import RectItem
 
     win = _temp_window(qapp, tmp_path)
@@ -7085,7 +7147,6 @@ def test_band_change_is_an_undo_step_and_keeps_the_star(qapp, tmp_path):
 def test_text_items_restored_by_undo_are_wired(qapp, tmp_path):
     """Nach Undo sind Textfelder neue Objekte - Tippen muss weiter im Undo landen."""
     from PySide6.QtCore import QPointF, QRectF
-
     from ql_editor.items import RectItem, TextItem
 
     win = _temp_window(qapp, tmp_path)
@@ -7098,9 +7159,7 @@ def test_text_items_restored_by_undo_are_wired(qapp, tmp_path):
     win._act_undo.trigger()
     qapp.processEvents()
 
-    restored = next(
-        i for i in win._canvas.scene().items() if isinstance(i, TextItem)
-    )
+    restored = next(i for i in win._canvas.scene().items() if isinstance(i, TextItem))
     assert restored is not text
     index = win._undo_stack.index()
     restored.start_editing()
@@ -7132,7 +7191,6 @@ def test_text_items_restored_by_undo_are_wired(qapp, tmp_path):
 def test_cancelled_new_text_does_not_swallow_the_next_drag(qapp, tmp_path):
     """Leeres neues Textfeld bleibt; der folgende Zug ist ein eigener Schritt."""
     from PySide6.QtCore import QPointF, QRectF
-
     from ql_editor.items import RectItem, TextItem
 
     win = _temp_window(qapp, tmp_path)
@@ -7170,7 +7228,6 @@ def test_cancelled_new_text_does_not_swallow_the_next_drag(qapp, tmp_path):
 def test_clearing_an_existing_text_field_keeps_the_object(qapp, tmp_path):
     """Bestehenden Text leeren: das Objekt bleibt, Undo stellt den Text her."""
     from PySide6.QtCore import QPointF
-
     from ql_editor.items import TextItem
 
     win = _temp_window(qapp, tmp_path)
@@ -7201,7 +7258,6 @@ def test_clearing_an_existing_text_field_keeps_the_object(qapp, tmp_path):
 def test_redo_selects_only_the_item_that_was_selected(qapp, tmp_path):
     """Zwei Objekte am selben Ort: Redo stellt nur die vorherige Auswahl her."""
     from PySide6.QtCore import QRectF
-
     from ql_editor.items import RectItem
 
     win = _temp_window(qapp, tmp_path)
@@ -7226,7 +7282,6 @@ def test_redo_selects_only_the_item_that_was_selected(qapp, tmp_path):
 def test_band_change_stays_its_own_step_after_an_open_inspector_edit(qapp, tmp_path):
     """Spin ohne editingFinished, dann Bandwechsel: zwei getrennte Undo-Schritte."""
     from PySide6.QtWidgets import QSpinBox
-
     from ql_editor.items import TextItem
 
     win = _temp_window(qapp, tmp_path)
@@ -7261,7 +7316,6 @@ def test_content_beyond_a_margin_is_not_printed(qapp, tmp_path):
     """Der Rand schneidet ab: was hinter ihm liegt, fehlt im Druckbild -
     auch im Querformat, wo der rechte Rand die Bandbreite nicht veraendert."""
     from PySide6.QtCore import QRectF
-
     from ql_editor import media
     from ql_editor.items import RectItem
 
@@ -7303,7 +7357,6 @@ def _print_with_outcome(
     details: dict | None = None,
 ):
     from PySide6.QtCore import QObject, Signal
-
     from ql_editor import app as app_module
 
     class FakeWorker(QObject):
@@ -7347,15 +7400,19 @@ def test_silence_after_a_network_job_is_not_an_error(qapp, tmp_path, monkeypatch
     das Sheet bleibt zum Pruefen offen."""
     from PySide6.QtWidgets import QMessageBox
 
-    win = _print_with_outcome(qapp, tmp_path, monkeypatch, "unconfirmed", open_sheet=True)
+    win = _print_with_outcome(
+        qapp, tmp_path, monkeypatch, "unconfirmed", open_sheet=True
+    )
     status = win._history_table.item(0, 4)
     assert status.text() == "Gesendet, keine Statusantwort"
     assert status.foreground().color().name() != "#b00020"
     assert not win._print_jobs[-1].is_error
     assert win._print_sheet is not None and win._print_sheet.isVisible()
     assert not win.findChildren(QMessageBox)
-    assert win.statusBar().currentMessage().startswith(
-        "Drucker hat nach dem Senden nicht geantwortet."
+    assert (
+        win.statusBar()
+        .currentMessage()
+        .startswith("Drucker hat nach dem Senden nicht geantwortet.")
     )
     win.close()
     qapp.processEvents()
@@ -7392,7 +7449,6 @@ def test_printer_error_is_explained_only_with_texts(
 def _fake_print_worker(monkeypatch, status: dict) -> list:
     """Ersetzt den Druck: jeder Auftrag liefert ``status``, die Liste zaehlt mit."""
     from PySide6.QtCore import QObject, Signal
-
     from ql_editor import app as app_module
 
     starts = []
@@ -7479,13 +7535,17 @@ def test_other_tape_than_the_remembered_one_asks_first(
     qapp.processEvents()
 
 
-def test_print_anyway_corrects_the_remembered_tape_once_confirmed(qapp, tmp_path, monkeypatch):
+def test_print_anyway_corrects_the_remembered_tape_once_confirmed(
+    qapp, tmp_path, monkeypatch
+):
     _fake_print_worker(monkeypatch, {"outcome": "sent", "snmp_ok": True})
     win, address = _network_window_with_tape(qapp, tmp_path, loaded="62", selected="50")
     win._on_print()
     qapp.processEvents()
     box = _visible_message_box(win)
-    next(choice for choice in box.buttons() if choice.text() == "Trotzdem drucken").click()
+    next(
+        choice for choice in box.buttons() if choice.text() == "Trotzdem drucken"
+    ).click()
     qapp.processEvents()
     assert win._settings.loaded_label(address) == "50"
     win.close()
@@ -7502,7 +7562,9 @@ def test_remembered_tape_shows_in_the_panel_and_can_be_forgotten(
     # Nur ein Drucker mit SNMP merkt sich ein Band - und den findet die Suche.
     found = [discovery.NetworkPrinter(host="192.168.178.62", model_id="QL-820NWB")]
     monkeypatch.setattr(app_module, "discover_network_printers", lambda *a, **k: found)
-    win = _print_with_outcome(qapp, tmp_path, monkeypatch, "sent", details={"snmp_ok": True})
+    win = _print_with_outcome(
+        qapp, tmp_path, monkeypatch, "sent", details={"snmp_ok": True}
+    )
     _wait_startup_discovery(win, qapp)
     panel = win._media_panel
     address = panel.printer_config().address
@@ -7523,10 +7585,11 @@ def test_remembered_tape_shows_in_the_panel_and_can_be_forgotten(
     qapp.processEvents()
 
 
-def test_long_tape_name_or_a_search_does_not_move_the_boxes_below(qapp, tmp_path, monkeypatch):
+def test_long_tape_name_or_a_search_does_not_move_the_boxes_below(
+    qapp, tmp_path, monkeypatch
+):
     """Der Bandname bleibt einzeilig - umgebrochen haengt die Hoehe an der Schrift."""
     from PySide6.QtCore import QPoint
-
     from ql_editor import app as app_module
     from ql_editor import discovery
 
@@ -7559,7 +7622,6 @@ def test_long_tape_name_or_a_search_does_not_move_the_boxes_below(qapp, tmp_path
 
 def test_startup_shows_the_tape_remembered_for_the_printer(qapp, tmp_path):
     from PySide6.QtCore import QSettings
-
     from ql_editor.app import MainWindow
     from ql_editor.settings import AppSettings
 
@@ -7570,16 +7632,23 @@ def test_startup_shows_the_tape_remembered_for_the_printer(qapp, tmp_path):
     settings.address = "tcp://192.0.2.20:9100"
     settings.set_loaded_label("tcp://192.0.2.20:9100", "62red")
     win = MainWindow(settings=settings, discover=False)
-    assert win._media_panel._loaded_label.full_text() == "Eingelegt: 62 mm endlos (schwarz/rot)"
+    assert (
+        win._media_panel._loaded_label.full_text()
+        == "Eingelegt: 62 mm endlos (schwarz/rot)"
+    )
     assert win._act_forget_tape.isEnabled()
     win.close()
     qapp.processEvents()
 
 
-def test_black_job_on_a_remembered_red_tape_prints_without_asking(qapp, tmp_path, monkeypatch):
+def test_black_job_on_a_remembered_red_tape_prints_without_asking(
+    qapp, tmp_path, monkeypatch
+):
     """Schwarz passt auf das schwarz/rote Band - und das bleibt gemerkt."""
     starts = _fake_print_worker(monkeypatch, {"outcome": "sent", "snmp_ok": True})
-    win, address = _network_window_with_tape(qapp, tmp_path, loaded="62red", selected="62")
+    win, address = _network_window_with_tape(
+        qapp, tmp_path, loaded="62red", selected="62"
+    )
     win._on_print()
     qapp.processEvents()
     assert _visible_message_box(win) is None
@@ -7591,7 +7660,9 @@ def test_black_job_on_a_remembered_red_tape_prints_without_asking(qapp, tmp_path
 
 def test_red_job_on_a_remembered_black_tape_asks_first(qapp, tmp_path, monkeypatch):
     starts = _fake_print_worker(monkeypatch, {"outcome": "sent"})
-    win, _address = _network_window_with_tape(qapp, tmp_path, loaded="62", selected="62red")
+    win, _address = _network_window_with_tape(
+        qapp, tmp_path, loaded="62", selected="62red"
+    )
     win._on_print()
     qapp.processEvents()
     assert _visible_message_box(win) is not None
@@ -7604,11 +7675,15 @@ def _report_printer(win, *, fault: bool, texts: tuple[str, ...]) -> str:
     from ql_editor.discovery import NetworkStatus
 
     address = win._media_panel.printer_config().address
-    win._on_network_polled({"address": address, "status": NetworkStatus(fault=fault, texts=texts)})
+    win._on_network_polled(
+        {"address": address, "status": NetworkStatus(fault=fault, texts=texts)}
+    )
     return address
 
 
-@pytest.mark.parametrize(("button", "printed"), [("Abbrechen", 0), ("Trotzdem drucken", 1)])
+@pytest.mark.parametrize(
+    ("button", "printed"), [("Abbrechen", 0), ("Trotzdem drucken", 1)]
+)
 def test_known_fault_asks_before_sending(qapp, tmp_path, monkeypatch, button, printed):
     """Klappe offen laut letzter Abfrage: erst fragen, sonst ist der Auftrag weg."""
     starts = _fake_print_worker(monkeypatch, {"outcome": "sent"})
@@ -7630,11 +7705,15 @@ def test_known_fault_asks_before_sending(qapp, tmp_path, monkeypatch, button, pr
 
 def test_print_anyway_on_a_fault_still_checks_the_tape(qapp, tmp_path, monkeypatch):
     starts = _fake_print_worker(monkeypatch, {"outcome": "sent"})
-    win, _address = _network_window_with_tape(qapp, tmp_path, loaded="62", selected="50")
+    win, _address = _network_window_with_tape(
+        qapp, tmp_path, loaded="62", selected="50"
+    )
     _report_printer(win, fault=True, texts=("Störung, z. B. falsches Band",))
     win._on_print()
     qapp.processEvents()
-    next(c for c in _visible_message_box(win).buttons() if c.text() == "Trotzdem drucken").click()
+    next(
+        c for c in _visible_message_box(win).buttons() if c.text() == "Trotzdem drucken"
+    ).click()
     qapp.processEvents()
     assert starts == []
     assert "Laut QLInux eingelegt" in _visible_message_box(win).text()
@@ -7659,7 +7738,9 @@ def test_print_sheet_comes_back_after_a_prompt(
     Geht der Auftrag sauber raus, schliesst es wie sonst."""
     starts = _fake_print_worker(monkeypatch, {"outcome": outcome})
     selected = "62" if prompt == "fault" else "50"
-    win, _address = _network_window_with_tape(qapp, tmp_path, loaded="62", selected=selected)
+    win, _address = _network_window_with_tape(
+        qapp, tmp_path, loaded="62", selected=selected
+    )
     win._show_print_sheet()
     qapp.processEvents()
     if prompt == "fault":
@@ -7696,7 +7777,9 @@ def test_a_prompt_pushed_aside_by_another_sheet_keeps_that_sheet_in_front(
     assert _visible_message_box(win).text().startswith("Der Drucker meldet")
     returns = []
     back = win._return_to_print_sheet
-    monkeypatch.setattr(win, "_return_to_print_sheet", lambda: returns.append(1) or back())
+    monkeypatch.setattr(
+        win, "_return_to_print_sheet", lambda: returns.append(1) or back()
+    )
     other = show_message(win, "info", "Andere Frage", "Text")
     qapp.processEvents()
     assert returns == [1]
@@ -7730,7 +7813,9 @@ def test_notes_or_an_old_fault_do_not_hold_the_job(qapp, tmp_path, monkeypatch):
 
 
 def test_printer_error_is_marked_red_in_status_and_history(qapp, tmp_path, monkeypatch):
-    win = _print_with_outcome(qapp, tmp_path, monkeypatch, None, error="Drucker nicht erreichbar")
+    win = _print_with_outcome(
+        qapp, tmp_path, monkeypatch, None, error="Drucker nicht erreichbar"
+    )
     status = win._history_table.item(0, 4)
     assert status.foreground().color().name() == "#b00020"
     assert win._print_jobs[-1].is_error
@@ -7740,15 +7825,21 @@ def test_printer_error_is_marked_red_in_status_and_history(qapp, tmp_path, monke
 
 
 @pytest.mark.parametrize("cause", ["failed", "merge"])
-def test_print_error_message_returns_to_the_print_sheet(qapp, tmp_path, monkeypatch, cause):
+def test_print_error_message_returns_to_the_print_sheet(
+    qapp, tmp_path, monkeypatch, cause
+):
     """Fehlermeldung zum Druck, dann OK: man ist wieder im Druck-Sheet."""
     from PySide6.QtWidgets import QMessageBox
-
     from ql_editor import merge as merge_engine
 
     if cause == "failed":
         win = _print_with_outcome(
-            qapp, tmp_path, monkeypatch, None, error="Drucker nicht erreichbar", open_sheet=True
+            qapp,
+            tmp_path,
+            monkeypatch,
+            None,
+            error="Drucker nicht erreichbar",
+            open_sheet=True,
         )
     else:
         win = _temp_window(qapp, tmp_path)
@@ -7771,9 +7862,10 @@ def test_print_error_message_returns_to_the_print_sheet(qapp, tmp_path, monkeypa
     qapp.processEvents()
 
 
-def test_print_icon_spins_until_the_job_is_done_then_closes(qapp, tmp_path, monkeypatch):
+def test_print_icon_spins_until_the_job_is_done_then_closes(
+    qapp, tmp_path, monkeypatch
+):
     from PySide6.QtCore import QObject, Signal
-
     from ql_editor import app as app_module
 
     class SlowWorker(QObject):
@@ -7814,8 +7906,12 @@ def test_print_sheet_lists_history_under_the_print_button(qapp, tmp_path, monkey
     qapp.processEvents()
     assert win._history_table.rowCount() == 1
     assert win._history_table.item(0, 4).text() == "An Drucker gesendet"
-    print_bottom = win._print_button.mapToGlobal(win._print_button.rect().bottomLeft()).y()
-    history_top = win._history_table.mapToGlobal(win._history_table.rect().topLeft()).y()
+    print_bottom = win._print_button.mapToGlobal(
+        win._print_button.rect().bottomLeft()
+    ).y()
+    history_top = win._history_table.mapToGlobal(
+        win._history_table.rect().topLeft()
+    ).y()
     assert history_top >= print_bottom
     win.close()
     qapp.processEvents()
@@ -7870,12 +7966,18 @@ def test_printer_poll_shows_faults_and_notes_in_the_status_bar(qapp, tmp_path):
     win._media_panel.set_network_host("192.0.2.62")
     address = win._media_panel.printer_config().address
     win._on_network_polled(
-        {"address": address, "status": NetworkStatus(fault=True, texts=("Klappe offen",))}
+        {
+            "address": address,
+            "status": NetworkStatus(fault=True, texts=("Klappe offen",)),
+        }
     )
     assert win.statusBar().currentMessage() == "Drucker meldet: Klappe offen"
     assert win._cached_snmp_answer(address) is True
     win._on_network_polled(
-        {"address": address, "status": NetworkStatus(fault=False, texts=("Papier wird knapp",))}
+        {
+            "address": address,
+            "status": NetworkStatus(fault=False, texts=("Papier wird knapp",)),
+        }
     )
     assert win.statusBar().currentMessage() == "Hinweis vom Drucker: Papier wird knapp"
     win._on_network_polled({"address": address, "status": None})
@@ -7924,7 +8026,6 @@ def test_printer_poll_reports_a_cleared_fault_once(qapp, tmp_path):
 def test_printer_poll_runs_only_while_the_window_is_active(qapp, tmp_path, monkeypatch):
     from PySide6.QtCore import QObject, Signal
     from PySide6.QtWidgets import QWidget
-
     from ql_editor import app as app_module
 
     polls = []
@@ -7985,11 +8086,12 @@ def test_printer_poll_waits_until_the_last_one_has_finished(qapp, tmp_path):
     qapp.processEvents()
 
 
-def test_closing_stops_the_printer_poll_and_cancels_the_check(qapp, tmp_path, monkeypatch):
+def test_closing_stops_the_printer_poll_and_cancels_the_check(
+    qapp, tmp_path, monkeypatch
+):
     """Ein Thread, der das Fenster ueberlebt, bricht beim Programmende Qt ab.
     Auf die kurze Abfrage wartet das Schliessen nicht, erst das Programmende."""
     from PySide6.QtCore import QObject, Signal
-
     from ql_editor import app as app_module
 
     waited = []
@@ -8066,7 +8168,6 @@ def test_pinch_zooms_and_pans_canvas(qapp):
     assert canvas.transform().m11() == zoomed
 
 
-
 def test_two_fingers_disable_rubber_band_until_released(qapp):
     from PySide6.QtCore import QPointF
     from PySide6.QtWidgets import QGraphicsView
@@ -8077,7 +8178,6 @@ def test_two_fingers_disable_rubber_band_until_released(qapp):
     assert canvas.dragMode() == QGraphicsView.DragMode.NoDrag
     canvas._leave_multitouch()
     assert canvas.dragMode() == QGraphicsView.DragMode.RubberBandDrag
-
 
 
 def test_pinch_zoom_keeps_point_under_fingers(qapp):

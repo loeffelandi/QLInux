@@ -14,7 +14,7 @@ sofort bei Schaltern).
 
 from __future__ import annotations
 
-from PySide6.QtCore import QDate, QEvent, QRectF, QSize, QTime, Qt, QTimer, Signal
+from PySide6.QtCore import QDate, QEvent, QRectF, QSize, Qt, QTime, QTimer, Signal
 from PySide6.QtGui import QActionGroup, QColor, QFont, QIcon, QPainter, QPixmap
 from PySide6.QtWidgets import (
     QButtonGroup,
@@ -56,9 +56,9 @@ from .items import (
     fill_label,
     line_style_label,
 )
+from .media import dots_to_mm, mm_to_dots
 from .sheet import show_widget
 from .symbols import SymbolPicker, symbol_label
-from .media import dots_to_mm, mm_to_dots
 from .widgets import install_wheel_guard_recursive, title_box
 
 BARCODE_SYMBOLOGIES = ["code128", "code39", "ean13", "ean8", "upca", "itf", "codabar"]
@@ -159,6 +159,8 @@ class InspectorPanel(QWidget):
     def _clear_body(self) -> None:
         while self._root.count() > 1:
             child = self._root.takeAt(1)
+            if child is None:
+                continue
             widget = child.widget()
             if widget is not None:
                 # Sofort verstecken: deleteLater() laeuft erst im Event-Loop,
@@ -239,7 +241,7 @@ class InspectorPanel(QWidget):
         combo.blockSignals(True)
         if current:
             index = combo.findData(current)
-            combo.setCurrentIndex(index if index >= 0 else 0)
+            combo.setCurrentIndex(max(index, 0))
         else:
             combo.setCurrentIndex(0)
         combo.blockSignals(False)
@@ -337,10 +339,16 @@ class InspectorPanel(QWidget):
         self._serial_suffix = self._serial_line("inspector_serial_suffix")
         self._updating_serial = True
         try:
-            self._serial_start.setValue(self._clamp_serial_int(spec.get("start"), 1, self._serial_start))
-            self._serial_count.setValue(self._clamp_serial_int(spec.get("count"), 1, self._serial_count))
+            self._serial_start.setValue(
+                self._clamp_serial_int(spec.get("start"), 1, self._serial_start)
+            )
+            self._serial_count.setValue(
+                self._clamp_serial_int(spec.get("count"), 1, self._serial_count)
+            )
             self._serial_step.setValue(step)
-            self._serial_pad.setValue(self._clamp_serial_int(spec.get("pad_width"), 0, self._serial_pad))
+            self._serial_pad.setValue(
+                self._clamp_serial_int(spec.get("pad_width"), 0, self._serial_pad)
+            )
             self._serial_prefix.setText(str(spec.get("prefix") or ""))
             self._serial_suffix.setText(str(spec.get("suffix") or ""))
         finally:
@@ -400,7 +408,11 @@ class InspectorPanel(QWidget):
         self._apply_now(lambda: self.serial_toggle_requested.emit(bool(checked)))
 
     def _on_serial_value(self, *_args) -> None:
-        if self._loading or self._updating_serial or not hasattr(self, "_serial_suffix"):
+        if (
+            self._loading
+            or self._updating_serial
+            or not hasattr(self, "_serial_suffix")
+        ):
             return
         if self._serial_step.value() == 0:
             self._updating_serial = True
@@ -408,7 +420,9 @@ class InspectorPanel(QWidget):
             self._updating_serial = False
             return
         self._serial_step_last = self._serial_step.value()
-        self._apply_live(lambda: self.serial_spec_changed.emit(self._serial_spec_from_widgets()))
+        self._apply_live(
+            lambda: self.serial_spec_changed.emit(self._serial_spec_from_widgets())
+        )
 
     def _on_serial_edit_finished(self) -> None:
         if self._loading or self._updating_serial:
@@ -448,12 +462,27 @@ class InspectorPanel(QWidget):
         form.addRow(
             self._bar(
                 self._toggle("bold", tr("Fett (Strg+B)"), item.bold, item.set_bold),
-                self._toggle("italic", tr("Kursiv (Strg+I)"), item.italic, item.set_italic),
-                self._toggle("underline", tr("Unterstrichen (Strg+U)"), item.underline, item.set_underline),
-                self._toggle("strike", tr("Durchgestrichen"), item.strike, item.set_strike),
+                self._toggle(
+                    "italic", tr("Kursiv (Strg+I)"), item.italic, item.set_italic
+                ),
+                self._toggle(
+                    "underline",
+                    tr("Unterstrichen (Strg+U)"),
+                    item.underline,
+                    item.set_underline,
+                ),
+                self._toggle(
+                    "strike", tr("Durchgestrichen"), item.strike, item.set_strike
+                ),
                 self._divider(),
-                self._toggle("invert", tr("Invertiert"), item.inverted, item.set_inverted),
-                *([self._divider(), self._color_button(item)] if self._allow_red else []),
+                self._toggle(
+                    "invert", tr("Invertiert"), item.inverted, item.set_inverted
+                ),
+                *(
+                    [self._divider(), self._color_button(item)]
+                    if self._allow_red
+                    else []
+                ),
             )
         )
 
@@ -524,9 +553,13 @@ class InspectorPanel(QWidget):
         form.addRow(tr("Zeilenabstand"), line)
 
         form.addRow(self._rule())
-        form.addRow(self._check(tr("Breite automatisch"), item.auto_width, item.set_auto_width))
+        form.addRow(
+            self._check(tr("Breite automatisch"), item.auto_width, item.set_auto_width)
+        )
         form.addRow(self._check(tr("Umbruch"), item.wrap, item.set_wrap))
-        form.addRow(self._check(tr("Höhe automatisch"), item.auto_height, item.set_auto_height))
+        form.addRow(
+            self._check(tr("Höhe automatisch"), item.auto_height, item.set_auto_height)
+        )
 
     # -- Textleiste (Symbol-Knoepfe) -----------------------------------------
     def _bar(self, *widgets: QWidget) -> QWidget:
@@ -606,9 +639,12 @@ class InspectorPanel(QWidget):
             button.setChecked(value == current)
             button.setAutoRaise(True)
             button.setFocusPolicy(Qt.FocusPolicy.NoFocus)
-            button.toggled.connect(
-                lambda v, val=value: v and self._apply_now(lambda: apply_fn(val))
-            )
+
+            def _on_toggled(checked: bool, val=value) -> None:
+                if checked:
+                    self._apply_now(lambda: apply_fn(val))
+
+            button.toggled.connect(_on_toggled)
             group.addButton(button)
             buttons.append(button)
         return self._bar(*buttons)
@@ -726,8 +762,12 @@ class InspectorPanel(QWidget):
                     date_format.addItem(format_date(moment, key), key)
                 for key in TIME_FORMATS:
                     time_format.addItem(format_time(moment, key), key)
-                date_format.setCurrentIndex(max(0, date_format.findData(item.date_format)))
-                time_format.setCurrentIndex(max(0, time_format.findData(item.time_format)))
+                date_format.setCurrentIndex(
+                    max(0, date_format.findData(item.date_format))
+                )
+                time_format.setCurrentIndex(
+                    max(0, time_format.findData(item.time_format))
+                )
 
             def sync_enabled() -> None:
                 has_date = item.mode in ("date", "both")
@@ -742,7 +782,9 @@ class InspectorPanel(QWidget):
                 self._loading = True
                 try:
                     date_edit.setDate(QDate(current.year, current.month, current.day))
-                    time_edit.setTime(QTime(current.hour, current.minute, current.second))
+                    time_edit.setTime(
+                        QTime(current.hour, current.minute, current.second)
+                    )
                     direction.setCurrentIndex(1 if item.offset < 0 else 0)
                     amount.setValue(abs(item.offset))
                 finally:
@@ -782,7 +824,9 @@ class InspectorPanel(QWidget):
                 def apply() -> None:
                     current = item.fixed
                     item.set_fixed(
-                        current.replace(year=qdate.year(), month=qdate.month(), day=qdate.day())
+                        current.replace(
+                            year=qdate.year(), month=qdate.month(), day=qdate.day()
+                        )
                     )
 
                 self._apply_now(apply)
@@ -796,7 +840,9 @@ class InspectorPanel(QWidget):
                     current = item.fixed
                     item.set_fixed(
                         current.replace(
-                            hour=qtime.hour(), minute=qtime.minute(), second=qtime.second()
+                            hour=qtime.hour(),
+                            minute=qtime.minute(),
+                            second=qtime.second(),
                         )
                     )
 
@@ -876,7 +922,9 @@ class InspectorPanel(QWidget):
         underline = QCheckBox(tr("Unterstrichen"))
         underline.setToolTip(tr("Unterstrichen (Strg+U)"))
         underline.setChecked(item.underline)
-        underline.toggled.connect(lambda v: self._apply_now(lambda: item.set_underline(v)))
+        underline.toggled.connect(
+            lambda v: self._apply_now(lambda: item.set_underline(v))
+        )
         form.addRow("", underline)
 
         color = QComboBox()
@@ -928,7 +976,7 @@ class InspectorPanel(QWidget):
         for name in BARCODE_SYMBOLOGIES:
             sym.addItem(name, name)
         idx = sym.findData(item.symbology)
-        sym.setCurrentIndex(idx if idx >= 0 else 0)
+        sym.setCurrentIndex(max(idx, 0))
         sym.currentIndexChanged.connect(
             lambda: self._guard_now(item, lambda: item.set_symbology(sym.currentData()))
         )
@@ -1066,7 +1114,9 @@ class InspectorPanel(QWidget):
         if same_font and family:
             font_box.setCurrentFont(QFont(family))
         font_box.currentFontChanged.connect(
-            lambda f: self._apply_now(lambda: item.set_selected("font_family", f.family()))
+            lambda f: self._apply_now(
+                lambda: item.set_selected("font_family", f.family())
+            )
         )
         form.addRow(tr("Schrift"), font_box)
 
@@ -1078,10 +1128,12 @@ class InspectorPanel(QWidget):
         form.addRow(tr("Größe (px)"), size)
 
         form.addRow(self._rule())
-        style = [
+        style: list[QWidget] = [
             self._cell_toggle(item, "bold", "bold", tr("Fett (Strg+B)")),
             self._cell_toggle(item, "italic", "italic", tr("Kursiv (Strg+I)")),
-            self._cell_toggle(item, "underline", "underline", tr("Unterstrichen (Strg+U)")),
+            self._cell_toggle(
+                item, "underline", "underline", tr("Unterstrichen (Strg+U)")
+            ),
         ]
         if self._allow_red:
             style.extend((self._divider(), self._cell_color_button(item)))
@@ -1165,9 +1217,11 @@ class InspectorPanel(QWidget):
         else:
             fill.setCurrentIndex(-1)
         fill.currentIndexChanged.connect(
-            lambda: self._apply_now(lambda: item.set_selected("fill", fill.currentData()))
-            if fill.currentIndex() >= 0
-            else None
+            lambda: (
+                self._apply_now(lambda: item.set_selected("fill", fill.currentData()))
+                if fill.currentIndex() >= 0
+                else None
+            )
         )
         form.addRow(tr("Füllung"), fill)
         return page
@@ -1181,8 +1235,12 @@ class InspectorPanel(QWidget):
         form.setRowWrapPolicy(QFormLayout.RowWrapPolicy.WrapLongRows)
         form.addRow(
             self._bar(
-                self._icon_action("row_above", tr("Zeile darüber"), item.insert_row_above),
-                self._icon_action("col_left", tr("Spalte links"), item.insert_column_left),
+                self._icon_action(
+                    "row_above", tr("Zeile darüber"), item.insert_row_above
+                ),
+                self._icon_action(
+                    "col_left", tr("Spalte links"), item.insert_column_left
+                ),
                 self._divider(),
                 self._icon_action(
                     "row_delete",
@@ -1233,7 +1291,7 @@ class InspectorPanel(QWidget):
         for key in LINE_STYLE_CHOICES:
             style.addItem(line_style_label(key), key)
         idx = style.findData(item.line_style)
-        style.setCurrentIndex(idx if idx >= 0 else 0)
+        style.setCurrentIndex(max(idx, 0))
         style.currentIndexChanged.connect(
             lambda: self._apply_now(lambda: item.set_line_style(style.currentData()))
         )
@@ -1307,12 +1365,16 @@ class InspectorPanel(QWidget):
 
         aspect = QCheckBox(tr("Seitenverhältnis festhalten"))
         aspect.setChecked(item.keep_aspect)
-        aspect.toggled.connect(lambda value: self._apply_now(lambda: item.set_keep_aspect(value)))
+        aspect.toggled.connect(
+            lambda value: self._apply_now(lambda: item.set_keep_aspect(value))
+        )
         form.addRow("", aspect)
 
         invert = QCheckBox(tr("Invertiert"))
         invert.setChecked(item.inverted)
-        invert.toggled.connect(lambda value: self._apply_now(lambda: item.set_inverted(value)))
+        invert.toggled.connect(
+            lambda value: self._apply_now(lambda: item.set_inverted(value))
+        )
         form.addRow("", invert)
 
     def _pick_clipart(self, item, name: QLabel) -> None:
@@ -1526,4 +1588,4 @@ _KIND_TITLES = {
 }
 
 
-__all__ = ["InspectorPanel", "BARCODE_SYMBOLOGIES"]
+__all__ = ["BARCODE_SYMBOLOGIES", "InspectorPanel"]

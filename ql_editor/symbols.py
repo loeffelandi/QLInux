@@ -207,6 +207,8 @@ class SymbolPicker(QWidget):
     def _refill(self) -> None:
         while self._grid.count():
             child = self._grid.takeAt(0)
+            if child is None:
+                continue
             widget = child.widget()
             if widget is not None:
                 widget.hide()
@@ -222,14 +224,16 @@ class SymbolPicker(QWidget):
             button.setAutoRaise(True)
             button.setFixedSize(72, 72)
             button.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
-            button.clicked.connect(lambda _checked=False, sid=spec.id: self.chosen.emit(sid))
+            button.clicked.connect(
+                lambda _checked=False, sid=spec.id: self.chosen.emit(sid)
+            )
             self._grid.addWidget(button, index // columns, index % columns)
 
 
 # --------------------------------------------------------------------------- #
 # Pfade
 # --------------------------------------------------------------------------- #
-def _P(*pts: tuple[float, float]) -> QPainterPath:
+def _P(*pts: tuple[float, float]) -> QPainterPath:  # noqa: N802
     path = QPainterPath()
     path.moveTo(pts[0][0], pts[0][1])
     for x, y in pts[1:]:
@@ -238,13 +242,13 @@ def _P(*pts: tuple[float, float]) -> QPainterPath:
     return path
 
 
-def _R(x: float, y: float, w: float, h: float) -> QPainterPath:
+def _R(x: float, y: float, w: float, h: float) -> QPainterPath:  # noqa: N802
     path = QPainterPath()
     path.addRect(x, y, w, h)
     return path
 
 
-def _E(cx: float, cy: float, rx: float, ry: float | None = None) -> QPainterPath:
+def _E(cx: float, cy: float, rx: float, ry: float | None = None) -> QPainterPath:  # noqa: N802
     ry = rx if ry is None else ry
     path = QPainterPath()
     path.addEllipse(cx - rx, cy - ry, rx * 2, ry * 2)
@@ -257,7 +261,9 @@ def _round(x: float, y: float, w: float, h: float, radius: float) -> QPainterPat
     return path
 
 
-def _rot(path: QPainterPath, degrees: float, cx: float = 50, cy: float = 50) -> QPainterPath:
+def _rot(
+    path: QPainterPath, degrees: float, cx: float = 50, cy: float = 50
+) -> QPainterPath:
     transform = QTransform().translate(cx, cy).rotate(degrees).translate(-cx, -cy)
     return transform.map(path)
 
@@ -316,7 +322,11 @@ def _drop() -> QPainterPath:
 
 
 def _warning() -> QPainterPath:
-    return _P((50, 8), (92, 90), (8, 90)).subtracted(_R(46, 40, 8, 26)).subtracted(_E(50, 76, 5))
+    return (
+        _P((50, 8), (92, 90), (8, 90))
+        .subtracted(_R(46, 40, 8, 26))
+        .subtracted(_E(50, 76, 5))
+    )
 
 
 def _info() -> QPainterPath:
@@ -336,7 +346,11 @@ def _check() -> QPainterPath:
 
 
 def _diamond_alert() -> QPainterPath:
-    return _P((50, 6), (94, 50), (50, 94), (6, 50)).subtracted(_R(46, 30, 8, 28)).subtracted(_E(50, 70, 5))
+    return (
+        _P((50, 6), (94, 50), (50, 94), (6, 50))
+        .subtracted(_R(46, 30, 8, 28))
+        .subtracted(_E(50, 70, 5))
+    )
 
 
 def _arrow_right() -> QPainterPath:
@@ -376,7 +390,11 @@ def _lock() -> QPainterPath:
 
 
 def _phone() -> QPainterPath:
-    return _round(30, 6, 40, 88, 8).subtracted(_R(42, 14, 16, 5)).subtracted(_round(40, 74, 20, 8, 3))
+    return (
+        _round(30, 6, 40, 88, 8)
+        .subtracted(_R(42, 14, 16, 5))
+        .subtracted(_round(40, 74, 20, 8, 3))
+    )
 
 
 def _mail() -> QPainterPath:
@@ -386,7 +404,11 @@ def _mail() -> QPainterPath:
 
 def _key() -> QPainterPath:
     bow = _E(32, 46, 20).subtracted(_E(32, 46, 9))
-    return bow.united(_R(48, 40, 40, 12)).united(_R(70, 52, 8, 16)).united(_R(82, 52, 8, 12))
+    return (
+        bow.united(_R(48, 40, 40, 12))
+        .united(_R(70, 52, 8, 16))
+        .united(_R(82, 52, 8, 12))
+    )
 
 
 def _clock() -> QPainterPath:

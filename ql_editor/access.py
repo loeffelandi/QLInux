@@ -16,8 +16,8 @@ Oberflaeche (``QProcess``), damit sie dabei nicht blockiert.
 
 from __future__ import annotations
 
-from pathlib import Path
 import shutil
+from pathlib import Path
 
 from .i18n import tr
 
@@ -28,7 +28,9 @@ UDEV_RULE_FILE = "/etc/udev/rules.d/70-brother-ql.rules"
 INSTALLED_HELPER = "/usr/lib/ql-editor/install-udev-rule"
 
 #: Helfer im Projektverzeichnis (Entwicklung / Start aus dem Checkout).
-PROJECT_HELPER = Path(__file__).resolve().parent.parent / "scripts" / "install-udev-rule.sh"
+PROJECT_HELPER = (
+    Path(__file__).resolve().parent.parent / "scripts" / "install-udev-rule.sh"
+)
 
 #: Rueckgabewerte von pkexec (siehe ``man pkexec``).
 PKEXEC_DISMISSED = 126

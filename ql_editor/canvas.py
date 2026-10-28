@@ -52,9 +52,11 @@ Direkte Bearbeitung mit der Maus (modernes Editor-Gefuehl):
 from __future__ import annotations
 
 import math
+from collections.abc import Iterator, Mapping, Sequence
 from contextlib import contextmanager
-from typing import Any, Iterator, Mapping, Sequence
+from typing import Any
 
+from PIL import Image
 from PySide6.QtCore import (
     QAbstractAnimation,
     QEasingCurve,
@@ -62,6 +64,7 @@ from PySide6.QtCore import (
     QLocale,
     QPoint,
     QPointF,
+    QRect,
     QRectF,
     Qt,
     QTimer,
@@ -90,14 +93,12 @@ from PySide6.QtWidgets import (
     QPinchGesture,
     QWidget,
 )
-from PIL import Image
 
 from . import items as items_mod
 from .database_panel import field_from_mime
 from .document import guide_entries
 from .i18n import tr
 from .icons import ROTATE_CURSOR_SIZE, cursor
-from .renderer import render_scene_to_image
 from .media import (
     CUT_OFFSET_DOTS,
     DOTS_PER_MM,
@@ -107,6 +108,7 @@ from .media import (
     dots_to_mm,
     mm_to_dots,
 )
+from .renderer import render_scene_to_image
 from .widgets import SmoothScroller, wheel_deltas
 
 RULER_WIDTH = 24
@@ -295,7 +297,7 @@ class MmRuler(QWidget):
     Blick zu sehen, wie gross das Etikett ist.
     """
 
-    def __init__(self, view: "LabelCanvas", orientation: Qt.Orientation):
+    def __init__(self, view: LabelCanvas, orientation: Qt.Orientation):
         super().__init__(view)
         self._view = view
         self._orientation = orientation
@@ -419,7 +421,9 @@ class MmRuler(QWidget):
             mm += minor
         painter.end()
 
-    def _draw_tick(self, painter: QPainter, mm: float, medium: float, major: float) -> None:
+    def _draw_tick(
+        self, painter: QPainter, mm: float, medium: float, major: float
+    ) -> None:
         """Einen Strich samt Beschriftung zeichnen (Position kommt aus der Szene)."""
         horizontal = self._orientation == Qt.Orientation.Horizontal
         pos = self._position_px(mm)
@@ -430,18 +434,28 @@ class MmRuler(QWidget):
             tick = RULER_WIDTH // 2 - 2
         else:
             tick = RULER_WIDTH // 3
-        painter.setPen(QPen(QColor(RULER_TICK_MAJOR_COLOR if labelled else RULER_TICK_MINOR_COLOR)))
+        painter.setPen(
+            QPen(QColor(RULER_TICK_MAJOR_COLOR if labelled else RULER_TICK_MINOR_COLOR))
+        )
         if horizontal:
-            painter.drawLine(QPointF(pos, float(self.height() - tick)), QPointF(pos, float(self.height())))
+            painter.drawLine(
+                QPointF(pos, float(self.height() - tick)),
+                QPointF(pos, float(self.height())),
+            )
         else:
-            painter.drawLine(QPointF(float(self.width() - tick), pos), QPointF(float(self.width()), pos))
+            painter.drawLine(
+                QPointF(float(self.width() - tick), pos),
+                QPointF(float(self.width()), pos),
+            )
         if not labelled:
             return
         # Beschriftung immer in Millimetern - die Einheit steht in der Ecke.
         painter.setPen(QPen(QColor(RULER_TEXT_COLOR)))
-        label = f"{int(round(mm))}"
+        label = f"{round(mm)}"
         if horizontal:
-            painter.drawText(QPointF(pos + 2, float(self.height() - RULER_WIDTH // 2 - 1)), label)
+            painter.drawText(
+                QPointF(pos + 2, float(self.height() - RULER_WIDTH // 2 - 1)), label
+            )
         else:
             # Wie im P-touch Editor laengs der Achse gedreht.
             painter.save()
@@ -577,7 +591,7 @@ class LabelCanvas(QGraphicsView):
 
         # Interaktionszustand
         self._op: str | None = None
-        self._op_item = None
+        self._op_item: QGraphicsItem | None = None
         self._op_handle = ""
         self._op_start_scene = QPointF()
         self._op_start_bbox = QRectF()
@@ -637,13 +651,13 @@ class LabelCanvas(QGraphicsView):
             ``None`` (Default) passt nur bei einem Bandwechsel (Breiten-
             aenderung), beim ersten Setzen oder beim Wechsel der Ausrichtung ein.
         """
-        first = self._label is None
+        current = self._label
         orientation = Orientation(orientation)
         size = canvas_size_for_orientation(label, int(length_dots), orientation)
         # Nur ein anderer Bandtyp (andere Bandbreite) oder die Ausrichtung
         # rechtfertigen einen Refit - eine Laengenaenderung darf den manuell
         # gewaehlten Zoom nicht wegwerfen (bei ALONG ist die Laenge die Breite!).
-        tape_changed = first or self._label.width_dots != label.width_dots
+        tape_changed = current is None or current.width_dots != label.width_dots
         orientation_changed = orientation is not self._orientation
         self._label = label
         self._length_dots = int(length_dots)
@@ -793,7 +807,7 @@ class LabelCanvas(QGraphicsView):
     @property
     def height_dots(self) -> int:
         """Hoehe der Designflaeche in Dots (Canvas-Achse)."""
-        return int(round(self.printable_rect().height()))
+        return round(self.printable_rect().height())
 
     def item_scene_size(self, item) -> tuple[float, float]:
         """Aktuelle Groesse eines Items in Szenen-Einheiten (ohne Rotation).
@@ -830,7 +844,9 @@ class LabelCanvas(QGraphicsView):
         tape = self.tape_rect()
         if self._orientation is Orientation.ALONG:
             left = tape.right()
-            return QRectF(left, tape.top(), max(0.0, exposed.right() - left), tape.height())
+            return QRectF(
+                left, tape.top(), max(0.0, exposed.right() - left), tape.height()
+            )
         top = tape.bottom()
         return QRectF(tape.left(), top, tape.width(), max(0.0, exposed.bottom() - top))
 
@@ -885,14 +901,20 @@ class LabelCanvas(QGraphicsView):
         angelegtes, noch leeres Textfeld sofort wieder verschwinden (der
         Refresh nach dem Anlegen rendert die Vorschau).
         """
-        editing = [item for item in self._scene.items() if getattr(item, "is_editing", False)]
+        editing = [
+            item for item in self._scene.items() if getattr(item, "is_editing", False)
+        ]
         for item in editing:
-            item.set_caret_hidden(True)
+            hide = getattr(item, "set_caret_hidden", None)
+            if callable(hide):
+                hide(True)
         try:
             yield
         finally:
             for item in editing:
-                item.set_caret_hidden(False)
+                hide = getattr(item, "set_caret_hidden", None)
+                if callable(hide):
+                    hide(False)
 
     def render_printable(self, *, rotate: bool = False, scale: int = 1) -> Image.Image:
         """Die bedruckbare Flaeche 1:1 als ``PIL.Image`` rendern.
@@ -1018,7 +1040,7 @@ class LabelCanvas(QGraphicsView):
             self._h_scroller.scroll_by(-dx)
         event.accept()
 
-    def event(self, event) -> bool:  # noqa: N802
+    def event(self, event) -> bool:
         """Zoomgeste am Touchpad (Pinch) vergroessert/verkleinert den Canvas."""
         if event.type() == QEvent.Type.NativeGesture:
             gesture = event
@@ -1032,20 +1054,32 @@ class LabelCanvas(QGraphicsView):
             if pinch is not None:
                 self._on_pinch(pinch)
                 return True
-        if event.type() in (QEvent.Type.TouchBegin, QEvent.Type.TouchUpdate):
-            if len(event.points()) >= 2:
-                self._enter_multitouch(event.points()[0].position())
-                return True
-        if event.type() in (QEvent.Type.TouchEnd, QEvent.Type.TouchCancel):
-            if all(p.state() == QEventPoint.State.Released for p in event.points()):
-                self._leave_multitouch()
-        if self._multitouch and event.type() in (
-            QEvent.Type.MouseButtonPress,
-            QEvent.Type.MouseMove,
-            QEvent.Type.MouseButtonRelease,
+        if (
+            event.type()
+            in (
+                QEvent.Type.TouchBegin,
+                QEvent.Type.TouchUpdate,
+            )
+            and len(event.points()) >= 2
         ):
-            if event.source() != Qt.MouseEventSource.MouseEventNotSynthesized:
-                return True
+            self._enter_multitouch(event.points()[0].position())
+            return True
+        if event.type() in (
+            QEvent.Type.TouchEnd,
+            QEvent.Type.TouchCancel,
+        ) and all(p.state() == QEventPoint.State.Released for p in event.points()):
+            self._leave_multitouch()
+        if (
+            self._multitouch
+            and event.type()
+            in (
+                QEvent.Type.MouseButtonPress,
+                QEvent.Type.MouseMove,
+                QEvent.Type.MouseButtonRelease,
+            )
+            and event.source() != Qt.MouseEventSource.MouseEventNotSynthesized
+        ):
+            return True
         return super().event(event)
 
     def _enter_multitouch(self, pos: QPointF) -> None:
@@ -1083,7 +1117,10 @@ class LabelCanvas(QGraphicsView):
         Angelegt wird an der vorigen Mitte: ihr Punkt landet nach Zoom und
         ``pan`` unter der neuen. Das Ende-Event wiederholt den letzten Schritt.
         """
-        if pinch.state() in (Qt.GestureState.GestureFinished, Qt.GestureState.GestureCanceled):
+        if pinch.state() in (
+            Qt.GestureState.GestureFinished,
+            Qt.GestureState.GestureCanceled,
+        ):
             return
         flags = pinch.changeFlags()
         ratio = 1.0
@@ -1092,16 +1129,22 @@ class LabelCanvas(QGraphicsView):
         pan = QPointF(0.0, 0.0)
         if flags & QPinchGesture.ChangeFlag.CenterPointChanged:
             pan = pinch.centerPoint() - pinch.lastCenterPoint()
-        self.apply_pinch(ratio, pan, self.viewport().mapFromGlobal(pinch.lastCenterPoint()))
+        self.apply_pinch(
+            ratio, pan, self.viewport().mapFromGlobal(pinch.lastCenterPoint())
+        )
 
-    def apply_pinch(self, ratio: float, pan: QPointF, center: QPointF | None = None) -> None:
+    def apply_pinch(
+        self, ratio: float, pan: QPointF, center: QPointF | None = None
+    ) -> None:
         """Ein Schritt der Zwei-Finger-Geste: um die Fingermitte zoomen, dann verschieben.
 
         Der Punkt des Etiketts unter der Fingermitte bleibt dort, die Mitte
         wandert mit ``pan`` mit. Die Scrollbalken werden direkt gesetzt, ohne
         die Glättung, sonst hinkt der Ausschnitt den Fingern hinterher.
         """
-        anchor = center if center is not None else QPointF(self.viewport().rect().center())
+        anchor = (
+            center if center is not None else QPointF(self.viewport().rect().center())
+        )
         scene_point = self.mapToScene(anchor.toPoint())
         if ratio > 0 and abs(ratio - 1.0) > 1e-9:
             previous = self.transformationAnchor()
@@ -1113,7 +1156,9 @@ class LabelCanvas(QGraphicsView):
         dy = moved.y() - anchor.y() - pan.y()
         self._v_scroller.stop()
         self._h_scroller.stop()
-        self.horizontalScrollBar().setValue(round(self.horizontalScrollBar().value() + dx))
+        self.horizontalScrollBar().setValue(
+            round(self.horizontalScrollBar().value() + dx)
+        )
         self.verticalScrollBar().setValue(round(self.verticalScrollBar().value() + dy))
 
     def zoom_by(self, factor: float) -> None:
@@ -1180,12 +1225,12 @@ class LabelCanvas(QGraphicsView):
         for item in self._scene.items():
             if item.flags() & QGraphicsItem.GraphicsItemFlag.ItemIsMovable:
                 if not clamp:
-                    item._clamp_suspended = True
+                    item._clamp_suspended = True  # type: ignore[attr-defined]
                 try:
                     item.moveBy(dx, dy)
                 finally:
                     if not clamp:
-                        item._clamp_suspended = False
+                        item._clamp_suspended = False  # type: ignore[attr-defined]
         shifted: list[tuple[str, float]] = []
         for axis, pos in self._placed_guides:
             if axis == "v":
@@ -1207,7 +1252,11 @@ class LabelCanvas(QGraphicsView):
             max(0.0, printable.height() - top - bottom),
         )
 
-    def drawBackground(self, painter: QPainter, rect: QRectF) -> None:  # noqa: N802
+    def drawBackground(  # noqa: N802
+        self, painter: QPainter, rect: QRectF | QRect
+    ) -> None:
+        if isinstance(rect, QRect):
+            rect = QRectF(rect)
         super().drawBackground(painter, rect)
         if self._label is None:
             return
@@ -1254,19 +1303,27 @@ class LabelCanvas(QGraphicsView):
         if self._orientation is Orientation.ALONG:
             if side > 0:
                 painter.drawRect(QRectF(tape.left(), tape.top(), tape.width(), side))
-                painter.drawRect(QRectF(tape.left(), printable.bottom(), tape.width(), side))
+                painter.drawRect(
+                    QRectF(tape.left(), printable.bottom(), tape.width(), side)
+                )
             if lead > 0:
                 painter.drawRect(QRectF(tape.left(), tape.top(), lead, tape.height()))
             if trail > 0:
-                painter.drawRect(QRectF(printable.right(), tape.top(), trail, tape.height()))
+                painter.drawRect(
+                    QRectF(printable.right(), tape.top(), trail, tape.height())
+                )
         else:
             if side > 0:
                 painter.drawRect(QRectF(tape.left(), tape.top(), side, tape.height()))
-                painter.drawRect(QRectF(printable.right(), tape.top(), side, tape.height()))
+                painter.drawRect(
+                    QRectF(printable.right(), tape.top(), side, tape.height())
+                )
             if lead > 0:
                 painter.drawRect(QRectF(tape.left(), tape.top(), tape.width(), lead))
             if trail > 0:
-                painter.drawRect(QRectF(tape.left(), printable.bottom(), tape.width(), trail))
+                painter.drawRect(
+                    QRectF(tape.left(), printable.bottom(), tape.width(), trail)
+                )
         painter.restore()
 
     def _draw_size_labels(self, painter: QPainter) -> None:
@@ -1290,7 +1347,6 @@ class LabelCanvas(QGraphicsView):
         metrics = QFontMetricsF(font)
         # Sichtbare Positionen in Viewport-Pixeln entscheiden, ob Platz ist.
         top_left = self.mapFromScene(tape.topLeft())
-        top_right = self.mapFromScene(tape.topRight())
         bottom_left = self.mapFromScene(tape.bottomLeft())
         room = metrics.height() + SIZE_LABEL_GAP_PX
 
@@ -1305,16 +1361,29 @@ class LabelCanvas(QGraphicsView):
             painter.drawText(QPointF(-advance / 2.0, 0.0), horizontal_text)
             painter.restore()
         tape_height_px = abs(bottom_left.y() - top_left.y())
-        if top_left.x() >= room and tape_height_px >= metrics.horizontalAdvance(vertical_text) + 2 * SIZE_LABEL_GAP_PX:
+        if (
+            top_left.x() >= room
+            and tape_height_px
+            >= metrics.horizontalAdvance(vertical_text) + 2 * SIZE_LABEL_GAP_PX
+        ):
             painter.save()
-            painter.translate(tape.left() - SIZE_LABEL_GAP_PX / scale, tape.center().y())
+            painter.translate(
+                tape.left() - SIZE_LABEL_GAP_PX / scale, tape.center().y()
+            )
             painter.scale(1.0 / scale, 1.0 / scale)
             painter.rotate(-90)
-            painter.drawText(QPointF(-metrics.horizontalAdvance(vertical_text) / 2.0, 0.0), vertical_text)
+            painter.drawText(
+                QPointF(-metrics.horizontalAdvance(vertical_text) / 2.0, 0.0),
+                vertical_text,
+            )
             painter.restore()
         painter.restore()
 
-    def drawForeground(self, painter: QPainter, rect: QRectF) -> None:  # noqa: N802
+    def drawForeground(  # noqa: N802
+        self, painter: QPainter, rect: QRectF | QRect
+    ) -> None:
+        if isinstance(rect, QRect):
+            rect = QRectF(rect)
         super().drawForeground(painter, rect)
 
         # Druckvorschau: das binarisierte 1-bit-Bild deckt die Items ab.
@@ -1359,11 +1428,17 @@ class LabelCanvas(QGraphicsView):
         item = self._editable_selection()
         if item is not None:
             size = self._handle_size()
-            polygons = self._edit_border_polygons(item) if self._editing_text_selection() is item else None
+            polygons = (
+                self._edit_border_polygons(item)
+                if self._editing_text_selection() is item
+                else None
+            )
             if polygons is not None:
                 # Schraffur in Bildschirmpixeln, unabhaengig vom Zoom.
                 hatch = QBrush(QColor("#1f6feb"), Qt.BrushStyle.BDiagPattern)
-                hatch.setTransform(QTransform.fromScale(1.0 / self._scale(), 1.0 / self._scale()))
+                hatch.setTransform(
+                    QTransform.fromScale(1.0 / self._scale(), 1.0 / self._scale())
+                )
                 painter.setPen(Qt.PenStyle.NoPen)
                 painter.setBrush(hatch)
                 painter.drawPath(self._edit_border_path(*polygons))
@@ -1376,7 +1451,9 @@ class LabelCanvas(QGraphicsView):
                 painter.setPen(handle_pen)
                 painter.setBrush(QColor("#ffffff"))
                 for pt in self._handle_points(item).values():
-                    painter.drawRect(QRectF(pt.x() - size / 2, pt.y() - size / 2, size, size))
+                    painter.drawRect(
+                        QRectF(pt.x() - size / 2, pt.y() - size / 2, size, size)
+                    )
             # Drehgriff (Kreis + Verbindungslinie)
             top = self._handle_points(item)["n"]
             rot = self._rotate_handle_point(item)
@@ -1394,9 +1471,13 @@ class LabelCanvas(QGraphicsView):
             tape = self.tape_rect()
             for axis, coord in self._guides:
                 if axis == "v":
-                    painter.drawLine(QPointF(coord, tape.top()), QPointF(coord, tape.bottom()))
+                    painter.drawLine(
+                        QPointF(coord, tape.top()), QPointF(coord, tape.bottom())
+                    )
                 else:
-                    painter.drawLine(QPointF(tape.left(), coord), QPointF(tape.right(), coord))
+                    painter.drawLine(
+                        QPointF(tape.left(), coord), QPointF(tape.right(), coord)
+                    )
         painter.setPen(Qt.PenStyle.NoPen)
         painter.setBrush(Qt.BrushStyle.NoBrush)
 
@@ -1463,7 +1544,10 @@ class LabelCanvas(QGraphicsView):
                 self._animate_tick(changed)
 
     def _track_pointer_hover(self, view_pos: QPoint) -> None:
-        if self._op in ("resize", "rotate", "table-divider") and self._op_item is not None:
+        if (
+            self._op in ("resize", "rotate", "table-divider")
+            and self._op_item is not None
+        ):
             self._set_hover_item(self._op_item)
             return
         if self._op == "move" and self._move_items:
@@ -1533,7 +1617,9 @@ class LabelCanvas(QGraphicsView):
         anim.setEndValue(target)
         anim.setDuration(TICK_FADE_MS)
         anim.setEasingCurve(QEasingCurve.Type.InOutQuad)
-        anim.valueChanged.connect(lambda value, item=item: self._on_tick_fade(item, value))
+        anim.valueChanged.connect(
+            lambda value, item=item: self._on_tick_fade(item, value)
+        )
         anim.finished.connect(lambda item=item: self._drop_tick_anim(item))
         item._tick_anim = anim
         anim.start()
@@ -1581,9 +1667,7 @@ class LabelCanvas(QGraphicsView):
         if self._guide_drag is not None and self._guide_drag.get("hidden"):
             hidden = self._guide_drag.get("index")
         guides = [
-            guide
-            for index, guide in enumerate(self._placed_guides)
-            if index != hidden
+            guide for index, guide in enumerate(self._placed_guides) if index != hidden
         ]
         if not guides:
             return
@@ -1593,9 +1677,13 @@ class LabelCanvas(QGraphicsView):
         painter.setPen(pen)
         for axis, coord in guides:
             if axis == "v":
-                painter.drawLine(QPointF(coord, rect.top()), QPointF(coord, rect.bottom()))
+                painter.drawLine(
+                    QPointF(coord, rect.top()), QPointF(coord, rect.bottom())
+                )
             else:
-                painter.drawLine(QPointF(rect.left(), coord), QPointF(rect.right(), coord))
+                painter.drawLine(
+                    QPointF(rect.left(), coord), QPointF(rect.right(), coord)
+                )
 
     def _screen_lengths(self, item, px: float) -> tuple[float, float]:
         """``px`` Bildschirmpixel als Laenge in den lokalen Achsen von ``item``."""
@@ -1650,14 +1738,17 @@ class LabelCanvas(QGraphicsView):
         if len(selection) != 1:
             return None
         item = selection[0]
-        if getattr(item, "kind", None) == "table" and getattr(item, "is_editing", False):
+        if getattr(item, "kind", None) == "table" and getattr(
+            item, "is_editing", False
+        ):
             return None
         return item
 
     def _handle_points(self, item) -> dict[str, QPointF]:
         br = item.boundingRect()
         return {
-            name: item.mapToScene(_local_handle_point(br, name)) for name in HANDLE_NAMES
+            name: item.mapToScene(_local_handle_point(br, name))
+            for name in HANDLE_NAMES
         }
 
     def _rotate_handle_point(self, item) -> QPointF:
@@ -1708,7 +1799,10 @@ class LabelCanvas(QGraphicsView):
             return "rotate", item
         if getattr(item, "resizable", False):
             for name, pt in self._handle_points(item).items():
-                if abs(scene_pos.x() - pt.x()) <= tol and abs(scene_pos.y() - pt.y()) <= tol:
+                if (
+                    abs(scene_pos.x() - pt.x()) <= tol
+                    and abs(scene_pos.y() - pt.y()) <= tol
+                ):
                     return name, item
         return None
 
@@ -1811,7 +1905,9 @@ class LabelCanvas(QGraphicsView):
             "hidden": False,
         }
 
-    def drag_ruler_guide(self, axis: str, scene_pos: QPointF, *, over_ruler: bool) -> None:
+    def drag_ruler_guide(
+        self, axis: str, scene_pos: QPointF, *, over_ruler: bool
+    ) -> None:
         drag = self._guide_drag
         if drag is None or drag.get("source") != "ruler" or drag.get("axis") != axis:
             return
@@ -1832,7 +1928,9 @@ class LabelCanvas(QGraphicsView):
         self._guides = []
         self.viewport().update()
 
-    def end_ruler_guide(self, axis: str, scene_pos: QPointF, *, over_ruler: bool) -> None:
+    def end_ruler_guide(
+        self, axis: str, scene_pos: QPointF, *, over_ruler: bool
+    ) -> None:
         drag = self._guide_drag
         self._guide_drag = None
         if drag is None or drag.get("source") != "ruler" or drag.get("axis") != axis:
@@ -1870,7 +1968,9 @@ class LabelCanvas(QGraphicsView):
         }
         self.viewport().grabMouse()
         cursor = (
-            Qt.CursorShape.SizeVerCursor if axis == "h" else Qt.CursorShape.SizeHorCursor
+            Qt.CursorShape.SizeVerCursor
+            if axis == "h"
+            else Qt.CursorShape.SizeHorCursor
         )
         self.viewport().setCursor(cursor)
 
@@ -1901,7 +2001,11 @@ class LabelCanvas(QGraphicsView):
             self._drag_placed_guide(vp_pos)
             self._guide_drag = None
             index = drag.get("index")
-            if drag.get("hidden") and isinstance(index, int) and 0 <= index < len(self._placed_guides):
+            if (
+                drag.get("hidden")
+                and isinstance(index, int)
+                and 0 <= index < len(self._placed_guides)
+            ):
                 del self._placed_guides[index]
         self.viewport().update()
         self.items_changed.emit()
@@ -1932,27 +2036,37 @@ class LabelCanvas(QGraphicsView):
                 targets_y.append(coord)
         return targets_x, targets_y
 
-    def _snap_value(self, values: list[float], targets: list[float], tol: float) -> tuple[float, float | None]:
+    def _snap_value(
+        self, values: list[float], targets: list[float], tol: float
+    ) -> tuple[float, float | None]:
         """Kleinstes Delta, das einen der ``values`` auf ein Ziel rastet."""
         best_delta: float | None = None
         best_target: float | None = None
         for target in targets:
             for value in values:
                 delta = target - value
-                if abs(delta) <= tol and (best_delta is None or abs(delta) < abs(best_delta)):
+                if abs(delta) <= tol and (
+                    best_delta is None or abs(delta) < abs(best_delta)
+                ):
                     best_delta = delta
                     best_target = target
         if best_delta is None:
             return 0.0, None
         return best_delta, best_target
 
-    def _snap_move(self, bbox: QRectF, dx: float, dy: float, exclude) -> tuple[float, float, list]:
+    def _snap_move(
+        self, bbox: QRectF, dx: float, dy: float, exclude
+    ) -> tuple[float, float, list]:
         tol = SNAP_TOLERANCE_PX / self._scale()
         tx, ty = self._snap_targets(exclude)
         moved = bbox.translated(dx, dy)
         guides: list[tuple[str, float]] = []
-        ddx, gx = self._snap_value([moved.left(), moved.center().x(), moved.right()], tx, tol)
-        ddy, gy = self._snap_value([moved.top(), moved.center().y(), moved.bottom()], ty, tol)
+        ddx, gx = self._snap_value(
+            [moved.left(), moved.center().x(), moved.right()], tx, tol
+        )
+        ddy, gy = self._snap_value(
+            [moved.top(), moved.center().y(), moved.bottom()], ty, tol
+        )
         if gx is not None:
             guides.append(("v", gx))
         if gy is not None:
@@ -2016,7 +2130,9 @@ class LabelCanvas(QGraphicsView):
             shift = bool(event.modifiers() & Qt.KeyboardModifier.ShiftModifier)
             if getattr(item, "kind", None) == "table" and item.is_editing:
                 raw = self.itemAt(self._event_pos(event))
-                if raw is not None and (raw is item.editor or raw.parentItem() is item.editor):
+                if raw is not None and (
+                    raw is item.editor or raw.parentItem() is item.editor
+                ):
                     super().mousePressEvent(event)
                     return
                 item.finish_editing()
@@ -2080,7 +2196,9 @@ class LabelCanvas(QGraphicsView):
         else:
             self._op = "resize"
 
-    def _begin_table_divider(self, item, divider: tuple[str, int], scene_pos: QPointF) -> None:
+    def _begin_table_divider(
+        self, item, divider: tuple[str, int], scene_pos: QPointF
+    ) -> None:
         self.gesture_begun.emit()
         self._op = "table-divider"
         self._op_item = item
@@ -2130,7 +2248,11 @@ class LabelCanvas(QGraphicsView):
     def _selection_bbox(self) -> QRectF:
         rect = QRectF()
         for item in self.selected_items():
-            rect = item.sceneBoundingRect() if rect.isNull() else rect.united(item.sceneBoundingRect())
+            rect = (
+                item.sceneBoundingRect()
+                if rect.isNull()
+                else rect.united(item.sceneBoundingRect())
+            )
         return rect
 
     def mouseMoveEvent(self, event) -> None:  # noqa: N802
@@ -2163,7 +2285,9 @@ class LabelCanvas(QGraphicsView):
                 self._pending_move_start = None
                 ctrl_item = self._pending_ctrl_item
                 self._pending_ctrl_item = None
-                ctrl_held = bool(event.modifiers() & Qt.KeyboardModifier.ControlModifier)
+                ctrl_held = bool(
+                    event.modifiers() & Qt.KeyboardModifier.ControlModifier
+                )
                 if ctrl_item is not None and ctrl_held:
                     self._spawn_drag_copies()
                 else:
@@ -2187,14 +2311,21 @@ class LabelCanvas(QGraphicsView):
             event.accept()
             return
         if self._op == "rotate":
-            self._do_rotate(scene_pos, snap=bool(event.modifiers() & Qt.KeyboardModifier.ShiftModifier))
+            self._do_rotate(
+                scene_pos,
+                snap=bool(event.modifiers() & Qt.KeyboardModifier.ShiftModifier),
+            )
             event.accept()
             return
 
         # Cursor je nach Griff (mitgedreht wie das Item)
         handle = self._handle_at(scene_pos)
         guide_index = None if handle is not None else self._guide_at(scene_pos)
-        if handle is None and guide_index is None and self._edit_border_at(scene_pos) is not None:
+        if (
+            handle is None
+            and guide_index is None
+            and self._edit_border_at(scene_pos) is not None
+        ):
             self.viewport().setCursor(Qt.CursorShape.SizeAllCursor)
         elif guide_index is not None:
             axis = self._placed_guides[guide_index][0]
@@ -2269,6 +2400,8 @@ class LabelCanvas(QGraphicsView):
 
     def _do_resize(self, scene_pos: QPointF) -> None:
         item = self._op_item
+        if item is None:
+            return
         name = self._op_handle
         start_w, start_h = self._op_start_size
         bbox = self._op_start_bbox
@@ -2285,8 +2418,16 @@ class LabelCanvas(QGraphicsView):
         else:
             local_dx, local_dy = dx, dy
 
-        new_w = start_w + local_dx if "e" in name else (start_w - local_dx if "w" in name else start_w)
-        new_h = start_h + local_dy if "s" in name else (start_h - local_dy if "n" in name else start_h)
+        new_w = (
+            start_w + local_dx
+            if "e" in name
+            else (start_w - local_dx if "w" in name else start_w)
+        )
+        new_h = (
+            start_h + local_dy
+            if "s" in name
+            else (start_h - local_dy if "n" in name else start_h)
+        )
 
         guides: list[tuple[str, float]] = []
         # Einrasten nur fuer unrotierte Items (verstaendliche Kanten).
@@ -2322,16 +2463,20 @@ class LabelCanvas(QGraphicsView):
         # nach dem Resize nachfuehren.
         anchor_name = _OPPOSITE_HANDLE[name]
         anchor_before = self._handle_points(item)[anchor_name]
-        item.apply_resize(new_w, new_h)
+        item.apply_resize(new_w, new_h)  # type: ignore[attr-defined]
         anchor_local = _local_handle_point(item.boundingRect(), anchor_name)
         anchor_after = item.mapToScene(anchor_local)
-        item.moveBy(anchor_before.x() - anchor_after.x(), anchor_before.y() - anchor_after.y())
+        item.moveBy(
+            anchor_before.x() - anchor_after.x(), anchor_before.y() - anchor_after.y()
+        )
 
         self._guides = guides
         self.viewport().update()
 
     def _do_table_divider(self, scene_pos: QPointF) -> None:
         item = self._op_item
+        if item is None:
+            return
         dx = scene_pos.x() - self._op_start_scene.x()
         dy = scene_pos.y() - self._op_start_scene.y()
         angle = item.rotation()
@@ -2342,7 +2487,7 @@ class LabelCanvas(QGraphicsView):
         else:
             local_dx, local_dy = dx, dy
         delta = local_dx if self._op_handle == "col" else local_dy
-        item.drag_divider(
+        item.drag_divider(  # type: ignore[attr-defined]
             self._op_handle,
             self._op_div_index,
             delta,
@@ -2360,14 +2505,23 @@ class LabelCanvas(QGraphicsView):
         mit ``snap`` (Shift) rastet er auf 15 Grad.
         """
         item = self._op_item
+        if item is None:
+            return
         center = self._op_rotate_center
-        angle = math.degrees(
-            math.atan2(scene_pos.y() - center.y(), scene_pos.x() - center.x()) - self._op_rotate_start
-        ) + self._op_start_rotation
+        angle = (
+            math.degrees(
+                math.atan2(scene_pos.y() - center.y(), scene_pos.x() - center.x())
+                - self._op_rotate_start
+            )
+            + self._op_start_rotation
+        )
         if snap:
             angle = round(angle / 15.0) * 15.0
             self._rotate_detent = None
-        elif self._rotate_detent is not None and abs(angle - self._rotate_detent) <= ROTATE_DETENT_RELEASE_DEG:
+        elif (
+            self._rotate_detent is not None
+            and abs(angle - self._rotate_detent) <= ROTATE_DETENT_RELEASE_DEG
+        ):
             angle = self._rotate_detent
         else:
             self._rotate_detent = None
@@ -2456,7 +2610,10 @@ class LabelCanvas(QGraphicsView):
         if self._guide_at(scene_pos) is not None:
             event.accept()
             return
-        if self._handle_at(scene_pos) is not None or self._edit_border_at(scene_pos) is not None:
+        if (
+            self._handle_at(scene_pos) is not None
+            or self._edit_border_at(scene_pos) is not None
+        ):
             # Griffe und Rand gehoeren dem gewaehlten Objekt - kein neues Feld.
             event.accept()
             return
@@ -2476,7 +2633,9 @@ class LabelCanvas(QGraphicsView):
             self._op_item = None
             self._move_items = []
             self._guides = []
-            item.begin_edit_at(item.mapFromScene(self.mapToScene(self._event_pos(event))))
+            item.begin_edit_at(
+                item.mapFromScene(self.mapToScene(self._event_pos(event)))
+            )
         else:
             self._scene.clearSelection()
             item.setSelected(True)
@@ -2510,9 +2669,7 @@ class LabelCanvas(QGraphicsView):
         if self._is_own_drag(event):
             return False
         mime = event.mimeData()
-        return bool(
-            self._drop_paths(mime) or field_from_mime(mime) or mime.hasText()
-        )
+        return bool(self._drop_paths(mime) or field_from_mime(mime) or mime.hasText())
 
     def _is_own_drag(self, event) -> bool:
         """Zieht ein Textfeld in Bearbeitung seinen markierten Text?
@@ -2577,7 +2734,9 @@ class LabelCanvas(QGraphicsView):
         editing_item = self._focused_editor()
         editing = editing_item is not None
         if key in (Qt.Key.Key_Tab, Qt.Key.Key_Backtab):
-            table = editing_item if getattr(editing_item, "kind", None) == "table" else None
+            table = (
+                editing_item if getattr(editing_item, "kind", None) == "table" else None
+            )
             if table is None:
                 selected = self.selected_items()
                 if len(selected) == 1 and getattr(selected[0], "kind", None) == "table":
@@ -2657,12 +2816,12 @@ class LabelCanvas(QGraphicsView):
         """
         focus = self._scene.focusItem()
         editing = [
-            item
-            for item in self._scene.items()
-            if getattr(item, "is_editing", False)
+            item for item in self._scene.items() if getattr(item, "is_editing", False)
         ]
         for item in editing:
-            item.finish_editing()
+            finish = getattr(item, "finish_editing", None)
+            if callable(finish):
+                finish()
         if focus is not None:
             focus.clearFocus()
 
@@ -2761,4 +2920,4 @@ class LabelCanvas(QGraphicsView):
         self._corner.update()
 
 
-__all__ = ["LabelCanvas", "MmRuler", "RulerCorner", "RULER_WIDTH"]
+__all__ = ["RULER_WIDTH", "LabelCanvas", "MmRuler", "RulerCorner"]

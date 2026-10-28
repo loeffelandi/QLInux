@@ -6,7 +6,6 @@ import hashlib
 from pathlib import Path
 
 import pytest
-
 from ql_editor import csv_source, lbx
 from tests.lbx_samples import text_object, write_lbx
 
@@ -52,9 +51,13 @@ def _database(
     """
 
 
-def _objects(*, database_path: str, merge_table: str = "Fixture Data.csv", current: str = "4") -> str:
+def _objects(
+    *, database_path: str, merge_table: str = "Fixture Data.csv", current: str = "4"
+) -> str:
     return (
-        _database(database_path=database_path, merge_table=merge_table, current_record=current)
+        _database(
+            database_path=database_path, merge_table=merge_table, current_record=current
+        )
         + text_object(body="CH:", x=2)
         + text_object(body="PB 6B-6", x=12, expanded="Circuit")
         + text_object(body="", x=22, expanded="Filters")
@@ -127,7 +130,7 @@ def test_import_binds_known_attributes_and_keeps_empty_merge_text(tmp_path):
 def test_database_path_wins_over_sibling_merge_table(tmp_path):
     sibling = tmp_path / "Fixture Data.csv"
     _write_csv(sibling, "Circuit\nFROM-TABLE\n")
-    other = tmp_path / "other" 
+    other = tmp_path / "other"
     other.mkdir()
     chosen = other / "chosen.csv"
     _write_csv(chosen, "Circuit\nFROM-PATH\n")
@@ -140,9 +143,10 @@ def test_database_path_wins_over_sibling_merge_table(tmp_path):
 
     data = lbx.load(path)
 
-    assert data["data_source"]["content_sha256"] == hashlib.sha256(
-        chosen.read_bytes()
-    ).hexdigest()
+    assert (
+        data["data_source"]["content_sha256"]
+        == hashlib.sha256(chosen.read_bytes()).hexdigest()
+    )
     assert data["warnings"] == [] or not any(
         "nicht gefunden" in warning for warning in data["warnings"]
     )

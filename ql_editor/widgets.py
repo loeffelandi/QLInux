@@ -15,9 +15,9 @@ from __future__ import annotations
 from PySide6.QtCore import (
     QEasingCurve,
     QEvent,
-    QRect,
     QObject,
     QPropertyAnimation,
+    QRect,
     QSize,
     Qt,
     QTimer,
@@ -47,9 +47,7 @@ class ToolbarSeparator(QWidget):
         super().__init__(parent)
         self.setObjectName("toolbar_separator")
         self.setFixedWidth(6)
-        self.setSizePolicy(
-            QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Expanding
-        )
+        self.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Expanding)
         self.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
 
     def sizeHint(self):  # noqa: N802
@@ -219,7 +217,7 @@ class _WheelGuard(QObject):
                     area.smooth_scroll_by(-dx, -dy)
                 else:
                     vbar = area.verticalScrollBar()
-                    vbar.setValue(int(round(vbar.value() - dy)))
+                    vbar.setValue(round(vbar.value() - dy))
             return True  # Wert des Feldes bleibt unveraendert
         return super().eventFilter(obj, event)
 
@@ -246,18 +244,20 @@ def install_wheel_guard_recursive(root) -> None:
     """Wendet den Guard auf alle Spinboxen/Comboboxen unter ``root`` an."""
     from PySide6.QtWidgets import QAbstractSpinBox, QComboBox
 
-    targets = list(root.findChildren(QAbstractSpinBox)) + list(root.findChildren(QComboBox))
+    targets = list(root.findChildren(QAbstractSpinBox)) + list(
+        root.findChildren(QComboBox)
+    )
     for widget in targets:
         install_wheel_guard(widget)
 
 
 __all__ = [
-    "install_wheel_guard",
-    "install_wheel_guard_recursive",
+    "WHEEL_PIXELS_PER_NOTCH",
     "SmoothScrollArea",
     "SmoothScroller",
+    "install_wheel_guard",
+    "install_wheel_guard_recursive",
     "wheel_deltas",
-    "WHEEL_PIXELS_PER_NOTCH",
 ]
 
 
@@ -301,4 +301,3 @@ class FeedIndicator(QWidget):
             painter.drawLine(x, rect.top() + 2, x + 4, rect.bottom() - 2)
             x += self.TICK_PX
         painter.end()
-

@@ -17,8 +17,9 @@ die Nummer kennt. Format 1 bleibt lesbar (D9).
 from __future__ import annotations
 
 import json
+from collections.abc import Mapping, Sequence
 from pathlib import Path
-from typing import Any, Mapping, Sequence
+from typing import Any
 
 from . import APP_NAME, __version__
 from .i18n import tr
@@ -74,8 +75,11 @@ def guide_entries(guides: Sequence[Mapping[str, Any]] | None) -> list[dict[str, 
         axis = entry.get("axis")
         if axis not in ("h", "v"):
             continue
+        raw_pos = entry.get("pos")
+        if raw_pos is None:
+            continue
         try:
-            pos = float(entry.get("pos"))
+            pos = float(raw_pos)
         except (TypeError, ValueError):
             continue
         cleaned.append({"axis": axis, "pos": pos})
@@ -120,9 +124,7 @@ def save(path: str | Path, data: Mapping[str, Any]) -> None:
         Path(path).write_text(text + "\n", encoding="utf-8")
     except (OSError, TypeError, ValueError) as exc:
         raise DocumentError(
-            tr("Konnte {path} nicht speichern: {error}").format(
-                path=path, error=exc
-            )
+            tr("Konnte {path} nicht speichern: {error}").format(path=path, error=exc)
         ) from exc
 
 
@@ -144,14 +146,10 @@ def load(path: str | Path) -> dict[str, Any]:
         data = json.loads(raw)
     except json.JSONDecodeError as exc:
         raise DocumentError(
-            tr("{path} ist kein QLInux-Dokument: {error}").format(
-                path=path, error=exc
-            )
+            tr("{path} ist kein QLInux-Dokument: {error}").format(path=path, error=exc)
         ) from exc
     if not isinstance(data, dict):
-        raise DocumentError(
-            tr("{path} ist kein QLInux-Dokument.").format(path=path)
-        )
+        raise DocumentError(tr("{path} ist kein QLInux-Dokument.").format(path=path))
     format_number = data.get("format")
     if format_number not in SUPPORTED_FORMATS:
         raise DocumentError(
@@ -162,9 +160,7 @@ def load(path: str | Path) -> dict[str, Any]:
         )
     if not isinstance(data.get("items"), list):
         raise DocumentError(
-            tr("{path} ist kein QLInux-Dokument: Objektliste fehlt.").format(
-                path=path
-            )
+            tr("{path} ist kein QLInux-Dokument: Objektliste fehlt.").format(path=path)
         )
     if not isinstance(data.get("media"), dict):
         data["media"] = {}

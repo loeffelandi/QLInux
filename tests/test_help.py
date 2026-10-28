@@ -5,9 +5,8 @@ from __future__ import annotations
 from PySide6.QtCore import QPoint, Qt
 from PySide6.QtGui import QAction, QKeySequence, QMouseEvent
 from PySide6.QtWidgets import QLabel
-
 from ql_editor import i18n
-from ql_editor.help import action_shortcuts, build_help_content, canvas_shortcuts
+from ql_editor.help import action_shortcuts, build_help_content
 from ql_editor.i18n import tr
 
 
@@ -19,9 +18,7 @@ def _chord_from_action(action: QAction) -> str:
     text = action.shortcut().toString(QKeySequence.SequenceFormat.PortableText)
     text = text.replace("Backtab", "Tab")
     return (
-        text.replace("Shift", "Umschalt")
-        .replace("Ctrl", "Strg")
-        .replace("Del", "Entf")
+        text.replace("Shift", "Umschalt").replace("Ctrl", "Strg").replace("Del", "Entf")
     )
 
 

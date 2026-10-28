@@ -1,12 +1,18 @@
 from datetime import datetime
 
 from PySide6.QtWidgets import QTableWidget
-
 from ql_editor.jobs import PrintHistoryDialog, PrintJob
 
 
 def _job(outcome: str) -> PrintJob:
-    return PrintJob(datetime(2026, 10, 18, 14, 2, 5), "50 mm", 2, "QL-820NWB", "tcp://192.168.1.5:9100", outcome)
+    return PrintJob(
+        datetime(2026, 10, 18, 14, 2, 5),
+        "50 mm",
+        2,
+        "QL-820NWB",
+        "tcp://192.168.1.5:9100",
+        outcome,
+    )
 
 
 def test_status_text_is_honest_about_network_sends():

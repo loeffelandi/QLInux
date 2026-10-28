@@ -145,9 +145,10 @@ EN: dict[str, str] = {
     "Eingabe": "Enter",
     "Zelle bearbeiten": "Edit the cell",
     "F2": "F2",
-    "Etiketten gestalten und direkt drucken – für Brother-QL-Drucker und andere, die die Bibliothek brother_ql unterstützt.": (
-        "Design labels and print them directly – on Brother QL printers and "
-        "any other model the brother_ql library supports."
+    "Etiketten gestalten und direkt drucken – für Brother-QL-Drucker, die die Bibliothek brother_ql unterstützt, und für Avery-Zweckform-Bögen auf einem normalen Drucker.": (
+        "Design labels and print them directly – on Brother QL printers the "
+        "brother_ql library supports, and on Avery Zweckform sheets with a "
+        "normal printer."
     ),
     "Unterstützte Drucker": "Supported printers",
     "Alle {models} Modelle, die brother_ql kennt (nichts vorbelegt):": (
@@ -157,6 +158,17 @@ EN: dict[str, str] = {
         "Plus {labels} label types with their sizes, also from the library. "
         "The panel offers the ones that fit the selected model."
     ),
+    "Etikettenbögen": "Label sheets",
+    "Avery Zweckform auf A4, {count} Vorlagen. Die Maße stammen aus gLabels. Das Ziel Etikettenbogen im linken Panel setzt die Fläche auf ein Etikett der gewählten Vorlage. Eine verbundene Datenbank füllt den Bogen wie einen Banddruck, ein Datensatz pro Feld; Kopien wiederholen den Datensatz in den nächsten Feldern. Das erste Etikett lässt schon verbrauchte Felder auf einem angefangenen Bogen aus. PDF und der Systemdrucker geben die Seite in Originalgröße aus. Der Versatz in Millimetern rückt den ganzen Bogen, wenn der Drucker nicht am Papierrand beginnt.": (
+        "Avery Zweckform on A4, {count} products. The measurements come from "
+        "gLabels. The Label sheet target in the left panel sizes the canvas "
+        "to one label of the chosen product. A connected database fills the "
+        "sheet the way a tape job does, one record per label; copies repeat "
+        "that record in the following cells. First label skips cells already "
+        "used on a partial sheet. PDF and the system printer emit the page "
+        "at actual size. The offset, in millimetres, nudges the whole sheet "
+        "when the printer does not start at the paper edge."
+    ),
     "Freie Software": "Free software",
     "QLInux steht unter der GNU General Public License, Version 3 oder später (GPL-3.0-or-later).": (
         "QLInux is released under the GNU General Public License, version 3 or "
@@ -164,17 +176,13 @@ EN: dict[str, str] = {
     ),
     "Lizenztext": "License text",
     "Dank an": "Thanks to",
-    "Druckerbefehle, Band- und Modellmaße": (
-        "Printer commands, label and model sizes"
-    ),
+    "Druckerbefehle, Band- und Modellmaße": ("Printer commands, label and model sizes"),
     "Oberfläche (Fenster, Canvas, Sheets)": (
         "User interface (windows, canvas, sheets)"
     ),
     "Fredrik Lundh und Mitwirkende": "Fredrik Lundh and contributors",
     "Rendering und Rasterdaten": "Rendering and raster data",
-    "Wander Lairson Costa und Mitwirkende": (
-        "Wander Lairson Costa and contributors"
-    ),
+    "Wander Lairson Costa und Mitwirkende": ("Wander Lairson Costa and contributors"),
     "USB-Anschluss": "USB connection",
     "Lincoln Loop und Mitwirkende": "Lincoln Loop and contributors",
     "QR-Codes": "QR codes",
@@ -239,9 +247,7 @@ EN: dict[str, str] = {
     "Rechtsbündig": "Align right",
     "Blocksatz": "Justify",
     "Oben": "Top",
-    "Mitte": "Middle",
     "Unten": "Bottom",
-    "Unterstrichen": "Underline",
     "Zeilenhöhe": "Row height",
     "Spaltenbreite": "Column width",
     "Mehrere Zellen": "Multiple cells",
@@ -524,7 +530,6 @@ EN: dict[str, str] = {
     "Adressetikett": "Address label",
     "Paketmarke": "Parcel label",
     "Kabel": "Cable",
-    "Ordnerrücken": "Folder spine",
     "Preisschild": "Price tag",
     "WLAN-QR": "WiFi QR",
     "Inventar": "Inventory",
@@ -616,7 +621,6 @@ EN: dict[str, str] = {
     ),
     # -- Band, Laenge, Margins ----------------------------------------------
     "Länge": "Length",
-    "Länge": "Length",
     "Automatische Länge": "Automatic length",
     "Farbe": "Color",
     "schwarz": "black",
@@ -666,7 +670,6 @@ EN: dict[str, str] = {
     "Linienbreite": "Line width",
     "Gefüllt": "Filled",
     "Invertiert": "Inverted",
-    "Textausrichtung": "Text alignment",
     "Umbruch": "Wrap",
     "Unterstrichen": "Underlined",
     "Durchgestrichen": "Strikethrough",
@@ -682,8 +685,6 @@ EN: dict[str, str] = {
     "Links": "Left",
     "Mitte": "Center",
     "Rechts": "Right",
-    "Oben": "Top",
-    "Unten": "Bottom",
     "Vertikal ausrichten": "Vertical alignment",
     "Breite automatisch": "Automatic width",
     "Höhe automatisch": "Automatic height",
@@ -698,7 +699,6 @@ EN: dict[str, str] = {
     "Klartext": "Plain text",
     "Objekt": "Object",
     # -- Druckoptionen ------------------------------------------------------
-    "Drucken": "Print",
     "Druckvorschau, Einstellungen und Verlauf": "Print preview, settings and history",
     "Druckdialog": "Print dialog",
     "Druckdialog (Ctrl+P)": "Print dialog (Ctrl+P)",
@@ -748,14 +748,10 @@ EN: dict[str, str] = {
         "From–to; 1 is the first row, and both ends count."
     ),
     "Von": "From",
-    "Erster Datensatz, 1 ist die erste Zeile.": (
-        "First record; 1 is the first row."
-    ),
+    "Erster Datensatz, 1 ist die erste Zeile.": ("First record; 1 is the first row."),
     "Bis": "To",
     "Letzter Datensatz, einschließlich.": "Last record, inclusive.",
-    "Sende {count} Etiketten an {address}…": (
-        "Sending {count} labels to {address}…"
-    ),
+    "Sende {count} Etiketten an {address}…": ("Sending {count} labels to {address}…"),
     "Tinte: –": "Ink: –",
     "Tinte: {value} %": "Ink: {value} %",
     "600 dpi nur in Bandlaufrichtung; quer bleiben es 300 dpi.": (
@@ -800,8 +796,7 @@ EN: dict[str, str] = {
         "Only takes effect without dithering."
     ),
     "Anteil der bedruckten Fläche - sofort sichtbar, was Tintenmenge und Dithering bewirken.": (
-        "Share of the printed area - shows at once what ink amount and dithering "
-        "do."
+        "Share of the printed area - shows at once what ink amount and dithering do."
     ),
     # -- Meldungen ----------------------------------------------------------
     "Rendern": "Rendering",
@@ -816,8 +811,7 @@ EN: dict[str, str] = {
         "No label reported. Please choose one manually."
     ),
     "Kein Zugriff auf den USB-Drucker.\nIm Panel unter „Drucker“: „Zugriff einrichten“.": (
-        "No access to the USB printer.\n"
-        "In the panel under “Printer”: “Set up access”."
+        "No access to the USB printer.\nIn the panel under “Printer”: “Set up access”."
     ),
     "Kein Zugriff auf {address}.": "No access to {address}.",
     "Sende an {address}…": "Sending to {address}…",
@@ -930,9 +924,7 @@ EN: dict[str, str] = {
     "Datenbank-Binding braucht einen Spaltennamen.": (
         "Database binding needs a column name."
     ),
-    "Unbekannte Binding-Quelle: {source!r}.": (
-        "Unknown binding source: {source!r}."
-    ),
+    "Unbekannte Binding-Quelle: {source!r}.": ("Unknown binding source: {source!r}."),
     # -- Datenbank-Merge (M2) -----------------------------------------------
     "Datenbank": "Database",
     "Keine CSV verbunden": "No CSV connected",
@@ -1054,9 +1046,7 @@ EN: dict[str, str] = {
     "{filled} von {capacity} Etiketten belegt": (
         "{filled} of {capacity} labels filled"
     ),
-    "Bogen {page}: {filled} von {capacity}": (
-        "Sheet {page}: {filled} of {capacity}"
-    ),
+    "Bogen {page}: {filled} von {capacity}": ("Sheet {page}: {filled} of {capacity}"),
     "Bogen {start}–{end}: {filled} von {capacity}": (
         "Sheets {start}–{end}: {filled} of {capacity}"
     ),
@@ -1066,9 +1056,7 @@ EN: dict[str, str] = {
     "Bogen konnte nicht gedruckt werden:\n{error}": (
         "Could not print the sheet:\n{error}"
     ),
-    "{count} Etiketten an {printer} gesendet.": (
-        "Sent {count} labels to {printer}."
-    ),
+    "{count} Etiketten an {printer} gesendet.": ("Sent {count} labels to {printer}."),
     "PDF gespeichert: {path}": "PDF saved: {path}",
     "Bogen speichern": "Save sheet",
     "PDF (*.pdf)": "PDF (*.pdf)",

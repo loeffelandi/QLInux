@@ -37,10 +37,10 @@ _ZERO_MARGINS = {"left": 0.0, "right": 0.0, "top": 0.0, "bottom": 0.0}
 #: Rastermass der Beispieltexte (Druckpunkte bei 300 dpi). Die Werte sind auf
 #: die bedruckbare Breite eines 62-mm-Bands (696 Punkte) abgestimmt - groesser
 #: laeuft der Text ueber den Rand hinaus.
-SMALL = 34          # ca. 2,9 mm
-BODY = 48           # ca. 4,1 mm
-HEADLINE = 76       # ca. 6,4 mm
-HUGE = 150          # ca. 12,7 mm
+SMALL = 34  # ca. 2,9 mm
+BODY = 48  # ca. 4,1 mm
+HEADLINE = 76  # ca. 6,4 mm
+HUGE = 150  # ca. 12,7 mm
 
 #: Breite, ab der ein Text umbricht (Innenkante des Etiketts).
 WRAP = 620.0
@@ -170,7 +170,9 @@ def _rect(
     }
 
 
-def _line(x1: float, y1: float, x2: float, y2: float, *, width: int = 4) -> dict[str, Any]:
+def _line(
+    x1: float, y1: float, x2: float, y2: float, *, width: int = 4
+) -> dict[str, Any]:
     return {
         "type": "line",
         "x": 0.0,
@@ -219,8 +221,13 @@ def _address_label() -> dict[str, Any]:
     return build(
         _base_media(margins=_ZERO_MARGINS),
         [
-            _text(tr("Absender: Firma Muster, Musterweg 1"), 30, 30, size=SMALL,
-                  width=WRAP),
+            _text(
+                tr("Absender: Firma Muster, Musterweg 1"),
+                30,
+                30,
+                size=SMALL,
+                width=WRAP,
+            ),
             _line(30, 90, 640, 90, width=3),
             _text(tr("Empfänger"), 30, 120, size=BODY, bold=True),
             # Lange Namen brechen um - die Adresse steht deshalb weiter unten.

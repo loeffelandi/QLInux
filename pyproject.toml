@@ -12,3 +12,34 @@ filterwarnings = [
     "ignore:The 'warn' method is deprecated:DeprecationWarning",
     "ignore:Image.Image.getdata is deprecated:DeprecationWarning",
 ]
+
+[tool.ruff]
+target-version = "py310"
+line-length = 88
+src = ["ql_editor", "tests", "scripts", "packaging"]
+
+[tool.ruff.lint]
+# E402 und N802 gehoeren zu den bestehenden noqa-Kommentaren: Importe nach
+# dem Pfad-Setup und Qt-Methoden in CamelCase.
+extend-select = ["E402", "N802"]
+ignore = [
+    # Exception an den Raendern (Drucker, Datei, Import) ist Absicht.
+    "BLE001",
+    # Skripte starten als `python scripts/...`, nicht als ausfuehrbare Datei.
+    "EXE001",
+]
+
+[tool.mypy]
+python_version = "3.10"
+files = ["ql_editor", "tests", "scripts", "packaging"]
+explicit_package_bases = true
+mypy_path = "."
+warn_unused_ignores = true
+warn_redundant_casts = true
+show_error_codes = true
+# Hinweis, dass untypisierte Testfunktionen nicht geprüft werden.
+disable_error_code = ["annotation-unchecked"]
+
+[[tool.mypy.overrides]]
+module = ["brother_ql.*", "barcode.*", "qrcode.*"]
+ignore_missing_imports = true
