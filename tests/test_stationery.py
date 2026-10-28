@@ -186,6 +186,140 @@ def test_sheet_settings_roundtrip(qapp, tmp_path):
     assert again.sheet_printer == "Office"
 
 
+def _picker_for(template):
+    from ql_editor.sheet_picker import SheetStartPicker
+
+    picker = SheetStartPicker()
+    picker.set_template(template)
+    # 1 px je Millimeter, damit die Feldmitte aus den Vorlagenmaßen kommt.
+    picker.resize(round(template.page_width_mm), round(template.page_height_mm))
+    return picker
+
+
+def _field_center(template, number: int):
+    from PySide6.QtCore import QPointF
+
+    x_mm, y_mm = template.slot_origin(number - 1)
+    return QPointF(
+        x_mm + template.label_width_mm / 2,
+        y_mm + template.label_height_mm / 2,
+    )
+
+
+def _press(picker, pos) -> None:
+    from PySide6.QtCore import QEvent, Qt
+    from PySide6.QtGui import QMouseEvent
+
+    picker.mousePressEvent(
+        QMouseEvent(
+            QEvent.Type.MouseButtonPress,
+            pos,
+            picker.mapToGlobal(pos),
+            Qt.MouseButton.LeftButton,
+            Qt.MouseButton.LeftButton,
+            Qt.KeyboardModifier.NoModifier,
+        )
+    )
+
+
+def test_picker_hits_the_center_of_field_five_on_3475(qapp):
+    from ql_editor import sheet_picker
+
+    source = sheet_picker.__loader__.get_source(sheet_picker.__name__)
+    assert source is not None
+    assert "import sheet_output" not in source
+    assert "sheet_output import" not in source
+    template = get_template("3475")
+    picker = _picker_for(template)
+    center = _field_center(template, 5)
+    assert picker.index_at(center) == 5
+    picked: list[int] = []
+    picker.start_picked.connect(picked.append)
+    _press(picker, center)
+    assert picked == [5]
+    picker.close()
+
+
+def test_picker_click_in_a_cd_hole_selects_that_label(qapp):
+    template = get_template("3654")
+    assert template.hole_radius_mm > 0
+    picker = _picker_for(template)
+    center = _field_center(template, 1)
+    assert picker.index_at(center) == 1
+    picked: list[int] = []
+    picker.start_picked.connect(picked.append)
+    _press(picker, center)
+    assert picked == [1]
+    picker.close()
+
+
+def test_selected_cd_number_stays_visible_in_the_hole(qapp):
+    from PySide6.QtGui import QImage, QPalette
+
+    template = get_template("3654")
+    picker = _picker_for(template)
+    picker.set_start(1)
+    image = QImage(picker.size(), QImage.Format.Format_RGB32)
+    picker.render(image)
+    center = _field_center(template, 1)
+    palette = picker.palette()
+    paper = palette.color(QPalette.ColorRole.Base)
+    accent = palette.color(QPalette.ColorRole.Highlight)
+    white = palette.color(QPalette.ColorRole.HighlightedText)
+    span = int(template.hole_radius_mm * 0.85)
+    cx, cy = int(center.x()), int(center.y())
+    best = paper
+    best_gap = -1
+    for dy in range(-span, span + 1):
+        for dx in range(-span, span + 1):
+            if dx * dx + dy * dy > span * span:
+                continue
+            color = image.pixelColor(cx + dx, cy + dy)
+            gap = (
+                abs(color.red() - paper.red())
+                + abs(color.green() - paper.green())
+                + abs(color.blue() - paper.blue())
+            )
+            if gap > best_gap:
+                best_gap = gap
+                best = color
+
+    def channel_gap(left, right) -> int:
+        return (
+            abs(left.red() - right.red())
+            + abs(left.green() - right.green())
+            + abs(left.blue() - right.blue())
+        )
+
+    assert best_gap > 40
+    assert channel_gap(best, accent) < channel_gap(best, white)
+    picker.close()
+
+
+def test_picker_height_settles_when_the_scrollbar_would_toggle(qapp):
+    from PySide6.QtWidgets import QScrollArea
+    from ql_editor.sheet_picker import SheetStartPicker
+
+    template = get_template("3475")
+    picker = SheetStartPicker()
+    picker.set_template(template)
+    area = QScrollArea()
+    area.setWidgetResizable(True)
+    area.setWidget(picker)
+    # Volle Breite wäre höher als die Fläche, die schmalere bleibt es auch.
+    area.resize(220, 180)
+    area.show()
+    for _ in range(3):
+        qapp.processEvents()
+    settled = picker.height()
+    for _ in range(3):
+        qapp.processEvents()
+    assert settled > 100
+    assert picker.height() == settled
+    area.close()
+    picker.close()
+
+
 def test_offset_is_clamped(qapp, tmp_path):
     settings = AppSettings(
         QSettings(str(tmp_path / "qlinux.ini"), QSettings.Format.IniFormat)
@@ -222,6 +356,75 @@ def test_sheet_target_sizes_the_canvas_to_the_label(qapp):
     assert not window._sheet_hint.isVisibleTo(panel)
     assert window._left_panel.title == "Band & Drucker"
     assert "Band & Drucker" in window._left_panel._button.toolTip()
+    window.close()
+    qapp.processEvents()
+
+
+def test_sheet_picker_sets_the_first_cell_and_hides_with_brother(qapp):
+    from PySide6.QtCore import QPointF
+    from PySide6.QtGui import QImage, QPalette
+    from ql_editor.app import MainWindow
+    from ql_editor.stationery import OUTPUT_BROTHER, OUTPUT_SHEET
+
+    window = MainWindow()
+    window.resize(1200, 800)
+    window.show()
+    qapp.processEvents()
+    media = window._media_panel
+    window._output_combo.setCurrentIndex(window._output_combo.findData(OUTPUT_SHEET))
+    window._sheet_part_combo.setCurrentIndex(window._sheet_part_combo.findData("3475"))
+    qapp.processEvents()
+    picker = window._sheet_picker
+    assert picker.isVisibleTo(media)
+    assert picker.width() > 40
+
+    template = get_template("3475")
+    scale = picker.width() / template.page_width_mm
+
+    def center(number: int) -> QPointF:
+        x_mm, y_mm = template.slot_origin(number - 1)
+        return QPointF(
+            (x_mm + template.label_width_mm / 2) * scale,
+            (y_mm + template.label_height_mm / 2) * scale,
+        )
+
+    _press(picker, center(5))
+    assert window._sheet_start.value() == 5
+    assert picker.start() == 5
+
+    window._sheet_start.setValue(4)
+    qapp.processEvents()
+    assert picker.start() == 4
+    image = QImage(picker.size(), QImage.Format.Format_RGB32)
+    picker.render(image)
+
+    def fill_at(number: int):
+        x_mm, y_mm = template.slot_origin(number - 1)
+        return image.pixelColor(int(x_mm * scale) + 6, int(y_mm * scale) + 6)
+
+    palette = picker.palette()
+    highlight = palette.color(QPalette.ColorRole.Highlight)
+    used = palette.color(QPalette.ColorRole.Mid)
+    chosen = fill_at(4)
+    skipped = fill_at(1)
+    assert abs(chosen.red() - highlight.red()) <= 12
+    assert abs(chosen.blue() - highlight.blue()) <= 12
+    assert abs(skipped.red() - used.red()) <= 12
+    assert abs(skipped.blue() - used.blue()) <= 12
+
+    window._sheet_start.setValue(20)
+    window._sheet_part_combo.setCurrentIndex(window._sheet_part_combo.findData("32015"))
+    qapp.processEvents()
+    assert window._sheet_start.value() == 8
+    assert picker.start() == 8
+
+    window._output_combo.setCurrentIndex(window._output_combo.findData(OUTPUT_BROTHER))
+    qapp.processEvents()
+    assert not window._sheet_box.isVisibleTo(media)
+    assert not picker.isVisibleTo(media)
+    # Die Startzahl liegt in den Einstellungen und würde den nächsten Test schieben.
+    window._sheet_part_combo.setCurrentIndex(window._sheet_part_combo.findData("3475"))
+    window._sheet_start.setValue(1)
     window.close()
     qapp.processEvents()
 

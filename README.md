@@ -40,8 +40,13 @@ product, so you design the die-cut, not the whole page.
 A connected CSV fills the sheet the same way it fills a tape job: the selected
 rows, every row, or a from–to range, one record per label. Copies repeat a
 record in the next cells. **First label** starts later on the first page when
-some cells are already used; later pages start at the first cell. The print
-sheet’s *Filled* line says how many cells of each page are taken.
+some cells are already used; later pages start at the first cell. Under that
+control the panel draws the sheet, one small number per cell, from 1 at the
+top left and then row by row. Cells before the start look used, the chosen
+cell is highlighted, and a click on the first free cell sets the start. On a
+CD label the number sits in the centre hole, so the chosen ring stays
+readable. The print sheet’s *Filled* line says how many cells of each page
+are taken.
 
 **PDF** and **Print** keep the page at actual size. Fitting the page to the
 printable area would shift the die-cut. If the printer does not start at the
@@ -73,9 +78,10 @@ first cell stay with this machine, the same way the Brother address does.
   canvas becomes one label of that product. With a CSV connected, the selected
   rows, every row, or a from–to range fill the grid, one record per label; copies
   repeat a record in the next cells. The first label skips fields already
-  used on a partial sheet. Save a PDF or send it to a normal printer at actual
-  size. A millimetre offset nudges the whole sheet when the printer does not
-  start at the paper edge.
+  used on a partial sheet. The drawing under that control numbers every cell,
+  and a click sets the first free one. Save a PDF or send it to a normal
+  printer at actual size. A millimetre offset nudges the whole sheet when the
+  printer does not start at the paper edge.
 - **Printer**: network or USB. Printers are found with mDNS and SNMP, USB
   devices show up in the list, and the last one is selected again when it
   is still there. *Detect label* reads the tape over USB. The network port

@@ -91,7 +91,8 @@ def build_help_content() -> QWidget:
             tr(
                 "Links wählst du das Ziel: Brother QL mit Drucker und Band, "
                 "oder einen Avery-Zweckform-Bogen mit Vorlage, Versatz und "
-                "Systemdrucker. Das Etikett liegt in der Mitte, die "
+                "Systemdrucker. Das erste freie Feld klickst du auf der "
+                "Bogenzeichnung an. Das Etikett liegt in der Mitte, die "
                 "Eigenschaften des Markierten rechts, zusammen mit dem Druck. "
                 "Esc schließt diese Hilfe."
             )

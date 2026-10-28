@@ -26,6 +26,7 @@ def test_help_text_is_short_and_follows_the_language(qapp):
     content = build_help_content()
     german = "\n".join(_labels(content))
     assert "Drucker und Band" in german
+    assert "Bogenzeichnung" in german
     assert "Tasten" in german
     assert "Strg+N" in german
     assert "macOS" not in german
@@ -37,6 +38,7 @@ def test_help_text_is_short_and_follows_the_language(qapp):
         i18n.set_language(i18n.DEFAULT_LANGUAGE)
 
     assert "printer and tape" in english
+    assert "sheet drawing" in english
     assert "Ctrl+N" in english
     assert "Paste" in english
     assert "Einfügen" not in english
