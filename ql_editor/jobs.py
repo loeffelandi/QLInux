@@ -45,6 +45,8 @@ class PrintJob:
             return tr("Gedruckt")
         if self.outcome == "sent":
             return tr("An Drucker gesendet")
+        if self.outcome == "saved":
+            return tr("PDF gespeichert")
         if self.outcome == "unconfirmed":
             return tr("Gesendet, keine Statusantwort")
         if self.outcome == "error":

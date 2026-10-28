@@ -10,6 +10,7 @@ from PyInstaller.utils.hooks import collect_submodules
 # ``sys._MEIPASS/assets`` (App-Symbol im Fenster). Pfade relativ zur Spec.
 datas = [
     ("../assets/ql-editor.png", "assets"),
+    ("../ql_editor/data/zweckform-iso-templates.xml", "ql_editor/data"),
 ]
 
 hidden = [
@@ -24,6 +25,7 @@ hidden = [
     "brother_ql.labels",
     "brother_ql.models",
     "brother_ql.reader",
+    "PySide6.QtPrintSupport",
     "PIL",
     "PIL.Image",
     "qrcode",

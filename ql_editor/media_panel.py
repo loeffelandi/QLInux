@@ -160,6 +160,7 @@ class MediaPanel(QWidget):
         # Toolbar, damit sie ohne Panel-Gefummel erreichbar ist); das Panel
         # haelt den Zustand und ist damit die einzige Quelle der Wahrheit.
         self._orientation = Orientation.ACROSS
+        self._header_count = 0
         # Unterdrueckt Nebenwirkungen, waehrend Felder programmatisch gesetzt
         # werden (z. B. beim Laden der Einstellungen).
         self._adjusting = False
@@ -182,6 +183,16 @@ class MediaPanel(QWidget):
         self._populate_models()
         self._populate_bands()
         self._sync_enabled()
+
+    def set_tape_controls_visible(self, visible: bool) -> None:
+        """Brother-Drucker, Band und Länge. Die Ränder gelten auch auf dem Bogen."""
+        for box in (self._printer_box, self._band_box, self._length_box):
+            box.setVisible(visible)
+
+    def insert_header(self, widget: QWidget) -> None:
+        """Kasten über Drucker und Band, mit denselben Rändern."""
+        self.layout().insertWidget(self._header_count, widget)
+        self._header_count += 1
 
     def changeEvent(self, event) -> None:  # noqa: N802
         super().changeEvent(event)
@@ -360,6 +371,7 @@ class MediaPanel(QWidget):
         self._connection_stack.addWidget(self._build_host_page())
         self._connection_stack.addWidget(self._build_usb_page())
         printer_form.addRow(self._connection_stack)
+        self._printer_box = printer_box
         outer.addWidget(printer_box)
         # Startzustand: Netzwerk, Adressfeld leer. Eine gespeicherte Adresse
         # setzt das Hauptfenster danach; die Suche laeuft erst dort, und nur
@@ -380,6 +392,7 @@ class MediaPanel(QWidget):
         media_form.addRow(tr("Band"), self._band_combo)
         media_form.addRow(tr("Farbe"), self._color_combo)
         media_form.addRow(tr("Ausrichtung"), self._build_orientation_row())
+        self._band_box = media_box
         outer.addWidget(media_box)
 
         # -- Laenge ---------------------------------------------------------
@@ -398,6 +411,7 @@ class MediaPanel(QWidget):
         # des Inhalts zeigt die Schraffur auf der Fläche, nicht noch eine Zeile.
         length_form.addRow(self._auto_check)
         length_form.addRow(tr("Länge"), self._length_spin)
+        self._length_box = length_box
         outer.addWidget(length_box)
 
         # -- Margins --------------------------------------------------------
@@ -419,6 +433,7 @@ class MediaPanel(QWidget):
             spin.setSingleStep(0.5)
             self._margin_spins[key] = spin
             margin_form.addRow(label, spin)
+        self._margin_box = margin_box
         outer.addWidget(margin_box)
         outer.addStretch(1)
 
