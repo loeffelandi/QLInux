@@ -32,6 +32,11 @@
     </screenshot>
   </screenshots>
   <releases>
+    <release version="0.4.1" date="2026-10-28">
+      <description>
+        <p>Click the first free cell on a drawing of the Avery sheet. That cell is where the first label prints; later sheets still start at the first cell.</p>
+      </description>
+    </release>
     <release version="0.4.0" date="2026-10-28">
       <description>
         <p>Avery Zweckform sheets on a normal printer or as a PDF at actual size. The gLabels templates set the A4 grid, and a connected database fills it one record per label.</p>
