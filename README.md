@@ -1,7 +1,7 @@
 # QLInux
 
-**A native Linux label editor for Brother QL printers — a P-touch Editor
-clone, in Python.**
+**A native Linux label editor for Brother QL printers and Avery Zweckform
+sheets — a P-touch Editor clone, in Python.**
 
 ![License: GPL-3.0-or-later](https://img.shields.io/badge/license-GPL--3.0--or--later-blue)
 ![Tests](https://github.com/loeffelandi/QLInux/actions/workflows/tests.yml/badge.svg)
@@ -13,8 +13,9 @@ clone, in Python.**
 
 QLInux designs labels on a real canvas (text, images, barcodes, QR codes),
 shows an exact monochrome print preview and prints straight to the printer —
-over the network (`tcp://…:9100`) or USB. No browser, no WebUSB, no vendor
-driver.
+over the network (`tcp://…:9100`) or USB. The same label can fill an Avery
+Zweckform sheet and go to a normal printer, or to a PDF at actual size. No
+browser, no WebUSB, no vendor driver.
 
 ## Supported printers
 
@@ -26,6 +27,28 @@ and cutter support all come from that library:
 > QL-800, QL-810W, QL-820NWB, QL-1050, QL-1060N
 
 The model list even appears in the app: *menu → About QLInux*.
+
+## Avery Zweckform sheets
+
+Set the left panel’s target to **Label sheet**. Brother tape, printer and
+length step aside; the panel then shows the Zweckform product, the first
+label, a millimetre offset and the system printer. The sizes are the A4
+templates from [gLabels](https://github.com/jimevins/glabels-qt), including
+the usual address labels 3474 and 3475. The canvas becomes one label of that
+product, so you design the die-cut, not the whole page.
+
+A connected CSV fills the sheet the same way it fills a tape job: the selected
+rows, every row, or a from–to range, one record per label. Copies repeat a
+record in the next cells. **First label** starts later on the first page when
+some cells are already used; later pages start at the first cell. The print
+sheet’s *Filled* line says how many cells of each page are taken.
+
+**PDF** and **Print** keep the page at actual size. Fitting the page to the
+printable area would shift the die-cut. If the printer does not start at the
+paper edge, the offset nudges the whole sheet, up to 20 mm either way.
+
+The product belongs to the open label. The offset, the system printer and the
+first cell stay with this machine, the same way the Brother address does.
 
 ## Features
 
@@ -73,7 +96,8 @@ The model list even appears in the app: *menu → About QLInux*.
 ## Requirements
 
 - Linux with a desktop (X11 or Wayland), Python ≥ 3.10
-- A Brother QL printer, reachable over the network or via USB
+- A Brother QL printer, reachable over the network or via USB. Avery Zweckform
+  sheets use any normal printer instead, or a PDF
 - Everything else is pinned in `requirements.txt`
 
 ## Install
@@ -147,6 +171,10 @@ AppImage and a source checkout share them.
    nothing is found: *“Add by IP address…”* as the last entry of the list.
 3. Select the tape, type your text, drop in images, barcodes or QR codes.
 4. Open **Print**, check the preview and options, then print from the sheet.
+
+For an Avery Zweckform sheet, set the left panel’s target to **Label sheet**,
+pick the product, and print or save a PDF from the same sheet. A Brother
+printer is not part of that job.
 
 Settings (last printer, tape, print options, language, appearance) are stored in
 `~/.config/QLInux/QLInux.conf`.
@@ -312,6 +340,7 @@ Your own templates then appear in the same menu.
 | Database | Database panel, drag-and-drop binding, database field in the inspector | ✅ |
 | Database | Print the selected row, all rows, or a record range | ✅ |
 | Database | Numbering on one object | ✅ |
+| Sheets | Avery Zweckform A4 templates, database fill, PDF and system printer | ✅ |
 
 ## License
 

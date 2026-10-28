@@ -5940,7 +5940,7 @@ def test_about_lists_models_licence_dank_and_developer(qapp, tmp_path):
     """
     from PySide6.QtWidgets import QLabel
 
-    from ql_editor import media
+    from ql_editor import media, stationery
     from ql_editor.about import DEVELOPER, DEVELOPER_URL, PROJECT_URL, credits
     from ql_editor.sheet import Sheet
 
@@ -5964,6 +5964,8 @@ def test_about_lists_models_licence_dank_and_developer(qapp, tmp_path):
         assert name in joined, name
         assert license_id in joined, license_id
     assert "brother_ql" in joined
+    assert "Etikettenbögen" in joined
+    assert str(len(stationery.templates())) in joined
     # Entwickler aus dem Impressum.
     assert DEVELOPER in joined
     assert DEVELOPER_URL in joined

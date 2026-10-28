@@ -145,9 +145,10 @@ EN: dict[str, str] = {
     "Eingabe": "Enter",
     "Zelle bearbeiten": "Edit the cell",
     "F2": "F2",
-    "Etiketten gestalten und direkt drucken – für Brother-QL-Drucker und andere, die die Bibliothek brother_ql unterstützt.": (
-        "Design labels and print them directly – on Brother QL printers and "
-        "any other model the brother_ql library supports."
+    "Etiketten gestalten und direkt drucken – für Brother-QL-Drucker, die die Bibliothek brother_ql unterstützt, und für Avery-Zweckform-Bögen auf einem normalen Drucker.": (
+        "Design labels and print them directly – on Brother QL printers the "
+        "brother_ql library supports, and on Avery Zweckform sheets with a "
+        "normal printer."
     ),
     "Unterstützte Drucker": "Supported printers",
     "Alle {models} Modelle, die brother_ql kennt (nichts vorbelegt):": (
@@ -156,6 +157,17 @@ EN: dict[str, str] = {
     "Dazu {labels} Bandtypen mit ihren Maßen, ebenfalls aus der Bibliothek. Die Auswahl im Panel richtet sich nach dem gewählten Modell.": (
         "Plus {labels} label types with their sizes, also from the library. "
         "The panel offers the ones that fit the selected model."
+    ),
+    "Etikettenbögen": "Label sheets",
+    "Avery Zweckform auf A4, {count} Vorlagen. Die Maße stammen aus gLabels. Das Ziel Etikettenbogen im linken Panel setzt die Fläche auf ein Etikett der gewählten Vorlage. Eine verbundene Datenbank füllt den Bogen wie einen Banddruck, ein Datensatz pro Feld; Kopien wiederholen den Datensatz in den nächsten Feldern. Das erste Etikett lässt schon verbrauchte Felder auf einem angefangenen Bogen aus. PDF und der Systemdrucker geben die Seite in Originalgröße aus. Der Versatz in Millimetern rückt den ganzen Bogen, wenn der Drucker nicht am Papierrand beginnt.": (
+        "Avery Zweckform on A4, {count} products. The measurements come from "
+        "gLabels. The Label sheet target in the left panel sizes the canvas "
+        "to one label of the chosen product. A connected database fills the "
+        "sheet the way a tape job does, one record per label; copies repeat "
+        "that record in the following cells. First label skips cells already "
+        "used on a partial sheet. PDF and the system printer emit the page "
+        "at actual size. The offset, in millimetres, nudges the whole sheet "
+        "when the printer does not start at the paper edge."
     ),
     "Freie Software": "Free software",
     "QLInux steht unter der GNU General Public License, Version 3 oder später (GPL-3.0-or-later).": (
