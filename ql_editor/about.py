@@ -13,7 +13,7 @@ from __future__ import annotations
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QLabel, QVBoxLayout, QWidget
 
-from . import __version__, media
+from . import __version__, media, stationery
 from .i18n import tr
 from .sheet import Sheet, show_widget
 
@@ -94,8 +94,9 @@ def build_about_content() -> QWidget:
 
     subtitle = QLabel(
         tr(
-            "Etiketten gestalten und direkt drucken – für Brother-QL-Drucker "
-            "und andere, die die Bibliothek brother_ql unterstützt."
+            "Etiketten gestalten und direkt drucken – für Brother-QL-Drucker, "
+            "die die Bibliothek brother_ql unterstützt, und für "
+            "Avery-Zweckform-Bögen auf einem normalen Drucker."
         )
     )
     subtitle.setWordWrap(True)
@@ -106,8 +107,9 @@ def build_about_content() -> QWidget:
     models = ", ".join(spec.identifier for spec in media.all_models())
     layout.addWidget(
         _body(
-            tr("Alle {models} Modelle, die brother_ql kennt (nichts vorbelegt):")
-            .format(models=len(media.all_models()))
+            tr(
+                "Alle {models} Modelle, die brother_ql kennt (nichts vorbelegt):"
+            ).format(models=len(media.all_models()))
         )
     )
     layout.addWidget(_body(models))
@@ -118,6 +120,25 @@ def build_about_content() -> QWidget:
                 "Bibliothek. Die Auswahl im Panel richtet sich nach dem "
                 "gewählten Modell."
             ).format(labels=len(media.all_labels()))
+        )
+    )
+
+    # -- Avery Zweckform ---------------------------------------------------
+    layout.addWidget(_heading(tr("Etikettenbögen")))
+    layout.addWidget(
+        _body(
+            tr(
+                "Avery Zweckform auf A4, {count} Vorlagen. Die Maße stammen "
+                "aus gLabels. Das Ziel Etikettenbogen im linken Panel setzt "
+                "die Fläche auf ein Etikett der gewählten Vorlage. Eine "
+                "verbundene Datenbank füllt den Bogen wie einen Banddruck, "
+                "ein Datensatz pro Feld; Kopien wiederholen den Datensatz in "
+                "den nächsten Feldern. Das erste Etikett lässt schon "
+                "verbrauchte Felder auf einem angefangenen Bogen aus. PDF "
+                "und der Systemdrucker geben die Seite in Originalgröße aus. "
+                "Der Versatz in Millimetern rückt den ganzen Bogen, wenn der "
+                "Drucker nicht am Papierrand beginnt."
+            ).format(count=len(stationery.templates()))
         )
     )
 
@@ -141,9 +162,7 @@ def build_about_content() -> QWidget:
     # -- Danksagung --------------------------------------------------------
     layout.addWidget(_heading(tr("Dank an")))
     for name, author, license_id, contribution in credits():
-        line = QLabel(
-            f"<b>{name}</b> – {author} ({license_id}): {contribution}"
-        )
+        line = QLabel(f"<b>{name}</b> – {author} ({license_id}): {contribution}")
         line.setWordWrap(True)
         line.setStyleSheet(_HINT_STYLE)
         layout.addWidget(line)
@@ -195,9 +214,7 @@ def _rich(html: str) -> QLabel:
     label.setTextFormat(Qt.TextFormat.RichText)
     label.setWordWrap(True)
     label.setOpenExternalLinks(True)
-    label.setTextInteractionFlags(
-        Qt.TextInteractionFlag.TextBrowserInteraction
-    )
+    label.setTextInteractionFlags(Qt.TextInteractionFlag.TextBrowserInteraction)
     return label
 
 
