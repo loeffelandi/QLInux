@@ -30,3 +30,20 @@
   an OpenSpec change and is implemented after that.
 - ADR text and OpenSpec artifacts are German. OpenSpec headings and the
   keywords SHALL and MUST stay English.
+
+## Cursor Cloud specific instructions
+
+- Use Python 3.12. On Linux, PySide6 6.12 aborts the suite under Python 3.10
+  (`SIGABRT` while deallocating `None`). Ubuntu 24.04's `python3` is 3.12.
+- Qt's offscreen and xcb plugins need system libraries that are not in the
+  base image: `python3-venv`, `libegl1`, `libgl1`, `libxkbcommon0`,
+  `libdbus-1-3`, `libfontconfig1`, `libglib2.0-0t64`, `libxcb-cursor0`,
+  `libxcb-icccm4`, `libxcb-image0`, `libxcb-keysyms1`, `libxcb-render-util0`,
+  `libxcb-xkb1`, and `libxkbcommon-x11-0`.
+- `bash scripts/bootstrap_venv.sh` creates `.venv`, installs
+  `requirements-dev.txt`, and patches `brother_ql`. Running it again is safe.
+- `.venv/bin/python -X faulthandler -m pytest -q` is the test command.
+  `tests/conftest.py` forces the offscreen Qt platform, so do not point pytest
+  at a real display.
+- Start the editor with `.venv/bin/python -m ql_editor` on the desktop
+  (`QT_QPA_PLATFORM=xcb`). There is no dev server to boot.
