@@ -20,3 +20,11 @@
   mouse or key action must be listed in the "Modifier keys on the canvas"
   table in `README.md`. Add it there in the same change.
 - The AppImage is built with `packaging/build_appimage.sh`.
+
+## Decisions and behavior
+- Architecture decision records live in `docs/adr/` (adr-tools, `.adr-dir`).
+  A new technical decision is an ADR, created with `adr new`.
+- Observable behavior lives in `openspec/specs/`. A behavior change starts as
+  an OpenSpec change and is implemented after that.
+- ADR text and OpenSpec artifacts are German. OpenSpec headings and the
+  keywords SHALL and MUST stay English.

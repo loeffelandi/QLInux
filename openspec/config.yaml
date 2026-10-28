@@ -1,0 +1,32 @@
+schema: spec-driven
+
+context: |
+  Language: Deutsch
+  All artifacts must be written in Deutsch.
+  Keep OpenSpec structural headings and SHALL/MUST keywords in English.
+  QLInux is a native Linux label editor for Brother QL printers and Avery Zweckform sheets.
+  Architecture decisions live in docs/adr. Specs describe observable behavior of the current program.
+  Describe what the code does. Do not copy a README sentence that contradicts the code.
+  The recording date of a distilled ADR is the day it was written down, not the day the code landed.
+
+# Per-artifact rules (optional)
+# Add custom rules for specific artifacts.
+# Example:
+#   rules:
+#     proposal:
+#       - Keep proposals under 500 words
+#       - Always state what is out of scope
+#     tasks:
+#       - Break tasks into chunks of max 2 hours
+
+# Per-operation guidance (optional)
+# Add advisory guidance for how apply and archive work should be conducted.
+# This is separate from artifact rules above.
+# Example:
+#   operations:
+#     apply:
+#       guidance:
+#         - Keep test summaries concise
+#     archive:
+#       guidance:
+#         - Summarize the archive outcome before finishing
