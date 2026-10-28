@@ -5,7 +5,6 @@ from __future__ import annotations
 from PySide6.QtCore import QRectF
 from PySide6.QtGui import QColor, QImage, QPainter
 from PySide6.QtWidgets import QCheckBox, QPushButton, QToolButton
-
 from ql_editor import i18n
 from ql_editor.canvas import LabelCanvas
 from ql_editor.items import ClipArtItem, item_from_dict
@@ -43,10 +42,7 @@ def test_every_symbol_paints_ink(qapp):
         paint_symbol(painter, spec.id, QRectF(0, 0, 80, 80), "black")
         painter.end()
         dark = sum(
-            1
-            for y in range(80)
-            for x in range(80)
-            if image.pixelColor(x, y).red() < 40
+            1 for y in range(80) for x in range(80) if image.pixelColor(x, y).red() < 40
         )
         assert dark > 80, spec.id
 
@@ -110,7 +106,6 @@ def test_clipart_sheet_fits_a_short_window_and_closes_on_scrim(qapp):
     from PySide6.QtCore import QPoint, Qt
     from PySide6.QtGui import QMouseEvent
     from PySide6.QtWidgets import QScrollArea
-
     from ql_editor.app import MainWindow
     from ql_editor.sheet import Sheet
 
@@ -158,7 +153,11 @@ def test_main_window_inserts_from_the_sheet_and_undoes_a_swap(qapp):
     home.click()
     qapp.processEvents()
 
-    marks = [it for it in win._canvas.scene().items() if getattr(it, "kind", None) == "clipart"]
+    marks = [
+        it
+        for it in win._canvas.scene().items()
+        if getattr(it, "kind", None) == "clipart"
+    ]
     assert len(marks) == 1
     assert marks[0].symbol == "home"
     assert marks[0].keep_aspect
@@ -185,12 +184,20 @@ def test_main_window_inserts_from_the_sheet_and_undoes_a_swap(qapp):
     assert len(stars) == 1
     stars[0].click()
     qapp.processEvents()
-    mark = next(it for it in win._canvas.scene().items() if getattr(it, "kind", None) == "clipart")
+    mark = next(
+        it
+        for it in win._canvas.scene().items()
+        if getattr(it, "kind", None) == "clipart"
+    )
     assert mark.symbol == "star"
 
     win._act_undo.trigger()
     qapp.processEvents()
-    mark = next(it for it in win._canvas.scene().items() if getattr(it, "kind", None) == "clipart")
+    mark = next(
+        it
+        for it in win._canvas.scene().items()
+        if getattr(it, "kind", None) == "clipart"
+    )
     assert mark.symbol == "home"
 
 
@@ -263,7 +270,11 @@ def test_inspector_inverts_clipart_with_undo(qapp):
     qapp.processEvents()
     win.findChild(QToolButton, "symbol_home").click()
     qapp.processEvents()
-    mark = next(it for it in win._canvas.scene().items() if getattr(it, "kind", None) == "clipart")
+    mark = next(
+        it
+        for it in win._canvas.scene().items()
+        if getattr(it, "kind", None) == "clipart"
+    )
     invert = next(
         box
         for box in win._inspector.findChildren(QCheckBox)
@@ -275,6 +286,10 @@ def test_inspector_inverts_clipart_with_undo(qapp):
     assert mark.inverted
     win._act_undo.trigger()
     qapp.processEvents()
-    mark = next(it for it in win._canvas.scene().items() if getattr(it, "kind", None) == "clipart")
+    mark = next(
+        it
+        for it in win._canvas.scene().items()
+        if getattr(it, "kind", None) == "clipart"
+    )
     assert not mark.inverted
     win.close()

@@ -9,7 +9,6 @@ import pytest
 from PySide6.QtCore import QMimeData, QPointF, Qt
 from PySide6.QtGui import QDropEvent
 from PySide6.QtWidgets import QCheckBox, QComboBox, QLabel, QPushButton, QToolBar
-
 from ql_editor.app import MainWindow
 from ql_editor.database_panel import field_from_mime, field_mime
 from ql_editor.inspector import InspectorPanel
@@ -21,9 +20,7 @@ pytestmark = pytest.mark.usefixtures("qapp")
 def _csv(tmp_path: Path) -> Path:
     path = tmp_path / "Fixture Data.csv"
     path.write_text(
-        "Fixture;Circuit;Channel\n"
-        "Spot A;PB 1;11\n"
-        "Spot B;PB 2;22\n",
+        "Fixture;Circuit;Channel\nSpot A;PB 1;11\nSpot B;PB 2;22\n",
         encoding="utf-8",
     )
     return path
@@ -171,11 +168,7 @@ def test_drop_on_empty_canvas_creates_bound_text(qapp, tmp_path):
     win = _window_with_csv(qapp, tmp_path)
     _drop(win._canvas, field_mime("Circuit"), QPointF(80, 90))
     qapp.processEvents()
-    texts = [
-        item
-        for item in win._canvas.ordered_items()
-        if isinstance(item, TextItem)
-    ]
+    texts = [item for item in win._canvas.ordered_items() if isinstance(item, TextItem)]
     assert len(texts) == 1
     assert texts[0].binding == {"source": "database", "field": "Circuit"}
     assert texts[0].text_value == "PB 1"
@@ -250,11 +243,7 @@ def test_inspector_database_field_merges_and_unbinds(qapp, tmp_path):
 
 
 def _visible(widget, type_, name: str):
-    return [
-        child
-        for child in widget.findChildren(type_, name)
-        if child.isVisible()
-    ]
+    return [child for child in widget.findChildren(type_, name) if child.isVisible()]
 
 
 def test_inspector_database_field_replaces_serial(qapp):
@@ -394,7 +383,6 @@ def test_connect_save_stores_relative_path(qapp, tmp_path):
     win.close()
 
 
-
 def _select_rows(win: MainWindow, rows: list[int]) -> None:
     grid = win._database_panel._grid
     model = grid.selectionModel()
@@ -530,7 +518,9 @@ def test_enter_prints_right_after_opening_the_sheet(qapp, monkeypatch):
     assert calls == [True]
     win._print_button.setFocus()
     qapp.processEvents()
-    QTest.keyClick(win._print_button, Qt.Key.Key_Enter, Qt.KeyboardModifier.KeypadModifier)
+    QTest.keyClick(
+        win._print_button, Qt.Key.Key_Enter, Qt.KeyboardModifier.KeypadModifier
+    )
     qapp.processEvents()
     assert calls == [True, True]
     win.close()
@@ -565,8 +555,16 @@ def test_shift_click_selects_range_of_rows(qapp, tmp_path):
     model = grid.selectionModel()
     first = grid.model().index(0, 0)
     last = grid.model().index(1, 0)
-    model.select(first, QItemSelectionModel.SelectionFlag.ClearAndSelect | QItemSelectionModel.SelectionFlag.Rows)
-    model.select(QItemSelection(first, last), QItemSelectionModel.SelectionFlag.Select | QItemSelectionModel.SelectionFlag.Rows)
+    model.select(
+        first,
+        QItemSelectionModel.SelectionFlag.ClearAndSelect
+        | QItemSelectionModel.SelectionFlag.Rows,
+    )
+    model.select(
+        QItemSelection(first, last),
+        QItemSelectionModel.SelectionFlag.Select
+        | QItemSelectionModel.SelectionFlag.Rows,
+    )
     qapp.processEvents()
     assert win._database_panel.selected_records() == [0, 1]
     win.close()

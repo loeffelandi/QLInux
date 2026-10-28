@@ -12,21 +12,20 @@ Alle Fehler werden als :class:`PrinterError` (bzw.
 
 from __future__ import annotations
 
-from collections import Counter
-from collections.abc import Sequence
-from dataclasses import dataclass, field
 import glob
 import logging
 import os
-from pathlib import Path
 import time
-
-from PIL import Image
+from collections import Counter
+from collections.abc import Sequence
+from dataclasses import dataclass, field
+from pathlib import Path
 
 from brother_ql.backends import backend_factory, guess_backend
 from brother_ql.backends.helpers import send
 from brother_ql.conversion import convert
 from brother_ql.raster import BrotherQLRaster
+from PIL import Image
 
 from .i18n import tr
 from .media import DEFAULT_MODEL, Kind, LabelSpec, get_model
@@ -137,9 +136,7 @@ class PrintResolution:
 #: Die Aufloesungen des 300-dpi-Druckkopfs. "300 x 600 dpi" gibt es nur bei
 #: passendem Modell (siehe :data:`DPI_600_MODELS`).
 RESOLUTION_STANDARD = PrintResolution("standard", "300 × 300 dpi")
-RESOLUTION_HIGH = PrintResolution(
-    "high", "300 × 600 dpi", scale=DPI_600_SCALE
-)
+RESOLUTION_HIGH = PrintResolution("high", "300 × 600 dpi", scale=DPI_600_SCALE)
 
 
 def resolution_options(model_id: str) -> tuple[PrintResolution, ...]:
@@ -261,8 +258,7 @@ def network_host(address: str) -> str:
     for prefix in ("tcp://", "socket://", "network://"):
         value = value.removeprefix(prefix)
     value = value.rstrip("/")
-    if value.endswith(f":{NETWORK_PORT}"):
-        value = value[: -len(f":{NETWORK_PORT}")]
+    value = value.removesuffix(f":{NETWORK_PORT}")
     return value
 
 
@@ -545,9 +541,7 @@ class PrinterConfig:
             get_model(self.model)
         except KeyError as exc:
             raise PrinterError(
-                tr("Unbekanntes Druckermodell: {model!r}").format(
-                    model=self.model
-                )
+                tr("Unbekanntes Druckermodell: {model!r}").format(model=self.model)
             ) from exc
         if not self.backend:
             object.__setattr__(self, "backend", backend_for_address(self.address))
@@ -828,9 +822,7 @@ def _validate_copies(copies: int) -> None:
 def _validate_cut_mode(cut_mode: str, model) -> None:
     """Zuschnitt pruefen - auch gegen das, was der Drucker kann."""
     if cut_mode not in CUT_MODES:
-        raise PrinterError(
-            tr("Unbekannter Zuschnitt: {mode!r}").format(mode=cut_mode)
-        )
+        raise PrinterError(tr("Unbekannter Zuschnitt: {mode!r}").format(mode=cut_mode))
     if cut_mode != CUT_NONE and not model.cutting:
         raise PrinterError(
             tr(
@@ -912,7 +904,9 @@ def print_images(
 # --------------------------------------------------------------------------- #
 # Status / Band-Erkennung
 # --------------------------------------------------------------------------- #
-def probe_status(config: PrinterConfig, *, timeout: float = 2.0) -> PrinterStatus | None:
+def probe_status(
+    config: PrinterConfig, *, timeout: float = 2.0
+) -> PrinterStatus | None:
     """Frage den Druckerstatus ab.
 
     :returns: :class:`PrinterStatus` oder ``None``, wenn der Drucker keinen
@@ -1016,45 +1010,45 @@ def _match_labels(width_mm: int, length_mm: int, *, endless: bool) -> list[Label
 
 __all__ = [
     "ADDRESS_EXAMPLES",
-    "COPIES_MAX",
     "AUTO_CUT_BIT",
+    "COPIES_MAX",
     "CUT_AT_END",
+    "CUT_AT_END_BIT",
     "CUT_EACH",
     "CUT_MODES",
-    "CUT_AT_END_BIT",
     "CUT_NONE",
     "DEFAULT_ADDRESS",
     "NETWORK_PORT",
-    "PrinterError",
-    "PrinterConnectionError",
-    "PrinterConfig",
-    "PrinterStatus",
     "READBACK_BACKENDS",
     "USB_MODELS",
+    "PrinterConfig",
+    "PrinterConnectionError",
+    "PrinterError",
+    "PrinterStatus",
     "backend_for_address",
     "backend_supports_readback",
+    "build_raster",
+    "build_raster_sequence",
+    "detect_label",
     "model_for_address",
     "network_host",
     "parse_network_address",
+    "preferred_usb_address",
+    "print_image",
+    "print_images",
+    "printer_error_bits",
+    "printer_error_texts",
+    "probe_status",
+    "send_instructions",
     "usb_access",
     "usb_device_detail",
     "usb_device_hint",
     "usb_device_label",
     "usb_device_labels",
+    "usb_devices",
     "usb_id_for_path",
     "usb_id_from_identifier",
-    "validate_for_print",
-    "build_raster",
-    "build_raster_sequence",
-    "send_instructions",
-    "print_image",
-    "print_images",
-    "probe_status",
-    "detect_label",
-    "preferred_usb_address",
-    "printer_error_bits",
-    "printer_error_texts",
-    "usb_devices",
     "usb_printers",
+    "validate_for_print",
     "writable",
 ]

@@ -5,7 +5,6 @@ from __future__ import annotations
 from datetime import datetime
 
 from PySide6.QtWidgets import QCheckBox, QComboBox
-
 from ql_editor import i18n
 from ql_editor.canvas import LabelCanvas
 from ql_editor.datetime_text import (
@@ -147,7 +146,11 @@ def test_main_window_inserts_a_current_stamp_and_undoes_the_format(qapp):
     qapp.processEvents()
     win._act_add_datetime.trigger()
     qapp.processEvents()
-    stamps = [it for it in win._canvas.scene().items() if getattr(it, "kind", None) == "datetime"]
+    stamps = [
+        it
+        for it in win._canvas.scene().items()
+        if getattr(it, "kind", None) == "datetime"
+    ]
     assert len(stamps) == 1
     assert stamps[0].live
     assert stamps[0].mode == "both"
@@ -166,7 +169,11 @@ def test_main_window_inserts_a_current_stamp_and_undoes_the_format(qapp):
     )
     combo.setCurrentIndex(1)
     qapp.processEvents()
-    stamp = next(it for it in win._canvas.scene().items() if getattr(it, "kind", None) == "datetime")
+    stamp = next(
+        it
+        for it in win._canvas.scene().items()
+        if getattr(it, "kind", None) == "datetime"
+    )
     assert stamp.date_format == "ymd_slash"
     assert "/" in stamp.toPlainText()
     assert stamp.align == "left"
@@ -182,14 +189,26 @@ def test_main_window_inserts_a_current_stamp_and_undoes_the_format(qapp):
     center = next(button for button in align_buttons if button.toolTip() == "Mitte")
     center.click()
     qapp.processEvents()
-    stamp = next(it for it in win._canvas.scene().items() if getattr(it, "kind", None) == "datetime")
+    stamp = next(
+        it
+        for it in win._canvas.scene().items()
+        if getattr(it, "kind", None) == "datetime"
+    )
     assert stamp.align == "center"
 
     win._act_undo.trigger()
     qapp.processEvents()
-    stamp = next(it for it in win._canvas.scene().items() if getattr(it, "kind", None) == "datetime")
+    stamp = next(
+        it
+        for it in win._canvas.scene().items()
+        if getattr(it, "kind", None) == "datetime"
+    )
     assert stamp.align == "left"
     win._act_undo.trigger()
     qapp.processEvents()
-    stamp = next(it for it in win._canvas.scene().items() if getattr(it, "kind", None) == "datetime")
+    stamp = next(
+        it
+        for it in win._canvas.scene().items()
+        if getattr(it, "kind", None) == "datetime"
+    )
     assert stamp.date_format == "dmy_dot"

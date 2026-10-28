@@ -13,7 +13,8 @@ Alle Masse kommen dynamisch aus :mod:`ql_editor.media` - keine Magic Numbers.
 from __future__ import annotations
 
 import logging
-from typing import Any, Mapping
+from collections.abc import Mapping
+from typing import Any
 
 from PySide6.QtCore import QEvent, QSize, Qt, Signal
 from PySide6.QtGui import QAction, QActionGroup, QFontMetrics
@@ -36,8 +37,6 @@ from PySide6.QtWidgets import (
 from . import media
 from .discovery import NetworkPrinter, discover_network_printers
 from .i18n import tr
-from .theme import error_text_color
-from .widgets import title_box
 from .icons import icon
 from .media import (
     DEFAULT_MODEL,
@@ -63,6 +62,8 @@ from .printer import (
     usb_printers,
 )
 from .sheet import ask_text
+from .theme import error_text_color
+from .widgets import title_box
 
 #: Anschlussarten der Druckerauswahl. Die Werte entsprechen den Backend-Namen
 #: (``network``) bzw. fassen die beiden USB-Backends zusammen.
@@ -98,6 +99,7 @@ NET_ADD_ENTRY = "@ip"
 def usb_placeholder() -> str:
     """Eintrag in der USB-Liste, solange kein Geraet gewaehlt ist (Datenwert leer)."""
     return tr("Bitte Gerät wählen")
+
 
 logger = logging.getLogger(__name__)
 
@@ -191,7 +193,10 @@ class MediaPanel(QWidget):
 
     def insert_header(self, widget: QWidget) -> None:
         """Kasten über Drucker und Band, mit denselben Rändern."""
-        self.layout().insertWidget(self._header_count, widget)
+        layout = self.layout()
+        if not isinstance(layout, QVBoxLayout):
+            return
+        layout.insertWidget(self._header_count, widget)
         self._header_count += 1
 
     def changeEvent(self, event) -> None:  # noqa: N802
@@ -221,13 +226,16 @@ class MediaPanel(QWidget):
         printer_box = title_box(tr("Drucker"))
         printer_form = QFormLayout(printer_box)
         printer_form.setRowWrapPolicy(QFormLayout.RowWrapPolicy.WrapLongRows)
-        printer_form.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.AllNonFixedFieldsGrow)
+        printer_form.setFieldGrowthPolicy(
+            QFormLayout.FieldGrowthPolicy.AllNonFixedFieldsGrow
+        )
         self._printer_form = printer_form
         # Feste Breite der Beschriftungsspalte (breiteste Beschriftung dieser
         # Sprache): sonst wandert die Feldspalte um ein paar Pixel, sobald eine
         # Zeile mit kuerzerer Beschriftung erscheint.
         self._label_width = max(
-            QFontMetrics(self.font()).horizontalAdvance(tr(text)) for text in PRINTER_LABELS
+            QFontMetrics(self.font()).horizontalAdvance(tr(text))
+            for text in PRINTER_LABELS
         )
 
         self._model_combo = QComboBox()
@@ -279,8 +287,10 @@ class MediaPanel(QWidget):
         self._net_combo.setMinimumContentsLength(USB_COMBO_MIN_CHARS)
         self._net_combo.setPlaceholderText(tr("Bitte Gerät wählen"))
         self._net_combo.setToolTip(
-            tr("Gefundene Netzwerk-Drucker. Die Auswahl setzt IP-Adresse und – "
-            "wenn das Gerät sein Modell meldet – auch das Modell.")
+            tr(
+                "Gefundene Netzwerk-Drucker. Die Auswahl setzt IP-Adresse und – "
+                "wenn das Gerät sein Modell meldet – auch das Modell."
+            )
         )
         self._net_button = self._build_search_button(
             tr("Netzwerk nach Druckern durchsuchen (mDNS und SNMP).")
@@ -327,8 +337,10 @@ class MediaPanel(QWidget):
         self._usb_combo.setMinimumContentsLength(USB_COMBO_MIN_CHARS)
         self._usb_combo.setPlaceholderText(tr("Bitte Gerät wählen"))
         self._usb_combo.setToolTip(
-            tr("Angeschlossene USB-Drucker. Die Auswahl setzt Adresse und – wenn "
-            "sie sich aus der USB-Kennung ableiten lässt – auch das Modell.")
+            tr(
+                "Angeschlossene USB-Drucker. Die Auswahl setzt Adresse und – wenn "
+                "sie sich aus der USB-Kennung ableiten lässt – auch das Modell."
+            )
         )
         self._usb_button = self._build_search_button(
             tr("Angeschlossene USB-Drucker suchen und in die Liste eintragen.")
@@ -342,16 +354,16 @@ class MediaPanel(QWidget):
         self._apply_access_color()
         self._access_button = QPushButton(icon("detect"), tr("Zugriff einrichten"))
         self._access_button.setToolTip(
-            tr("Richtet eine udev-Regel ein, die den USB-Drucker für dich "
-            "freigibt (das System fragt nach dem Passwort).")
+            tr(
+                "Richtet eine udev-Regel ein, die den USB-Drucker für dich "
+                "freigibt (das System fragt nach dem Passwort)."
+            )
         )
 
         # Band-Erkennung braucht einen Rueckkanal - den gibt es nur ueber USB.
         # Deshalb steht der Knopf nur dort (siehe _sync_connection_rows).
         self._detect_button = QPushButton(icon("detect"), tr("Band erkennen"))
-        self._detect_button.setToolTip(
-            tr("Band am Drucker erfragen (Statusabfrage).")
-        )
+        self._detect_button.setToolTip(tr("Band am Drucker erfragen (Statusabfrage)."))
         # Sein Platz bleibt auch ohne Rueckkanal reserviert: sonst springt der
         # Kasten, sobald ein Geraet gefunden wird oder der Anschluss wechselt.
         self._detect_holder = QWidget()
@@ -384,7 +396,9 @@ class MediaPanel(QWidget):
         media_box = title_box(tr("Band"))
         media_form = QFormLayout(media_box)
         media_form.setRowWrapPolicy(QFormLayout.RowWrapPolicy.WrapLongRows)
-        media_form.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.AllNonFixedFieldsGrow)
+        media_form.setFieldGrowthPolicy(
+            QFormLayout.FieldGrowthPolicy.AllNonFixedFieldsGrow
+        )
         self._band_combo = QComboBox()
         self._color_combo = QComboBox()
         self._color_combo.addItem(tr("schwarz"), "black")
@@ -399,7 +413,9 @@ class MediaPanel(QWidget):
         length_box = title_box(tr("Länge"))
         length_form = QFormLayout(length_box)
         length_form.setRowWrapPolicy(QFormLayout.RowWrapPolicy.WrapLongRows)
-        length_form.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.AllNonFixedFieldsGrow)
+        length_form.setFieldGrowthPolicy(
+            QFormLayout.FieldGrowthPolicy.AllNonFixedFieldsGrow
+        )
         self._auto_check = QCheckBox(tr("Automatische Länge"))
         self._auto_check.setChecked(True)
         self._length_spin = QDoubleSpinBox()
@@ -418,7 +434,9 @@ class MediaPanel(QWidget):
         margin_box = title_box(tr("Ränder (mm)"))
         margin_form = QFormLayout(margin_box)
         margin_form.setRowWrapPolicy(QFormLayout.RowWrapPolicy.WrapLongRows)
-        margin_form.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.AllNonFixedFieldsGrow)
+        margin_form.setFieldGrowthPolicy(
+            QFormLayout.FieldGrowthPolicy.AllNonFixedFieldsGrow
+        )
         self._margin_spins: dict[str, QDoubleSpinBox] = {}
         for key, label in (
             ("left", tr("links")),
@@ -533,7 +551,9 @@ class MediaPanel(QWidget):
         layout = QHBoxLayout(row)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(4)
-        buttons = [self._conn_buttons[mode] for mode in (CONNECTION_NETWORK, CONNECTION_USB)]
+        buttons = [
+            self._conn_buttons[mode] for mode in (CONNECTION_NETWORK, CONNECTION_USB)
+        ]
         width = max(
             CONNECTION_BUTTON_MIN_WIDTH,
             max(button.sizeHint().width() for button in buttons),
@@ -561,20 +581,28 @@ class MediaPanel(QWidget):
         werden von Toolbar und Menue mitbenutzt - so bleiben Icon, Tooltip und
         Haekchen ueberall automatisch synchron.
         """
-        self._act_orient_across = QAction(icon("orient_across"), tr("Quer zum Band"), self)
+        self._act_orient_across = QAction(
+            icon("orient_across"), tr("Quer zum Band"), self
+        )
         self._act_orient_across.setCheckable(True)
         self._act_orient_across.setChecked(True)
         self._act_orient_across.setToolTip(
-            tr("Ausrichtung: quer zum Band\n"
-            "Der Inhalt läuft über die Bandbreite; die Länge ergibt sich aus der "
-            "Inhaltshöhe (spart Band bei langen, flachen Inhalten).")
+            tr(
+                "Ausrichtung: quer zum Band\n"
+                "Der Inhalt läuft über die Bandbreite; die Länge ergibt sich aus der "
+                "Inhaltshöhe (spart Band bei langen, flachen Inhalten)."
+            )
         )
-        self._act_orient_along = QAction(icon("orient_along"), tr("Längs des Bandes"), self)
+        self._act_orient_along = QAction(
+            icon("orient_along"), tr("Längs des Bandes"), self
+        )
         self._act_orient_along.setCheckable(True)
         self._act_orient_along.setToolTip(
-            tr("Ausrichtung: längs des Bandes\n"
-            "Der Inhalt läuft in Bandrichtung; die Länge ergibt sich aus der "
-            "Inhaltsbreite (spart Band bei hohen, mehrzeiligen Inhalten).")
+            tr(
+                "Ausrichtung: längs des Bandes\n"
+                "Der Inhalt läuft in Bandrichtung; die Länge ergibt sich aus der "
+                "Inhaltsbreite (spart Band bei hohen, mehrzeiligen Inhalten)."
+            )
         )
         self._orientation_group = QActionGroup(self)
         self._orientation_group.setExclusive(True)
@@ -618,7 +646,7 @@ class MediaPanel(QWidget):
         for model in media.all_models():
             self._model_combo.addItem(model.identifier, model.identifier)
         index = self._model_combo.findData(DEFAULT_MODEL)
-        self._model_combo.setCurrentIndex(index if index >= 0 else 0)
+        self._model_combo.setCurrentIndex(max(index, 0))
         self._model_combo.blockSignals(False)
 
     def _populate_bands(self) -> None:
@@ -631,7 +659,7 @@ class MediaPanel(QWidget):
             self._band_combo.addItem(label.display_name, label.identifier)
         # Vorherige Auswahl beibehalten, sonst erstes Band.
         index = self._band_combo.findData(current)
-        self._band_combo.setCurrentIndex(index if index >= 0 else 0)
+        self._band_combo.setCurrentIndex(max(index, 0))
         self._band_combo.blockSignals(False)
         self._on_band_changed()
 
@@ -651,7 +679,11 @@ class MediaPanel(QWidget):
 
     def connection(self) -> str:
         """Gewaehlter Anschluss (:data:`CONNECTION_NETWORK` / :data:`CONNECTION_USB`)."""
-        return CONNECTION_USB if self._conn_buttons[CONNECTION_USB].isChecked() else CONNECTION_NETWORK
+        return (
+            CONNECTION_USB
+            if self._conn_buttons[CONNECTION_USB].isChecked()
+            else CONNECTION_NETWORK
+        )
 
     def label_id(self) -> str:
         return self._band_combo.currentData()
@@ -1009,9 +1041,9 @@ class MediaPanel(QWidget):
             and match.address != current
         ):
             adopt = match
-            self._network_fallback_note = tr(
-                "Gleicher Drucker, Port {port}."
-            ).format(port=match.port)
+            self._network_fallback_note = tr("Gleicher Drucker, Port {port}.").format(
+                port=match.port
+            )
         elif on_network and not self._network_host and len(self._network_found) == 1:
             # Genau ein Treffer: die Wahl ist klar. Ueber die Adresse gehen -
             # in der Liste steht bewusst nichts vorausgewaehlt.
@@ -1153,19 +1185,17 @@ class MediaPanel(QWidget):
                     f"{network_host(current)} – {tr('manuell')}", current
                 )
                 index = self._net_combo.count() - 1
-                self._net_combo.setItemData(
-                    index, current, Qt.ItemDataRole.ToolTipRole
-                )
+                self._net_combo.setItemData(index, current, Qt.ItemDataRole.ToolTipRole)
             # Ohne Adresse bleibt die Auswahl leer: der Platzhalter sagt, dass
             # noch nichts gewaehlt ist. Einfach den ersten Eintrag zu zeigen
             # waere gelogen - er waere nicht die eingestellte Adresse.
             add_index = self._net_combo.count()
-            self._net_combo.addItem(
-                tr("Per IP-Adresse hinzufügen…"), NET_ADD_ENTRY
-            )
+            self._net_combo.addItem(tr("Per IP-Adresse hinzufügen…"), NET_ADD_ENTRY)
             self._net_combo.setItemData(
                 add_index,
-                tr("IP-Adresse von Hand eintragen, wenn die Suche den Drucker nicht findet."),
+                tr(
+                    "IP-Adresse von Hand eintragen, wenn die Suche den Drucker nicht findet."
+                ),
                 Qt.ItemDataRole.ToolTipRole,
             )
             # Ohne Adresse bleibt die Auswahl leer (Platzhalter): dann ist auch
@@ -1310,7 +1340,9 @@ class MediaPanel(QWidget):
         Netzwerkadressen gibt es nichts abzuleiten; dann bleibt die Wahl stehen.
         """
         model = model_for_address(address)
-        return bool(model) and self.set_model(model)
+        if not model:
+            return False
+        return self.set_model(model)
 
     def apply_label_defaults(self, label: LabelSpec) -> None:
         """Setze Margin-Startwerte aus ``feed_margin`` des Bandes."""

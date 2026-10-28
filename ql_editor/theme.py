@@ -90,7 +90,7 @@ def error_text_color() -> QColor:
     app = QApplication.instance()
     window = (
         app.palette().color(QPalette.ColorRole.Window)
-        if app is not None
+        if isinstance(app, QApplication)
         else QColor(LIGHT_WINDOW)
     )
     if window.lightness() < 128:
@@ -127,7 +127,7 @@ def _follow_desktop(_scheme: Qt.ColorScheme) -> None:
     if _explicit is not None or _applying:
         return
     app = QApplication.instance()
-    if app is not None:
+    if isinstance(app, QApplication):
         _apply(app)
 
 

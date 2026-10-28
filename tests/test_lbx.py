@@ -12,13 +12,14 @@ import zipfile
 
 import pytest
 from PIL import Image
-
 from ql_editor import document, lbx
 from tests.lbx_samples import pt, text_object, write_lbx
 
 
 def test_endless_62_landscape_is_along_the_tape(tmp_path):
-    path = write_lbx(tmp_path / "logo.lbx", width_mm=62, height_mm=1000, orientation="landscape")
+    path = write_lbx(
+        tmp_path / "logo.lbx", width_mm=62, height_mm=1000, orientation="landscape"
+    )
 
     data = lbx.load(path)
 
@@ -26,7 +27,12 @@ def test_endless_62_landscape_is_along_the_tape(tmp_path):
     assert data["media"]["label"] == "62"
     assert data["media"]["orientation"] == "along"
     assert data["media"]["auto_length"] is True
-    assert data["media"]["margins"] == {"left": 0.0, "right": 0.0, "top": 0.0, "bottom": 0.0}
+    assert data["media"]["margins"] == {
+        "left": 0.0,
+        "right": 0.0,
+        "top": 0.0,
+        "bottom": 0.0,
+    }
     assert "length_mm" not in data["media"]
     assert data["warnings"] == []
 
@@ -101,8 +107,12 @@ def test_image_is_placed_against_the_background_and_shrunk(tmp_path):
     assert item["y"] == pytest.approx(5 / 25.4 * lbx.media.DPI, abs=0.05)
     # 10 mm x 5 mm sind ~118 x 59 Dots - das 200x100-BMP wird darauf verkleinert.
     assert loaded.size == (118, 59)
-    assert item["scale_x"] * loaded.size[0] == pytest.approx(10 / 25.4 * lbx.media.DPI, abs=1)
-    assert item["scale_y"] * loaded.size[1] == pytest.approx(5 / 25.4 * lbx.media.DPI, abs=1)
+    assert item["scale_x"] * loaded.size[0] == pytest.approx(
+        10 / 25.4 * lbx.media.DPI, abs=1
+    )
+    assert item["scale_y"] * loaded.size[1] == pytest.approx(
+        5 / 25.4 * lbx.media.DPI, abs=1
+    )
 
 
 def test_line_and_frame(tmp_path):
@@ -122,7 +132,9 @@ def test_line_and_frame(tmp_path):
       <draw:frameStyle category="SIMPLE"/>
     </draw:frame>
     """
-    path = write_lbx(tmp_path / "linien.lbx", width_mm=62, height_mm=1000, objects=objects)
+    path = write_lbx(
+        tmp_path / "linien.lbx", width_mm=62, height_mm=1000, objects=objects
+    )
 
     line, frame = lbx.load(path)["items"]
 
@@ -145,7 +157,9 @@ def test_unknown_objects_are_warnings_not_fatal(tmp_path):
     objects = """
     <table:table xmlns:table="http://schemas.brother.info/ptouch/2007/lbx/table"/>
     """ + text_object(body="bleibt")
-    path = write_lbx(tmp_path / "tabelle.lbx", width_mm=62, height_mm=1000, objects=objects)
+    path = write_lbx(
+        tmp_path / "tabelle.lbx", width_mm=62, height_mm=1000, objects=objects
+    )
 
     data = lbx.load(path)
 
@@ -247,12 +261,19 @@ def test_unknown_width_warns_and_picks_the_closest_tape(tmp_path):
 
 
 def test_cable_template_keeps_its_text(tmp_path):
-    objects = """
+    objects = (
+        """
     <cable:cable xmlns:cable="http://schemas.brother.info/ptouch/2007/lbx/cable">
-    """ + text_object(body="eins") + text_object(body="zwei") + """
+    """
+        + text_object(body="eins")
+        + text_object(body="zwei")
+        + """
     </cable:cable>
     """
-    path = write_lbx(tmp_path / "kabel.lbx", width_mm=62, height_mm=1000, objects=objects)
+    )
+    path = write_lbx(
+        tmp_path / "kabel.lbx", width_mm=62, height_mm=1000, objects=objects
+    )
 
     data = lbx.load(path)
 

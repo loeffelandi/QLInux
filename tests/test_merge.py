@@ -5,7 +5,6 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
-
 from ql_editor import merge
 from ql_editor.document import DEFAULT_SERIAL
 
@@ -70,10 +69,7 @@ def test_format_serial_defaults_and_pad():
     assert merge.format_serial() == "1"
     assert merge.format_serial({"start": 7, "prefix": "N-", "suffix": "x"}) == "N-7x"
     assert (
-        merge.format_serial(
-            {"start": 1, "pad_width": 4, "step": 1}, index=2
-        )
-        == "0003"
+        merge.format_serial({"start": 1, "pad_width": 4, "step": 1}, index=2) == "0003"
     )
 
 
@@ -85,15 +81,11 @@ def test_format_serial_rejects_negative_index():
 def test_resolve_binding_database_and_serial():
     record = {"Fixture": "A1", "Channel": "91"}
     assert (
-        merge.resolve_binding(
-            {"source": "database", "field": "Channel"}, record=record
-        )
+        merge.resolve_binding({"source": "database", "field": "Channel"}, record=record)
         == "91"
     )
     assert (
-        merge.resolve_binding(
-            {"source": "database", "field": "Missing"}, record=record
-        )
+        merge.resolve_binding({"source": "database", "field": "Missing"}, record=record)
         == ""
     )
     assert merge.resolve_binding({"source": "serial"}, serial_value="0007") == "0007"
@@ -104,8 +96,7 @@ def test_resolve_binding_database_and_serial():
 def test_resolve_binding_without_record_skips_database():
     """Ohne Record Database-Bindings nicht anwenden (Snapshot behalten)."""
     assert (
-        merge.resolve_binding({"source": "database", "field": "A"}, record=None)
-        is None
+        merge.resolve_binding({"source": "database", "field": "A"}, record=None) is None
     )
     assert (
         merge.resolve_binding({"source": "serial"}, record=None, serial_value="9")
@@ -241,9 +232,7 @@ def test_plan_print_variants_without_records_is_one_virtual_label():
 
 def test_plan_print_variants_keeps_selection_order_and_drops_gaps():
     rows = _rows()
-    planned = merge.plan_print_variants(
-        rows, scope="selected", selected=[2, 0, 2, 9]
-    )
+    planned = merge.plan_print_variants(rows, scope="selected", selected=[2, 0, 2, 9])
     assert [item.index for item in planned] == [2, 0]
     with pytest.raises(merge.MergeError):
         merge.plan_print_variants(rows, scope="selected", selected=[])
@@ -267,7 +256,9 @@ def test_plan_serial_labels_walks_each_record_then_the_series():
         (2, 0),
         (2, 1),
     ]
-    assert [merge.format_serial(serial, index=label.serial_index) for label in labels] == [
+    assert [
+        merge.format_serial(serial, index=label.serial_index) for label in labels
+    ] == [
         "1",
         "11",
         "1",

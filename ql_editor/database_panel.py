@@ -42,6 +42,7 @@ from .merge import clamp_record_index
 #: das nicht als frei fallenden Text anlegt.
 DB_FIELD_MIME = "application/x-qlinux-db-field"
 
+
 def field_mime(field: str) -> QMimeData:
     """``QMimeData`` mit dem Spaltennamen (UTF-8)."""
     mime = QMimeData()
@@ -64,7 +65,7 @@ def field_from_mime(mime) -> str | None:
     """Spaltenname aus einem Drag, oder ``None``."""
     if mime is None or not mime.hasFormat(DB_FIELD_MIME):
         return None
-    raw = bytes(mime.data(DB_FIELD_MIME)).decode("utf-8").strip()
+    raw = bytes(mime.data(DB_FIELD_MIME).data()).decode("utf-8").strip()
     return raw or None
 
 
@@ -192,9 +193,7 @@ class DatabasePanel(QWidget):
         self._header = _FieldHeader(self._grid)
         self._grid.setHorizontalHeader(self._header)
         self._header.field_dragged.connect(self._drag_field)
-        self._grid.setSelectionBehavior(
-            QTableWidget.SelectionBehavior.SelectRows
-        )
+        self._grid.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
         self._grid.setSelectionMode(QTableWidget.SelectionMode.ExtendedSelection)
         self._grid.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
         self._grid.setAlternatingRowColors(True)
@@ -291,9 +290,7 @@ class DatabasePanel(QWidget):
             self._grid.clear()
             fields = list(table.fields)
             self._grid.setColumnCount(len(fields))
-            self._grid.setHorizontalHeaderLabels(
-                [f"○ {field}" for field in fields]
-            )
+            self._grid.setHorizontalHeaderLabels([f"○ {field}" for field in fields])
             tip = tr("Auf Text, Barcode oder QR ziehen")
             for column, field in enumerate(fields):
                 header_item = self._grid.horizontalHeaderItem(column)
@@ -378,7 +375,9 @@ class DatabasePanel(QWidget):
 
     def selected_records(self) -> list[int]:
         """Alle selektierten Zeilen (0-basiert), aufsteigend sortiert."""
-        return sorted(int(row.row()) for row in self._grid.selectionModel().selectedRows())
+        return sorted(
+            int(row.row()) for row in self._grid.selectionModel().selectedRows()
+        )
 
     def current_record(self) -> int:
         """Erste selektierte Zeile (0-basiert), oder 0."""

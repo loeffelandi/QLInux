@@ -5,7 +5,6 @@ from __future__ import annotations
 import pytest
 from PySide6.QtCore import QRectF
 from PySide6.QtWidgets import QGraphicsScene
-
 from ql_editor.items import ITEM_TYPES, SHAPES, ShapeItem, item_from_dict
 from ql_editor.renderer import render_scene_to_image
 

@@ -20,12 +20,23 @@ from __future__ import annotations
 
 import base64
 import math
+from collections.abc import Mapping
 from dataclasses import dataclass, replace
 from datetime import datetime
-from typing import Any, Mapping
+from typing import Any, Protocol, cast
 
 from PIL import Image
-from PySide6.QtCore import QBuffer, QEvent, QIODevice, QPointF, QRectF, Qt, QTimer, Signal
+from PySide6.QtCore import (
+    QBuffer,
+    QEvent,
+    QIODevice,
+    QPoint,
+    QPointF,
+    QRectF,
+    Qt,
+    QTimer,
+    Signal,
+)
 from PySide6.QtGui import (
     QBrush,
     QColor,
@@ -82,7 +93,8 @@ def normalize_binding(binding: Mapping[str, Any] | None) -> dict[str, Any] | Non
     wird hier als ``ValueError`` weitergereicht (Item-API).
     """
     # Lazy Import: ``merge`` importiert ``document``, nicht ``items``.
-    from .merge import MergeError, normalize_binding as _normalize
+    from .merge import MergeError
+    from .merge import normalize_binding as _normalize
 
     try:
         return _normalize(binding)
@@ -131,7 +143,11 @@ def make_qr_image(data: str, *, box_size: int = 10, border: int = 1) -> Image.Im
     """Erzeuge ein QR-Code-Bild (schwarz auf weiss)."""
     import qrcode
 
-    qr = qrcode.QRCode(border=border, box_size=box_size, error_correction=qrcode.constants.ERROR_CORRECT_M)
+    qr = qrcode.QRCode(
+        border=border,
+        box_size=box_size,
+        error_correction=qrcode.constants.ERROR_CORRECT_M,
+    )
     qr.add_data(data)
     qr.make(fit=True)
     return qr.make_image(fill_color="black", back_color="white").convert("RGB")
@@ -223,7 +239,7 @@ class _ClampMixin:
             value = _clamp_pos(self, value)
         return super().itemChange(change, value)
 
-    def paint(self, painter: QPainter, option, widget=None) -> None:  # noqa: N802
+    def paint(self, painter: QPainter, option, widget=None) -> None:
         """Ohne Qt-Standard-Auswahlrahmen malen.
 
         ``QGraphicsItem`` malt bei Auswahl (und Fokus) einen gestrichelten
@@ -235,25 +251,27 @@ class _ClampMixin:
         option = QStyleOptionGraphicsItem(option)
         option.state &= ~QStyle.StateFlag.State_Selected
         option.state &= ~QStyle.StateFlag.State_HasFocus
-        super().paint(painter, option, widget)
+        super().paint(painter, option, widget)  # type: ignore[misc]
 
     def to_dict(self) -> dict[str, Any]:  # pragma: no cover - abstrakt
         raise NotImplementedError
 
     def _base_dict(self) -> dict[str, Any]:
-        p = self.pos()
+        item = cast(QGraphicsItem, self)
+        p = item.pos()
         return {
             "type": self.kind,
             "x": p.x(),
             "y": p.y(),
-            "rotation": self.rotation(),
-            "z": self.zValue(),
+            "rotation": item.rotation(),
+            "z": item.zValue(),
         }
 
     def _apply_base(self, d: dict[str, Any]) -> None:
-        self.setPos(QPointF(float(d.get("x", 0.0)), float(d.get("y", 0.0))))
-        self.setRotation(float(d.get("rotation", 0.0)))
-        self.setZValue(float(d.get("z", 0.0)))
+        item = cast(QGraphicsItem, self)
+        item.setPos(QPointF(float(d.get("x", 0.0)), float(d.get("y", 0.0))))
+        item.setRotation(float(d.get("rotation", 0.0)))
+        item.setZValue(float(d.get("z", 0.0)))
 
 
 # --------------------------------------------------------------------------- #
@@ -313,7 +331,9 @@ class TextItem(_BindingMixin, _ClampMixin, QGraphicsTextItem):
     #: Bearbeitung beendet (Fokus weg oder Esc). Ein leeres Feld bleibt liegen.
     editing_finished = Signal()
 
-    def __init__(self, text: str = "", font_family: str = "Sans", font_pixel_size: int = 48):
+    def __init__(
+        self, text: str = "", font_family: str = "Sans", font_pixel_size: int = 48
+    ):
         super().__init__(text)
         self._binding = None
         self.setFlags(
@@ -340,11 +360,12 @@ class TextItem(_BindingMixin, _ClampMixin, QGraphicsTextItem):
         self._box_width = 0.0
         self._box_height = 0.0
         self._caret_hidden = False
+        self._skip_reselect = False
         self.setTextWidth(-1)
         self._apply_font()
         self._apply_colors()
 
-    def paint(self, painter: QPainter, option, widget=None) -> None:  # noqa: N802
+    def paint(self, painter: QPainter, option, widget=None) -> None:
         """Text malen - beim Rendern ohne Textmarke und ohne Auswahl.
 
         ``QGraphicsTextItem`` malt im Bearbeitungsmodus die blinkende Textmarke
@@ -380,17 +401,21 @@ class TextItem(_BindingMixin, _ClampMixin, QGraphicsTextItem):
         # Dokumentrechteck (Umbruch/Zeilenabstand lassen dort oft Leerzeilen).
         return self._box_rect()
 
-    def shape(self) -> QPainterPath:  # noqa: N802
+    def shape(self) -> QPainterPath:
         """Hit-Test-Form: die Box, nicht nur der Textumriss."""
         path = QPainterPath()
         path.addRect(self._box_rect())
         return path
 
-    def contains(self, point: QPointF) -> bool:  # noqa: N802
+    def contains(self, point: QPointF | QPoint) -> bool:  # type: ignore[override]
+        if isinstance(point, QPoint):
+            point = QPointF(point)
         return self._box_rect().contains(point)
 
     def _box_rect(self) -> QRectF:
-        width = self._box_width if self._box_width > 0 else self.document().size().width()
+        width = (
+            self._box_width if self._box_width > 0 else self.document().size().width()
+        )
         if self._box_height > 0:
             height = self._box_height
         else:
@@ -460,7 +485,9 @@ class TextItem(_BindingMixin, _ClampMixin, QGraphicsTextItem):
         self.setFont(font)
 
     def _apply_colors(self) -> None:
-        self.setDefaultTextColor(QColor("white") if self._inverted else QColor(self._color))
+        self.setDefaultTextColor(
+            QColor("white") if self._inverted else QColor(self._color)
+        )
 
     def _reflow(self, text: str | None = None) -> None:
         """Dokument neu aufbauen: Umbruch (vertikal), Zeilenabstand und Liste.
@@ -479,7 +506,8 @@ class TextItem(_BindingMixin, _ClampMixin, QGraphicsTextItem):
         cursor.select(QTextCursor.SelectionType.Document)
         block = QTextBlockFormat()
         block.setLineHeight(
-            self._line_spacing * 100, QTextBlockFormat.LineHeightTypes.ProportionalHeight.value
+            self._line_spacing * 100,
+            QTextBlockFormat.LineHeightTypes.ProportionalHeight.value,
         )
         cursor.mergeBlockFormat(block)
         if self._list != "none":
@@ -779,8 +807,12 @@ class TextItem(_BindingMixin, _ClampMixin, QGraphicsTextItem):
         return d
 
     @classmethod
-    def from_dict(cls, d: dict[str, Any]) -> "TextItem":
-        item = cls(d.get("text", "Text"), d.get("font_family", "Sans"), int(d.get("font_pixel_size", 48)))
+    def from_dict(cls, d: dict[str, Any]) -> TextItem:
+        item = cls(
+            d.get("text", "Text"),
+            d.get("font_family", "Sans"),
+            int(d.get("font_pixel_size", 48)),
+        )
         item.set_bold(bool(d.get("bold", False)))
         item.set_italic(bool(d.get("italic", False)))
         item.set_underline(bool(d.get("underline", False)))
@@ -839,6 +871,7 @@ class DateTimeItem(_ClampMixin, QGraphicsTextItem):
         self._date_format = DATE_DEFAULT
         self._time_format = TIME_DEFAULT
         self._live = True
+        self._last_display_width: float | None = None
         self._fixed = datetime.now().replace(microsecond=0)
         self._offset = 0
         self._offset_unit = UNIT_DEFAULT
@@ -1017,7 +1050,9 @@ class DateTimeItem(_ClampMixin, QGraphicsTextItem):
 
     def refresh(self, now: datetime | None = None) -> None:
         """Text aus dem Zeitpunkt neu setzen. Still, wenn sich nichts ändert."""
-        text = format_stamp(self.moment(now), self._mode, self._date_format, self._time_format)
+        text = format_stamp(
+            self.moment(now), self._mode, self._date_format, self._time_format
+        )
         if text == self.toPlainText():
             return
         self.setPlainText(text)
@@ -1058,23 +1093,42 @@ class DateTimeItem(_ClampMixin, QGraphicsTextItem):
         return data
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> "DateTimeItem":
-        item = cls(data.get("font_family", "Sans"), int(data.get("font_pixel_size", 48)))
+    def from_dict(cls, data: dict[str, Any]) -> DateTimeItem:
+        item = cls(
+            data.get("font_family", "Sans"), int(data.get("font_pixel_size", 48))
+        )
         item.set_bold(bool(data.get("bold", False)))
         item.set_italic(bool(data.get("italic", False)))
         item.set_underline(bool(data.get("underline", False)))
         item.set_text_color(data.get("color", "black"))
         item.set_align(data.get("align", "left"))
         item.set_text_width(float(data.get("text_width", -1)))
-        item._mode = data.get("mode") if data.get("mode") in ("date", "time", "both") else MODE_DEFAULT
-        item._date_format = data.get("date_format") if data.get("date_format") in DATE_FORMATS else DATE_DEFAULT
-        item._time_format = data.get("time_format") if data.get("time_format") in TIME_FORMATS else TIME_DEFAULT
+        mode = data.get("mode")
+        item._mode = (
+            mode
+            if isinstance(mode, str) and mode in ("date", "time", "both")
+            else MODE_DEFAULT
+        )
+        date_format = data.get("date_format")
+        item._date_format = (
+            date_format
+            if isinstance(date_format, str) and date_format in DATE_FORMATS
+            else DATE_DEFAULT
+        )
+        time_format = data.get("time_format")
+        item._time_format = (
+            time_format
+            if isinstance(time_format, str) and time_format in TIME_FORMATS
+            else TIME_DEFAULT
+        )
         item._live = bool(data.get("live", True))
         item._offset = int(data.get("offset", 0))
         unit = data.get("offset_unit", UNIT_DEFAULT)
         item._offset_unit = unit if unit in OFFSET_UNITS else UNIT_DEFAULT
         try:
-            item._fixed = datetime.fromisoformat(str(data.get("fixed"))).replace(microsecond=0)
+            item._fixed = datetime.fromisoformat(str(data.get("fixed"))).replace(
+                microsecond=0
+            )
         except (TypeError, ValueError):
             item._fixed = datetime.now().replace(microsecond=0)
         item._apply_base(data)
@@ -1106,10 +1160,12 @@ class ImageItem(_ClampMixin, QGraphicsPixmapItem):
         self._encoded: bytes | None = None
 
     @classmethod
-    def from_file(cls, path: str) -> "ImageItem":
+    def from_file(cls, path: str) -> ImageItem:
         pixmap = QPixmap(path)
         if pixmap.isNull():
-            raise ValueError(tr("Bild konnte nicht geladen werden: {path}").format(path=path))
+            raise ValueError(
+                tr("Bild konnte nicht geladen werden: {path}").format(path=path)
+            )
         original = pixmap.size()
         if max(original.width(), original.height()) > IMAGE_MAX_SIDE_PX:
             pixmap = pixmap.scaled(
@@ -1131,7 +1187,7 @@ class ImageItem(_ClampMixin, QGraphicsPixmapItem):
         return item
 
     @classmethod
-    def from_pil(cls, image: Image.Image) -> "ImageItem":
+    def from_pil(cls, image: Image.Image) -> ImageItem:
         return cls(pil_to_qpixmap(image))
 
     # -- Groesse ------------------------------------------------------------
@@ -1141,7 +1197,9 @@ class ImageItem(_ClampMixin, QGraphicsPixmapItem):
         base = self.boundingRect()
         if base.width() <= 0 or base.height() <= 0:
             return
-        self.setTransform(QTransform().scale(width / base.width(), height / base.height()))
+        self.setTransform(
+            QTransform().scale(width / base.width(), height / base.height())
+        )
 
     def to_dict(self) -> dict[str, Any]:
         d = self._base_dict()
@@ -1149,8 +1207,10 @@ class ImageItem(_ClampMixin, QGraphicsPixmapItem):
             buf = QBuffer()
             buf.open(QIODevice.OpenModeFlag.WriteOnly)
             # Verlustfrei: die Pixel bleiben exakt (Schwelle und Dithering haengen daran).
-            self.pixmap().toImage().save(buf, "WEBP", 100)
-            self._encoded = bytes(buf.data())
+            # Die Stubs wollen bytes, PySide6 nimmt zur Laufzeit einen str.
+            self.pixmap().toImage().save(buf, "WEBP", 100)  # type: ignore[call-overload]
+            # QByteArray ist zur Laufzeit ein Puffer, die Stubs sehen das nicht.
+            self._encoded = bytes(buf.data())  # type: ignore[call-overload]
             buf.close()
         d.update(
             data_b64=base64.b64encode(self._encoded).decode("ascii"),
@@ -1161,7 +1221,7 @@ class ImageItem(_ClampMixin, QGraphicsPixmapItem):
         return d
 
     @classmethod
-    def from_dict(cls, d: dict[str, Any]) -> "ImageItem":
+    def from_dict(cls, d: dict[str, Any]) -> ImageItem:
         raw = base64.b64decode(d["data_b64"])
         pixmap = QPixmap()
         # Ohne Formatangabe: alte Dateien enthalten PNG, neue WebP.
@@ -1226,7 +1286,7 @@ class QRItem(_BindingMixin, _ClampMixin, QGraphicsPixmapItem):
         return d
 
     @classmethod
-    def from_dict(cls, d: dict[str, Any]) -> "QRItem":
+    def from_dict(cls, d: dict[str, Any]) -> QRItem:
         item = cls(d.get("data", ""), int(d.get("size_dots", 200)))
         item._apply_base(d)
         item._apply_binding(d)
@@ -1262,7 +1322,9 @@ class BarcodeItem(_BindingMixin, _ClampMixin, QGraphicsPixmapItem):
 
     def _regenerate(self) -> None:
         try:
-            img = make_barcode_image(self._value, self._symbology, write_text=self._show_text)
+            img = make_barcode_image(
+                self._value, self._symbology, write_text=self._show_text
+            )
         except Exception as exc:  # ungueltiger Inhalt fuer die Symbologie
             raise ValueError(
                 tr("Barcode '{value}' ({symbology}): {error}").format(
@@ -1271,7 +1333,9 @@ class BarcodeItem(_BindingMixin, _ClampMixin, QGraphicsPixmapItem):
             ) from exc
         pixmap = pil_to_qpixmap(img)
         if pixmap.height() > 0:
-            pixmap = pixmap.scaledToHeight(self._height_dots, Qt.TransformationMode.SmoothTransformation)
+            pixmap = pixmap.scaledToHeight(
+                self._height_dots, Qt.TransformationMode.SmoothTransformation
+            )
         self.setPixmap(pixmap)
 
     def _update(self, **changes: Any) -> None:
@@ -1320,15 +1384,22 @@ class BarcodeItem(_BindingMixin, _ClampMixin, QGraphicsPixmapItem):
 
     def to_dict(self) -> dict[str, Any]:
         d = self._base_dict()
-        d.update(value=self._value, symbology=self._symbology, show_text=self._show_text, height_dots=self._height_dots)
+        d.update(
+            value=self._value,
+            symbology=self._symbology,
+            show_text=self._show_text,
+            height_dots=self._height_dots,
+        )
         self._binding_to_dict(d)
         return d
 
     @classmethod
-    def from_dict(cls, d: dict[str, Any]) -> "BarcodeItem":
+    def from_dict(cls, d: dict[str, Any]) -> BarcodeItem:
         item = cls(
-            d.get("value", ""), d.get("symbology", "code128"),
-            show_text=bool(d.get("show_text", True)), height_dots=int(d.get("height_dots", 120)),
+            d.get("value", ""),
+            d.get("symbology", "code128"),
+            show_text=bool(d.get("show_text", True)),
+            height_dots=int(d.get("height_dots", 120)),
         )
         item._apply_base(d)
         item._apply_binding(d)
@@ -1341,7 +1412,14 @@ class BarcodeItem(_BindingMixin, _ClampMixin, QGraphicsPixmapItem):
 class LineItem(_ClampMixin, QGraphicsLineItem):
     kind = "line"
 
-    def __init__(self, x1: float = 0, y1: float = 0, x2: float = 200, y2: float = 0, width_px: float = 2):
+    def __init__(
+        self,
+        x1: float = 0,
+        y1: float = 0,
+        x2: float = 200,
+        y2: float = 0,
+        width_px: float = 2,
+    ):
         super().__init__(x1, y1, x2, y2)
         self.setFlags(
             QGraphicsItem.GraphicsItemFlag.ItemIsMovable
@@ -1370,12 +1448,20 @@ class LineItem(_ClampMixin, QGraphicsLineItem):
     def to_dict(self) -> dict[str, Any]:
         ln = self.line()
         d = self._base_dict()
-        d.update(x1=ln.x1(), y1=ln.y1(), x2=ln.x2(), y2=ln.y2(), width_px=self._width_px)
+        d.update(
+            x1=ln.x1(), y1=ln.y1(), x2=ln.x2(), y2=ln.y2(), width_px=self._width_px
+        )
         return d
 
     @classmethod
-    def from_dict(cls, d: dict[str, Any]) -> "LineItem":
-        item = cls(d.get("x1", 0), d.get("y1", 0), d.get("x2", 200), d.get("y2", 0), d.get("width_px", 2))
+    def from_dict(cls, d: dict[str, Any]) -> LineItem:
+        item = cls(
+            d.get("x1", 0),
+            d.get("y1", 0),
+            d.get("x2", 200),
+            d.get("y2", 0),
+            d.get("width_px", 2),
+        )
         item._apply_base(d)
         return item
 
@@ -1383,7 +1469,9 @@ class LineItem(_ClampMixin, QGraphicsLineItem):
 class RectItem(_ClampMixin, QGraphicsRectItem):
     kind = "rect"
 
-    def __init__(self, rect: QRectF | None = None, width_px: float = 2, filled: bool = False):
+    def __init__(
+        self, rect: QRectF | None = None, width_px: float = 2, filled: bool = False
+    ):
         super().__init__(rect if rect is not None else QRectF(0, 0, 200, 100))
         self.setFlags(
             QGraphicsItem.GraphicsItemFlag.ItemIsMovable
@@ -1398,7 +1486,9 @@ class RectItem(_ClampMixin, QGraphicsRectItem):
         pen = QPen(QColor("black"))
         pen.setWidthF(self._width_px)
         self.setPen(pen)
-        self.setBrush(QBrush(QColor("black")) if self._filled else QBrush(Qt.BrushStyle.NoBrush))
+        self.setBrush(
+            QBrush(QColor("black")) if self._filled else QBrush(Qt.BrushStyle.NoBrush)
+        )
 
     def set_line_width(self, width_px: float) -> None:
         self._width_px = max(0.5, float(width_px))
@@ -1428,7 +1518,7 @@ class RectItem(_ClampMixin, QGraphicsRectItem):
         return d
 
     @classmethod
-    def from_dict(cls, d: dict[str, Any]) -> "RectItem":
+    def from_dict(cls, d: dict[str, Any]) -> RectItem:
         rect = QRectF(0.0, 0.0, d.get("w", 200), d.get("h", 100))
         item = cls(rect, d.get("width_px", 2), bool(d.get("filled", False)))
         item._apply_base(d)
@@ -1438,7 +1528,14 @@ class RectItem(_ClampMixin, QGraphicsRectItem):
 # --------------------------------------------------------------------------- #
 # Formen (Pfeile, Ellipse, Dreieck, Stern)
 # --------------------------------------------------------------------------- #
-SHAPES: tuple[str, ...] = ("ellipse", "triangle", "star", "arrow_right", "arrow_left", "arrow_double")
+SHAPES: tuple[str, ...] = (
+    "ellipse",
+    "triangle",
+    "star",
+    "arrow_right",
+    "arrow_left",
+    "arrow_double",
+)
 
 
 def _shape_path(shape: str, r: QRectF) -> QPainterPath:
@@ -1473,22 +1570,36 @@ def _shape_path(shape: str, r: QRectF) -> QPainterPath:
         head = min(w / 2, h / 2)
         if shape == "arrow_right":
             points = [
-                QPointF(x, cy - shaft), QPointF(x + w - head, cy - shaft), QPointF(x + w - head, y),
-                QPointF(x + w, cy), QPointF(x + w - head, y + h), QPointF(x + w - head, cy + shaft),
+                QPointF(x, cy - shaft),
+                QPointF(x + w - head, cy - shaft),
+                QPointF(x + w - head, y),
+                QPointF(x + w, cy),
+                QPointF(x + w - head, y + h),
+                QPointF(x + w - head, cy + shaft),
                 QPointF(x, cy + shaft),
             ]
         elif shape == "arrow_left":
             points = [
-                QPointF(x + w, cy - shaft), QPointF(x + head, cy - shaft), QPointF(x + head, y),
-                QPointF(x, cy), QPointF(x + head, y + h), QPointF(x + head, cy + shaft),
+                QPointF(x + w, cy - shaft),
+                QPointF(x + head, cy - shaft),
+                QPointF(x + head, y),
+                QPointF(x, cy),
+                QPointF(x + head, y + h),
+                QPointF(x + head, cy + shaft),
                 QPointF(x + w, cy + shaft),
             ]
         else:
             points = [
-                QPointF(x, cy), QPointF(x + head, y), QPointF(x + head, cy - shaft),
-                QPointF(x + w - head, cy - shaft), QPointF(x + w - head, y), QPointF(x + w, cy),
-                QPointF(x + w - head, y + h), QPointF(x + w - head, cy + shaft),
-                QPointF(x + head, cy + shaft), QPointF(x + head, y + h),
+                QPointF(x, cy),
+                QPointF(x + head, y),
+                QPointF(x + head, cy - shaft),
+                QPointF(x + w - head, cy - shaft),
+                QPointF(x + w - head, y),
+                QPointF(x + w, cy),
+                QPointF(x + w - head, y + h),
+                QPointF(x + w - head, cy + shaft),
+                QPointF(x + head, cy + shaft),
+                QPointF(x + head, y + h),
             ]
     path.addPolygon(QPolygonF(points))
     path.closeSubpath()
@@ -1498,7 +1609,13 @@ def _shape_path(shape: str, r: QRectF) -> QPainterPath:
 class ShapeItem(_ClampMixin, QGraphicsPathItem):
     kind = "shape"
 
-    def __init__(self, rect: QRectF | None = None, shape: str = "ellipse", width_px: float = 2, filled: bool = False):
+    def __init__(
+        self,
+        rect: QRectF | None = None,
+        shape: str = "ellipse",
+        width_px: float = 2,
+        filled: bool = False,
+    ):
         super().__init__()
         self.setFlags(
             QGraphicsItem.GraphicsItemFlag.ItemIsMovable
@@ -1516,7 +1633,9 @@ class ShapeItem(_ClampMixin, QGraphicsPathItem):
         pen.setWidthF(self._width_px)
         pen.setJoinStyle(Qt.PenJoinStyle.MiterJoin)
         self.setPen(pen)
-        self.setBrush(QBrush(QColor("black")) if self._filled else QBrush(Qt.BrushStyle.NoBrush))
+        self.setBrush(
+            QBrush(QColor("black")) if self._filled else QBrush(Qt.BrushStyle.NoBrush)
+        )
         self.setPath(_shape_path(self._shape, self._rect))
 
     @property
@@ -1562,11 +1681,17 @@ class ShapeItem(_ClampMixin, QGraphicsPathItem):
         return d
 
     @classmethod
-    def from_dict(cls, d: dict[str, Any]) -> "ShapeItem":
+    def from_dict(cls, d: dict[str, Any]) -> ShapeItem:
         rect = QRectF(0.0, 0.0, d.get("w", 200), d.get("h", 100))
-        item = cls(rect, d.get("shape", "ellipse"), d.get("width_px", 2), bool(d.get("filled", False)))
+        item = cls(
+            rect,
+            d.get("shape", "ellipse"),
+            d.get("width_px", 2),
+            bool(d.get("filled", False)),
+        )
         item._apply_base(d)
         return item
+
 
 # --------------------------------------------------------------------------- #
 # Clip Art
@@ -1605,7 +1730,7 @@ class ClipArtItem(_ClampMixin, QGraphicsObject):
     def boundingRect(self) -> QRectF:  # noqa: N802
         return QRectF(0.0, 0.0, self._w, self._h)
 
-    def paint(self, painter: QPainter, option, widget=None) -> None:  # noqa: N802
+    def paint(self, painter: QPainter, option, widget=None) -> None:
         del option, widget
         rect = self.boundingRect()
         if self._inverted:
@@ -1673,7 +1798,7 @@ class ClipArtItem(_ClampMixin, QGraphicsObject):
         return d
 
     @classmethod
-    def from_dict(cls, d: dict[str, Any]) -> "ClipArtItem":
+    def from_dict(cls, d: dict[str, Any]) -> ClipArtItem:
         item = cls(
             str(d.get("symbol", "warning")),
             width=float(d.get("w", 160)),
@@ -1724,6 +1849,8 @@ def fill_label(key: str) -> str:
         "cross": tr("Kreuz"),
         "dots": tr("Punktmuster"),
     }.get(key, key)
+
+
 _FILL_BRUSH = {
     "none": Qt.BrushStyle.NoBrush,
     "gray25": Qt.BrushStyle.Dense6Pattern,
@@ -1747,6 +1874,8 @@ def line_style_label(key: str) -> str:
         "dotted": tr("Gepunktet"),
         "none": tr("Keine Linie"),
     }.get(key, key)
+
+
 _LINE_QT = {
     "solid": Qt.PenStyle.SolidLine,
     "dashed": Qt.PenStyle.DashLine,
@@ -1773,6 +1902,8 @@ def valign_label(key: str) -> str:
         "middle": tr("Mitte"),
         "bottom": tr("Unten"),
     }.get(key, key)
+
+
 _H_ALIGN = {
     "left": Qt.AlignmentFlag.AlignLeft,
     "center": Qt.AlignmentFlag.AlignHCenter,
@@ -1817,7 +1948,7 @@ class TableCell:
         }
 
     @classmethod
-    def from_dict(cls, raw: dict[str, Any] | None) -> "TableCell":
+    def from_dict(cls, raw: dict[str, Any] | None) -> TableCell:
         if not raw:
             return cls()
         align = raw.get("align", "left")
@@ -1858,7 +1989,7 @@ class _CellEditor(QGraphicsTextItem):
         self._caret_hidden = hidden
         self.update()
 
-    def paint(self, painter: QPainter, option, widget=None) -> None:  # noqa: N802
+    def paint(self, painter: QPainter, option, widget=None) -> None:
         if not self._caret_hidden:
             super().paint(painter, option, widget)
             return
@@ -2009,7 +2140,12 @@ class TableItem(_ClampMixin, QGraphicsObject):
 
     def index_at(self, pos: QPointF) -> tuple[int, int] | None:
         """Rohindex (Zeile, Spalte) unter einem lokalen Punkt."""
-        if pos.x() < 0 or pos.y() < 0 or pos.x() > self.table_width or pos.y() > self.table_height:
+        if (
+            pos.x() < 0
+            or pos.y() < 0
+            or pos.x() > self.table_width
+            or pos.y() > self.table_height
+        ):
             return None
         return self._row_index_at(pos.y()), self._col_index_at(pos.x())
 
@@ -2058,7 +2194,9 @@ class TableItem(_ClampMixin, QGraphicsObject):
             found = [self.anchor_at(0, 0)]
         return found
 
-    def _set_selection(self, anchors: set[tuple[int, int]], origin: tuple[int, int] | None = None) -> None:
+    def _set_selection(
+        self, anchors: set[tuple[int, int]], origin: tuple[int, int] | None = None
+    ) -> None:
         clean = {self.anchor_at(r, c) for r, c in anchors}
         clean = {a for a in clean if not self._cells[a[0]][a[1]].skip}
         if not clean:
@@ -2241,7 +2379,12 @@ class TableItem(_ClampMixin, QGraphicsObject):
         if len(anchors) == 1:
             r, c = anchors[0]
             cell = self._cells[r][c]
-            if r == r0 and c == c0 and cell.row_span == r1 - r0 + 1 and cell.col_span == c1 - c0 + 1:
+            if (
+                r == r0
+                and c == c0
+                and cell.row_span == r1 - r0 + 1
+                and cell.col_span == c1 - c0 + 1
+            ):
                 return False
         return True
 
@@ -2324,7 +2467,7 @@ class TableItem(_ClampMixin, QGraphicsObject):
     def _styled_like(self, src: TableCell, **changes: Any) -> TableCell:
         fields = {"text": "", "row_span": 1, "col_span": 1, "skip": False}
         fields.update(changes)
-        return replace(src, **fields)
+        return replace(src, **cast(Any, fields))
 
     def _insert_row(self, index: int) -> None:
         self.finish_editing()
@@ -2340,7 +2483,11 @@ class TableItem(_ClampMixin, QGraphicsObject):
             new_h = ref_h
         style_row = min(index, self.rows - 1)
         new_row = [
-            self._styled_like(self._cells[self.anchor_at(style_row, c)[0]][self.anchor_at(style_row, c)[1]])
+            self._styled_like(
+                self._cells[self.anchor_at(style_row, c)[0]][
+                    self.anchor_at(style_row, c)[1]
+                ]
+            )
             for c in range(self.cols)
         ]
         self._cells.insert(index, new_row)
@@ -2356,7 +2503,9 @@ class TableItem(_ClampMixin, QGraphicsObject):
                         for cc in range(c, min(self.cols, c + cell.col_span)):
                             self._cells[index][cc] = self._styled_like(cell, skip=True)
         self._sanitize()
-        self._selection = {self.anchor_at(index, self._selected_col_indexes()[0] if self.cols else 0)}
+        self._selection = {
+            self.anchor_at(index, self._selected_col_indexes()[0] if self.cols else 0)
+        }
         self._range_origin = next(iter(self._selection))
         self.update()
         self.structure_changed.emit()
@@ -2389,7 +2538,9 @@ class TableItem(_ClampMixin, QGraphicsObject):
                         for rr in range(r, min(self.rows, r + cell.row_span)):
                             self._cells[rr][index] = self._styled_like(cell, skip=True)
         self._sanitize()
-        self._selection = {self.anchor_at(self._selected_row_indexes()[0] if self.rows else 0, index)}
+        self._selection = {
+            self.anchor_at(self._selected_row_indexes()[0] if self.rows else 0, index)
+        }
         self._range_origin = next(iter(self._selection))
         self.update()
         self.structure_changed.emit()
@@ -2400,7 +2551,12 @@ class TableItem(_ClampMixin, QGraphicsObject):
             cell = self._cells[index][c]
             if cell.skip or cell.row_span == 1 or index + 1 >= self.rows:
                 continue
-            self._move_origin(cell, self._cells[index + 1][c], row_span=cell.row_span - 1, col_span=cell.col_span)
+            self._move_origin(
+                cell,
+                self._cells[index + 1][c],
+                row_span=cell.row_span - 1,
+                col_span=cell.col_span,
+            )
         for r in range(index):
             for c in range(self.cols):
                 cell = self._cells[r][c]
@@ -2422,7 +2578,12 @@ class TableItem(_ClampMixin, QGraphicsObject):
             cell = self._cells[r][index]
             if cell.skip or cell.col_span == 1 or index + 1 >= self.cols:
                 continue
-            self._move_origin(cell, self._cells[r][index + 1], row_span=cell.row_span, col_span=cell.col_span - 1)
+            self._move_origin(
+                cell,
+                self._cells[r][index + 1],
+                row_span=cell.row_span,
+                col_span=cell.col_span - 1,
+            )
         for r in range(self.rows):
             for c in range(index):
                 cell = self._cells[r][c]
@@ -2440,7 +2601,9 @@ class TableItem(_ClampMixin, QGraphicsObject):
                 self._col_widths = [w * scale for w in self._col_widths]
 
     @staticmethod
-    def _move_origin(src: TableCell, dest: TableCell, *, row_span: int, col_span: int) -> None:
+    def _move_origin(
+        src: TableCell, dest: TableCell, *, row_span: int, col_span: int
+    ) -> None:
         dest.text = src.text
         dest.font_family = src.font_family
         dest.font_pixel_size = src.font_pixel_size
@@ -2611,7 +2774,7 @@ class TableItem(_ClampMixin, QGraphicsObject):
         doc.setTextWidth(max(1.0, width))
         return doc
 
-    def paint(self, painter: QPainter, option, widget=None) -> None:  # noqa: N802
+    def paint(self, painter: QPainter, option, widget=None) -> None:
         del option  # Auswahlrahmen malt der Canvas, nicht das Objekt
         for r in range(self.rows):
             for c in range(self.cols):
@@ -2621,7 +2784,9 @@ class TableItem(_ClampMixin, QGraphicsObject):
                 rect = self.cell_rect(r, c)
                 brush_style = _FILL_BRUSH.get(cell.fill, Qt.BrushStyle.NoBrush)
                 if brush_style != Qt.BrushStyle.NoBrush:
-                    fill_color = cell.color if cell.color in ("black", "red") else "black"
+                    fill_color = (
+                        cell.color if cell.color in ("black", "red") else "black"
+                    )
                     painter.fillRect(rect, QBrush(QColor(fill_color), brush_style))
                 if widget is not None and (r, c) in self._selection:
                     painter.fillRect(rect, QColor(0, 120, 215, 36))
@@ -2675,14 +2840,22 @@ class TableItem(_ClampMixin, QGraphicsObject):
             x0 = xs[0]
             for c in range(self.cols):
                 x1 = xs[c + 1]
-                if boundary == 0 or boundary == self.rows or not self._span_crosses_hline(boundary, c):
+                if (
+                    boundary == 0
+                    or boundary == self.rows
+                    or not self._span_crosses_hline(boundary, c)
+                ):
                     painter.drawLine(QPointF(x0, yb), QPointF(x1, yb))
                 x0 = x1
         for boundary, xb in enumerate(xs):
             y0 = ys[0]
             for r in range(self.rows):
                 y1 = ys[r + 1]
-                if boundary == 0 or boundary == self.cols or not self._span_crosses_vline(boundary, r):
+                if (
+                    boundary == 0
+                    or boundary == self.cols
+                    or not self._span_crosses_vline(boundary, r)
+                ):
                     painter.drawLine(QPointF(xb, y0), QPointF(xb, y1))
                 y0 = y1
 
@@ -2844,7 +3017,9 @@ class TableItem(_ClampMixin, QGraphicsObject):
             return
         self._geom()
         self._col_widths = [max(_MIN_CELL, w * width / old_w) for w in self._col_widths]
-        self._row_heights = [max(_MIN_CELL, h * height / old_h) for h in self._row_heights]
+        self._row_heights = [
+            max(_MIN_CELL, h * height / old_h) for h in self._row_heights
+        ]
         self._place_editor()
         self.update()
 
@@ -2869,7 +3044,7 @@ class TableItem(_ClampMixin, QGraphicsObject):
         return d
 
     @classmethod
-    def from_dict(cls, d: dict[str, Any]) -> "TableItem":
+    def from_dict(cls, d: dict[str, Any]) -> TableItem:
         widths = [float(v) for v in d.get("col_widths") or [200.0, 200.0]]
         heights = [float(v) for v in d.get("row_heights") or [80.0, 80.0, 80.0]]
         item = cls(len(heights), len(widths), sum(widths), sum(heights))
@@ -2894,7 +3069,12 @@ class TableItem(_ClampMixin, QGraphicsObject):
         return item
 
 
-ITEM_TYPES: dict[str, type] = {
+class _ItemType(Protocol):
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> QGraphicsItem: ...
+
+
+ITEM_TYPES: dict[str, type[_ItemType]] = {
     TextItem.kind: TextItem,
     ImageItem.kind: ImageItem,
     QRItem.kind: QRItem,
@@ -2917,31 +3097,31 @@ def item_from_dict(d: dict[str, Any]) -> QGraphicsItem:
 
 
 __all__ = [
-    "pil_to_qpixmap",
-    "make_qr_image",
-    "make_barcode_image",
-    "normalize_binding",
-    "LabelItem",
-    "TextItem",
-    "ImageItem",
-    "QRItem",
+    "ALIGN_CHOICES",
+    "FILL_CHOICES",
+    "ITEM_TYPES",
+    "LINE_STYLE_CHOICES",
+    "SHAPES",
+    "VALIGN_CHOICES",
     "BarcodeItem",
+    "ClipArtItem",
+    "DateTimeItem",
+    "ImageItem",
+    "LabelItem",
     "LineItem",
+    "QRItem",
     "RectItem",
     "ShapeItem",
-    "SHAPES",
-    "ClipArtItem",
-    "TableItem",
     "TableCell",
-    "DateTimeItem",
-    "FILL_CHOICES",
-    "LINE_STYLE_CHOICES",
-    "ALIGN_CHOICES",
-    "VALIGN_CHOICES",
-    "fill_label",
-    "line_style_label",
+    "TableItem",
+    "TextItem",
     "align_label",
-    "valign_label",
-    "ITEM_TYPES",
+    "fill_label",
     "item_from_dict",
+    "line_style_label",
+    "make_barcode_image",
+    "make_qr_image",
+    "normalize_binding",
+    "pil_to_qpixmap",
+    "valign_label",
 ]

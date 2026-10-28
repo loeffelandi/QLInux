@@ -5,8 +5,7 @@ from __future__ import annotations
 from PySide6.QtCore import QEvent, QPointF, Qt
 from PySide6.QtGui import QKeyEvent, QMouseEvent
 from PySide6.QtWidgets import QApplication
-
-from ql_editor.app import MainWindow, _CLIPBOARD_MIME
+from ql_editor.app import _CLIPBOARD_MIME, MainWindow
 from ql_editor.canvas import DUPLICATE_OFFSET_DOTS
 from ql_editor.help import action_shortcuts, canvas_shortcuts
 from ql_editor.items import TextItem
@@ -297,7 +296,7 @@ def test_copy_paste_duplicate_and_ctrl_drag(qapp):
     assert win._act_paste.text() == "Einfügen"
     assert "\u2060" not in win._act_paste.text()
     assert win._undo_stack.undoText() == "Einfügen"
-    pasted = [obj for obj in canvas.ordered_items() if obj is not item][0]
+    pasted = next(obj for obj in canvas.ordered_items() if obj is not item)
     assert pasted.toPlainText() == "Hallo"
     assert pasted.pos().x() == origin.x() + DUPLICATE_OFFSET_DOTS
     assert pasted.pos().y() == origin.y() + DUPLICATE_OFFSET_DOTS
@@ -308,7 +307,7 @@ def test_copy_paste_duplicate_and_ctrl_drag(qapp):
     item = canvas.ordered_items()[-1]
     item.setSelected(True)
     win._act_duplicate.trigger()
-    clone = [obj for obj in canvas.ordered_items() if obj.pos() != origin][0]
+    clone = next(obj for obj in canvas.ordered_items() if obj.pos() != origin)
     assert clone.pos().x() == origin.x() + DUPLICATE_OFFSET_DOTS
     assert win._undo_stack.undoText() == "Duplizieren"
 

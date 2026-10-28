@@ -291,13 +291,16 @@ printer goes silent after a job, the history says “Sent, no status reply”.
 ```bash
 bash scripts/bootstrap_venv.sh
 .venv/bin/pip install -r requirements-dev.txt
+.venv/bin/ruff check .
+.venv/bin/ruff format --check .
+.venv/bin/mypy
 QT_QPA_PLATFORM=offscreen .venv/bin/python -m pytest -q      # headless test suite
 python scripts/verify_api.py            # documents the real brother_ql API
 ```
 
 The same suite runs on every push and pull request
 ([`.github/workflows/tests.yml`](.github/workflows/tests.yml), Python 3.12 on
-Ubuntu x86_64 and aarch64).
+Ubuntu x86_64 and aarch64). Ruff and mypy run once, on the x86_64 job.
 
 The tests run headless: `tests/conftest.py` forces the Qt *offscreen* platform
 and redirects `XDG_CONFIG_HOME` to a temporary directory, so a test run never

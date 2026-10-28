@@ -8,11 +8,10 @@ ist. Hier laeuft **nichts** als root - geprueft wird nur, was das Modul sagt.
 from __future__ import annotations
 
 import os
-from pathlib import Path
 import subprocess
+from pathlib import Path
 
 import pytest
-
 from ql_editor import access
 
 
@@ -24,17 +23,26 @@ def test_the_helper_ships_with_the_project():
     assert os.access(helper, os.X_OK), "Helfer muss ausfuehrbar sein"
 
 
-@pytest.mark.skipif(os.geteuid() == 0, reason="als root wuerde der Helfer wirklich installieren")
+@pytest.mark.skipif(
+    os.geteuid() == 0, reason="als root wuerde der Helfer wirklich installieren"
+)
 def test_the_helper_is_valid_shell_and_needs_root():
     helper = access.helper_path()
     assert helper is not None
 
     # Syntaxpruefung ohne Ausfuehrung.
-    assert subprocess.run(["sh", "-n", str(helper)], capture_output=True).returncode == 0
+    assert (
+        subprocess.run(
+            ["sh", "-n", str(helper)], check=False, capture_output=True
+        ).returncode
+        == 0
+    )
 
     # Ohne root bricht er ab, ohne etwas zu installieren.
     rule_before = access.rule_installed()
-    done = subprocess.run(["sh", str(helper)], capture_output=True, text=True)
+    done = subprocess.run(
+        ["sh", str(helper)], check=False, capture_output=True, text=True
+    )
     assert done.returncode == 1
     assert "root" in done.stderr
     assert access.rule_installed() == rule_before

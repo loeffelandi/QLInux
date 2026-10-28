@@ -28,9 +28,9 @@ import socket
 import struct
 import threading
 import time
+from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 from functools import lru_cache
-from typing import Callable, Iterable
 from urllib.parse import urlsplit
 
 from .i18n import tr
@@ -152,8 +152,10 @@ class NetworkPrinter:
         lines = [f"{self.host}:{self.port}"]
         # Den gemeldeten Namen nur zeigen, wenn er etwas Neues sagt: "Brother
         # QL-820NWB" steht schon im Listeneintrag, "BRWBCF4D4334A01" nicht.
-        if self.name and self.name != self.display_name and not (
-            self.model_id and self.model_id in self.name
+        if (
+            self.name
+            and self.name != self.display_name
+            and not (self.model_id and self.model_id in self.name)
         ):
             lines.append(self.name)
         lines.append(tr("gefunden über {source}").format(source=self.source))
@@ -167,7 +169,9 @@ def known_model_ids() -> tuple[str, ...]:
     Die Reihenfolge ist wichtig: in "QL-820NWB" steckt auch "QL-820", wenn es
     beide Modelle gaebe - der laengste Treffer ist der richtige.
     """
-    return tuple(sorted((spec.identifier for spec in all_models()), key=len, reverse=True))
+    return tuple(
+        sorted((spec.identifier for spec in all_models()), key=len, reverse=True)
+    )
 
 
 def model_id_for_name(text: str) -> str | None:
@@ -190,9 +194,7 @@ def looks_like_label_printer(text: str) -> bool:
     waehlt man dann von Hand.
     """
     haystack = (text or "").upper()
-    return (
-        LABEL_PRINTER_MANUFACTURER in haystack and LABEL_PRINTER_SERIES in haystack
-    )
+    return LABEL_PRINTER_MANUFACTURER in haystack and LABEL_PRINTER_SERIES in haystack
 
 
 # --------------------------------------------------------------------------- #
@@ -239,7 +241,9 @@ class DnsReader:
                 offset = target
                 continue
             offset += 1
-            labels.append(self.data[offset : offset + length].decode("utf-8", "replace"))
+            labels.append(
+                self.data[offset : offset + length].decode("utf-8", "replace")
+            )
             offset += length
         return ".".join(labels), following_offset
 
@@ -272,7 +276,9 @@ def dns_records(reader: DnsReader) -> list[DnsRecord]:
             ">HHIH", reader.data[offset : offset + 10]
         )
         offset += 10
-        records.append(DnsRecord(name, rtype, offset, reader.data[offset : offset + length]))
+        records.append(
+            DnsRecord(name, rtype, offset, reader.data[offset : offset + length])
+        )
         offset += length
     return records
 
@@ -437,7 +443,10 @@ def snmp_request(oids: tuple[tuple[int, ...], ...] = SNMP_OIDS) -> bytes:
     body = (
         _ber_integer(0)
         + _ber(0x04, SNMP_COMMUNITY)
-        + _ber(0xA0, _ber_integer(1) + _ber_integer(0) + _ber_integer(0) + _ber(0x30, varbinds))
+        + _ber(
+            0xA0,
+            _ber_integer(1) + _ber_integer(0) + _ber_integer(0) + _ber(0x30, varbinds),
+        )
     )
     return _ber(0x30, body)
 
@@ -807,10 +816,11 @@ def discover_network_printers(
 
 __all__ = [
     "MDNS_SERVICE",
-    "NetworkPrinter",
-    "NetworkStatus",
     "SOURCE_MDNS",
     "SOURCE_SNMP",
+    "NetworkPrinter",
+    "NetworkStatus",
+    "confirm_network_job",
     "discover_network_printers",
     "known_model_ids",
     "looks_like_label_printer",
@@ -818,10 +828,9 @@ __all__ = [
     "mdns_query",
     "merge_printers",
     "model_id_for_name",
+    "network_printer_status",
     "parse_mdns_response",
     "parse_snmp_response",
-    "confirm_network_job",
-    "network_printer_status",
     "snmp_get",
     "snmp_printers",
     "snmp_request",

@@ -63,11 +63,11 @@ _CURSOR_CACHE: dict[tuple[str, int, int], QCursor] = {}
 #: weissen Hintergrund zu blass. Nicht gelistete Symbole bleiben in Textfarbe.
 ICON_COLORS: dict[str, str] = {
     # Einfuegen
-    "text": "#00525A",       # Akzent
-    "image": "#407982",      # Zusatzfarbe blau
-    "barcode": "#805499",    # Zusatzfarbe lila
-    "qr": "#995E85",         # Zusatzfarbe pink
-    "line": "#597697",       # Zusatzfarbe indigo
+    "text": "#00525A",  # Akzent
+    "image": "#407982",  # Zusatzfarbe blau
+    "barcode": "#805499",  # Zusatzfarbe lila
+    "qr": "#995E85",  # Zusatzfarbe pink
+    "line": "#597697",  # Zusatzfarbe indigo
     "rect": "#597697",
     "shape": "#597697",
     "shape_ellipse": "#597697",
@@ -82,24 +82,24 @@ ICON_COLORS: dict[str, str] = {
     "datetime": "#3d6d8c",
     "clipart": "#7a4e2d",
     # Datei und Vorlagen
-    "open": "#5D5553",       # Zusatzfarbe warmgrau
+    "open": "#5D5553",  # Zusatzfarbe warmgrau
     "new": "#5D5553",
     "close": "#5D5553",
     "cancel": "#5D5553",
     "save": "#5D5553",
     "save_as": "#5D5553",
-    "label": "#976E41",      # Zusatzfarbe orange
+    "label": "#976E41",  # Zusatzfarbe orange
     # Ausgabe
     "preview": "#00525A",
-    "print": "#185529",      # Erfolg
-    "delete": "#78292E",     # Fehler
+    "print": "#185529",  # Erfolg
+    "delete": "#78292E",  # Fehler
 }
 
 
 def _dark_ui() -> bool:
     """True, wenn der Fenstergrund dunkel ist."""
     app = QApplication.instance()
-    if app is None:
+    if not isinstance(app, QApplication):
         return False
     return app.palette().color(QPalette.ColorRole.Window).lightness() < 128
 
@@ -110,9 +110,9 @@ def _lift_for_dark(color: QColor) -> QColor:
     Die festen Toene sind fuer helles Grau gemischt. Auf Dunkel wuerde das
     Gruen des Druckers und die gedeckten Datei-Icons verschwinden.
     """
-    hue, sat, light, alpha = color.getHsl()
-    if hue < 0:
-        hue = 0
+    hsl = color.getHsl()
+    hue, sat, light, alpha = hsl if isinstance(hsl, tuple) else (0, 0, 0, 255)
+    hue = max(hue, 0)
     lifted = QColor()
     lifted.setHsl(hue, sat, max(light, 168), alpha)
     return lifted
@@ -138,10 +138,10 @@ class _ThemeIconEngine(QIconEngine):
         self._name = name
         self._color = None if color is None else QColor(color)
 
-    def clone(self) -> QIconEngine:  # noqa: N802
+    def clone(self) -> QIconEngine:
         return _ThemeIconEngine(self._name, self._color)
 
-    def pixmap(self, size, mode, state):  # noqa: N802
+    def pixmap(self, size, mode, state):
         del state
         side = max(1, int(size.width()), int(size.height()))
         color = icon_color(self._name, self._color)
@@ -150,7 +150,7 @@ class _ThemeIconEngine(QIconEngine):
             color.setAlpha(110)
         return _render(self._name, side, color)
 
-    def paint(self, painter, rect, mode, state) -> None:  # noqa: N802
+    def paint(self, painter, rect, mode, state) -> None:
         painter.drawPixmap(rect, self.pixmap(rect.size(), mode, state))
 
 
@@ -175,7 +175,7 @@ def icon(name: str, color: QColor | None = None) -> QIcon:
 def text_color() -> QColor:
     """Standard-Iconfarbe (Palette der Anwendung, fallback dunkelgrau)."""
     app = QApplication.instance()
-    if app is not None:
+    if isinstance(app, QApplication):
         return app.palette().color(QPalette.ColorRole.WindowText)
     return QColor("#222222")
 
@@ -204,7 +204,7 @@ def cursor(name: str, size: int = CURSOR_SIZE) -> QCursor:
 def _device_pixel_ratio() -> int:
     """Geraetepixel pro logischem Pixel (HiDPI) - mindestens 1."""
     app = QApplication.instance()
-    screen = app.primaryScreen() if app is not None else None
+    screen = app.primaryScreen() if isinstance(app, QApplication) else None
     if screen is None:
         return 1
     return max(1, round(screen.devicePixelRatio()))
@@ -317,7 +317,15 @@ def _draw_image(p: QPainter, color: QColor) -> None:
 
 def _draw_barcode(p: QPainter, color: QColor) -> None:
     _fill_only(p, color)
-    for x, width in ((4.5, 1.6), (7.0, 1.0), (9.0, 2.2), (12.0, 1.0), (13.8, 1.6), (16.2, 1.0), (18.2, 1.6)):
+    for x, width in (
+        (4.5, 1.6),
+        (7.0, 1.0),
+        (9.0, 2.2),
+        (12.0, 1.0),
+        (13.8, 1.6),
+        (16.2, 1.0),
+        (18.2, 1.6),
+    ):
         p.drawRect(QRectF(x, 5.5, width, 13.0))
 
 
@@ -683,7 +691,9 @@ def _draw_cancel(p: QPainter, color: QColor) -> None:
 def _draw_open(p: QPainter, color: QColor) -> None:
     """Aufgeklappter Ordner - "Datei öffnen"."""
     _stroke_only(p, color, 1.7)
-    _poly(p, ((4.5, 16.0), (4.5, 6.5), (9.8, 6.5), (11.8, 9.0), (17.0, 9.0), (17.0, 12.5)))
+    _poly(
+        p, ((4.5, 16.0), (4.5, 6.5), (9.8, 6.5), (11.8, 9.0), (17.0, 9.0), (17.0, 12.5))
+    )
     _poly(
         p,
         ((3.0, 20.0), (5.8, 12.5), (21.0, 12.5), (18.2, 20.0), (3.0, 20.0)),
@@ -704,8 +714,8 @@ def _draw_save(p: QPainter, color: QColor) -> None:
             (5.0, 4.5),
         ),
     )
-    p.drawRect(QRectF(8.6, 4.5, 7.0, 5.2))       # Schieber
-    p.drawRect(QRectF(8.6, 13.2, 7.0, 6.3))       # Etikett
+    p.drawRect(QRectF(8.6, 4.5, 7.0, 5.2))  # Schieber
+    p.drawRect(QRectF(8.6, 13.2, 7.0, 6.3))  # Etikett
 
 
 def _draw_save_as(p: QPainter, color: QColor) -> None:
@@ -722,8 +732,8 @@ def _draw_save_as(p: QPainter, color: QColor) -> None:
             (3.5, 4.0),
         ),
     )
-    p.drawRect(QRectF(6.2, 4.0, 5.4, 3.9))        # Schieber
-    _poly(                                          # Stift
+    p.drawRect(QRectF(6.2, 4.0, 5.4, 3.9))  # Schieber
+    _poly(  # Stift
         p,
         (
             (12.6, 20.5),
@@ -1062,7 +1072,9 @@ def _draw_dir_vertical(p: QPainter, color: QColor) -> None:
     _glyph(p, color, "B", QRectF(0, 11, 24, 13), 11)
 
 
-def _outline(p: QPainter, color: QColor, points: tuple[tuple[float, float], ...]) -> None:
+def _outline(
+    p: QPainter, color: QColor, points: tuple[tuple[float, float], ...]
+) -> None:
     _stroke_only(p, color, 1.6)
     _poly(p, points + (points[0],))
 
@@ -1077,10 +1089,33 @@ def _draw_shape_triangle(p: QPainter, color: QColor) -> None:
 
 
 def _draw_shape_star(p: QPainter, color: QColor) -> None:
-    _outline(p, color, ((12.0, 3.5), (14.35, 9.26), (20.56, 9.72), (15.8, 13.74), (17.29, 19.78), (12.0, 16.5), (6.71, 19.78), (8.2, 13.74), (3.44, 9.72), (9.65, 9.26)))
+    _outline(
+        p,
+        color,
+        (
+            (12.0, 3.5),
+            (14.35, 9.26),
+            (20.56, 9.72),
+            (15.8, 13.74),
+            (17.29, 19.78),
+            (12.0, 16.5),
+            (6.71, 19.78),
+            (8.2, 13.74),
+            (3.44, 9.72),
+            (9.65, 9.26),
+        ),
+    )
 
 
-_ARROW_RIGHT = ((3.0, 8.5), (14.0, 8.5), (14.0, 4.5), (21.0, 12.0), (14.0, 19.5), (14.0, 15.5), (3.0, 15.5))
+_ARROW_RIGHT = (
+    (3.0, 8.5),
+    (14.0, 8.5),
+    (14.0, 4.5),
+    (21.0, 12.0),
+    (14.0, 19.5),
+    (14.0, 15.5),
+    (3.0, 15.5),
+)
 
 
 def _draw_shape_arrow_right(p: QPainter, color: QColor) -> None:
@@ -1092,8 +1127,22 @@ def _draw_shape_arrow_left(p: QPainter, color: QColor) -> None:
 
 
 def _draw_shape_arrow_double(p: QPainter, color: QColor) -> None:
-    _outline(p, color, ((3.0, 12.0), (8.0, 4.5), (8.0, 8.5), (16.0, 8.5), (16.0, 4.5), (21.0, 12.0),
-                        (16.0, 19.5), (16.0, 15.5), (8.0, 15.5), (8.0, 19.5)))
+    _outline(
+        p,
+        color,
+        (
+            (3.0, 12.0),
+            (8.0, 4.5),
+            (8.0, 8.5),
+            (16.0, 8.5),
+            (16.0, 4.5),
+            (21.0, 12.0),
+            (16.0, 19.5),
+            (16.0, 15.5),
+            (8.0, 15.5),
+            (8.0, 19.5),
+        ),
+    )
 
 
 _DRAW = {
@@ -1187,4 +1236,4 @@ _DRAW = {
     "save_as": _draw_save_as,
 }
 
-__all__ = ["icon", "cursor", "text_color", "available", "GRID"]
+__all__ = ["GRID", "available", "cursor", "icon", "text_color"]

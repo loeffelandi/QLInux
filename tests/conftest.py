@@ -44,7 +44,9 @@ def _quiet_network_discovery(monkeypatch):
     monkeypatch.setattr(
         "ql_editor.media_panel.discover_network_printers", lambda *args, **kwargs: []
     )
-    monkeypatch.setattr("ql_editor.app.network_printer_status", lambda *args, **kwargs: None)
+    monkeypatch.setattr(
+        "ql_editor.app.network_printer_status", lambda *args, **kwargs: None
+    )
     yield
     widgets = sys.modules.get("PySide6.QtWidgets")
     app = widgets.QApplication.instance() if widgets is not None else None
@@ -65,7 +67,6 @@ def _release_qt_windows(app) -> None:
     """
     import shiboken6
     from PySide6.QtCore import QEvent
-
     from ql_editor.app import MainWindow
     from ql_editor.sheet import _shortcut_filter
 

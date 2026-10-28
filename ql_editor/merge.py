@@ -16,10 +16,11 @@ gemeinsam nutzbar.
 
 from __future__ import annotations
 
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from os import PathLike
 from pathlib import Path
-from typing import Any, Mapping, Sequence
+from typing import Any
 
 from .document import DEFAULT_SERIAL, merge_serial
 from .i18n import tr
@@ -55,9 +56,7 @@ def normalize_binding(
         return {"source": "database", "field": field}
     if source == "serial":
         return {"source": "serial"}
-    raise MergeError(
-        tr("Unbekannte Binding-Quelle: {source!r}.").format(source=source)
-    )
+    raise MergeError(tr("Unbekannte Binding-Quelle: {source!r}.").format(source=source))
 
 
 # Rueckwaerts-Alias (interne Aufrufer / aeltere Tests).
@@ -154,9 +153,7 @@ def apply_display_value(item: Any, value: str) -> bool:
         except ValueError:
             return False
         return True
-    raise MergeError(
-        tr("Objekt {kind!r} unterstuetzt keinen Merge.").format(kind=kind)
-    )
+    raise MergeError(tr("Objekt {kind!r} unterstuetzt keinen Merge.").format(kind=kind))
 
 
 def apply_record(
@@ -185,18 +182,14 @@ def apply_record(
         binding = getattr(item, "binding", None)
         if callable(binding):
             binding = binding()
-        value = resolve_binding(
-            binding, record=record, serial_value=serial_value
-        )
+        value = resolve_binding(binding, record=record, serial_value=serial_value)
         if value is None:
             continue
         if apply_display_value(item, value):
             updated += 1
         elif strict:
             raise MergeError(
-                tr("Barcode '{value}' lässt sich nicht drucken.").format(
-                    value=value
-                )
+                tr("Barcode '{value}' lässt sich nicht drucken.").format(value=value)
             )
     return updated
 
@@ -236,9 +229,7 @@ def plan_print_variants(
     if not records:
         return [PrintVariant(None, None)]
     if scope not in PRINT_SCOPES:
-        raise MergeError(
-            tr("Unbekannter Druckbereich: {scope!r}.").format(scope=scope)
-        )
+        raise MergeError(tr("Unbekannter Druckbereich: {scope!r}.").format(scope=scope))
     count = len(records)
     if scope == PRINT_ALL:
         indexes = list(range(count))
@@ -285,15 +276,11 @@ def plan_serial_labels(
     """
     span = serial_length(serial)
     return [
-        PlannedLabel(variant, index)
-        for variant in variants
-        for index in range(span)
+        PlannedLabel(variant, index) for variant in variants for index in range(span)
     ]
 
 
-def job_page_count(
-    variant_count: int, copies: int, *, limit: int = COPIES_MAX
-) -> int:
+def job_page_count(variant_count: int, copies: int, *, limit: int = COPIES_MAX) -> int:
     """Seiten = Varianten × Kopien; ueber :data:`COPIES_MAX` abbrechen (D7)."""
     if (
         isinstance(variant_count, bool)
@@ -313,9 +300,7 @@ def job_page_count(
     return pages
 
 
-def _selected_indexes(
-    count: int, selected: int | Sequence[int] | None
-) -> list[int]:
+def _selected_indexes(count: int, selected: int | Sequence[int] | None) -> list[int]:
     if selected is None:
         return [clamp_record_index(0, count)]
     if isinstance(selected, bool):
@@ -396,11 +381,12 @@ def resolve_csv_path(
 
 
 __all__ = [
-    "MergeError",
     "PRINT_ALL",
     "PRINT_RANGE",
     "PRINT_SCOPES",
     "PRINT_SELECTED",
+    "MergeError",
+    "PlannedLabel",
     "PrintVariant",
     "apply_display_value",
     "apply_record",
@@ -408,11 +394,10 @@ __all__ = [
     "format_serial",
     "job_page_count",
     "normalize_binding",
-    "PlannedLabel",
     "plan_print_variants",
     "plan_serial_labels",
     "resolve_binding",
-    "serial_length",
     "resolve_csv_path",
     "resolve_item_display",
+    "serial_length",
 ]

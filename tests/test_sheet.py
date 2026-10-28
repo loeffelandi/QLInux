@@ -14,10 +14,16 @@ from PIL import Image
 from PySide6.QtCore import QPointF, QSettings, Qt
 from PySide6.QtGui import QKeyEvent
 from PySide6.QtWidgets import QFileDialog, QInputDialog, QLineEdit, QMessageBox, QWidget
-
 from ql_editor.app import MainWindow
 from ql_editor.items import BarcodeItem, ImageItem, QRItem
-from ql_editor.sheet import Sheet, ask_choice, ask_save, ask_text, choose_file, show_message
+from ql_editor.sheet import (
+    Sheet,
+    ask_choice,
+    ask_save,
+    ask_text,
+    choose_file,
+    show_message,
+)
 
 pytestmark = pytest.mark.usefixtures("qapp")
 
@@ -53,10 +59,13 @@ def _pick_file(qapp, sheet: Sheet, path: str) -> None:
     deshalb wird - wie beim Tippen eines Pfads - das Namensfeld gefuellt.
     """
     dialog = sheet.findChild(QFileDialog)
+    assert dialog is not None
     dialog.setDirectory(str(Path(path).parent))
     for _ in range(20):
         qapp.processEvents()
-    dialog.findChild(QLineEdit, "fileNameEdit").setText(path)
+    name = dialog.findChild(QLineEdit, "fileNameEdit")
+    assert name is not None
+    name.setText(path)
     dialog.accept()
     qapp.processEvents()
 
@@ -84,7 +93,9 @@ def test_sheet_escape_closes(qapp):
     sheet = show_message(win, "info", "Titel", "Text")
     qapp.processEvents()
 
-    event = QKeyEvent(QKeyEvent.Type.KeyPress, Qt.Key.Key_Escape, Qt.KeyboardModifier.NoModifier)
+    event = QKeyEvent(
+        QKeyEvent.Type.KeyPress, Qt.Key.Key_Escape, Qt.KeyboardModifier.NoModifier
+    )
     sheet.keyPressEvent(event)
     qapp.processEvents()
     assert not sheet.isVisible()
@@ -95,7 +106,6 @@ def test_sheet_scrim_click_closes_when_enabled(qapp):
     from PySide6.QtCore import QPoint
     from PySide6.QtGui import QMouseEvent
     from PySide6.QtWidgets import QLabel
-
     from ql_editor.sheet import show_widget
 
     win = _window(qapp)
@@ -175,7 +185,6 @@ def test_sheet_blocks_app_shortcuts(qapp):
     """Solange das Sheet offen ist, keine App-Shortcuts (z. B. Ctrl+P)."""
     from PySide6.QtCore import QEvent
     from PySide6.QtGui import QKeySequence, QShortcutEvent
-
     from ql_editor import sheet as sheet_module
 
     win = _window(qapp)
@@ -319,7 +328,9 @@ def test_add_image_via_sheet(qapp, tmp_path):
 def test_ask_text_callback(qapp):
     win = _window(qapp)
     values: list[str] = []
-    sheet = ask_text(win, title="QR-Code", label="Inhalt", on_ok=values.append, default="https://")
+    sheet = ask_text(
+        win, title="QR-Code", label="Inhalt", on_ok=values.append, default="https://"
+    )
     qapp.processEvents()
 
     dialog = sheet.findChild(QInputDialog)
@@ -336,7 +347,11 @@ def test_ask_choice_callback(qapp):
     win = _window(qapp)
     values: list[str] = []
     sheet = ask_choice(
-        win, title="Barcode", label="Symbologie", items=["code128", "ean13"], on_ok=values.append
+        win,
+        title="Barcode",
+        label="Symbologie",
+        items=["code128", "ean13"],
+        on_ok=values.append,
     )
     qapp.processEvents()
 

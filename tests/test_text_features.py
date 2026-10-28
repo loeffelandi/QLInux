@@ -10,7 +10,6 @@ import pytest
 from PySide6.QtCore import QEvent, QPointF, QRectF, Qt
 from PySide6.QtGui import QKeyEvent
 from PySide6.QtWidgets import QGraphicsScene
-
 from ql_editor.items import TextItem, item_from_dict
 from ql_editor.renderer import render_scene_to_image
 
@@ -149,7 +148,10 @@ def _ink_vertical_span(item: TextItem) -> tuple[int, int]:
     gray = image.convert("L")
     first = last = None
     for y in range(gray.height):
-        if any(gray.getpixel((x, y)) < 200 for x in range(min(gray.width, width))):
+        if any(
+            isinstance(pixel := gray.getpixel((x, y)), int) and pixel < 200
+            for x in range(min(gray.width, width))
+        ):
             if first is None:
                 first = y
             last = y
@@ -231,7 +233,9 @@ def test_editing_yields_style_shortcuts_to_the_item_action():
         )
         assert item.sceneEvent(event) is False
         assert not event.isAccepted()
-    letter = QKeyEvent(QEvent.Type.KeyPress, Qt.Key.Key_X, Qt.KeyboardModifier.NoModifier, "x")
+    letter = QKeyEvent(
+        QEvent.Type.KeyPress, Qt.Key.Key_X, Qt.KeyboardModifier.NoModifier, "x"
+    )
     item.sceneEvent(letter)
     assert "x" in item.toPlainText()
 

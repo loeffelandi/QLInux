@@ -7,6 +7,7 @@ reproduzierbare, maschinenlesbare Ausgabe. Aufruf:
     source .venv/bin/activate
     python scripts/verify_api.py
 """
+
 from __future__ import annotations
 
 import inspect
@@ -33,16 +34,21 @@ def section(title: str) -> None:
 def main() -> int:
     section("brother_ql Version / Pfad")
     print("file:      ", brother_ql.__file__)
-    print("__version__:", getattr(brother_ql, "__version__", "(kein __version__-Attribut)"))
+    print(
+        "__version__:",
+        getattr(brother_ql, "__version__", "(kein __version__-Attribut)"),
+    )
     try:
         from importlib.metadata import version
+
         print("dist-info: ", version("brother_ql"))
     except Exception as exc:  # pragma: no cover
         print("dist-info: ", exc)
 
     section("Module: labels / models (moderne Quelle)")
-    from brother_ql.labels import LabelsManager, FormFactor, Color
+    from brother_ql.labels import Color, FormFactor, LabelsManager
     from brother_ql.models import ModelsManager
+
     label_ids = list(LabelsManager().iter_identifiers())
     model_ids = list(ModelsManager().iter_identifiers())
     print("labels: ", label_ids)
@@ -52,12 +58,14 @@ def main() -> int:
 
     section("label_type_specs['50'] (via devicedependent-Shim)")
     from brother_ql.devicedependent import label_type_specs
+
     print(json.dumps(_jsonable(label_type_specs["50"]), indent=2, ensure_ascii=False))
 
     section("API-Signaturen")
-    from brother_ql.raster import BrotherQLRaster
-    from brother_ql.conversion import convert
     from brother_ql.backends.helpers import send
+    from brother_ql.conversion import convert
+    from brother_ql.raster import BrotherQLRaster
+
     print("BrotherQLRaster.__init__", inspect.signature(BrotherQLRaster.__init__))
     print("convert", inspect.signature(convert))
     print("send   ", inspect.signature(send))
@@ -72,11 +80,13 @@ def main() -> int:
 
     section("backend 'network'")
     from brother_ql.backends import backend_factory
+
     be = backend_factory("network")
     print("network backend class:", be["backend_class"].__name__)
 
     section("LANCZOS-Patch aktiv?")
     import brother_ql.conversion as conv
+
     src = inspect.getsource(conv.convert)
     print("Image.LANCZOS vorhanden:  ", "Image.LANCZOS" in src)
     print("Image.ANTIALIAS vorhanden:", "Image.ANTIALIAS" in src)

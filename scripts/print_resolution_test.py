@@ -31,15 +31,14 @@ if not (os.environ.get("DISPLAY") or os.environ.get("WAYLAND_DISPLAY")):
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from PySide6.QtCore import QRectF  # noqa: E402
-from PySide6.QtWidgets import QApplication  # noqa: E402
-
-from ql_editor import media  # noqa: E402
-from ql_editor.canvas import LabelCanvas  # noqa: E402
-from ql_editor.items import LineItem, QRItem, RectItem, TextItem  # noqa: E402
-from ql_editor.media import LengthMode, Orientation, dots_to_mm  # noqa: E402
-from ql_editor.preview import DEFAULT_THRESHOLD  # noqa: E402
-from ql_editor.printer import (  # noqa: E402
+from PySide6.QtCore import QRectF
+from PySide6.QtWidgets import QApplication
+from ql_editor import media
+from ql_editor.canvas import LabelCanvas
+from ql_editor.items import LineItem, QRItem, RectItem, TextItem
+from ql_editor.media import LengthMode, Orientation, dots_to_mm
+from ql_editor.preview import DEFAULT_THRESHOLD
+from ql_editor.printer import (
     DEFAULT_ADDRESS,
     PrinterConfig,
     PrinterError,
@@ -102,7 +101,9 @@ def build_design(canvas: LabelCanvas, title_text: str) -> None:
     canvas.scene().clearSelection()
 
 
-def make_canvas(label_id: str, model_id: str, length_mm: float) -> tuple[LabelCanvas, object, int]:
+def make_canvas(
+    label_id: str, model_id: str, length_mm: float
+) -> tuple[LabelCanvas, media.LabelSpec, int]:
     """Canvas mit festem Band und fester Gesamtlaenge aufbauen."""
     label = media.get_label(label_id)
     model = media.get_model(model_id)
@@ -132,7 +133,9 @@ def main(argv: list[str] | None = None) -> int:
         default="both",
         help="nur eine Aufloesung drucken",
     )
-    parser.add_argument("--dry-run", action="store_true", help="nur rechnen, nichts senden")
+    parser.add_argument(
+        "--dry-run", action="store_true", help="nur rechnen, nichts senden"
+    )
     parser.add_argument(
         "--preview-dir", default="/tmp/opencode", help="hier die Renderings ablegen"
     )
@@ -144,7 +147,7 @@ def main(argv: list[str] | None = None) -> int:
     app = QApplication.instance() or QApplication([])  # noqa: F841 (Rendering braucht sie)
 
     config = PrinterConfig(model=args.model, address=args.address)
-    options = resolution_options(config.model)
+    options = list(resolution_options(config.model))
     if args.only == "300":
         options = [o for o in options if not o.dpi_600]
     elif args.only == "600":
@@ -187,7 +190,6 @@ def main(argv: list[str] | None = None) -> int:
             dither=False,
             hq=True,
             dpi_600=resolution.dpi_600,
-            cut=True,
         )
         preview = preview_dir / f"test_{dpi}dpi.png"
         image.save(preview)
@@ -217,7 +219,6 @@ def main(argv: list[str] | None = None) -> int:
                 dither=False,
                 hq=True,
                 dpi_600=resolution.dpi_600,
-                cut=True,
             )
         except PrinterError as exc:
             print(f"  fehlgeschlagen: {exc}")

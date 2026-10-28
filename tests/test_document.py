@@ -10,7 +10,6 @@ from __future__ import annotations
 import json
 
 import pytest
-
 from ql_editor import document
 
 MEDIA = {"model": "QL-820NWB", "label": "29", "orientation": "across"}

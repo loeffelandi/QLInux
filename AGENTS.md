@@ -8,7 +8,9 @@
 ## Workflow
 - Work on a feature branch. Never commit directly to `main`.
 - Do not commit, push or open a PR unless the user asks for it.
-- Run `.venv/bin/python -m pytest -q` before committing and report any failure.
+- Run `.venv/bin/ruff check .`, `.venv/bin/ruff format --check .`,
+  `.venv/bin/mypy` and `.venv/bin/python -m pytest -q` before committing
+  and report any failure.
 - After changing the app icons, regenerate them with
   `.venv/bin/python packaging/make_icon.py`.
 
@@ -20,6 +22,14 @@
   mouse or key action must be listed in the "Modifier keys on the canvas"
   table in `README.md`. Add it there in the same change.
 - The AppImage is built with `packaging/build_appimage.sh`.
+
+## Decisions and behavior
+- Architecture decision records live in `docs/adr/` (adr-tools, `.adr-dir`).
+  A new technical decision is an ADR, created with `adr new`.
+- Observable behavior lives in `openspec/specs/`. A behavior change starts as
+  an OpenSpec change and is implemented after that.
+- ADR text and OpenSpec artifacts are German. OpenSpec headings and the
+  keywords SHALL and MUST stay English.
 
 ## Cursor Cloud specific instructions
 

@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import pytest
-
 from ql_editor import csv_source
 
 

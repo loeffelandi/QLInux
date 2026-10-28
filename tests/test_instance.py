@@ -7,7 +7,6 @@ import uuid
 
 import pytest
 from PySide6.QtNetwork import QLocalSocket
-
 from ql_editor import instance
 
 pytestmark = pytest.mark.usefixtures("qapp")
@@ -163,9 +162,7 @@ def test_forward_returns_false_when_write_fails(qapp, monkeypatch):
     server = instance.listen(lambda _paths: None, name)
     assert server is not None
     try:
-        monkeypatch.setattr(
-            QLocalSocket, "write", lambda self, data: -1, raising=True
-        )
+        monkeypatch.setattr(QLocalSocket, "write", lambda self, data: -1, raising=True)
         assert instance.forward(["/tmp/lost.qlx"], name) is False
     finally:
         server.close()
@@ -218,9 +215,7 @@ def test_loser_of_listen_race_hands_paths_to_owner(qapp):
     assert owner is not None
     try:
         assert instance.listen(lambda _p: None, name) is None
-        assert instance.forward(
-            ["/tmp/handoff.qlx"], name, attempts=5, retry_ms=20
-        )
+        assert instance.forward(["/tmp/handoff.qlx"], name, attempts=5, retry_ms=20)
         assert _wait_for(qapp, lambda: received)
         assert received == [["/tmp/handoff.qlx"]]
     finally:

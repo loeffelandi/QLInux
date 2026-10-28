@@ -23,7 +23,7 @@ from .i18n import tr
 from .media import DPI, LabelSpec
 
 # QImage/QPainter erwarten Dots-per-Meter; 300 dpi = 300 / 0.0254 * 1000.
-_DOTS_PER_METER = int(round(DPI * 1000.0 / 25.4))
+_DOTS_PER_METER = round(DPI * 1000.0 / 25.4)
 
 
 class RenderError(RuntimeError):
@@ -33,10 +33,12 @@ class RenderError(RuntimeError):
 class RenderableScene(Protocol):
     """Minimal-Interface einer Szene (erfuellt von ``QGraphicsScene``)."""
 
-    def sceneRect(self) -> QRectF:  # pragma: no cover - structural typing
+    def sceneRect(self) -> QRectF:  # noqa: N802  # pragma: no cover - structural typing
         ...
 
-    def render(self, painter: QPainter, target: QRectF, source: QRectF) -> None:  # pragma: no cover
+    def render(
+        self, painter: QPainter, target: QRectF, source: QRectF
+    ) -> None:  # pragma: no cover
         ...
 
 
@@ -55,9 +57,7 @@ def qimage_to_pil(qimage: QImage) -> Image.Image:
     buffer = bytes(rgb.constBits())
     expected = stride * height
     if len(buffer) < expected:
-        raise RenderError(
-            f"QImage-Puffer zu klein: {len(buffer)} < {expected} Bytes."
-        )
+        raise RenderError(f"QImage-Puffer zu klein: {len(buffer)} < {expected} Bytes.")
     return Image.frombytes("RGB", (width, height), buffer, "raw", "RGB", stride, 1)
 
 
@@ -168,9 +168,7 @@ def render_for_label(
     Szene soll auffallen.
     """
     width, height = int(canvas_size_dots[0]), int(canvas_size_dots[1])
-    image = render_scene_to_image(
-        scene, width * scale, height * scale, rotate=rotate
-    )
+    image = render_scene_to_image(scene, width * scale, height * scale, rotate=rotate)
     assert_exact_label_width(image, label, scale=scale)
     return image
 
@@ -178,8 +176,8 @@ def render_for_label(
 __all__ = [
     "RenderError",
     "RenderableScene",
-    "qimage_to_pil",
-    "render_scene_to_image",
-    "render_for_label",
     "assert_exact_label_width",
+    "qimage_to_pil",
+    "render_for_label",
+    "render_scene_to_image",
 ]

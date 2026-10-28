@@ -12,7 +12,6 @@ from PIL import Image
 from PySide6.QtCore import QPointF, Qt
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication
-
 from ql_editor import app as app_module
 from ql_editor.items import ImageItem, TextItem
 
@@ -71,7 +70,9 @@ def _drag(canvas, start: QPointF, end: QPointF, steps: int = 8) -> None:
         t = i / steps
         mid = p0 + (p1 - p0) * t
         QTest.mouseMove(vp, mid)
-    QTest.mouseRelease(vp, Qt.MouseButton.LeftButton, Qt.KeyboardModifier.NoModifier, p1)
+    QTest.mouseRelease(
+        vp, Qt.MouseButton.LeftButton, Qt.KeyboardModifier.NoModifier, p1
+    )
     QApplication.processEvents()
 
 
@@ -142,13 +143,17 @@ def test_bild_drehen_ueber_drehgriff(window, monkeypatch, image_path):
 
     handle = canvas._rotate_handle_point(image)
     center = _center(image)
-    target = center + QPointF(center.y() - handle.y(), 0)  # eine Vierteldrehung nach rechts
+    target = center + QPointF(
+        center.y() - handle.y(), 0
+    )  # eine Vierteldrehung nach rechts
     _drag(canvas, handle, target)
 
     assert image.rotation() == pytest.approx(90, abs=5)
 
 
-def test_drehen_wird_verhindert_wenn_das_bild_den_rand_verlaesst(window, monkeypatch, image_path):
+def test_drehen_wird_verhindert_wenn_das_bild_den_rand_verlaesst(
+    window, monkeypatch, image_path
+):
     _choose_file_returns(monkeypatch, image_path)
     window._act_add_image.trigger()
     canvas = window._canvas
@@ -195,7 +200,9 @@ def test_bild_wird_am_druckbereich_geklemmt(window, monkeypatch, image_path):
     assert rect.left() >= printable.left() - 1
 
 
-def test_bild_wird_am_druckbereich_oben_und_unten_geklemmt(window, monkeypatch, image_path):
+def test_bild_wird_am_druckbereich_oben_und_unten_geklemmt(
+    window, monkeypatch, image_path
+):
     _choose_file_returns(monkeypatch, image_path)
     window._act_add_image.trigger()
     canvas = window._canvas

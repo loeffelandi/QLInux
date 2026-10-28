@@ -13,9 +13,8 @@ from urllib.parse import quote
 from PySide6.QtCore import QByteArray, QSettings
 
 from .media import DEFAULT_MODEL
-from .preview import DEFAULT_THRESHOLD
 from .merge import PRINT_SCOPES, PRINT_SELECTED
-from .stationery import DEFAULT_PART, OFFSET_MM_MAX
+from .preview import DEFAULT_THRESHOLD
 from .printer import (
     COPIES_MAX,
     CUT_EACH,
@@ -26,6 +25,7 @@ from .printer import (
     RESOLUTION_STANDARD,
     backend_for_address,
 )
+from .stationery import DEFAULT_PART, OFFSET_MM_MAX
 
 _ORG = "QLInux"
 _APP = "QLInux"
@@ -175,7 +175,11 @@ class AppSettings:
         legacy_quality = self.value("print/quality", None)
         if legacy_quality is not None:
             # Alte Stufen: "maximum" war 600 dpi, "high"/"standard" 300 dpi.
-            return RESOLUTION_HIGH.key if legacy_quality == "maximum" else RESOLUTION_STANDARD.key
+            return (
+                RESOLUTION_HIGH.key
+                if legacy_quality == "maximum"
+                else RESOLUTION_STANDARD.key
+            )
         return RESOLUTION_STANDARD.key
 
     @print_resolution.setter

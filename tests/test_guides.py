@@ -39,8 +39,12 @@ def _global(widget, local: QPoint) -> QPointF:
 
 def test_rulers_accept_mouse_and_corner_stays_clear(qapp):
     canvas = _canvas(qapp)
-    assert not canvas._h_ruler.testAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
-    assert not canvas._v_ruler.testAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
+    assert not canvas._h_ruler.testAttribute(
+        Qt.WidgetAttribute.WA_TransparentForMouseEvents
+    )
+    assert not canvas._v_ruler.testAttribute(
+        Qt.WidgetAttribute.WA_TransparentForMouseEvents
+    )
     assert canvas._corner.testAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
 
 
@@ -100,7 +104,9 @@ def test_drag_from_top_ruler_creates_horizontal_guide_and_back_removes_it(qapp):
     )
     assert len(canvas.guides()) == 1
     assert canvas.guides()[0]["axis"] == "h"
-    assert canvas.guides()[0]["pos"] == pytest.approx(target.y(), abs=1.0 / canvas._scale())
+    assert canvas.guides()[0]["pos"] == pytest.approx(
+        target.y(), abs=1.0 / canvas._scale()
+    )
 
     view_pos = canvas.mapFromScene(target)
     canvas.mousePressEvent(
@@ -167,7 +173,9 @@ def test_drag_from_left_ruler_creates_vertical_guide(qapp):
     )
     assert len(canvas.guides()) == 1
     assert canvas.guides()[0]["axis"] == "v"
-    assert canvas.guides()[0]["pos"] == pytest.approx(target.x(), abs=1.0 / canvas._scale())
+    assert canvas.guides()[0]["pos"] == pytest.approx(
+        target.x(), abs=1.0 / canvas._scale()
+    )
 
 
 def test_placed_guide_is_visible(qapp):
@@ -197,7 +205,7 @@ def test_snap_uses_guides_and_still_the_label(qapp):
     item.moveBy((guide_x + tol * 0.4) - box.left(), 0)
     canvas.set_guides([{"axis": "v", "pos": guide_x}, {"axis": "h", "pos": 4000.0}])
     box = item.sceneBoundingRect()
-    dx, dy, shown = canvas._snap_move(box, 0.0, 0.0, exclude=[item])
+    dx, _dy, shown = canvas._snap_move(box, 0.0, 0.0, exclude=[item])
     assert box.left() + dx == pytest.approx(guide_x)
     assert any(axis == "v" and coord == pytest.approx(guide_x) for axis, coord in shown)
 
@@ -245,16 +253,23 @@ def test_guide_change_is_undoable(qapp):
     assert restored[-1] == []
     stack.redo()
     assert restored[-1] == [{"axis": "v", "pos": 10.0}]
-    assert not push_if_changed(stack, after, design_snapshot({}, [], guides=[{"axis": "v", "pos": 10.0}]), restore, "gleich")
+    assert not push_if_changed(
+        stack,
+        after,
+        design_snapshot({}, [], guides=[{"axis": "v", "pos": 10.0}]),
+        restore,
+        "gleich",
+    )
 
 
 def test_label_document_keeps_guides(qapp, tmp_path):
     from PySide6.QtCore import QSettings
-
     from ql_editor.app import MainWindow
     from ql_editor.settings import AppSettings
 
-    settings = AppSettings(QSettings(str(tmp_path / "settings.ini"), QSettings.Format.IniFormat))
+    settings = AppSettings(
+        QSettings(str(tmp_path / "settings.ini"), QSettings.Format.IniFormat)
+    )
     win = MainWindow(settings=settings, discover=False)
     guides = [{"axis": "h", "pos": 30.0}, {"axis": "v", "pos": 80.0}]
     win._canvas.set_guides(guides)

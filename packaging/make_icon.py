@@ -21,8 +21,8 @@ from pathlib import Path
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
-from PySide6.QtCore import QPointF, QRectF, Qt  # noqa: E402
-from PySide6.QtGui import (  # noqa: E402
+from PySide6.QtCore import QPointF, QRectF, Qt
+from PySide6.QtGui import (
     QColor,
     QFont,
     QImage,
@@ -30,7 +30,7 @@ from PySide6.QtGui import (  # noqa: E402
     QPainterPath,
     QPen,
 )
-from PySide6.QtWidgets import QApplication  # noqa: E402
+from PySide6.QtWidgets import QApplication
 
 ROOT = Path(__file__).resolve().parents[1]
 TARGET = ROOT / "assets" / "ql-editor.png"
@@ -73,9 +73,7 @@ def build_icon() -> QImage:
     pen = painter.pen()
     pen.setWidth(3)
     painter.setPen(pen)
-    painter.drawRoundedRect(
-        QRectF(26, SIZE * 0.30, SIZE - 52, SIZE * 0.40), 18, 18
-    )
+    painter.drawRoundedRect(QRectF(26, SIZE * 0.30, SIZE - 52, SIZE * 0.40), 18, 18)
 
     # "QL" - fett und gross, damit es auch klein lesbar bleibt.
     font = QFont("DejaVu Sans")
@@ -154,7 +152,8 @@ def build_mime_icon(badge: str, color: str) -> QImage:
 
 
 def main() -> int:
-    app = QApplication.instance() or QApplication([])
+    # Die QApplication muss leben, solange das Icon gezeichnet wird.
+    app = QApplication.instance() or QApplication([])  # noqa: F841
     TARGET.parent.mkdir(parents=True, exist_ok=True)
     if not build_icon().save(str(TARGET)):
         print(f"konnte {TARGET} nicht schreiben", file=sys.stderr)

@@ -271,7 +271,7 @@ def _px(mm: float, dpi: int) -> float:
 
 
 def _px_i(mm: float, dpi: int) -> int:
-    return max(1, int(round(mm * dpi / 25.4)))
+    return max(1, round(mm * dpi / 25.4))
 
 
 def _pil_to_qimage(image: Image.Image) -> QImage:
