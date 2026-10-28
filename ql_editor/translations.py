@@ -69,12 +69,12 @@ EN: dict[str, str] = {
     "Beenden (Strg+Q)": "Quit (Ctrl+Q)",
     "Über QLInux": "About QLInux",
     "Hilfe": "Help",
-    "Links wählst du das Ziel: Brother QL mit Drucker und Band, oder einen Avery-Zweckform-Bogen mit Vorlage, Versatz und Systemdrucker. Das Etikett liegt in der Mitte, die Eigenschaften des Markierten rechts, zusammen mit dem Druck. Esc schließt diese Hilfe.": (
+    "Links wählst du das Ziel: Brother QL mit Drucker und Band, oder einen Avery-Zweckform-Bogen mit Vorlage, Versatz und Systemdrucker. Das erste freie Feld klickst du auf der Bogenzeichnung an. Das Etikett liegt in der Mitte, die Eigenschaften des Markierten rechts, zusammen mit dem Druck. Esc schließt diese Hilfe.": (
         "On the left you pick the target: a Brother QL with its printer and "
         "tape, or an Avery Zweckform sheet with the product, offset and system "
-        "printer. The label sits in the middle, and the properties of whatever "
-        "is selected sit on the right, together with printing. Esc closes this "
-        "help."
+        "printer. Click the first free cell on the sheet drawing. The label "
+        "sits in the middle, and the properties of whatever is selected sit "
+        "on the right, together with printing. Esc closes this help."
     ),
     "Auf dem Etikett": "On the label",
     "Doppelklick auf die freie Fläche setzt ein Textfeld. Ein Objekt ziehst du mit der Maus. Die Pfeiltasten schieben es um einen Punkt, mit gehaltener Umschalttaste um zehn. Esc beendet das Schreiben im Feld und hebt die Auswahl auf.": (
@@ -996,6 +996,9 @@ EN: dict[str, str] = {
     "PDF speichern…": "Save PDF…",
     "Vorlage": "Template",
     "Erstes Etikett": "First label",
+    "Klick auf das erste Feld, das noch frei ist.": (
+        "Click the first cell that is still free."
+    ),
     "Versatz rechts": "Offset right",
     "Versatz unten": "Offset down",
     "Systemdrucker": "System printer",

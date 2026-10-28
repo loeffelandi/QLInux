@@ -184,6 +184,7 @@ from .sheet import (
     show_widget,
 )
 from .sheet_output import print_sheets, render_page_image, system_printers, write_pdf
+from .sheet_picker import SheetStartPicker
 from .symbols import SymbolPicker
 from .theme import apply_theme, scheme_for
 from .widgets import (
@@ -1297,8 +1298,14 @@ class MainWindow(QMainWindow):
         )
         self._sheet_printer_combo.setMinimumContentsLength(12)
 
+        self._sheet_picker = SheetStartPicker()
+        self._sheet_picker.setToolTip(
+            tr("Klick auf das erste Feld, das noch frei ist.")
+        )
+
         form.addRow(tr("Vorlage"), self._sheet_part_combo)
         form.addRow(tr("Erstes Etikett"), self._sheet_start)
+        form.addRow(self._sheet_picker)
         form.addRow(tr("Versatz rechts"), self._sheet_offset_x)
         form.addRow(tr("Versatz unten"), self._sheet_offset_y)
         form.addRow(tr("Systemdrucker"), self._sheet_printer_combo)
@@ -1306,6 +1313,8 @@ class MainWindow(QMainWindow):
         self._sheet_part_combo.currentIndexChanged.connect(self._on_sheet_part_changed)
         self._sheet_start.valueChanged.connect(self._update_sheet_hint)
         self._sheet_start.valueChanged.connect(self._schedule_refresh)
+        self._sheet_start.valueChanged.connect(self._sheet_picker.set_start)
+        self._sheet_picker.start_picked.connect(self._on_sheet_start_picked)
         self._sheet_offset_x.valueChanged.connect(self._schedule_refresh)
         self._sheet_offset_y.valueChanged.connect(self._schedule_refresh)
         return box
@@ -4066,9 +4075,15 @@ class MainWindow(QMainWindow):
         self._recompute_canvas()
         self._schedule_refresh()
 
+    def _on_sheet_start_picked(self, number: int) -> None:
+        if self._sheet_start.value() != number:
+            self._sheet_start.setValue(number)
+
     def _sync_sheet_start_range(self) -> None:
-        per_sheet = self._sheet_template().per_sheet
-        self._sheet_start.setMaximum(per_sheet)
+        template = self._sheet_template()
+        self._sheet_picker.set_template(template)
+        self._sheet_start.setMaximum(template.per_sheet)
+        self._sheet_picker.set_start(self._sheet_start.value())
 
     def _reload_system_printers(self) -> None:
         current = self._sheet_printer_combo.currentData()
