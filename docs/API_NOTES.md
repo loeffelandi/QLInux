@@ -59,7 +59,7 @@ Die Aufgabenbeschreibung nennt eine aeltere API-Oberflaeche. Real vorhanden ist:
 ## Verifizierte Signaturen
 
 ```python
-BrotherQLRaster.__init__(self, model='QL-500')
+BrotherQLRaster.__init__(self, model="QL-500")
 
 convert(qlr, images, label, **kwargs)
 #   kwargs: cut, dither, compress, red, rotate, dpi_600, hq, threshold
@@ -227,7 +227,7 @@ zurueck, damit ein Tippfehler nicht still das falsche Backend waehlt).
 (`backends/helpers.py`):
 
 ```python
-if selected_backend == 'network':
+if selected_backend == "network":
     """ No need to wait for completion. The network backend doesn't support readback. """
     return status
 ```
