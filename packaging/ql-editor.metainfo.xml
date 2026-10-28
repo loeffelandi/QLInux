@@ -2,16 +2,16 @@
 <component type="desktop-application">
   <id>ql-editor</id>
   <name>QLInux</name>
-  <summary>Labels for Brother QL printers</summary>
-  <summary xml:lang="de">Etiketten für Brother-QL-Drucker</summary>
+  <summary>Labels for Brother QL printers and Avery Zweckform sheets</summary>
+  <summary xml:lang="de">Etiketten für Brother-QL-Drucker und Avery-Zweckform-Bögen</summary>
   <metadata_license>CC0-1.0</metadata_license>
   <project_license>GPL-3.0-or-later</project_license>
   <developer id="io.github.loeffelandi">
     <name>loeffelandi</name>
   </developer>
   <description>
-    <p>QLInux designs labels on a real canvas (text, images, barcodes, QR codes), shows an exact monochrome print preview and prints straight to the printer, over the network or USB.</p>
-    <p xml:lang="de">QLInux entwirft Etiketten auf einer echten Arbeitsfläche (Text, Bilder, Barcodes, QR-Codes), zeigt eine exakte einfarbige Druckvorschau und druckt direkt auf den Drucker, über das Netzwerk oder USB.</p>
+    <p>QLInux designs labels on a real canvas (text, images, barcodes, QR codes), shows an exact monochrome print preview and prints straight to a Brother QL printer, over the network or USB. The same label can fill an Avery Zweckform sheet for a normal printer or a PDF.</p>
+    <p xml:lang="de">QLInux entwirft Etiketten auf einer echten Arbeitsfläche (Text, Bilder, Barcodes, QR-Codes), zeigt eine exakte einfarbige Druckvorschau und druckt direkt auf einen Brother-QL-Drucker, über das Netzwerk oder USB. Dasselbe Etikett füllt auch einen Avery-Zweckform-Bogen für einen normalen Drucker oder ein PDF.</p>
   </description>
   <launchable type="desktop-id">ql-editor.desktop</launchable>
   <provides>
@@ -32,6 +32,11 @@
     </screenshot>
   </screenshots>
   <releases>
+    <release version="0.4.0" date="2026-10-28">
+      <description>
+        <p>Avery Zweckform sheets on a normal printer or as a PDF at actual size. The gLabels templates set the A4 grid, and a connected database fills it one record per label.</p>
+      </description>
+    </release>
     <release version="0.3.1" date="2026-10-19">
       <description>
         <p>Select several database rows and print them together. Pinch to zoom the canvas. Network printers are checked over SNMP, and the loaded tape is remembered. AppImages for x86_64 and aarch64.</p>
