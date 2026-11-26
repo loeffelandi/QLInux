@@ -174,9 +174,11 @@ class Sheet(QWidget):
         max_size: QSize | None = None,
         close_on_outside: bool = False,
         corner: QWidget | None = None,
+        on_enter: Callable[[], None] | None = None,
     ) -> None:
         super().__init__(parent)
         self.setObjectName("qlSheet")
+        self._on_enter = on_enter
         self._sizing = sizing
         self._margins = margins
         self._max_size = max_size or QSize(1000, 760)
@@ -310,6 +312,13 @@ class Sheet(QWidget):
         # QFileDialog/QInputDialog setzen den Fokus selbst auf ihr Eingabefeld.
         if self._panel.findChild(QDialog) is None:
             self.setFocus()
+            return
+        # Eine Meldung bekommt den Fokus nicht von selbst: er bliebe auf der
+        # Zeichenflaeche, und Enter erreichte sie statt des Standardknopfs.
+        box = self._panel.findChild(QMessageBox)
+        button = box.defaultButton() if box is not None else None
+        if button is not None:
+            button.setFocus()
 
     def hideEvent(self, event) -> None:  # noqa: N802
         self._unwatch_parent()
@@ -320,6 +329,16 @@ class Sheet(QWidget):
         if event.key() == Qt.Key.Key_Escape:
             self.close_sheet()
             event.accept()
+            return
+        # Enter, das kein Feld im Sheet verbraucht hat: nicht ueber einen
+        # QShortcut, dessen Zustellung am aktiven Fenster haengt.
+        if (
+            self._on_enter is not None
+            and event.key() in (Qt.Key.Key_Return, Qt.Key.Key_Enter)
+            and not event.modifiers() & ~Qt.KeyboardModifier.KeypadModifier
+        ):
+            event.accept()
+            self._on_enter()
             return
         super().keyPressEvent(event)
 
@@ -371,12 +390,14 @@ def show_widget(
     margins: int = 40,
     close_on_outside: bool = False,
     corner: QWidget | None = None,
+    on_enter: Callable[[], None] | None = None,
 ) -> Sheet:
     """Eigenen Inhalt als Sheet zeigen (z. B. "Über QLInux").
 
     Fuer alles, was mehr ist als eine Meldung: der Inhalt ist ein eigenes
     Widget, das Sheet bleibt aber im Hauptfenster (siehe Modulbeschreibung).
     ``close_on_outside`` schliesst bei Klick auf die Abdunklung (Picker).
+    ``on_enter`` laeuft bei Enter, das kein Feld im Sheet verbraucht.
     """
     return _open_sheet(
         parent,
@@ -387,6 +408,7 @@ def show_widget(
         margins=margins,
         close_on_outside=close_on_outside,
         corner=corner,
+        on_enter=on_enter,
     )
 
 

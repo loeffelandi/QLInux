@@ -4936,6 +4936,7 @@ class MainWindow(QMainWindow):
             max_size=QSize(760, 900),
             close_on_outside=True,
             corner=self._print_button,
+            on_enter=self._on_print_key,
         )
         self._print_sheet = sheet
         # hide() am Fenster bleibt sonst stehen: ein Layout zeigt das Widget
