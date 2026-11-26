@@ -902,9 +902,14 @@ class MainWindow(QMainWindow):
         self._sheet_box = self._build_sheet_box()
         self._sheet_box.setVisible(False)
         self._media_panel.insert_header(self._sheet_box)
+        left_scroll = self._scroll_wrap(self._media_panel)
+        # Die Inhaltsbreite darf nicht davon abhaengen, ob die senkrechte
+        # Leiste gerade sichtbar ist: sonst wechseln sich Umbrechen, Hoehe und
+        # Leiste endlos ab und das Panel zittert.
+        left_scroll.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOn)
         self._left_panel = OverlayPanel(
             tr("Band & Drucker"),
-            self._scroll_wrap(self._media_panel),
+            left_scroll,
             Qt.Edge.LeftEdge,
             self,
         )

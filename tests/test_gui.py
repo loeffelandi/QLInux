@@ -3784,6 +3784,30 @@ def test_panel_arrow_sits_in_the_panel(qapp):
         assert panel.content.isVisible()
 
 
+def test_left_panel_reserves_the_scroll_bar_width(qapp):
+    """Das Panel darf nicht mit der senkrechten Leiste um die Breite ringen.
+
+    Ist die Leiste bedarfsgesteuert, haengt die Inhaltsbreite von ihrer
+    Sichtbarkeit ab und umgekehrt - der Avery-Bogen blendet sie dann im
+    Wechseltakt ein und aus.
+    """
+    from PySide6.QtCore import Qt
+    from ql_editor.app import MainWindow
+
+    win = MainWindow()
+    win.resize(1536, 900)
+    win.show()
+    qapp.processEvents()
+
+    scroll = win._left_panel.content
+    assert scroll.verticalScrollBarPolicy() == Qt.ScrollBarPolicy.ScrollBarAlwaysOn
+    before = scroll.widget().width()
+    win.resize(1536, 950)
+    qapp.processEvents()
+    assert scroll.widget().width() == before
+    win.close()
+
+
 def test_collapsing_panel_gives_canvas_more_room(qapp):
     from ql_editor.app import MainWindow
     from ql_editor.panels import STRIP_WIDTH
