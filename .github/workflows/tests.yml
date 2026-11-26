@@ -41,33 +41,18 @@ jobs:
       # nur die Systembibliotheken. libglib heisst ab Ubuntu 24.04 t64;
       # aeltere Images haben nur den alten Paketnamen.
       #
-      # apt-get update kostet den Grossteil der ~9s: neu installiert wird
-      # nur libegl1 samt libegl-mesa0 (~150 kB). Die debs liegen im Cache,
-      # dpkg legt sie ohne Paketlisten auf. Schlaegt das fehl, bleibt der
-      # bisherige apt-Weg.
-      - name: Cache Qt offscreen packages
-        id: qt-debs
-        uses: actions/cache@v6
-        with:
-          path: ${{ runner.temp }}/qt-offscreen-debs
-          key: qt-offscreen-${{ steps.image.outputs.name }}-${{ steps.image.outputs.version }}-${{ runner.arch }}-libegl1
-
+      # Kein .deb-Cache fuer libegl: die gecachten Pakete koennen zu neueren
+      # mesa-Abhaengigkeiten passen als der Runner installiert hat. dpkg
+      # laesst die Kette dann halb installiert zurueck, und apt kann sie
+      # nicht mehr aufloesen.
       - name: Qt offscreen libraries
         run: |
-          dest="${{ runner.temp }}/qt-offscreen-debs"
-          mkdir -p "$dest"
-          if compgen -G "$dest/*.deb" > /dev/null && sudo dpkg -i "$dest"/*.deb
-          then
-            exit 0
-          fi
           sudo apt-get update
           pkgs="libegl1 libgl1 libxkbcommon0 libdbus-1-3 libfontconfig1"
           if ! sudo apt-get install -y --no-install-recommends $pkgs libglib2.0-0t64
           then
             sudo apt-get install -y --no-install-recommends $pkgs libglib2.0-0
           fi
-          rm -f "$dest"/*.deb
-          cp /var/cache/apt/archives/libegl1_*.deb /var/cache/apt/archives/libegl-mesa0_*.deb "$dest"/
 
       # Der bisherige pip-Wheel-Cache trifft, das Entpacken von PySide6
       # dauert trotzdem ~9s und liegt vor pytest. Die installierte venv

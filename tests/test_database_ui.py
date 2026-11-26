@@ -526,6 +526,64 @@ def test_enter_prints_right_after_opening_the_sheet(qapp, monkeypatch):
     win.close()
 
 
+def test_enter_prints_without_the_window_shortcut(qapp, monkeypatch):
+    """Enter darf nicht allein am QShortcut haengen (Zustellung je nach Compositor)."""
+    from PySide6.QtGui import QShortcut
+    from PySide6.QtTest import QTest
+    from PySide6.QtWidgets import QApplication
+
+    win = MainWindow(discover=False)
+    win.resize(1100, 760)
+    win.show()
+    calls = []
+    monkeypatch.setattr(win, "_on_print", lambda: calls.append(True))
+    win._show_print_sheet()
+    qapp.processEvents()
+    for shortcut in win._print_panel.findChildren(QShortcut):
+        shortcut.setEnabled(False)
+    targets = [
+        QApplication.focusWidget(),
+        win._copies_spin,
+        win._threshold_spin,
+        win._resolution_combo,
+        win._hq_check,
+    ]
+    for target in targets:
+        if target is not win._print_sheet:
+            target.setFocus()
+        qapp.processEvents()
+        QTest.keyClick(QApplication.focusWidget(), Qt.Key.Key_Return)
+        QTest.keyClick(
+            QApplication.focusWidget(),
+            Qt.Key.Key_Enter,
+            Qt.KeyboardModifier.KeypadModifier,
+        )
+    qapp.processEvents()
+    assert len(calls) == 2 * len(targets)
+    win.close()
+
+
+def test_enter_with_a_modifier_does_not_print(qapp, monkeypatch):
+    from PySide6.QtTest import QTest
+    from PySide6.QtWidgets import QApplication
+
+    win = MainWindow(discover=False)
+    win.resize(1100, 760)
+    win.show()
+    calls = []
+    monkeypatch.setattr(win, "_on_print", lambda: calls.append(True))
+    win._show_print_sheet()
+    qapp.processEvents()
+    QTest.keyClick(
+        QApplication.focusWidget(),
+        Qt.Key.Key_Return,
+        Qt.KeyboardModifier.ControlModifier,
+    )
+    qapp.processEvents()
+    assert calls == []
+    win.close()
+
+
 def test_enter_on_canvas_does_not_print_after_sheet_closed(qapp, monkeypatch):
     from PySide6.QtTest import QTest
 

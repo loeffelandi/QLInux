@@ -15,10 +15,12 @@ from PySide6.QtCore import QPointF, QSettings, Qt
 from PySide6.QtGui import QKeyEvent
 from PySide6.QtWidgets import QFileDialog, QInputDialog, QLineEdit, QMessageBox, QWidget
 from ql_editor.app import MainWindow
-from ql_editor.items import BarcodeItem, ImageItem, QRItem
+from ql_editor.items import BarcodeItem, ImageItem, QRItem, TextItem
 from ql_editor.sheet import (
     Sheet,
     ask_choice,
+    ask_loaded_tape,
+    ask_print_anyway,
     ask_save,
     ask_text,
     choose_file,
@@ -228,6 +230,57 @@ def test_sheet_judges_shortcuts_and_actions_by_their_widget(qapp):
     assert sheet.eventFilter(inner_action, event) is False
     assert sheet.eventFilter(win._act_print, event) is True
     sheet.close_sheet()
+    win.close()
+
+
+def test_message_sheet_takes_enter_instead_of_the_canvas(qapp):
+    """Der Fokus liegt auf dem Standardknopf, Enter erreicht die Zeichenflaeche nie."""
+    from PySide6.QtTest import QTest
+    from PySide6.QtWidgets import QApplication, QPushButton
+
+    win = _window(qapp)
+    win._canvas.setFocus()
+    sheet = show_message(win, "info", "Titel", "Text")
+    qapp.processEvents()
+    focus = QApplication.focusWidget()
+    assert isinstance(focus, QPushButton)
+    assert sheet.isAncestorOf(focus)
+    QTest.keyClick(focus, Qt.Key.Key_Return)
+    qapp.processEvents()
+    assert not sheet.isVisible()
+    win.close()
+
+
+@pytest.mark.parametrize("ask", [ask_loaded_tape, ask_print_anyway])
+def test_enter_in_a_printer_question_cancels(qapp, ask):
+    from PySide6.QtTest import QTest
+    from PySide6.QtWidgets import QApplication
+
+    win = _window(qapp)
+    choices = []
+    ask(win, title="t", text="x", on_choice=choices.append)
+    qapp.processEvents()
+    QTest.keyClick(QApplication.focusWidget(), Qt.Key.Key_Return)
+    qapp.processEvents()
+    assert choices == ["cancel"]
+    win.close()
+
+
+def test_enter_does_not_start_text_editing_behind_a_sheet(qapp):
+    from PySide6.QtTest import QTest
+    from PySide6.QtWidgets import QApplication
+
+    win = _window(qapp)
+    item = TextItem("Hallo")
+    win._canvas.add_item(item)
+    item.setSelected(True)
+    win._canvas.setFocus()
+    qapp.processEvents()
+    show_message(win, "warning", "Titel", "Text")
+    qapp.processEvents()
+    QTest.keyClick(QApplication.focusWidget(), Qt.Key.Key_Return)
+    qapp.processEvents()
+    assert not item.is_editing
     win.close()
 
 
