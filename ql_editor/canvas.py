@@ -74,6 +74,7 @@ from PySide6.QtCore import (
 from PySide6.QtGui import (
     QBrush,
     QColor,
+    QCursor,
     QEventPoint,
     QFont,
     QFontMetricsF,
@@ -108,6 +109,7 @@ from .media import (
     dots_to_mm,
     mm_to_dots,
 )
+from .platform_support import is_mac
 from .renderer import render_scene_to_image
 from .widgets import SmoothScroller, wheel_deltas
 
@@ -999,6 +1001,23 @@ class LabelCanvas(QGraphicsView):
         if rect != self.sceneRect():
             self.setSceneRect(rect)
         self.centerOn(needed.center())
+        # Qt rechnet den Scrollbereich mit der Breite der Rollbalken aus dem
+        # sizeHint, nicht mit ihrer echten (auf macOS breiteren). Dann klemmt
+        # der Bereich um einige Pixel zu frueh: Szene dort verlaengern.
+        for _ in range(3):
+            corner = self.mapToScene(0, 0)
+            # Positiv: die Ansicht liegt links bzw. oberhalb der Zielecke.
+            dx = scene_point.x() - corner.x()
+            dy = scene_point.y() - corner.y()
+            if abs(dx) <= 0.5 and abs(dy) <= 0.5:
+                break
+            rect = self.sceneRect()
+            self.setSceneRect(
+                rect.adjusted(0, 0, max(dx, 0.0) + 1.0, max(dy, 0.0) + 1.0)
+            )
+            hbar, vbar = self.horizontalScrollBar(), self.verticalScrollBar()
+            hbar.setValue(hbar.value() + round(dx * scale))
+            vbar.setValue(vbar.value() + round(dy * scale))
 
     def _emit_zoom(self) -> None:
         self.zoom_changed.emit(self.transform().m11() * 100.0)
@@ -1047,7 +1066,10 @@ class LabelCanvas(QGraphicsView):
             if gesture.gestureType() == Qt.NativeGestureType.ZoomNativeGesture:
                 factor = 1.0 + gesture.value()
                 if factor > 0:
-                    self.zoom_by(factor)
+                    self.zoom_at(
+                        factor,
+                        self.viewport().mapFromGlobal(gesture.globalPosition()),
+                    )
                 return True
         if event.type() == QEvent.Type.Gesture:
             pinch = event.gesture(Qt.GestureType.PinchGesture)
@@ -1129,9 +1151,13 @@ class LabelCanvas(QGraphicsView):
         pan = QPointF(0.0, 0.0)
         if flags & QPinchGesture.ChangeFlag.CenterPointChanged:
             pan = pinch.centerPoint() - pinch.lastCenterPoint()
-        self.apply_pinch(
-            ratio, pan, self.viewport().mapFromGlobal(pinch.lastCenterPoint())
-        )
+        if is_mac():
+            # Die Mac-Geste liefert nur den Zoom, keine Fingermitte
+            # (``lastCenterPoint`` bleibt (0, 0)): der Zeiger ist der Anker.
+            center = QPointF(QCursor.pos())
+        else:
+            center = pinch.lastCenterPoint()
+        self.apply_pinch(ratio, pan, self.viewport().mapFromGlobal(center))
 
     def apply_pinch(
         self, ratio: float, pan: QPointF, center: QPointF | None = None
@@ -1170,6 +1196,15 @@ class LabelCanvas(QGraphicsView):
         self.scale(target / current, target / current)
         self._update_rulers()
         self._emit_zoom()
+
+    def zoom_at(self, factor: float, anchor: QPointF) -> None:
+        """Um einen Punkt der Ansicht zoomen: er bleibt unter dem Zeiger.
+
+        Fuer die Trackpad-Geste auf macOS: dort kennt ``AnchorUnderMouse`` den
+        Zeiger nicht, und der Ausschnitt sprang in die obere linke Ecke. Das
+        Mausrad kommt mit dem Qt-Anker aus.
+        """
+        self.apply_pinch(factor, QPointF(0.0, 0.0), anchor)
 
     def zoom_in(self) -> None:
         self.zoom_by(1.25)

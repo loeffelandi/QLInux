@@ -20,11 +20,11 @@ pytestmark = pytest.mark.usefixtures("qapp")
 
 @pytest.fixture(autouse=True)
 def _clean_settings():
-    from PySide6.QtCore import QSettings
+    from ql_editor.settings import user_settings
 
-    QSettings("QLInux", "QLInux").clear()
+    user_settings().clear()
     yield
-    QSettings("QLInux", "QLInux").clear()
+    user_settings().clear()
 
 
 @pytest.fixture

@@ -97,6 +97,13 @@ Nicht noch einmal bauen und nicht unterlaufen:
   lesen und schreiben nicht die echten Einstellungen.
 * Eine `QApplication` fuer die ganze Session (`qapp`). Keine zweite
   erzeugen.
+* Die Plattform ist Linux, auch auf einem Mac: eine autouse-Fixture setzt
+  `platform_support._override`. Mac-Verhalten (Tasten in ⌘-Schreibweise,
+  Menueleiste, Systemdialoge, Pfade) prueft ein Test mit
+  `platform("darwin")`; Qt laeuft dabei weiter offscreen.
+* Die Einstellungen liegen in einer Ini-Datei unter `XDG_CONFIG_HOME`,
+  nicht in `~/Library/Preferences`. `user_settings()` liefert sie; ein
+  `QSettings("QLInux", "QLInux")` im Test loescht sonst die echten.
 * Die Oberflaeche startet auf Deutsch.
 * `discover_network_printers` liefert `[]`. Wer Treffer braucht,
   patcht die Funktion in `ql_editor.app` (und bei Bedarf im

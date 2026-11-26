@@ -10,12 +10,16 @@ ruft :func:`tr` beim Aufbau; beim Sprachwechsel wird sie neu aufgebaut
 (:meth:`ql_editor.app.MainWindow.switch_language`), damit auch jede
 Formularbeschriftung mitkommt.
 
+Auf dem Mac setzt :func:`tr` die Tasten in Mac-Schreibweise um
+(:func:`ql_editor.platform_support.mac_keys`).
+
 Platzhalter werden wie in :meth:`str.format` geschrieben (``{address}``) und
 muessen in der Uebersetzung erhalten bleiben - ein Test prueft das.
 """
 
 from __future__ import annotations
 
+from .platform_support import is_mac, mac_keys
 from .translations import EN
 
 #: Verfuegbare Sprachen, in der Reihenfolge der Anzeige.
@@ -52,9 +56,10 @@ def tr(text: str) -> str:
     ``text`` ist der deutsche Originaltext; gibt es keine Uebersetzung, kommt
     genau dieser zurueck.
     """
-    if _language == DEFAULT_LANGUAGE:
-        return text
-    return _TRANSLATIONS.get(_language, {}).get(text, text)
+    if _language != DEFAULT_LANGUAGE:
+        text = _TRANSLATIONS.get(_language, {}).get(text, text)
+    # Auf dem Mac stehen Tasten in Mac-Schreibweise (⌘ statt Strg).
+    return mac_keys(text) if is_mac() else text
 
 
 def paste_label() -> str:
@@ -68,9 +73,8 @@ def paste_label() -> str:
 
 def paste_hint() -> str:
     """Kurzbefehle neben dem Einfügen-Befehl."""
-    if _language == "en":
-        return "Paste (Ctrl+V)"
-    return "Einfügen (Strg+V)"
+    text = "Paste (Ctrl+V)" if _language == "en" else "Einfügen (Strg+V)"
+    return mac_keys(text) if is_mac() else text
 
 
 __all__ = [

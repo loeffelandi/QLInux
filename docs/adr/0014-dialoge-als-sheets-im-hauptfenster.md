@@ -6,6 +6,8 @@ Date: 2026-10-28
 
 Accepted
 
+Ergänzt durch [22. Auf dem Mac Systemdialoge statt Sheets](0022-auf-dem-mac-systemdialoge-statt-sheets.md)
+
 ## Kontext
 
 Eigene Fenster geraten unter Wayland und bei kachelnden Oberflächen hinter das Hauptfenster oder neben den Arbeitsfluss. Drucken braucht die Vorschau und die Optionen gleichzeitig, Öffnen und Speichern einen Dateidialog, der zum restlichen Fenster passt.

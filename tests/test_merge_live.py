@@ -6,20 +6,20 @@ import json
 from pathlib import Path
 
 import pytest
-from PySide6.QtCore import QSettings
 from PySide6.QtWidgets import QCheckBox, QLabel, QSpinBox
 from ql_editor import csv_source, document
 from ql_editor.app import MainWindow
 from ql_editor.items import BarcodeItem, QRItem, TextItem
+from ql_editor.settings import user_settings
 
 pytestmark = pytest.mark.usefixtures("qapp")
 
 
 @pytest.fixture(autouse=True)
 def _clean_settings():
-    QSettings("QLInux", "QLInux").clear()
+    user_settings().clear()
     yield
-    QSettings("QLInux", "QLInux").clear()
+    user_settings().clear()
 
 
 def _inspector_child(win, type_, name: str):

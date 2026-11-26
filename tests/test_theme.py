@@ -247,6 +247,18 @@ def test_hint_lines_use_the_muted_palette_color(qapp):
         qapp.setPalette(original)
 
 
+def test_icon_font_falls_back_to_the_system_font(qapp, monkeypatch):
+    """Ohne DejaVu Sans (macOS) kommt eine gueltige Systemschrift."""
+    from PySide6.QtGui import QFontDatabase
+    from ql_editor.inspector import _icon_font, _text_color_icon
+
+    monkeypatch.setattr(QFontDatabase, "families", staticmethod(lambda *a: ["Foo"]))
+    font = _icon_font()
+    assert font.family()
+    assert font.family() != "DejaVu Sans"
+    assert not _text_color_icon("red").isNull()
+
+
 def test_text_color_glyph_follows_the_palette(qapp):
     """Das „A“ am Farbknopf nimmt die Textfarbe, nicht festes Schwarz."""
     from ql_editor.inspector import _text_color_icon

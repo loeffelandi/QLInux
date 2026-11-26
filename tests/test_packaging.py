@@ -56,3 +56,49 @@ def test_metainfo_lists_the_mediatypes():
     meta = (ROOT / "packaging" / "ql-editor.metainfo.xml").read_text(encoding="utf-8")
     assert "<mediatype>application/x-qlinux-label</mediatype>" in meta
     assert "<mediatype>application/x-brother-lbx</mediatype>" in meta
+
+
+def test_pyinstaller_spec_builds_the_mac_bundle():
+    text = (ROOT / "packaging" / "ql_editor.spec").read_text(encoding="utf-8")
+    assert "BUNDLE(" in text and "QLInux.app" in text
+    assert "io.github.loeffelandi.QLInux" in text
+    for key in (
+        "NSHighResolutionCapable",
+        "NSLocalNetworkUsageDescription",
+        "NSBonjourServices",
+        "_pdl-datastream._tcp",
+        "CFBundleDocumentTypes",
+        "LSMinimumSystemVersion",
+    ):
+        assert key in text
+    assert '"qlx"' in text and '"lbx"' in text
+    # libusb gehoert ins Bundle; ohne sie bricht der Bau ab.
+    assert "libusb" in text and "binaries" in text
+    # Die Mindestversion kommt aus den Bundle-Dateien, nicht aus einer Zahl im Rezept.
+    assert "_minimum_macos(a.binaries)" in text
+    # Linux-Teil des Rezepts bleibt: COLLECT ohne BUNDLE ausserhalb von darwin.
+    assert "COLLECT(" in text
+
+
+def test_mac_build_script_checks_libusb_and_architecture():
+    script = (ROOT / "packaging" / "build_macos.sh").read_text(encoding="utf-8")
+    assert "arm64" in script and "hdiutil" in script
+    assert "libusb" in script and "otool" in script
+    assert "QLINUX_SELFTEST=libusb" in script
+    entry = (ROOT / "packaging" / "entrypoint.py").read_text(encoding="utf-8")
+    assert "QLINUX_SELFTEST" in entry
+
+
+def test_icns_files_exist_for_the_app_and_both_file_types():
+    icons = [
+        ROOT / "assets" / "ql-editor.icns",
+        ROOT / "assets" / "mimetypes" / "application-x-qlinux-label.icns",
+        ROOT / "assets" / "mimetypes" / "application-x-brother-lbx.icns",
+    ]
+    for icon in icons:
+        data = icon.read_bytes()
+        assert data[:4] == b"icns", icon
+        assert len(data) > 10_000, icon
+    spec = (ROOT / "packaging" / "ql_editor.spec").read_text(encoding="utf-8")
+    for icon in icons:
+        assert icon.name in spec

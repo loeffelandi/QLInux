@@ -127,6 +127,26 @@ def test_usb_devices_survives_a_broken_libusb(monkeypatch):
     assert printer.usb_devices() == []
 
 
+def test_mac_lists_the_libusb_printer_without_a_kernel_node(monkeypatch, platform):
+    """Auf dem Mac gibt es kein /dev/usb: usb://, ohne Seriennummer."""
+    platform("darwin")
+    monkeypatch.setattr(
+        printer,
+        "backend_factory",
+        lambda name: {
+            "list_available_devices": lambda: [
+                {"identifier": "usb://0x04f9:0x2042_000G1Z123456"}
+            ]
+        },
+    )
+    monkeypatch.setattr(printer.glob, "glob", lambda pattern: [])
+
+    assert printer.usb_devices() == ["usb://0x04f9:0x2042"]
+    assert printer.usb_printers() == ["usb://0x04f9:0x2042"]
+    assert printer.preferred_usb_address("usb://0x04f9:0x2042") == "usb://0x04f9:0x2042"
+    assert printer.model_for_address("usb://0x04f9:0x2042") == "QL-700"
+
+
 def test_validate_rejects_wrong_width():
     label = get_label("50")  # 554 px
     wrong = Image.new("RGB", (500, 400), "white")
@@ -810,6 +830,19 @@ def test_writable_reports_missing_node_and_rights(tmp_path):
 
     node.chmod(0o000)
     assert printer.writable(node) is False
+
+
+def test_usb_access_has_no_answer_on_the_mac(tmp_path, platform):
+    """Auf dem Mac gibt es keine Rechtefrage - auch nicht mit sysfs-Attrappe."""
+    platform("darwin")
+    dev_root = tmp_path / "dev"
+    node = dev_root / "usb" / "lp1"
+    node.parent.mkdir(parents=True)
+    node.write_text("")
+    node.chmod(0o000)
+
+    assert printer.usb_access("/dev/usb/lp1", dev_root=str(dev_root)) is None
+    assert printer.usb_access("usb://0x04f9:0x2042", dev_root=str(dev_root)) is None
 
 
 @needs_unprivileged_user

@@ -20,6 +20,7 @@ import shutil
 from pathlib import Path
 
 from .i18n import tr
+from .platform_support import is_mac
 
 #: Ablage der Regel, die der Helfer schreibt (gilt fuer alle Benutzer).
 UDEV_RULE_FILE = "/etc/udev/rules.d/70-brother-ql.rules"
@@ -147,6 +148,17 @@ def describe_failure(returncode: int, stderr: str = "") -> str:
 def failure_hint(message: str) -> str | None:
     """Ergaenzung fuer Fehlermeldungen, die nach fehlenden Rechten klingen."""
     lowered = (message or "").lower()
+    if is_mac():
+        # Kein udev auf dem Mac: der Druckdienst des Systems haelt den Drucker.
+        if not any(
+            text in lowered for text in ("permission denied", "access denied", "busy")
+        ):
+            return None
+        return tr(
+            "Der USB-Drucker ist vom System belegt.\n"
+            "In den Systemeinstellungen unter „Drucker & Scanner“ den Drucker "
+            "entfernen, das Kabel neu stecken und erneut drucken."
+        )
     if "permission denied" not in lowered and "access denied" not in lowered:
         return None
     return tr(

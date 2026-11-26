@@ -27,6 +27,42 @@ os.environ["XDG_CONFIG_HOME"] = tempfile.mkdtemp(prefix="qlinux-test-config-")
 # auf. Wer wirklich auf dem Bildschirm testen will, setzt QLINUX_TEST_PLATFORM.
 os.environ["QT_QPA_PLATFORM"] = os.environ.get("QLINUX_TEST_PLATFORM", "offscreen")
 
+# Auf macOS liegt QSettings nicht unter XDG_CONFIG_HOME, sondern in
+# ~/Library/Preferences. Ohne diesen Block loescht ``QSettings(...).clear()``
+# in den Tests die echten Einstellungen. Ini-Format in einem Temp-Ordner gilt
+# auf allen Plattformen.
+from PySide6.QtCore import QSettings  # noqa: E402
+
+QSettings.setDefaultFormat(QSettings.Format.IniFormat)
+QSettings.setPath(
+    QSettings.Format.IniFormat,
+    QSettings.Scope.UserScope,
+    os.environ["XDG_CONFIG_HOME"],
+)
+
+
+@pytest.fixture(autouse=True)
+def _linux_unless_asked(monkeypatch):
+    """Tests laufen als Linux, auch auf einem Mac.
+
+    Texte, Pfade und Kuerzel haengen an der Plattform. Wer die Mac-Seite
+    pruefen will, ruft die Fixture ``platform("darwin")`` auf.
+    """
+    from ql_editor import platform_support
+
+    monkeypatch.setattr(platform_support, "_override", "linux")
+
+
+@pytest.fixture
+def platform(monkeypatch):
+    """``platform("darwin")`` setzt die Plattform fuer diesen Test."""
+    from ql_editor import platform_support
+
+    def choose(name: str) -> None:
+        monkeypatch.setattr(platform_support, "_override", name)
+
+    return choose
+
 
 @pytest.fixture(autouse=True)
 def _quiet_network_discovery(monkeypatch):

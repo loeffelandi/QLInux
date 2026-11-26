@@ -860,6 +860,15 @@ EN: dict[str, str] = {
         "Missing permissions for the USB printer.\n"
         "In the panel under “Printer”: “Set up access”."
     ),
+    "Kein Zugriff aufs lokale Netz. Systemeinstellungen › Datenschutz & Sicherheit › Lokales Netzwerk › QLInux.": (
+        "No access to the local network. System Settings › Privacy & Security › "
+        "Local Network › QLInux."
+    ),
+    "Der USB-Drucker ist vom System belegt.\nIn den Systemeinstellungen unter „Drucker & Scanner“ den Drucker entfernen, das Kabel neu stecken und erneut drucken.": (
+        "The USB printer is held by the system.\n"
+        "In System Settings under “Printers & Scanners”, remove the printer, "
+        "replug the cable and print again."
+    ),
     # -- Fehler aus der Druck-/Render-Schicht --------------------------------
     "Unbekanntes Druckermodell: {model!r}": "Unknown printer model: {model!r}",
     "Bildbreite {width} px != {expected} px (Band {label!r}, Faktor {scale}). Bitte ueber den Renderer erzeugen.": (

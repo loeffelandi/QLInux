@@ -14,6 +14,11 @@ verwalten koennte - der Dialog kann daher nicht im Vordergrund "haengen".
 Das Verhalten entspricht einem macOS-Sheet: der Hintergrund wird abgedunkelt,
 die Bedienung dahinter ist gesperrt, ``Esc`` schliesst.
 
+Auf dem Mac gilt das nicht: dort gibt es echte Sheets des Systems. Datei-,
+Meldungs- und Eingabedialoge laufen dort als Systemdialog (``NSOpenPanel``,
+``NSSavePanel``, ``NSAlert``), fensterweit modal am Hauptfenster. Eigene
+Inhalte (Hilfe, Druck, Auswahl) bleiben auch dort ein Overlay.
+
 Alle Helfer sind **asynchron** (Callback statt Rueckgabewert), weil das Sheet
 - anders als ``exec()`` - den Event-Loop nicht blockiert.
 """
@@ -42,6 +47,7 @@ from PySide6.QtWidgets import (
 
 from .i18n import tr
 from .icons import icon
+from .platform_support import is_mac
 
 #: Kleinstes Format eines Dateidialogs im Sheet (Bildschirmpixel).
 DIALOG_MIN_WIDTH = 320
@@ -52,12 +58,97 @@ DIALOG_MARGIN = 14
 #: Abdunklung hinter dem Sheet (Alpha 0..255).
 _SCRIM_ALPHA = 120
 
+#: Kennzeichnet Dialoge, die ``_open_native`` geoeffnet hat.
+_NATIVE_PROPERTY = "qlNativeSheet"
+
 _MESSAGE_ICONS = {
     "info": QMessageBox.Icon.Information,
     "warning": QMessageBox.Icon.Warning,
     "critical": QMessageBox.Icon.Critical,
     "question": QMessageBox.Icon.Question,
 }
+
+
+class _NativeSheet(QObject):
+    """Systemdialog (macOS) mit der Schnittstelle eines :class:`Sheet`.
+
+    ``closed`` kommt erst aus :meth:`close_sheet`, nicht schon beim Ende des
+    Dialogs: die Aufrufer entscheiden zuerst ueber ``finished``, was gewaehlt
+    wurde, und melden danach. Ohne Eltern: die Verweise der Aufrufer halten das
+    Objekt am Leben.
+    """
+
+    closed = Signal()
+
+    def __init__(self, dialog: QDialog) -> None:
+        super().__init__()
+        self._dialog = dialog
+        self._closing = False
+        self._finished = False
+        # Zuerst verbunden, also vor den Aufrufern: ``isVisible()`` bleibt beim
+        # Systemdialog waehrend ``finished`` noch wahr, ein zweites ``reject()``
+        # liesse die Aufrufer ein zweites Mal antworten.
+        dialog.finished.connect(self._on_finished)
+
+    def _on_finished(self, _result: int) -> None:
+        self._finished = True
+
+    def _is_open(self) -> bool:
+        if self._finished:
+            return False
+        try:
+            return self._dialog.isVisible()
+        except RuntimeError:  # Fenster samt Dialog schon abgebaut
+            return False
+
+    def isVisible(self) -> bool:  # noqa: N802
+        return not self._closing and self._is_open()
+
+    def close_sheet(self) -> None:
+        if self._closing:
+            return
+        self._closing = True
+        if self._is_open():
+            self._dialog.reject()
+        self.closed.emit()
+        try:
+            self._dialog.deleteLater()
+        except RuntimeError:
+            pass
+
+
+def _as_widget(dialog: QDialog) -> QDialog:
+    """Im Overlay ist der Dialog ein Widget; auf dem Mac bleibt er ein Fenster."""
+    if not is_mac():
+        dialog.setWindowFlags(Qt.WindowType.Widget)
+    return dialog
+
+
+def _open_native(parent: QWidget, dialog: QDialog, title: str) -> _NativeSheet:
+    """Dialog als Sheet des Hauptfensters zeigen (macOS).
+
+    Wie beim Overlay ist nur eines offen: ein noch offener Systemdialog dieses
+    Fensters wird abgebrochen. Sonst stellt macOS die Sheets hintereinander.
+    """
+    for existing in parent.findChildren(QDialog):
+        if existing.property(_NATIVE_PROPERTY) and existing.isVisible():
+            existing.reject()
+    dialog.setProperty(_NATIVE_PROPERTY, True)
+    dialog.setParent(parent, Qt.WindowType.Dialog)
+    dialog.setWindowModality(Qt.WindowModality.WindowModal)
+    if isinstance(dialog, QMessageBox):
+        # NSAlert hat keine Titelleiste: die Ueberschrift wird zur ersten Zeile.
+        if title:
+            dialog.setInformativeText(dialog.text())
+            dialog.setText(title)
+        # Markierbarer Text (Befehle zum Abschreiben) geht nur im Qt-Dialog.
+        if dialog.textInteractionFlags() & Qt.TextInteractionFlag.TextSelectableByMouse:
+            dialog.setOption(QMessageBox.Option.DontUseNativeDialog, True)
+    elif title:
+        dialog.setWindowTitle(title)
+    handle = _NativeSheet(dialog)
+    dialog.open()
+    return handle
 
 
 class _SheetShortcutFilter(QObject):
@@ -365,9 +456,13 @@ class Sheet(QWidget):
         self.deleteLater()
 
 
+#: Ergebnis der Dialog-Helfer: ein Overlay oder auf dem Mac ein Systemdialog.
+SheetLike = Sheet | _NativeSheet
+
+
 # ------------------------------------------------------------------ Helfer --
-def _open_sheet(parent: QWidget, content: QWidget, **kwargs) -> Sheet:
-    """Oeffnet ein Sheet; ein evtl. offenes wird vorher geschlossen.
+def _open_overlay(parent: QWidget, content: QWidget, **kwargs) -> Sheet:
+    """Oeffnet ein Overlay-Sheet; ein evtl. offenes wird vorher geschlossen.
 
     Ein schon geschlossenes Sheet wartet evtl. noch auf ``deleteLater`` und
     zaehlt nicht - sonst bliebe das offene neben dem neuen stehen.
@@ -378,6 +473,13 @@ def _open_sheet(parent: QWidget, content: QWidget, **kwargs) -> Sheet:
     sheet = Sheet(parent, content, **kwargs)
     sheet.show()
     return sheet
+
+
+def _open_sheet(parent: QWidget, content: QDialog, **kwargs) -> SheetLike:
+    """Dialog zeigen: auf dem Mac als Systemdialog, sonst als Overlay."""
+    if is_mac():
+        return _open_native(parent, content, kwargs.get("title", ""))
+    return _open_overlay(parent, content, **kwargs)
 
 
 def show_widget(
@@ -399,7 +501,7 @@ def show_widget(
     ``close_on_outside`` schliesst bei Klick auf die Abdunklung (Picker).
     ``on_enter`` laeuft bei Enter, das kein Feld im Sheet verbraucht.
     """
-    return _open_sheet(
+    return _open_overlay(
         parent,
         content,
         title=title,
@@ -419,14 +521,14 @@ def show_message(
     text: str,
     *,
     selectable: bool = False,
-) -> Sheet:
+) -> SheetLike:
     """Meldung (info/warning/critical) als Sheet.
 
     ``selectable=True`` macht den Text markierbar - fuer Befehle, die man
     abschreiben soll.
     """
     box = QMessageBox()
-    box.setWindowFlags(Qt.WindowType.Widget)
+    _as_widget(box)
     box.setIcon(_MESSAGE_ICONS.get(kind, QMessageBox.Icon.Information))
     box.setText(text)
     if selectable:
@@ -447,14 +549,14 @@ def ask_save(
     title: str,
     text: str,
     on_choice: Callable[[str], None],
-) -> Sheet:
+) -> SheetLike:
     """Speichern, Verwerfen oder Abbrechen.
 
     ``on_choice`` bekommt ``"save"``, ``"discard"`` oder ``"cancel"``.
     Escape und das Schließen des Sheets zählen als Abbrechen.
     """
     box = QMessageBox()
-    box.setWindowFlags(Qt.WindowType.Widget)
+    _as_widget(box)
     box.setIcon(QMessageBox.Icon.Question)
     box.setText(text)
     save = box.addButton(tr("Speichern"), QMessageBox.ButtonRole.AcceptRole)
@@ -494,14 +596,14 @@ def ask_label_printer(
     title: str,
     text: str,
     on_choice: Callable[[str], None],
-) -> Sheet:
+) -> SheetLike:
     """Etikett behalten oder an den gefundenen Drucker anpassen.
 
     ``on_choice`` bekommt ``"keep"`` oder ``"adapt"``. Escape und das
     Schließen des Sheets zählen als Behalten: das Etikett bleibt, wie es ist.
     """
     box = QMessageBox()
-    box.setWindowFlags(Qt.WindowType.Widget)
+    _as_widget(box)
     box.setIcon(QMessageBox.Icon.Question)
     box.setText(text)
     keep = box.addButton(tr("Etikett behalten"), QMessageBox.ButtonRole.AcceptRole)
@@ -537,7 +639,7 @@ def ask_loaded_tape(
     title: str,
     text: str,
     on_choice: Callable[[str], None],
-) -> Sheet:
+) -> SheetLike:
     """Gewaehltes Band passt nicht zum eingelegten: drucken, merken oder abbrechen.
 
     ``on_choice`` bekommt ``"print"``, ``"remember"`` (das gewaehlte Band wird
@@ -545,7 +647,7 @@ def ask_loaded_tape(
     Schliessen des Sheets zaehlen als Abbrechen.
     """
     box = QMessageBox()
-    box.setWindowFlags(Qt.WindowType.Widget)
+    _as_widget(box)
     box.setIcon(QMessageBox.Icon.Warning)
     box.setText(text)
     cancel = box.addButton(tr("Abbrechen"), QMessageBox.ButtonRole.RejectRole)
@@ -585,14 +687,14 @@ def ask_print_anyway(
     title: str,
     text: str,
     on_choice: Callable[[str], None],
-) -> Sheet:
+) -> SheetLike:
     """Drucker meldet eine Stoerung: trotzdem drucken oder abbrechen.
 
     ``on_choice`` bekommt ``"print"`` oder ``"cancel"``. Escape und das
     Schliessen des Sheets zaehlen als Abbrechen.
     """
     box = QMessageBox()
-    box.setWindowFlags(Qt.WindowType.Widget)
+    _as_widget(box)
     box.setIcon(QMessageBox.Icon.Warning)
     box.setText(text)
     cancel = box.addButton(tr("Abbrechen"), QMessageBox.ButtonRole.RejectRole)
@@ -675,12 +777,13 @@ def choose_file(
     name_filter: str,
     on_selected: Callable[[str | None], None],
     start_dir: str = "",
-) -> Sheet:
+) -> SheetLike:
     """Datei waehlen - eingebettet im Hauptfenster (kein eigenes Fenster)."""
     dialog = QFileDialog()
-    dialog.setWindowFlags(Qt.WindowType.Widget)
-    dialog.setOption(QFileDialog.Option.DontUseNativeDialog, True)
-    dialog.setSizeGripEnabled(False)
+    _as_widget(dialog)
+    if not is_mac():
+        dialog.setOption(QFileDialog.Option.DontUseNativeDialog, True)
+        dialog.setSizeGripEnabled(False)
     dialog.setFileMode(QFileDialog.FileMode.ExistingFile)
     dialog.setAcceptMode(QFileDialog.AcceptMode.AcceptOpen)
     dialog.setNameFilter(name_filter)
@@ -690,7 +793,9 @@ def choose_file(
     # Keine harte Mindestgroesse: die erzwingt das Sheet und schneidet sonst die
     # Schaltflaechen unten ab, wenn das Fenster niedrig ist.
     dialog.setMinimumSize(DIALOG_MIN_WIDTH, DIALOG_MIN_HEIGHT)
-    remove_history_nav = _bind_history_buttons(dialog)
+    remove_history_nav = (
+        (lambda *_args: None) if is_mac() else _bind_history_buttons(dialog)
+    )
     sheet = _open_sheet(
         parent,
         dialog,
@@ -719,12 +824,13 @@ def save_file(
     on_selected: Callable[[str | None], None],
     start_dir: str = "",
     default_name: str = "",
-) -> Sheet:
+) -> SheetLike:
     """Speicherort waehlen - wie :func:`choose_file`, nur zum Schreiben."""
     dialog = QFileDialog()
-    dialog.setWindowFlags(Qt.WindowType.Widget)
-    dialog.setOption(QFileDialog.Option.DontUseNativeDialog, True)
-    dialog.setSizeGripEnabled(False)
+    _as_widget(dialog)
+    if not is_mac():
+        dialog.setOption(QFileDialog.Option.DontUseNativeDialog, True)
+        dialog.setSizeGripEnabled(False)
     dialog.setFileMode(QFileDialog.FileMode.AnyFile)
     dialog.setAcceptMode(QFileDialog.AcceptMode.AcceptSave)
     dialog.setNameFilter(name_filter)
@@ -736,7 +842,9 @@ def save_file(
     # Keine harte Mindestgroesse: die erzwingt das Sheet und schneidet sonst die
     # Schaltflaechen unten ab, wenn das Fenster niedrig ist.
     dialog.setMinimumSize(DIALOG_MIN_WIDTH, DIALOG_MIN_HEIGHT)
-    remove_history_nav = _bind_history_buttons(dialog)
+    remove_history_nav = (
+        (lambda *_args: None) if is_mac() else _bind_history_buttons(dialog)
+    )
     sheet = _open_sheet(
         parent,
         dialog,
@@ -764,10 +872,10 @@ def ask_text(
     label: str,
     on_ok: Callable[[str], None],
     default: str = "",
-) -> Sheet:
+) -> SheetLike:
     """Freitext abfragen (Ersatz fuer ``QInputDialog.getText``)."""
     dialog = QInputDialog()
-    dialog.setWindowFlags(Qt.WindowType.Widget)
+    _as_widget(dialog)
     dialog.setInputMode(QInputDialog.InputMode.TextInput)
     dialog.setLabelText(label)
     dialog.setTextValue(default)
@@ -793,10 +901,10 @@ def ask_choice(
     label: str,
     items: list[str],
     on_ok: Callable[[str], None],
-) -> Sheet:
+) -> SheetLike:
     """Aus einer Liste waehlen (Ersatz fuer ``QInputDialog.getItem``)."""
     dialog = QInputDialog()
-    dialog.setWindowFlags(Qt.WindowType.Widget)
+    _as_widget(dialog)
     dialog.setLabelText(label)
     dialog.setComboBoxItems(list(items))
     dialog.setComboBoxEditable(False)
@@ -817,6 +925,7 @@ def ask_choice(
 
 __all__ = [
     "Sheet",
+    "SheetLike",
     "ask_choice",
     "ask_label_printer",
     "ask_loaded_tape",
