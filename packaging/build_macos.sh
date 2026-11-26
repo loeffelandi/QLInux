@@ -30,6 +30,17 @@ LIBUSB="${LIBUSB_DYLIB:-}"
 if [ -z "$LIBUSB" ]; then
     LIBUSB="$("$PY" -c 'import ctypes.util; print(ctypes.util.find_library("usb-1.0") or "")')"
 fi
+# Ein Python von python.org oder setup-python sucht nicht in Homebrew.
+if [ -z "$LIBUSB" ] || [ ! -f "$LIBUSB" ]; then
+    PREFIX="$(brew --prefix libusb 2>/dev/null || true)"
+    LIBUSB=""
+    for candidate in "$PREFIX/lib/libusb-1.0.dylib" /opt/homebrew/lib/libusb-1.0.dylib; do
+        if [ -f "$candidate" ]; then
+            LIBUSB="$candidate"
+            break
+        fi
+    done
+fi
 if [ -z "$LIBUSB" ] || [ ! -f "$LIBUSB" ]; then
     echo "libusb fehlt. Installieren mit: brew install libusb" >&2
     exit 1
