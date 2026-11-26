@@ -1,6 +1,6 @@
 [project]
 name = "qlinux"
-version = "0.4.1"
+version = "0.5.0"
 description = "P-touch-Editor-Klon fuer Brother QL-Drucker (QL-500–QL-1060N laut brother_ql) und Avery-Zweckform-Boegen, native Linux- und macOS-App"
 requires-python = ">=3.10"
 
