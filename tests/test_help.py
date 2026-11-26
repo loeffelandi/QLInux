@@ -56,6 +56,38 @@ def test_help_text_is_short_and_follows_the_language(qapp):
     assert tr("Hilfe") == "Hilfe"
 
 
+def test_help_shows_mac_notation_on_the_mac(qapp, platform):
+    """Auf dem Mac steht ⌘S statt Strg+S - und nirgends mehr „Strg“."""
+    platform("darwin")
+    german = "\n".join(_labels(build_help_content()))
+    assert "⌘S" in german
+    assert "⌘D" in german
+    assert "⇧⌘S" in german
+    assert "⌃Tab" in german
+    assert "⌘W" in german
+    assert "⇧⌘Z" in german
+    assert "⌫" in german
+    assert "Strg" not in german
+    assert "Umschalt" not in german
+    assert "Entf" not in german
+
+    i18n.set_language("en")
+    try:
+        english = "\n".join(_labels(build_help_content()))
+    finally:
+        i18n.set_language(i18n.DEFAULT_LANGUAGE)
+    assert "⌘S" in english
+    assert "Ctrl" not in english
+    assert "Shift" not in english
+
+
+def test_help_shows_ctrl_on_linux(qapp, platform):
+    platform("linux")
+    german = "\n".join(_labels(build_help_content()))
+    assert "Strg+S" in german
+    assert "⌘" not in german
+
+
 def test_help_lists_the_decided_shortcuts(qapp):
     """Übersicht und gebundene Tasten sind dieselben.
 

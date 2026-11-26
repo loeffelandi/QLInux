@@ -6,8 +6,8 @@ gebaute Vorlage ist automatisch ein speicherbares Etikett (und umgekehrt).
 
 Die eingebauten Vorlagen entstehen im Code: sie stehen damit auch in einem
 frischen AppImage zur Verfuegung und sind uebersetzbar (die Beispieltexte
-kommen in der Oberflaechensprache). Eigene Vorlagen liegen als ``.qlx`` unter
-``~/.config/QLInux/templates/``.
+kommen in der Oberflaechensprache). Eigene Vorlagen liegen als ``.qlx`` im
+Ordner ``templates`` der Benutzerdaten (siehe :func:`user_dir`).
 
 Alle eingebauten Vorlagen nehmen **62 mm Endlosband** und automatische Laenge -
 so passen sie auf jedes Endlosband und der Benutzer wechselt hoechstens das
@@ -21,9 +21,10 @@ import os
 from pathlib import Path
 from typing import Any
 
-from . import APP_NAME, media
+from . import media
 from .document import DOCUMENT_SUFFIX, DocumentError, build
 from .i18n import tr
+from .platform_support import user_data_dir
 
 #: Umgebungsvariable, die das Vorlagenverzeichnis uebersteuert (Tests).
 TEMPLATE_DIR_ENV = "QLINUX_TEMPLATE_DIR"
@@ -49,14 +50,14 @@ WRAP = 620.0
 def user_dir() -> Path:
     """Verzeichnis der eigenen Vorlagen.
 
-    Orientiert sich an ``XDG_CONFIG_HOME`` - dieselbe Ecke, in der auch die
-    Einstellungen liegen (``~/.config/QLInux``).
+    Es liegt im Ordner der Benutzerdaten (:func:`user_data_dir`) - unter Linux
+    ``~/.config/QLInux/templates``, auf dem Mac
+    ``~/Library/Application Support/QLInux/templates``.
     """
     override = os.environ.get(TEMPLATE_DIR_ENV)
     if override:
         return Path(override)
-    base = os.environ.get("XDG_CONFIG_HOME") or str(Path.home() / ".config")
-    return Path(base) / APP_NAME / "templates"
+    return user_data_dir() / "templates"
 
 
 def list_user() -> list[Path]:

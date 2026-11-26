@@ -7,7 +7,10 @@ Die Rohpakete in ``tests/data`` sind echte Antworten eines QL-820NWB
 
 from __future__ import annotations
 
+import errno
+import socket
 import struct
+import sys
 from pathlib import Path
 
 import pytest
@@ -192,6 +195,41 @@ def test_interface_broadcast_uses_interface_name(monkeypatch):
     assert not captured[0].startswith(b"1")
 
 
+def test_interface_broadcast_uses_getifaddrs_on_the_mac(monkeypatch, platform):
+    platform("darwin")
+    monkeypatch.setattr(
+        discovery,
+        "mac_interface_broadcasts",
+        lambda: {"en0": "192.168.178.255"},
+    )
+
+    assert discovery.interface_broadcast("en0") == "192.168.178.255"
+    assert discovery.interface_broadcast("lo0") == ""
+
+
+def test_interface_broadcast_on_the_mac_survives_a_getifaddrs_error(
+    monkeypatch, platform
+):
+    platform("darwin")
+
+    def boom():
+        raise OSError("getifaddrs")
+
+    monkeypatch.setattr(discovery, "mac_interface_broadcasts", boom)
+    assert discovery.interface_broadcast("en0") == ""
+
+
+@pytest.mark.skipif(sys.platform != "darwin", reason="getifaddrs-Struktur der Mac-libc")
+def test_mac_interface_broadcasts_reads_the_real_interfaces():
+    found = discovery.mac_interface_broadcasts()
+
+    assert "lo0" not in found  # Loopback hat keinen Broadcast
+    for name, address in found.items():
+        assert name
+        assert socket.inet_aton(address)  # gueltiges IPv4
+        assert address != "0.0.0.0"
+
+
 def test_broadcast_targets_keeps_default_and_asks_by_name(monkeypatch):
     monkeypatch.setattr(
         discovery.socket, "if_nameindex", lambda: [(1, "en0"), (2, "lo0")]
@@ -207,6 +245,60 @@ def test_broadcast_targets_keeps_default_and_asks_by_name(monkeypatch):
     assert discovery.BROADCAST_ADDRESS in targets
     assert "10.0.0.255" in targets
     assert seen == ["en0", "lo0"]
+
+
+def test_broadcast_targets_on_the_mac_read_the_interfaces_once(monkeypatch, platform):
+    platform("darwin")
+    calls: list[int] = []
+
+    def fake() -> dict[str, str]:
+        calls.append(1)
+        return {"en0": "10.0.0.255", "en1": "10.0.0.255", "en2": "10.0.1.255"}
+
+    monkeypatch.setattr(discovery, "mac_interface_broadcasts", fake)
+    targets = discovery.broadcast_targets()
+    assert targets == (discovery.BROADCAST_ADDRESS, "10.0.0.255", "10.0.1.255")
+    assert len(calls) == 1
+
+
+def test_broadcast_targets_on_the_mac_survive_a_getifaddrs_error(monkeypatch, platform):
+    platform("darwin")
+
+    def boom():
+        raise OSError("getifaddrs")
+
+    monkeypatch.setattr(discovery, "mac_interface_broadcasts", boom)
+    assert discovery.broadcast_targets() == (discovery.BROADCAST_ADDRESS,)
+
+
+def test_no_network_is_not_reported_as_refused_local_network(monkeypatch, platform):
+    """Ohne Netz liefert sendto auch EHOSTUNREACH - das ist keine fehlende Freigabe."""
+    platform("darwin")
+
+    class _NoRouteSocket(_DeadSocket):
+        def sendto(self, *args):
+            raise OSError(errno.EHOSTUNREACH, "No route to host")
+
+        def settimeout(self, value):
+            pass
+
+        def recvfrom(self, size):
+            raise TimeoutError
+
+    monkeypatch.setattr(
+        discovery, "_udp_socket", lambda *args, **kwargs: _NoRouteSocket()
+    )
+    monkeypatch.setattr(discovery, "broadcast_targets", lambda: ("255.255.255.255",))
+
+    monkeypatch.setattr(discovery, "mac_interface_broadcasts", dict)
+    discovery.discover_network_printers(timeout=0.05)
+    assert discovery.local_network_refused() is False
+
+    monkeypatch.setattr(
+        discovery, "mac_interface_broadcasts", lambda: {"en0": "10.0.0.255"}
+    )
+    discovery.discover_network_printers(timeout=0.05)
+    assert discovery.local_network_refused() is True
 
 
 class _DeadSocket:
@@ -499,3 +591,30 @@ def test_confirm_network_job_skips_the_check_when_cancelled(monkeypatch):
         config, {"outcome": "sent"}, snmp_answered=True, delay=30.0, cancel=cancel
     )
     assert status == {"outcome": "sent"}
+
+
+def test_search_without_local_network_access_ends_empty_and_is_flagged(monkeypatch):
+    """macOS verweigert das lokale Netz: leere Liste, Merker gesetzt, kein Absturz."""
+
+    class _RefusingSocket(_DeadSocket):
+        def sendto(self, *args):
+            raise OSError(errno.EHOSTUNREACH, "No route to host")
+
+        def settimeout(self, value):
+            pass
+
+        def recvfrom(self, size):
+            raise TimeoutError
+
+    monkeypatch.setattr(
+        discovery, "_udp_socket", lambda *args, **kwargs: _RefusingSocket()
+    )
+    monkeypatch.setattr(discovery, "broadcast_targets", lambda: ("255.255.255.255",))
+
+    assert discovery.discover_network_printers(timeout=0.05) == []
+    assert discovery.local_network_refused() is True
+
+    # Die naechste Suche beginnt ohne Merker.
+    monkeypatch.setattr(discovery, "_udp_socket", lambda *a, **k: _DeadSocket())
+    discovery.discover_network_printers(timeout=0.05)
+    assert discovery.local_network_refused() is False

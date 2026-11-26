@@ -95,3 +95,33 @@ def test_counted_message_is_translated():
     assert EN["{count} USB-Drucker gefunden"] == "{count} USB printers found"
     i18n.set_language("en")
     assert tr("{count} USB-Drucker gefunden").format(count=3) == "3 USB printers found"
+
+
+def test_mac_shows_keys_in_mac_notation(platform):
+    """Auf dem Mac steht ⌘ statt Strg, in beiden Sprachen; Linux bleibt."""
+    platform("darwin")
+    assert tr("Fett (Strg+B)") == "Fett (⌘B)"
+    assert i18n.paste_hint() == "Einfügen (⌘V)"
+    i18n.set_language("en")
+    try:
+        assert tr("Fett (Strg+B)") == "Bold (⌘B)"
+        assert i18n.paste_hint() == "Paste (⌘V)"
+    finally:
+        i18n.set_language(i18n.DEFAULT_LANGUAGE)
+    platform("linux")
+    assert tr("Fett (Strg+B)") == "Fett (Strg+B)"
+    assert i18n.paste_hint() == "Einfügen (Strg+V)"
+
+
+def test_no_windows_style_key_names_remain_on_the_mac(platform):
+    """Kein Text der Oberflaeche nennt auf dem Mac noch Strg, Ctrl oder Umschalt."""
+    platform("darwin")
+    leftovers = re.compile(r"\b(Strg|Ctrl|Umschalt|Shift|Alt|Entf|Del)\b")
+    for language in i18n.LANGUAGES:
+        i18n.set_language(language)
+        try:
+            for key in sorted(source_keys() | set(EN)):
+                shown = tr(key)
+                assert not leftovers.search(shown), (language, key, shown)
+        finally:
+            i18n.set_language(i18n.DEFAULT_LANGUAGE)

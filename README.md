@@ -1,13 +1,13 @@
 # QLInux
 
-**A native Linux label editor for Brother QL printers and Avery Zweckform
-sheets — a P-touch Editor clone, in Python.**
+**A native label editor for Linux and macOS, for Brother QL printers and
+Avery Zweckform sheets — a P-touch Editor clone, in Python.**
 
 ![License: GPL-3.0-or-later](https://img.shields.io/badge/license-GPL--3.0--or--later-blue)
 ![Tests](https://github.com/loeffelandi/QLInux/actions/workflows/tests.yml/badge.svg)
 ![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-blue)
 ![GUI: PySide6](https://img.shields.io/badge/GUI-PySide6-green)
-![Platform: Linux](https://img.shields.io/badge/platform-Linux-lightgrey)
+![Platform: Linux and macOS](https://img.shields.io/badge/platform-Linux%20%7C%20macOS-lightgrey)
 
 ![QLInux main window, light and dark](assets/screenshot-main-themes.png)
 
@@ -15,7 +15,8 @@ QLInux designs labels on a real canvas (text, images, barcodes, QR codes),
 shows an exact monochrome print preview and prints straight to the printer —
 over the network (`tcp://…:9100`) or USB. The same label can fill an Avery
 Zweckform sheet and go to a normal printer, or to a PDF at actual size. No
-browser, no WebUSB, no vendor driver.
+browser, no WebUSB, no vendor driver. It runs on Linux (AppImage for x86_64
+and aarch64) and on Macs with Apple Silicon (`.dmg`).
 
 ## Supported printers
 
@@ -101,7 +102,10 @@ first cell stay with this machine, the same way the Brother address does.
 
 ## Requirements
 
-- Linux with a desktop (X11 or Wayland), Python ≥ 3.10
+- Linux with a desktop (X11 or Wayland), Python ≥ 3.10, **or** a Mac with Apple
+  Silicon and a recent macOS (the build writes the minimum version it needs
+  into the app's Info.plist; it follows the newest part inside the bundle,
+  such as a libusb built on a newer macOS)
 - A Brother QL printer, reachable over the network or via USB. Avery Zweckform
   sheets use any normal printer instead, or a PDF
 - Everything else is pinned in `requirements.txt`
@@ -127,6 +131,24 @@ The aarch64 AppImage needs **glibc 2.39 or newer** (Ubuntu 24.04, Debian 13 /
 Raspberry Pi OS Trixie). Older systems such as Raspberry Pi OS Bookworm do not
 start it.
 
+**macOS (Apple Silicon):** download `QLInux-<version>-arm64.dmg` from
+[Releases](https://github.com/loeffelandi/QLInux/releases/latest), open it and
+drag **QLInux** into *Applications*. libusb is inside the app: no Homebrew, no
+Python needed.
+
+The app is not signed or notarized, so macOS blocks the first start. Start it
+once (it is refused), then open *System Settings → Privacy & Security*, scroll
+to the message about QLInux and choose **Open Anyway**. A right-click on the app
+and *Open* works as well on older macOS versions. Two more questions follow:
+the firewall asks whether `ql-editor` may accept incoming connections (the
+printer search listens for the answers; either choice works for USB), and
+macOS asks for access to the **local network**, which the printer search and
+network printing need. If you refuse it, the printer bar says where to switch
+it on again (*Privacy & Security → Local Network → QLInux*). Everything
+else is the same as on Linux, with these exceptions: USB goes through libusb
+only, there is no “Set up access” button (see [USB permissions](#usb-permissions)),
+and dialogs are the system’s own (Open, Save, alerts).
+
 **From source:**
 
 ```bash
@@ -137,7 +159,8 @@ bash scripts/bootstrap_venv.sh     # creates .venv, installs pinned deps,
 .venv/bin/python -m ql_editor
 ```
 
-Releases carry a **single-file AppImage** per architecture — build it yourself
+Releases carry a **single-file AppImage** per architecture and a **`.dmg`** for
+Apple Silicon — build the AppImage yourself
 with one command (no installation, no root). A `.deb` is deliberately not
 planned: PySide6 and `python-barcode` are not in the distribution archives, so
 a package would have to carry the whole Qt runtime anyway; the AppImage does
@@ -164,6 +187,17 @@ the AppImage exits without a GUI. Excluded is what the app never uses —
 QtWebEngine, QML/Quick, Multimedia, SQL, Charts — otherwise the file would be
 several hundred megabytes larger.
 
+On a Mac, `bash packaging/build_macos.sh` builds `dist/QLInux-<version>-arm64.dmg`.
+It needs Apple Silicon, the virtual environment from `scripts/bootstrap_venv.sh`
+and `brew install libusb` (build machine only; the library is copied into the
+app and checked with `otool`). The script starts the finished app without any
+Homebrew path to make sure it finds its own libusb. The app icon and the file
+type icons (`.icns`) come from the same `packaging/make_icon.py`.
+
+A published GitHub release builds the `.dmg` in
+[`.github/workflows/macos.yml`](.github/workflows/macos.yml) and attaches it
+next to the AppImages.
+
 The icon comes from `packaging/make_icon.py`, the desktop entry from
 `packaging/ql-editor.desktop`: both are plain files in the repository, not
 generated blobs. Settings still live in `~/.config/QLInux/QLInux.conf`, so an
@@ -183,9 +217,12 @@ pick the product, and print or save a PDF from the same sheet. A Brother
 printer is not part of that job.
 
 Settings (last printer, tape, print options, language, appearance) are stored in
-`~/.config/QLInux/QLInux.conf`.
+`~/.config/QLInux/QLInux.conf` on Linux and in `~/Library/Preferences` on macOS.
 
 ### Modifier keys on the canvas
+
+On macOS **Cmd** takes the place of **Ctrl** everywhere in this table, and the
+interface shows the Mac symbols (⌘ ⇧ ⌥ ⌫).
 
 | Keys | Effect |
 | --- | --- |
@@ -200,6 +237,7 @@ Settings (last printer, tape, print options, language, appearance) are stored in
 | Shift + click in the database grid | Select a range of rows |
 | Rotating without Shift | Stick to the nearest 90° until the pointer moves clearly away |
 | Shift while rotating | Rotate in 15° steps |
+| Ctrl + Tab / Ctrl + Shift + Tab | Next or previous tab (macOS: Control + Tab, because Cmd + Tab switches apps; Cmd + } and Cmd + { work too) |
 
 ### Database grid
 
@@ -261,6 +299,11 @@ compositor may ignore that raise, so the running window is not always focused.
 Only when QLInux is not running yet does a new window start; the
 empty starting label is then replaced by the file, unless you already changed it.
 
+On macOS the file types are registered in the app’s `Info.plist`. A
+double-click, *Open With* and dropping a file on the app or Dock icon open it as
+a tab in the running window; no second instance starts. A click on the Dock icon
+brings a minimized window back.
+
 ### Opening a Brother `.lbx` file
 
 *File → Open…* also accepts P-touch Editor files (`.lbx`). QLInux reads the
@@ -291,6 +334,11 @@ so *Detect label* only works over USB. The SNMP check (UDP 161, community
 `public`) needs no permissions either. It only runs if the printer answered
 SNMP before the job; with SNMP switched off, jobs are reported as sent. If the
 printer goes silent after a job, the history says “Sent, no status reply”.
+
+**macOS** has no udev, so there is no “Set up access” button. libusb opens
+the printer directly. If printing or reading the tape fails with *access
+denied* or *busy*, the system print service holds the printer: remove it under
+*System Settings → Printers & Scanners*, replug the cable and print again.
 
 ## Development
 
@@ -365,6 +413,7 @@ dependency: `brother_ql` is GPL-3.0-or-later.
 | [Qt for Python (PySide6)](https://pyside.org) | The Qt Company | LGPL-3.0 | user interface (windows, canvas, sheets) |
 | [Pillow](https://python-pillow.org) | Fredrik Lundh and contributors | MIT-CMU | rendering and raster data |
 | [pyusb](https://github.com/pyusb/pyusb) | Wander Lairson Costa and contributors | BSD-3-Clause | USB connection |
+| [libusb](https://libusb.info) | Hans de Goede, Nathan Hjelm and contributors | LGPL-2.1-or-later | USB access, bundled in the macOS app |
 | [qrcode](https://github.com/lincolnloop/python-qrcode) | Lincoln Loop and contributors | BSD-3-Clause | QR codes |
 | [python-barcode](https://github.com/WhyNotHugo/python-barcode) | Thorsten Weimann and contributors | MIT | barcodes |
 | [gLabels](https://github.com/jimevins/glabels-qt) | Jim Evins and contributors | GPL-3.0-or-later | Avery Zweckform sheet measurements |

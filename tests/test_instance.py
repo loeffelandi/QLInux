@@ -237,3 +237,108 @@ def test_listen_socket_is_user_only(qapp):
         assert mode == 0o700
     finally:
         server.close()
+
+
+# --- macOS: der Finder meldet Dateien als Ereignis ---------------------------
+
+
+def _file_open_event(path: str):
+    from PySide6.QtGui import QFileOpenEvent
+
+    return QFileOpenEvent(path)
+
+
+@pytest.fixture
+def opener(qapp, monkeypatch):
+    """Der Filter aus ``main`` auf der QApplication, ohne Fenster."""
+    from ql_editor import app as app_module
+
+    monkeypatch.setattr(app_module, "_current_window", None)
+    flt = app_module._SystemOpenFilter(qapp)
+    qapp.installEventFilter(flt)
+    try:
+        yield flt
+    finally:
+        qapp.removeEventFilter(flt)
+        flt.deleteLater()
+
+
+def test_file_open_before_the_window_waits_for_it(qapp, opener, monkeypatch):
+    from ql_editor import app as app_module
+
+    opened: list[tuple[object, list[str]]] = []
+    monkeypatch.setattr(
+        app_module, "_open_from_outside", lambda w, paths: opened.append((w, paths))
+    )
+    qapp.sendEvent(qapp, _file_open_event("/tmp/a.qlx"))
+    qapp.sendEvent(qapp, _file_open_event("/tmp/b.lbx"))
+    assert opened == []
+
+    window = object()
+    monkeypatch.setattr(app_module, "_current_window", window)
+    opener.attach()
+    assert opened == [(window, ["/tmp/a.qlx", "/tmp/b.lbx"])]
+
+    qapp.sendEvent(qapp, _file_open_event("/tmp/c.qlx"))
+    assert opened[-1] == (window, ["/tmp/c.qlx"])
+
+
+def test_finder_open_creates_tabs_and_ignores_other_files(
+    qapp, opener, tmp_path, monkeypatch
+):
+    from ql_editor import document, templates
+    from ql_editor.app import MainWindow
+
+    first, second = tmp_path / "eins.qlx", tmp_path / "zwei.qlx"
+    for path in (first, second):
+        document.save(path, templates.builtins()[0][1])
+    other = tmp_path / "notiz.txt"
+    other.write_text("x", encoding="utf-8")
+
+    from ql_editor import app as app_module
+
+    win = MainWindow(discover=False)
+    monkeypatch.setattr(app_module, "_current_window", win)
+    try:
+        qapp.sendEvent(qapp, _file_open_event(str(first)))  # vor attach: wartet
+        opener.attach()
+        paths = lambda: [t.path for t in win._ordered_tabs()]
+        assert paths() == [str(first.resolve())]
+
+        qapp.sendEvent(qapp, _file_open_event(str(second)))
+        qapp.sendEvent(qapp, _file_open_event(str(other)))
+        assert paths() == [str(first.resolve()), str(second.resolve())]
+
+        qapp.sendEvent(qapp, _file_open_event(str(first)))  # schon offen
+        assert len(paths()) == 2
+        assert win._active.path == str(first.resolve())
+    finally:
+        win._accept_close = True
+        win.deleteLater()
+
+
+def test_dock_click_restores_a_minimized_window(qapp, opener, monkeypatch):
+    from PySide6.QtCore import Qt
+    from ql_editor import app as app_module
+
+    class Window:
+        def __init__(self):
+            self.minimized = True
+            self.raised = 0
+
+        def isMinimized(self):  # noqa: N802
+            return self.minimized
+
+        def showNormal(self):  # noqa: N802
+            self.minimized = False
+
+        def raise_(self):
+            self.raised += 1
+
+    window = Window()
+    monkeypatch.setattr(app_module, "_current_window", window)
+    opener._on_state_changed(Qt.ApplicationState.ApplicationInactive)
+    assert window.minimized is True
+    opener._on_state_changed(Qt.ApplicationState.ApplicationActive)
+    assert window.minimized is False
+    assert window.raised == 1

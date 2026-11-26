@@ -21,7 +21,10 @@
 - Every keyboard modifier (Ctrl, Shift, Alt, Cmd) a user can use for a
   mouse or key action must be listed in the "Modifier keys on the canvas"
   table in `README.md`. Add it there in the same change.
-- The AppImage is built with `packaging/build_appimage.sh`.
+- The AppImage is built with `packaging/build_appimage.sh`, the macOS `.dmg`
+ with `packaging/build_macos.sh`. A release always ships both: the Linux
+ files come from `.github/workflows/appimage.yml`, the Mac file from
+ `.github/workflows/macos.yml`.
 
 ## Decisions and behavior
 - Architecture decision records live in `docs/adr/` (adr-tools, `.adr-dir`).

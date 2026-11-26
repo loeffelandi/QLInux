@@ -35,7 +35,11 @@ from PySide6.QtWidgets import (
 )
 
 from . import media
-from .discovery import NetworkPrinter, discover_network_printers
+from .discovery import (
+    NetworkPrinter,
+    discover_network_printers,
+    local_network_refused,
+)
 from .i18n import tr
 from .icons import icon
 from .media import (
@@ -46,6 +50,7 @@ from .media import (
     ModelSpec,
     Orientation,
 )
+from .platform_support import is_mac, supports_udev
 from .printer import (
     DEFAULT_ADDRESS,
     NETWORK_PORT,
@@ -177,6 +182,7 @@ class MediaPanel(QWidget):
         # Hinweis, wenn die Startsuche eine andere Adresse als die gespeicherte
         # gewaehlt hat. Leer, sobald der Nutzer selbst waehlt.
         self._network_fallback_note = ""
+        self._network_blocked = False
         # IP/Name des Netzwerkdruckers. Normalerweise kommt er aus der Suche;
         # von Hand eingetragen wird er nur ueber den Listeneintrag "Per
         # IP-Adresse hinzufügen…" (siehe _ask_network_host).
@@ -1023,6 +1029,7 @@ class MediaPanel(QWidget):
                 printers = []
         self._network_found = list(printers)
         self._network_searched = True
+        self._network_blocked = not printers and is_mac() and local_network_refused()
         self._network_fallback_note = ""
         on_network = self.connection() == CONNECTION_NETWORK
         current = self.address() if on_network else ""
@@ -1069,6 +1076,7 @@ class MediaPanel(QWidget):
         """
         self._network_found = list(printers)
         self._network_searched = True
+        self._network_blocked = not printers and is_mac() and local_network_refused()
         self._network_fallback_note = ""
         self._rebuild_network_list()
         self._sync_network_hint()
@@ -1129,6 +1137,11 @@ class MediaPanel(QWidget):
             loaded = tr("Eingelegt: {band}").format(band=self._loaded_tape)
         elif self._network_searched and not self._network_found:
             text = tr("Kein Drucker gefunden.")
+            if self._network_blocked:
+                text = tr(
+                    "Kein Zugriff aufs lokale Netz. Systemeinstellungen › "
+                    "Datenschutz & Sicherheit › Lokales Netzwerk › QLInux."
+                )
         elif not self._network_host:
             # Erster Start (keine Adresse gespeichert): der Weg steht daneben -
             # das Suchsymbol fuellt die Liste.
@@ -1405,7 +1418,10 @@ class MediaPanel(QWidget):
     def _sync_access(self) -> None:
         """Fehlende Rechte anzeigen - der haeufigste Grund, warum USB nicht druckt."""
         address = self.address()
-        self.access_allowed = usb_access(address) if address else None
+        # Die Rechtefrage und ihr Knopf (udev) gibt es nur unter Linux.
+        self.access_allowed = (
+            usb_access(address) if address and supports_udev() else None
+        )
         needed = self.access_allowed is False
         self._usb_form.setRowVisible(self._row_access, needed)
         if needed:

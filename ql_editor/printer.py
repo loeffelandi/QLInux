@@ -29,6 +29,7 @@ from PIL import Image
 
 from .i18n import tr
 from .media import DEFAULT_MODEL, Kind, LabelSpec, get_model
+from .platform_support import supports_udev
 
 logger = logging.getLogger(__name__)
 
@@ -489,8 +490,13 @@ def usb_access(
     libusb: der rohe Knoten ``/dev/bus/usb/BBB/DDD``, ueber sysfs aufgeloest
     (``busnum``/``devnum`` des Geraets mit passender USB-Kennung).
 
+    Nur unter Linux: dort gehoeren die Knoten root. Auf dem Mac gibt es weder
+    sysfs noch eine Rechtefrage, die das Programm loesen koennte.
+
     ``sysfs_root``/``dev_root`` sind fuer Tests injizierbar.
     """
+    if not supports_udev():
+        return None
     address = (address or "").strip()
     backend = backend_for_address(address)
     if backend == "linux_kernel":

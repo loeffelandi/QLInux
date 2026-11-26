@@ -15,7 +15,15 @@ sofort bei Schaltern).
 from __future__ import annotations
 
 from PySide6.QtCore import QDate, QEvent, QRectF, QSize, Qt, QTime, QTimer, Signal
-from PySide6.QtGui import QActionGroup, QColor, QFont, QIcon, QPainter, QPixmap
+from PySide6.QtGui import (
+    QActionGroup,
+    QColor,
+    QFont,
+    QFontDatabase,
+    QIcon,
+    QPainter,
+    QPixmap,
+)
 from PySide6.QtWidgets import (
     QButtonGroup,
     QCheckBox,
@@ -64,13 +72,20 @@ from .widgets import install_wheel_guard_recursive, title_box
 BARCODE_SYMBOLOGIES = ["code128", "code39", "ean13", "ean8", "upca", "itf", "codabar"]
 
 
+def _icon_font() -> QFont:
+    """DejaVu Sans, wo es sie gibt (Linux); sonst die Systemschrift (macOS)."""
+    if "DejaVu Sans" in QFontDatabase.families():
+        return QFont("DejaVu Sans")
+    return QFontDatabase.systemFont(QFontDatabase.SystemFont.GeneralFont)
+
+
 def _text_color_icon(value: str | None) -> QIcon:
     """„A“ in der Oberflächenfarbe, Balken in der Schriftfarbe."""
     pixmap = QPixmap(24, 24)
     pixmap.fill(Qt.GlobalColor.transparent)
     painter = QPainter(pixmap)
     painter.setRenderHint(QPainter.RenderHint.TextAntialiasing, True)
-    font = QFont("DejaVu Sans")
+    font = _icon_font()
     font.setBold(True)
     font.setPixelSize(15)
     painter.setFont(font)

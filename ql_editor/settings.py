@@ -34,6 +34,16 @@ _CONNECTION_NETWORK = "network"
 _CONNECTION_USB = "usb"
 
 
+def user_settings() -> QSettings:
+    """Die Einstellungen dieses Benutzers im Standardformat von ``QSettings``.
+
+    Unveraendert das native Format (Linux: ``~/.config``, macOS: ``~/Library``).
+    Die Tests stellen ``QSettings.setDefaultFormat`` auf eine INI-Datei im
+    Temp-Ordner; der Konstruktor mit Organisation und Anwendung ignoriert das.
+    """
+    return QSettings(QSettings.defaultFormat(), QSettings.Scope.UserScope, _ORG, _APP)
+
+
 def _loaded_label_key(address: str) -> str:
     """Schluessel je Drucker - die Adresse selbst enthaelt ``/`` und ``:``."""
     return "printer/loaded_label/" + quote(address, safe="")
@@ -47,7 +57,7 @@ class AppSettings:
     """
 
     def __init__(self, settings: QSettings | None = None) -> None:
-        self._settings = settings or QSettings(_ORG, _APP)
+        self._settings = settings or user_settings()
 
     # -- Rohzugriff ---------------------------------------------------------
     def value(self, key: str, default=None):

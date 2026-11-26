@@ -11,11 +11,12 @@ from pathlib import Path
 
 import pytest
 from PIL import Image
-from PySide6.QtCore import QPointF, QSettings, Qt
+from PySide6.QtCore import QPointF, Qt
 from PySide6.QtGui import QKeyEvent
 from PySide6.QtWidgets import QFileDialog, QInputDialog, QLineEdit, QMessageBox, QWidget
 from ql_editor.app import MainWindow
 from ql_editor.items import BarcodeItem, ImageItem, QRItem, TextItem
+from ql_editor.settings import user_settings
 from ql_editor.sheet import (
     Sheet,
     ask_choice,
@@ -32,9 +33,9 @@ pytestmark = pytest.mark.usefixtures("qapp")
 
 @pytest.fixture(autouse=True)
 def _clean_settings():
-    QSettings("QLInux", "QLInux").clear()
+    user_settings().clear()
     yield
-    QSettings("QLInux", "QLInux").clear()
+    user_settings().clear()
 
 
 def _window(qapp) -> MainWindow:
@@ -54,13 +55,13 @@ def _sheet(win) -> Sheet | None:
     return sheets[0] if sheets else None
 
 
-def _pick_file(qapp, sheet: Sheet, path: str) -> None:
+def _pick_file(qapp, sheet: QWidget, path: str) -> None:
     """Simuliert die Auswahl einer Datei im eingebetteten Dialog.
 
     ``selectFile()`` greift headless nicht (asynchrones QFileSystemModel),
     deshalb wird - wie beim Tippen eines Pfads - das Namensfeld gefuellt.
     """
-    dialog = sheet.findChild(QFileDialog)
+    dialog = sheet if isinstance(sheet, QFileDialog) else sheet.findChild(QFileDialog)
     assert dialog is not None
     dialog.setDirectory(str(Path(path).parent))
     for _ in range(20):
@@ -481,3 +482,237 @@ def test_unsaved_question_buttons_have_icons(qapp):
     for label in ("Speichern", "Verwerfen", "Abbrechen"):
         assert not buttons[label].icon().isNull()
     parent.close()
+
+
+# -- macOS: Systemdialoge statt Overlay ---------------------------------------
+def _native_dialog(win, kind):
+    """Der Dialog, den ein Mac-Helfer als Kind des Hauptfensters geoeffnet hat."""
+    dialogs = [d for d in win.findChildren(kind) if d.isVisible()]
+    assert len(dialogs) == 1
+    return dialogs[0]
+
+
+def test_mac_file_dialog_is_a_native_window_sheet(qapp, tmp_path, platform):
+    platform("darwin")
+    win = _window(qapp)
+    chosen: list[str | None] = []
+    handle = choose_file(
+        win,
+        caption="Bild wählen",
+        name_filter="Bilder (*.png);;Alle Dateien (*)",
+        on_selected=chosen.append,
+        start_dir=str(tmp_path),
+    )
+    qapp.processEvents()
+
+    dialog = _native_dialog(win, QFileDialog)
+    assert not dialog.testOption(QFileDialog.Option.DontUseNativeDialog)
+    assert dialog.windowModality() == Qt.WindowModality.WindowModal
+    assert dialog.parentWidget() is win
+    assert dialog.isWindow()
+    assert win.findChildren(Sheet) == []
+
+    target = tmp_path / "probe.png"
+    Image.new("RGB", (8, 8), "white").save(target)
+    _pick_file(qapp, dialog, str(target))
+
+    assert chosen == [str(target)]
+    assert not handle.isVisible()
+    win.close()
+
+
+def test_mac_file_dialog_cancel_reports_none(qapp, tmp_path, platform):
+    platform("darwin")
+    win = _window(qapp)
+    chosen: list[str | None] = []
+    closed: list[bool] = []
+    handle = choose_file(
+        win,
+        caption="Öffnen",
+        name_filter="Alle Dateien (*)",
+        on_selected=chosen.append,
+        start_dir=str(tmp_path),
+    )
+    handle.closed.connect(lambda: closed.append(True))
+    qapp.processEvents()
+
+    _native_dialog(win, QFileDialog).reject()
+    qapp.processEvents()
+
+    assert chosen == [None]
+    assert closed == [True]
+    win.close()
+
+
+def test_mac_save_dialog_proposes_the_name(qapp, tmp_path, platform):
+    from ql_editor.sheet import save_file
+
+    platform("darwin")
+    win = _window(qapp)
+    chosen: list[str | None] = []
+    save_file(
+        win,
+        caption="Etikett speichern",
+        name_filter="QLInux-Etiketten (*.qlx)",
+        on_selected=chosen.append,
+        start_dir=str(tmp_path),
+        default_name="Unbenannt.qlx",
+    )
+    qapp.processEvents()
+
+    dialog = _native_dialog(win, QFileDialog)
+    assert dialog.acceptMode() == QFileDialog.AcceptMode.AcceptSave
+    dialog.accept()
+    qapp.processEvents()
+
+    assert chosen == [str(tmp_path / "Unbenannt.qlx")]
+    win.close()
+
+
+def test_mac_message_uses_the_title_as_headline(qapp, platform):
+    platform("darwin")
+    win = _window(qapp)
+    closed: list[bool] = []
+    handle = show_message(win, "warning", "USB-Zugriff", "Kein Zugriff.")
+    handle.closed.connect(lambda: closed.append(True))
+    qapp.processEvents()
+
+    box = _native_dialog(win, QMessageBox)
+    assert box.text() == "USB-Zugriff"
+    assert box.informativeText() == "Kein Zugriff."
+    assert box.windowModality() == Qt.WindowModality.WindowModal
+    assert win.findChildren(Sheet) == []
+
+    box.button(QMessageBox.StandardButton.Ok).click()
+    qapp.processEvents()
+    assert closed == [True]
+    assert not handle.isVisible()
+    win.close()
+
+
+def test_mac_question_reports_the_clicked_choice(qapp, platform):
+    platform("darwin")
+    win = _window(qapp)
+    choices: list[str] = []
+    ask_save(win, title="Speichern?", text="Ungespeichert", on_choice=choices.append)
+    qapp.processEvents()
+
+    box = _native_dialog(win, QMessageBox)
+    buttons = {button.text(): button for button in box.buttons()}
+    buttons["Verwerfen"].click()
+    qapp.processEvents()
+
+    assert choices == ["discard"]
+    win.close()
+
+
+def test_mac_question_escape_counts_as_cancel(qapp, platform):
+    platform("darwin")
+    win = _window(qapp)
+    choices: list[str] = []
+    ask_save(win, title="Speichern?", text="Ungespeichert", on_choice=choices.append)
+    qapp.processEvents()
+
+    _native_dialog(win, QMessageBox).reject()
+    qapp.processEvents()
+
+    assert choices == ["cancel"]
+    win.close()
+
+
+def test_mac_text_input_returns_the_value(qapp, platform):
+    platform("darwin")
+    win = _window(qapp)
+    values: list[str] = []
+    ask_text(win, title="Barcode", label="Inhalt", on_ok=values.append)
+    qapp.processEvents()
+
+    dialog = _native_dialog(win, QInputDialog)
+    dialog.setTextValue("12345")
+    dialog.accept()
+    qapp.processEvents()
+
+    assert values == ["12345"]
+    win.close()
+
+
+def test_linux_keeps_the_overlay_sheets(qapp, tmp_path, platform):
+    platform("linux")
+    win = _window(qapp)
+    sheet = show_message(win, "info", "Titel", "Text")
+    qapp.processEvents()
+
+    assert isinstance(sheet, Sheet)
+    assert sheet.findChild(QMessageBox).isWindow() is False
+    win.close()
+
+
+def test_mac_dialog_answers_only_once_even_if_it_still_looks_visible(
+    qapp, tmp_path, platform
+):
+    """Der Systemdialog meldet sich waehrend ``finished`` noch als sichtbar.
+
+    Ein zweites ``reject()`` aus ``close_sheet`` liess die Aufrufer sonst
+    zweimal antworten (beobachtet mit dem echten ``NSOpenPanel``).
+    """
+    platform("darwin")
+    win = _window(qapp)
+    chosen: list[str | None] = []
+    choose_file(
+        win,
+        caption="Öffnen",
+        name_filter="Alle Dateien (*)",
+        on_selected=chosen.append,
+        start_dir=str(tmp_path),
+    )
+    qapp.processEvents()
+    dialog = _native_dialog(win, QFileDialog)
+    dialog.isVisible = lambda: True
+
+    dialog.reject()
+    qapp.processEvents()
+
+    assert chosen == [None]
+    win.close()
+
+
+def test_mac_opens_only_one_system_dialog_per_window(qapp, platform):
+    platform("darwin")
+    win = _window(qapp)
+    choices: list[str] = []
+    ask_save(win, title="Erste", text="Text", on_choice=choices.append)
+    qapp.processEvents()
+    show_message(win, "info", "Zweite", "Text")
+    qapp.processEvents()
+
+    boxes = [b for b in win.findChildren(QMessageBox) if b.isVisible()]
+    assert [b.text() for b in boxes] == ["Zweite"]
+    assert choices == ["cancel"]
+    win.close()
+
+
+def test_mac_selectable_message_stays_a_qt_dialog(qapp, platform):
+    platform("darwin")
+    win = _window(qapp)
+    show_message(win, "warning", "Befehl", "sudo tee /etc/x", selectable=True)
+    qapp.processEvents()
+
+    box = _native_dialog(win, QMessageBox)
+    assert box.testOption(QMessageBox.Option.DontUseNativeDialog)
+    win.close()
+
+
+def test_mac_dialog_handle_survives_a_deleted_window(qapp, platform):
+    """Sprachwechsel baut das Fenster ab: das Handle darf dann nicht abstuerzen."""
+    import shiboken6
+
+    platform("darwin")
+    win = _window(qapp)
+    handle = show_message(win, "info", "Titel", "Text")
+    qapp.processEvents()
+    box = _native_dialog(win, QMessageBox)
+    win.close()
+    shiboken6.delete(box)
+
+    assert handle.isVisible() is False
+    handle.close_sheet()

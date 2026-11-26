@@ -40,6 +40,7 @@ from PySide6.QtCore import (
     QEvent,
     QLocale,
     QMimeData,
+    QObject,
     QPointF,
     QProcess,
     QRectF,
@@ -76,6 +77,7 @@ from PySide6.QtWidgets import (
     QLabel,
     QMainWindow,
     QMenu,
+    QMenuBar,
     QPushButton,
     QRadioButton,
     QScrollArea,
@@ -142,6 +144,7 @@ from .items import (
 from .jobs import PrintJob, fill_history_table, make_history_table
 from .media_panel import CONNECTION_USB, MediaPanel
 from .panels import OverlayPanel, PanelHost
+from .platform_support import is_mac
 from .preview import (
     DEFAULT_THRESHOLD,
     THRESHOLD_MAX,
@@ -172,6 +175,7 @@ from .printer import (
 from .settings import AppSettings
 from .sheet import (
     Sheet,
+    SheetLike,
     ask_choice,
     ask_label_printer,
     ask_loaded_tape,
@@ -694,7 +698,7 @@ class MainWindow(QMainWindow):
         self._accept_close = False
         self._close_prompt = False
         #: Sheet der Fenster-Rückfrage. Hilfe und andere Sheets zählen nicht.
-        self._close_sheet: Sheet | None = None
+        self._close_sheet: SheetLike | None = None
         #: CSV-/Hash-Status nach Open zuletzt anzeigen (nicht von „geöffnet“ überdecken).
         self._pending_database_status: str | None = None
         # Von/Bis, wie der Nutzer sie gesetzt hat. Eine kürzere CSV klemmt nur
@@ -734,6 +738,8 @@ class MainWindow(QMainWindow):
         self._build_panels()
         self._build_actions()
         self._build_toolbar()
+        if is_mac():
+            self._build_mac_menu_bar()
 
         self._refresh_timer = QTimer(self)
         self._refresh_timer.setSingleShot(True)
@@ -1926,10 +1932,14 @@ class MainWindow(QMainWindow):
         self.addAction(self._act_tab_close)
 
         self._act_tab_next = QAction(self)
-        self._act_tab_next.setShortcut(QKeySequence.StandardKey.NextChild)
+        self._act_tab_next.setShortcuts(
+            _tab_switch_keys(QKeySequence.StandardKey.NextChild, "Meta+Tab")
+        )
         self._act_tab_next.triggered.connect(self._on_next_tab)
         self._act_tab_prev = QAction(self)
-        self._act_tab_prev.setShortcut(QKeySequence.StandardKey.PreviousChild)
+        self._act_tab_prev.setShortcuts(
+            _tab_switch_keys(QKeySequence.StandardKey.PreviousChild, "Meta+Shift+Tab")
+        )
         self._act_tab_prev.triggered.connect(self._on_previous_tab)
         self.addAction(self._act_tab_next)
         self.addAction(self._act_tab_prev)
@@ -2095,9 +2105,28 @@ class MainWindow(QMainWindow):
         self._build_language_menu(menu)
         self._build_appearance_menu(menu)
         menu.addAction(self._act_help)
-        menu.addAction(self._act_about)
-        menu.addAction(self._act_quit)
+        if not is_mac():
+            # Auf dem Mac stehen beide im Programmmenue der Menueleiste.
+            menu.addAction(self._act_about)
+            menu.addAction(self._act_quit)
         return menu
+
+    def _build_mac_menu_bar(self) -> None:
+        """Menueleiste von macOS: Ueber und Beenden im Programmmenue.
+
+        Qt setzt Eintraege mit diesen Rollen selbst an die uebliche Stelle des
+        Systemmenues. Das Programm hat nur ein Fenster und beendet sich mit
+        ihm; Cmd+Q laeuft wie das Schliessen ueber ``closeEvent`` und fragt
+        nach ungespeicherten Aenderungen.
+        """
+        self._act_about.setMenuRole(QAction.MenuRole.AboutRole)
+        self._act_quit.setMenuRole(QAction.MenuRole.QuitRole)
+        # Ohne Eltern ist es die Menueleiste des Systems. ``self.menuBar()``
+        # taugt nicht: es ersetzt das Menue-Widget und loescht die Reiterleiste.
+        self._mac_menu_bar = QMenuBar()
+        app_menu = self._mac_menu_bar.addMenu("QLInux")
+        app_menu.addAction(self._act_about)
+        app_menu.addAction(self._act_quit)
 
     def _add_codes_menu(self, menu: QMenu) -> QMenu:
         """Barcode und QR-Code als ein Eintrag."""
@@ -5618,7 +5647,9 @@ class MainWindow(QMainWindow):
             tab, on_save=_saved, on_discard=_saved, on_cancel=lambda: None
         )
 
-    def _ask_about_tab(self, tab: LabelTab, *, on_save, on_discard, on_cancel) -> Sheet:
+    def _ask_about_tab(
+        self, tab: LabelTab, *, on_save, on_discard, on_cancel
+    ) -> SheetLike:
         name = Path(tab.path).name if tab.path else tr("Unbenannt")
 
         def _chosen(choice: str) -> None:
@@ -6508,6 +6539,28 @@ def _address_matches_connection(address: str, connection: str) -> bool:
     return kind == connection
 
 
+def _tab_switch_keys(
+    standard: QKeySequence.StandardKey, mac_extra: str
+) -> list[QKeySequence]:
+    """Tasten fuer den Reiterwechsel.
+
+    Auf dem Mac gehoert Cmd+Tab dem Programmwechsel des Systems; dort kommt
+    Control+Tab dazu (in Qt ``Meta``) und Cmd+Tab faellt weg. Cmd+} und
+    Cmd+{ bleiben aus dem Standard.
+    """
+    keys = QKeySequence.keyBindings(standard)
+    if not is_mac():
+        return keys
+    taken = {"Ctrl+Tab", "Ctrl+Shift+Backtab", "Ctrl+Shift+Tab"}
+    keys = [
+        key
+        for key in keys
+        if key.toString(QKeySequence.SequenceFormat.PortableText) not in taken
+    ]
+    keys.append(QKeySequence(mac_extra))
+    return keys
+
+
 def _system_language() -> str:
     """Erststart: die Systemsprache, wenn wir sie anbieten - sonst Deutsch."""
     code = QLocale.system().name().split("_")[0].lower()
@@ -6548,12 +6601,65 @@ def _open_from_outside(window: MainWindow, paths: list[str]) -> None:
     window.activateWindow()
 
 
+class _SystemOpenFilter(QObject):
+    """Dateien und Dock-Klicks, die macOS statt eines Prozessstarts meldet.
+
+    Der Finder uebergibt Dateien als ``QFileOpenEvent`` - auch beim Start des
+    Programms, bevor das Fenster steht. Die Pfade warten dann, bis
+    :meth:`attach` das Fenster kennt. Ein Klick auf das Dock-Symbol holt ein
+    verkleinertes Fenster zurueck.
+    """
+
+    def __init__(self, parent: QObject | None = None) -> None:
+        super().__init__(parent)
+        self._pending: list[str] = []
+        self._ready = False
+
+    def eventFilter(self, watched, event) -> bool:  # noqa: N802
+        if event.type() == QEvent.Type.FileOpen:
+            path = event.file()
+            if path:
+                self.open_paths([path])
+            return True
+        return False
+
+    def open_paths(self, paths: list[str]) -> None:
+        window = _current_window
+        if not self._ready or window is None:
+            self._pending.extend(paths)
+            return
+        _open_from_outside(window, paths)
+
+    def attach(self) -> None:
+        """Das Fenster steht: wartende Dateien oeffnen, Dock-Klicks auswerten."""
+        self._ready = True
+        pending, self._pending = self._pending, []
+        if pending:
+            self.open_paths(pending)
+        app = QApplication.instance()
+        if isinstance(app, QApplication):
+            app.applicationStateChanged.connect(self._on_state_changed)
+
+    def _on_state_changed(self, state: Qt.ApplicationState) -> None:
+        window = _current_window
+        if state != Qt.ApplicationState.ApplicationActive or window is None:
+            return
+        if window.isMinimized():
+            window.showNormal()
+        window.raise_()
+
+
 def main(argv: list[str] | None = None) -> int:
     argv = list(sys.argv if argv is None else argv)
     existing = QApplication.instance()
     app = existing if isinstance(existing, QApplication) else QApplication(argv)
     app.setApplicationName("QLInux")
     files = _document_args(argv)
+    # macOS: der Finder meldet Dateien als Ereignis. Der Filter steht vor dem
+    # ersten Fenster, sonst gehen Dateien des Starts verloren.
+    opener = _SystemOpenFilter(app) if is_mac() else None
+    if opener is not None:
+        app.installEventFilter(opener)
     # Läuft schon eine Instanz, öffnet sie die Dateien als Reiter bzw. holt das
     # Fenster nach vorn - auch ohne Datei. Dieser Start endet dann.
     if instance.forward(files):
@@ -6576,6 +6682,8 @@ def main(argv: list[str] | None = None) -> int:
     window.show()
     for path in files:
         window.open_path(path)
+    if opener is not None:
+        opener.attach()
     code = app.exec()
     _wait_for_orphans()
     return code

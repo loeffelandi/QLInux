@@ -141,6 +141,22 @@ def test_failure_hint_only_answers_permission_errors():
         assert "Zugriff einrichten" in hint
 
 
+def test_failure_hint_on_the_mac_names_the_system_not_the_button(platform):
+    """Kein udev auf dem Mac: der Hinweis nennt Drucker & Scanner."""
+    platform("darwin")
+    assert access.failure_hint("sent ok") is None
+    for message in (
+        "Access denied (insufficient permissions)",
+        "[Errno 13] Permission denied",
+        "[Errno 16] Resource busy",
+    ):
+        hint = access.failure_hint(message)
+        assert hint is not None
+        assert "Drucker & Scanner" in hint
+        assert "Zugriff einrichten" not in hint
+        assert "udev" not in hint and "sudo" not in hint and "pkexec" not in hint
+
+
 def test_manual_command_is_a_copyable_one_liner():
     command = access.manual_command()
     assert command.startswith("sudo ")

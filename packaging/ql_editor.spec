@@ -1,8 +1,11 @@
 # -*- mode: python ; coding: utf-8 -*-
 #
-# PyInstaller-Rezept fuer das AppImage (onedir). Aufruf ueber
-# packaging/build_appimage.sh - nicht direkt noetig.
+# PyInstaller-Rezept fuer das AppImage (onedir) und, auf dem Mac, fuer
+# QLInux.app. Aufruf ueber packaging/build_appimage.sh bzw.
+# packaging/build_macos.sh - nicht direkt noetig.
+import ctypes.util
 import os
+import sys
 
 from PyInstaller.utils.hooks import collect_submodules
 
@@ -12,6 +15,20 @@ datas = [
     ("../assets/ql-editor.png", "assets"),
     ("../ql_editor/data/zweckform-iso-templates.xml", "ql_editor/data"),
 ]
+
+# Auf dem Mac gehoert libusb ins Bundle: Homebrew ist beim Nutzer nicht da.
+# Die Datei kommt aus Homebrew (oder LIBUSB_DYLIB); ohne sie bricht der Bau ab.
+binaries = []
+if sys.platform == "darwin":
+    # Symbole der Dateitypen (Info.plist verweist auf sie im Resources-Ordner).
+    datas += [
+        ("../assets/mimetypes/application-x-qlinux-label.icns", "."),
+        ("../assets/mimetypes/application-x-brother-lbx.icns", "."),
+    ]
+    libusb = os.environ.get("LIBUSB_DYLIB") or ctypes.util.find_library("usb-1.0")
+    if not libusb or not os.path.isfile(libusb):
+        raise SystemExit("libusb fehlt: brew install libusb (oder LIBUSB_DYLIB setzen)")
+    binaries.append((os.path.realpath(libusb), "."))
 
 hidden = [
     "brother_ql",
@@ -63,7 +80,7 @@ excludes = [
 a = Analysis(
     ["entrypoint.py"],
     pathex=[os.path.abspath(os.path.join(SPECPATH, ".."))],
-    binaries=[],
+    binaries=binaries,
     datas=datas,
     hiddenimports=hidden,
     hookspath=[],
@@ -103,3 +120,81 @@ coll = COLLECT(
     upx_exclude=[],
     name="ql-editor",
 )
+
+if sys.platform == "darwin":
+    import re
+
+    # Der Wert steht in der Version von ql_editor/__init__.py.
+    with open(os.path.join(SPECPATH, "..", "ql_editor", "__init__.py"), encoding="utf-8") as handle:
+        version = re.search(r'__version__ = "([^"]+)"', handle.read()).group(1)
+
+    import subprocess
+
+    def _minimum_macos(entries):
+        """Hoechstes ``minos`` aller Mach-O-Dateien im Bundle (``LC_BUILD_VERSION``).
+
+        Das Bundle laeuft erst ab der neuesten Mindestversion seiner Teile;
+        PySide6-Bindungen und ein lokal gebautes libusb liegen oft hoeher als
+        die Qt-Bibliotheken.
+        """
+        newest = ()
+        for entry in entries:
+            source = entry[1]
+            if not os.path.isfile(source):
+                continue
+            result = subprocess.run(
+                ["otool", "-l", source], capture_output=True, text=True, check=False
+            )
+            seen = False
+            for line in result.stdout.splitlines():
+                if "LC_BUILD_VERSION" in line:
+                    seen = True
+                elif seen and line.split()[:1] == ["minos"]:
+                    parts = tuple(int(x) for x in line.split()[1].split("."))
+                    newest = max(newest, parts)
+                    seen = False
+        if not newest:
+            raise SystemExit("Mindest-macOS des Bundles nicht lesbar (otool)")
+        return ".".join(str(x) for x in newest)
+
+    def _document_type(name, extension, icon, rank):
+        return {
+            "CFBundleTypeName": name,
+            "CFBundleTypeExtensions": [extension],
+            "CFBundleTypeIconFile": icon,
+            "CFBundleTypeRole": "Editor",
+            "LSHandlerRank": rank,
+        }
+
+    app = BUNDLE(
+        coll,
+        name="QLInux.app",
+        icon="../assets/ql-editor.icns",
+        bundle_identifier="io.github.loeffelandi.QLInux",
+        version=version,
+        info_plist={
+            "CFBundleName": "QLInux",
+            "CFBundleDisplayName": "QLInux",
+            "CFBundleShortVersionString": version,
+            "CFBundleVersion": version,
+            "NSHighResolutionCapable": True,
+            "LSMinimumSystemVersion": _minimum_macos(a.binaries),
+            "LSApplicationCategoryType": "public.app-category.graphics-design",
+            "NSLocalNetworkUsageDescription": (
+                "QLInux sucht Brother-Drucker im lokalen Netz und sendet ihnen "
+                "die Etiketten."
+            ),
+            "NSBonjourServices": ["_pdl-datastream._tcp"],
+            "CFBundleDocumentTypes": [
+                _document_type(
+                    "QLInux-Etikett", "qlx", "application-x-qlinux-label.icns", "Owner"
+                ),
+                _document_type(
+                    "Brother-P-touch-Etikett",
+                    "lbx",
+                    "application-x-brother-lbx.icns",
+                    "Alternate",
+                ),
+            ],
+        },
+    )

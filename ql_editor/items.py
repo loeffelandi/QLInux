@@ -1208,10 +1208,20 @@ class ImageItem(_ClampMixin, QGraphicsPixmapItem):
             buf.open(QIODevice.OpenModeFlag.WriteOnly)
             # Verlustfrei: die Pixel bleiben exakt (Schwelle und Dithering haengen daran).
             # Die Stubs wollen bytes, PySide6 nimmt zur Laufzeit einen str.
-            self.pixmap().toImage().save(buf, "WEBP", 100)  # type: ignore[call-overload]
+            image = self.pixmap().toImage()
+            image.save(buf, "WEBP", 100)  # type: ignore[call-overload]
             # QByteArray ist zur Laufzeit ein Puffer, die Stubs sehen das nicht.
-            self._encoded = bytes(buf.data())  # type: ignore[call-overload]
+            encoded = bytes(buf.data())  # type: ignore[call-overload]
             buf.close()
+            # Qts WebP-Leser kann sehr kleine einfarbige Bilder nicht lesen,
+            # die sein Schreiber erzeugt hat: dann waere das Bild beim Oeffnen weg.
+            if QImage.fromData(encoded).isNull():
+                png = QBuffer()
+                png.open(QIODevice.OpenModeFlag.WriteOnly)
+                image.save(png, "PNG")  # type: ignore[call-overload]
+                encoded = bytes(png.data())  # type: ignore[call-overload]
+                png.close()
+            self._encoded = encoded
         d.update(
             data_b64=base64.b64encode(self._encoded).decode("ascii"),
             source_path=self._source_path,

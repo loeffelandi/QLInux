@@ -22,7 +22,9 @@ Tests liegen in ``tests/data/``.
 
 from __future__ import annotations
 
+import ctypes
 import dataclasses
+import errno
 import logging
 import socket
 import struct
@@ -35,6 +37,7 @@ from urllib.parse import urlsplit
 
 from .i18n import tr
 from .media import all_models
+from .platform_support import is_mac
 from .printer import (
     NETWORK_PORT,
     PrinterConfig,
@@ -629,14 +632,81 @@ def parse_snmp_response(data: bytes, source_host: str = "") -> list[NetworkPrint
     ]
 
 
-def interface_broadcast(name: str) -> str:
-    """Broadcast-Adresse einer Schnittstelle (Linux; sonst leer).
+class _SockAddr(ctypes.Structure):
+    """``struct sockaddr`` (BSD): Laenge, Familie, dann die Adressdaten."""
 
-    ``SIOCGIFBRDADDR`` erwartet den Schnittstellennamen in ``ifr_name``
-    (``en0``, ``eth0``), nicht den Index. ``255.255.255.255`` geht nur ueber
-    die Standardschnittstelle; mit der Adresse je Schnittstelle werden auch
-    mehrere Netze abgedeckt.
+    _fields_ = (
+        ("sa_len", ctypes.c_uint8),
+        ("sa_family", ctypes.c_uint8),
+        ("sa_data", ctypes.c_uint8 * 14),
+    )
+
+
+class _IfAddrs(ctypes.Structure):
+    """``struct ifaddrs`` aus ``<ifaddrs.h>`` (macOS)."""
+
+
+_IfAddrs._fields_ = (
+    ("ifa_next", ctypes.POINTER(_IfAddrs)),
+    ("ifa_name", ctypes.c_char_p),
+    ("ifa_flags", ctypes.c_uint),
+    ("ifa_addr", ctypes.POINTER(_SockAddr)),
+    ("ifa_netmask", ctypes.POINTER(_SockAddr)),
+    ("ifa_dstaddr", ctypes.POINTER(_SockAddr)),
+    ("ifa_data", ctypes.c_void_p),
+)
+
+_IFF_BROADCAST = 0x2
+
+
+def mac_interface_broadcasts() -> dict[str, str]:
+    """Broadcast-Adresse je Schnittstelle ueber ``getifaddrs`` (macOS).
+
+    Der Linux-``ioctl`` (``SIOCGIFBRDADDR``) hat dort eine andere Nummer;
+    ``getifaddrs`` liefert die Adresse in ``ifa_dstaddr``.
     """
+    libc = ctypes.CDLL(None, use_errno=True)
+    libc.getifaddrs.argtypes = [ctypes.POINTER(ctypes.POINTER(_IfAddrs))]
+    libc.freeifaddrs.argtypes = [ctypes.POINTER(_IfAddrs)]
+    head = ctypes.POINTER(_IfAddrs)()
+    if libc.getifaddrs(ctypes.byref(head)) != 0:
+        return {}
+    found: dict[str, str] = {}
+    try:
+        node = head
+        while node:
+            entry = node.contents
+            node = entry.ifa_next
+            if not (entry.ifa_flags & _IFF_BROADCAST) or not entry.ifa_dstaddr:
+                continue
+            if (
+                not entry.ifa_addr
+                or entry.ifa_addr.contents.sa_family != socket.AF_INET
+            ):
+                continue
+            raw = bytes(entry.ifa_dstaddr.contents.sa_data[2:6])
+            name = (entry.ifa_name or b"").decode("utf-8", "replace")
+            if name and raw != bytes(4):
+                found.setdefault(name, socket.inet_ntoa(raw))
+    finally:
+        libc.freeifaddrs(head)
+    return found
+
+
+def interface_broadcast(name: str) -> str:
+    """Broadcast-Adresse einer Schnittstelle (Linux, macOS; sonst leer).
+
+    Linux: ``SIOCGIFBRDADDR`` erwartet den Schnittstellennamen in ``ifr_name``
+    (``en0``, ``eth0``), nicht den Index. macOS: ``getifaddrs``.
+    ``255.255.255.255`` geht nur ueber die Standardschnittstelle; mit der
+    Adresse je Schnittstelle werden auch mehrere Netze abgedeckt.
+    """
+    if is_mac():
+        try:
+            return mac_interface_broadcasts().get(name, "")
+        except (OSError, ValueError) as exc:
+            logger.debug("Broadcast-Adresse fuer Schnittstelle %s: %s", name, exc)
+            return ""
     try:
         import fcntl
     except ImportError:  # pragma: no cover - nur ausserhalb von Linux
@@ -654,6 +724,15 @@ def interface_broadcast(name: str) -> str:
 def broadcast_targets() -> tuple[str, ...]:
     """Alle Adressen, an die ein Suchpaket geht."""
     targets = [BROADCAST_ADDRESS]
+    if is_mac():
+        # Ein Aufruf liefert alle Schnittstellen auf einmal.
+        try:
+            addresses = list(mac_interface_broadcasts().values())
+        except (OSError, ValueError) as exc:
+            logger.debug("Broadcast-Adressen: %s", exc)
+            addresses = []
+        targets.extend(a for a in dict.fromkeys(addresses) if a not in targets)
+        return tuple(targets)
     for _index, name in socket.if_nameindex():
         address = interface_broadcast(name)
         if address and address not in targets:
@@ -671,6 +750,30 @@ def _udp_socket(port: int = 0) -> socket.socket:
     sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
     sock.bind(("", port))
     return sock
+
+
+#: ``sendto`` scheitert so, wenn macOS den Zugriff aufs lokale Netz verweigert.
+_LOCAL_NETWORK_ERRORS = (errno.EHOSTUNREACH, errno.EACCES, errno.EPERM)
+_local_network_refused = threading.Event()
+
+
+def _network_present() -> bool:
+    """Gibt es ein Netz? Ohne ist ``EHOSTUNREACH`` keine fehlende Freigabe.
+
+    Auf dem Mac bleibt dann keine Schnittstelle mit Broadcast uebrig; im
+    Zweifel (Fehler beim Lesen) gilt das Netz als vorhanden.
+    """
+    if not is_mac():
+        return True
+    try:
+        return bool(mac_interface_broadcasts())
+    except (OSError, ValueError):
+        return True
+
+
+def local_network_refused() -> bool:
+    """Hat die letzte Suche Pakete wegen fehlender Netzfreigabe nicht senden duerfen?"""
+    return _local_network_refused.is_set()
 
 
 def _ask(
@@ -694,7 +797,9 @@ def _ask(
         for target in targets:
             try:
                 sock.sendto(packet, (target, port))
-            except OSError as exc:  # pragma: no cover - haengt am Netz
+            except OSError as exc:
+                if exc.errno in _LOCAL_NETWORK_ERRORS and _network_present():
+                    _local_network_refused.set()
                 logger.info("Suche an %s:%s nicht möglich: %s", target, port, exc)
         while True:
             now = time.monotonic()
@@ -796,6 +901,7 @@ def discover_network_printers(
     )
     results: list[list[NetworkPrinter]] = [[] for _ in ways]
     limit = timeout if timeout is not None else max(MDNS_TIMEOUT, SNMP_TIMEOUT)
+    _local_network_refused.clear()
 
     def search(index: int, search_call: Callable[..., list[NetworkPrinter]]) -> None:
         try:
@@ -823,6 +929,7 @@ __all__ = [
     "confirm_network_job",
     "discover_network_printers",
     "known_model_ids",
+    "local_network_refused",
     "looks_like_label_printer",
     "mdns_printers",
     "mdns_query",

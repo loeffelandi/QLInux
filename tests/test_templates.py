@@ -80,13 +80,29 @@ def test_builtin_texts_follow_the_language():
     assert english[0][0] == "Address label"
 
 
-def test_user_templates_are_stored_in_the_config_dir(monkeypatch, tmp_path):
-    """Eigene Vorlagen liegen bei den Einstellungen (XDG_CONFIG_HOME)."""
+def test_user_templates_are_stored_in_the_config_dir(platform, monkeypatch, tmp_path):
+    """Unter Linux liegen eigene Vorlagen bei den Einstellungen (XDG_CONFIG_HOME)."""
+    platform("linux")
     monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
     monkeypatch.delenv(templates.TEMPLATE_DIR_ENV, raising=False)
 
     assert templates.user_dir() == tmp_path / "QLInux" / "templates"
     assert templates.list_user() == []
+
+
+def test_user_templates_live_in_library_on_the_mac(platform, monkeypatch, tmp_path):
+    """Auf dem Mac gilt Application Support, nicht ~/.config."""
+    platform("darwin")
+    monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "ignored"))
+    monkeypatch.delenv(templates.TEMPLATE_DIR_ENV, raising=False)
+
+    expected = tmp_path / "Library" / "Application Support" / "QLInux" / "templates"
+    assert templates.user_dir() == expected
+    assert templates.list_user() == []
+    templates.save_user("Mac", templates.builtins()[0][1])  # legt den Ordner an
+    assert expected.is_dir()
+    assert not (tmp_path / ".config").exists()
 
 
 def test_saving_and_listing_own_templates(monkeypatch, tmp_path):

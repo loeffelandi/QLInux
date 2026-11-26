@@ -7,6 +7,7 @@ Randbegrenzung. Es wird kein Drucker benoetigt.
 from __future__ import annotations
 
 import math
+import sys
 
 import pytest
 from PySide6.QtCore import QSettings, Qt
@@ -21,9 +22,11 @@ pytestmark = pytest.mark.usefixtures("qapp")
 
 @pytest.fixture(autouse=True)
 def _clean_settings():
-    QSettings("QLInux", "QLInux").clear()
+    from ql_editor.settings import user_settings
+
+    user_settings().clear()
     yield
-    QSettings("QLInux", "QLInux").clear()
+    user_settings().clear()
 
 
 # --------------------------------------------------------------------------- #
@@ -620,6 +623,54 @@ def test_media_panel_offers_access_help_when_rights_are_missing(qapp, monkeypatc
     panel.usb_permission_requested.connect(lambda: requested.append(True))
     panel._access_button.click()
     assert requested == [True]
+
+
+def test_media_panel_names_the_local_network_setting_on_the_mac(
+    qapp, monkeypatch, platform
+):
+    from ql_editor import media_panel as media_panel_module
+    from ql_editor.media_panel import MediaPanel
+
+    platform("darwin")
+    panel = MediaPanel()
+
+    monkeypatch.setattr(media_panel_module, "local_network_refused", lambda: True)
+    panel.refresh_network_devices([])
+    assert "Lokales Netzwerk" in panel._net_hint.text()
+
+    # Mit Treffern oder ohne Verweigerung bleibt es beim ueblichen Text.
+    monkeypatch.setattr(media_panel_module, "local_network_refused", lambda: False)
+    panel.refresh_network_devices([])
+    assert panel._net_hint.text() == "Kein Drucker gefunden."
+
+
+def test_media_panel_ignores_the_local_network_flag_on_linux(qapp, monkeypatch):
+    from ql_editor import media_panel as media_panel_module
+    from ql_editor.media_panel import MediaPanel
+
+    monkeypatch.setattr(media_panel_module, "local_network_refused", lambda: True)
+    panel = MediaPanel()
+    panel.refresh_network_devices([])
+
+    assert panel._net_hint.text() == "Kein Drucker gefunden."
+
+
+def test_media_panel_has_no_access_button_on_the_mac(qapp, monkeypatch, platform):
+    """Kein udev auf dem Mac: auch bei einem falschen Befund kein Knopf."""
+    from ql_editor import media_panel as media_panel_module
+    from ql_editor.media_panel import CONNECTION_USB, MediaPanel
+
+    platform("darwin")
+    monkeypatch.setattr(
+        media_panel_module, "usb_printers", lambda: ["usb://0x04f9:0x2042"]
+    )
+    monkeypatch.setattr(media_panel_module, "usb_access", lambda address: False)
+    panel = MediaPanel()
+
+    panel._conn_buttons[CONNECTION_USB].setChecked(True)
+
+    assert panel.access_allowed is None
+    assert not panel._access_button.isVisibleTo(panel)
 
 
 def test_media_panel_hides_access_help_when_the_device_works(qapp, monkeypatch):
@@ -2721,7 +2772,10 @@ def test_image_item_serialization_roundtrip(qapp):
     from PySide6.QtGui import QPixmap
     from ql_editor.items import ImageItem
 
-    item = ImageItem(QPixmap(40, 20))
+    pixmap = QPixmap(40, 20)
+    # Einfarbig und klein: genau das kann Qts WebP-Leser nicht zuruecklesen.
+    pixmap.fill(Qt.GlobalColor.white)
+    item = ImageItem(pixmap)
     data = item.to_dict()
     assert data["data_b64"]
 
@@ -4532,7 +4586,6 @@ def _temp_window(qapp, tmp_path):
     Damit bleiben Tests unabhaengig von den echten Nutzer-Einstellungen (und
     schreiben auch nicht hinein).
     """
-    from PySide6.QtCore import QSettings
     from ql_editor.app import MainWindow
     from ql_editor.settings import AppSettings
 
@@ -4553,7 +4606,6 @@ def test_startup_keeps_the_stored_printer_address(qapp, tmp_path, monkeypatch):
     stand dort schon der Standarddrucker: die USB-Auswahl war beim naechsten
     Start weg (und das Modell, das daran haengt, gleich mit).
     """
-    from PySide6.QtCore import QSettings
     from ql_editor import media_panel as media_panel_module
     from ql_editor.app import MainWindow
     from ql_editor.media_panel import CONNECTION_USB
@@ -4629,7 +4681,6 @@ def test_fresh_start_leaves_the_network_field_empty(qapp, tmp_path):
 
 def test_startup_selects_the_saved_network_printer(qapp, tmp_path, monkeypatch):
     """Der letzte Netzwerkdrucker wird gewaehlt, wenn die Suche ihn findet."""
-    from PySide6.QtCore import QSettings
     from ql_editor import app as app_module
     from ql_editor import discovery
     from ql_editor.app import MainWindow
@@ -4661,7 +4712,6 @@ def test_startup_selects_the_saved_network_printer(qapp, tmp_path, monkeypatch):
 
 def test_startup_falls_back_to_the_first_network_printer(qapp, tmp_path, monkeypatch):
     """Fehlt der letzte Drucker in den Treffern, gilt der erste."""
-    from PySide6.QtCore import QSettings
     from ql_editor import app as app_module
     from ql_editor import discovery
     from ql_editor.app import MainWindow
@@ -4699,7 +4749,6 @@ def test_startup_falls_back_to_the_first_network_printer(qapp, tmp_path, monkeyp
 def test_startup_picks_the_first_network_printer_without_a_saved_one(
     qapp, tmp_path, monkeypatch
 ):
-    from PySide6.QtCore import QSettings
     from ql_editor import app as app_module
     from ql_editor import discovery
     from ql_editor.app import MainWindow
@@ -4744,7 +4793,6 @@ def test_startup_keeps_a_saved_address_when_the_network_is_empty(qapp, tmp_path)
 
 
 def test_startup_selects_the_saved_usb_printer(qapp, tmp_path, monkeypatch):
-    from PySide6.QtCore import QSettings
     from ql_editor import media_panel as media_panel_module
     from ql_editor.app import MainWindow
     from ql_editor.media_panel import CONNECTION_USB
@@ -4772,7 +4820,6 @@ def test_startup_selects_the_saved_usb_printer(qapp, tmp_path, monkeypatch):
 
 
 def test_startup_falls_back_to_the_first_usb_printer(qapp, tmp_path, monkeypatch):
-    from PySide6.QtCore import QSettings
     from ql_editor import media_panel as media_panel_module
     from ql_editor.app import MainWindow
     from ql_editor.media_panel import CONNECTION_USB
@@ -4827,7 +4874,6 @@ def test_startup_keeps_a_loaded_label_until_the_user_adapts(
     qapp, tmp_path, monkeypatch
 ):
     """Ein geoeffnetes Etikett behaelt Modell und Raender, bis man zustimmt."""
-    from PySide6.QtCore import QSettings
     from ql_editor import app as app_module
     from ql_editor import discovery, document
     from ql_editor.app import MainWindow
@@ -4870,7 +4916,6 @@ def test_startup_keeps_a_loaded_label_until_the_user_adapts(
 
 def test_startup_adapt_label_is_an_undo_step(qapp, tmp_path, monkeypatch):
     """Wer anpasst, bekommt einen Undo-Schritt und den Stern."""
-    from PySide6.QtCore import QSettings
     from ql_editor import app as app_module
     from ql_editor import discovery, document
     from ql_editor.app import MainWindow
@@ -4914,7 +4959,6 @@ def test_startup_adapt_label_is_an_undo_step(qapp, tmp_path, monkeypatch):
 def test_startup_does_not_ask_when_the_model_already_matches(
     qapp, tmp_path, monkeypatch
 ):
-    from PySide6.QtCore import QSettings
     from ql_editor import app as app_module
     from ql_editor import discovery, document
     from ql_editor.app import MainWindow
@@ -4952,7 +4996,6 @@ def test_startup_does_not_ask_when_the_model_already_matches(
 
 def test_startup_ignores_an_address_typed_while_searching(qapp, tmp_path, monkeypatch):
     """Eine IP aus der Suchsekunde wird nicht durch den ersten Treffer ersetzt."""
-    from PySide6.QtCore import QSettings
     from ql_editor import discovery
     from ql_editor.app import MainWindow
     from ql_editor.settings import AppSettings
@@ -4983,7 +5026,6 @@ def test_startup_ignores_an_address_typed_while_searching(qapp, tmp_path, monkey
 
 def test_startup_ignores_a_usb_switch_while_searching(qapp, tmp_path, monkeypatch):
     """Wer waehrend der Suche auf USB geht, behaelt Anschluss und Modell."""
-    from PySide6.QtCore import QSettings
     from ql_editor import discovery
     from ql_editor import media_panel as media_panel_module
     from ql_editor.app import MainWindow
@@ -5014,7 +5056,6 @@ def test_startup_ignores_a_usb_switch_while_searching(qapp, tmp_path, monkeypatc
 
 def test_startup_matches_the_same_host_on_another_port(qapp, tmp_path, monkeypatch):
     """Gleicher Host, anderer Port: dieser Drucker, nicht der erste Treffer."""
-    from PySide6.QtCore import QSettings
     from ql_editor import app as app_module
     from ql_editor import discovery
     from ql_editor.app import MainWindow
@@ -5080,7 +5121,6 @@ def test_close_drops_the_network_worker_before_delete_later(qapp, tmp_path):
     Ohne das bleibt ``_network_worker`` gesetzt, und die naechste Fixture
     ruft ``isRunning()`` auf einem schon geloeschten C++-Objekt auf.
     """
-    from PySide6.QtCore import QSettings
     from ql_editor.app import MainWindow
     from ql_editor.settings import AppSettings
 
@@ -5735,7 +5775,6 @@ def test_threshold_has_an_explanatory_tooltip(qapp, tmp_path):
 
 def test_old_settings_are_migrated(qapp, tmp_path):
     """Bestehende Einstellungen (print/quality, print/hq) werden uebersetzt."""
-    from PySide6.QtCore import QSettings
     from ql_editor.settings import AppSettings
 
     raw = QSettings(str(tmp_path / "migration.ini"), QSettings.Format.IniFormat)
@@ -5767,7 +5806,6 @@ def test_old_settings_are_migrated(qapp, tmp_path):
 
 
 def test_fresh_settings_use_the_standard_resolution(qapp, tmp_path):
-    from PySide6.QtCore import QSettings
     from ql_editor.settings import AppSettings
 
     raw = QSettings(str(tmp_path / "fresh.ini"), QSettings.Format.IniFormat)
@@ -5921,7 +5959,7 @@ def test_english_ui_has_no_german_leftovers(qapp, tmp_path):
     verraten jeden vergessenen Text.
     """
     from PIL import Image
-    from PySide6.QtCore import QPointF, QRectF, QSettings
+    from PySide6.QtCore import QPointF, QRectF
     from PySide6.QtWidgets import (
         QCheckBox,
         QComboBox,
@@ -7645,7 +7683,6 @@ def test_long_tape_name_or_a_search_does_not_move_the_boxes_below(
 
 
 def test_startup_shows_the_tape_remembered_for_the_printer(qapp, tmp_path):
-    from PySide6.QtCore import QSettings
     from ql_editor.app import MainWindow
     from ql_editor.settings import AppSettings
 
@@ -8219,6 +8256,96 @@ def test_pinch_zoom_keeps_point_under_fingers(qapp):
     assert abs(after.y() - anchor.y()) <= 3
 
 
+def test_native_zoom_gesture_keeps_the_point_under_the_cursor(qapp):
+    """Trackpad-Pinch (macOS): der Punkt unter dem Zeiger bleibt dort."""
+    from PySide6.QtCore import QPointF, Qt
+    from PySide6.QtGui import QNativeGestureEvent
+
+    canvas = _shown_canvas(qapp)
+    canvas.zoom_by(2.0)
+    for bar in (canvas.horizontalScrollBar(), canvas.verticalScrollBar()):
+        bar.setValue(bar.maximum() // 2)
+    qapp.processEvents()
+    anchor = QPointF(120.0, 90.0)
+    before = canvas.mapToScene(anchor.toPoint())
+    scale = canvas.transform().m11()
+
+    glob = canvas.viewport().mapToGlobal(anchor)
+    event = QNativeGestureEvent(
+        Qt.NativeGestureType.ZoomNativeGesture,
+        _device(),
+        2,
+        anchor,
+        anchor,
+        glob,
+        0.3,
+        QPointF(),
+    )
+    assert canvas.event(event) is True
+    qapp.processEvents()
+
+    assert canvas.transform().m11() > scale
+    after = canvas.mapFromScene(before)
+    assert abs(after.x() - anchor.x()) <= 3
+    assert abs(after.y() - anchor.y()) <= 3
+
+
+def test_mac_pinch_without_finger_center_zooms_at_the_cursor(
+    qapp, monkeypatch, platform
+):
+    """Qt macht aus dem Trackpad eine QPinchGesture ohne Fingermitte (0, 0).
+
+    Dann ist der Zeiger der Anker; sonst zoomt der Ausschnitt in die Ecke.
+    """
+    from PySide6.QtCore import QPointF
+    from PySide6.QtGui import QCursor
+    from PySide6.QtWidgets import QPinchGesture
+
+    platform("darwin")
+    canvas = _shown_canvas(qapp)
+    canvas.zoom_by(2.0)
+    for bar in (canvas.horizontalScrollBar(), canvas.verticalScrollBar()):
+        bar.setValue(bar.maximum() // 2)
+    qapp.processEvents()
+    anchor = QPointF(120.0, 90.0)
+    before = canvas.mapToScene(anchor.toPoint())
+    scale = canvas.transform().m11()
+    monkeypatch.setattr(
+        QCursor,
+        "pos",
+        staticmethod(lambda: canvas.viewport().mapToGlobal(anchor).toPoint()),
+    )
+
+    class _MacPinch:
+        def state(self):
+            return Qt.GestureState.GestureUpdated
+
+        def changeFlags(self):  # noqa: N802
+            return QPinchGesture.ChangeFlag.ScaleFactorChanged
+
+        def scaleFactor(self):  # noqa: N802
+            return 1.3
+
+        def centerPoint(self):  # noqa: N802
+            return QPointF(306.0, 124.0)
+
+        def lastCenterPoint(self):  # noqa: N802
+            return QPointF(0.0, 0.0)
+
+    canvas._on_pinch(_MacPinch())
+    qapp.processEvents()
+
+    assert canvas.transform().m11() > scale
+    after = canvas.mapFromScene(before)
+    assert abs(after.x() - anchor.x()) <= 3
+    assert abs(after.y() - anchor.y()) <= 3
+
+
+@pytest.mark.skipif(
+    sys.platform == "darwin",
+    reason="Qt erkennt auf macOS aus Touch-Punkten keine Pinch-Geste; das "
+    "Trackpad liefert NativeGesture (test_canvas_pinch_gesture_zooms).",
+)
 @pytest.mark.parametrize("thumb_rests", [False, True])
 def test_touch_pinch_zooms_by_finger_distance(qapp, thumb_rests):
     """Echte Touch-Events: Fingerabstand 60 -> 150 px zoomt x2,5, das Etikett bleibt unter den Fingern."""
@@ -8253,3 +8380,89 @@ def test_touch_pinch_zooms_by_finger_distance(qapp, thumb_rests):
         drift = canvas.mapFromScene(scene_point) - finger
         assert abs(drift.x()) <= 4
         assert abs(drift.y()) <= 4
+
+
+def _tab_keys(win) -> dict[str, list[str]]:
+    from PySide6.QtGui import QKeySequence
+
+    portable = QKeySequence.SequenceFormat.PortableText
+    return {
+        "next": [s.toString(portable) for s in win._act_tab_next.shortcuts()],
+        "prev": [s.toString(portable) for s in win._act_tab_prev.shortcuts()],
+    }
+
+
+def test_tab_switch_uses_control_tab_on_the_mac(qapp, tmp_path, platform):
+    """Cmd+Tab gehoert macOS (Programmwechsel); Reiter wechseln mit Control+Tab."""
+    platform("darwin")
+    keys = _tab_keys(_temp_window(qapp, tmp_path))
+
+    assert "Meta+Tab" in keys["next"]
+    assert "Meta+Shift+Tab" in keys["prev"]
+    assert "Ctrl+Tab" not in keys["next"]
+    assert "Ctrl+Shift+Backtab" not in keys["prev"]
+
+
+def test_tab_switch_keeps_ctrl_tab_on_linux(qapp, tmp_path, platform):
+    platform("linux")
+    keys = _tab_keys(_temp_window(qapp, tmp_path))
+
+    assert "Ctrl+Tab" in keys["next"]
+    assert "Meta+Tab" not in keys["next"]
+
+
+def test_mac_menu_bar_has_about_and_quit_with_roles(qapp, tmp_path, platform):
+    """Auf dem Mac stehen Ueber und Beenden im Programmmenue, nicht im Burger."""
+    from PySide6.QtGui import QAction
+
+    platform("darwin")
+    win = _temp_window(qapp, tmp_path)
+
+    # Die Reiterleiste bleibt das Menue-Widget des Fensters.
+    assert win.menuWidget() is win._tab_chrome
+    assert win._tab_bar.count() == 1
+    assert win._mac_menu_bar.parent() is None
+    app_menu = win._mac_menu_bar.actions()[0].menu()
+    assert app_menu.title() == "QLInux"
+    assert app_menu.actions() == [win._act_about, win._act_quit]
+    assert win._act_about.menuRole() == QAction.MenuRole.AboutRole
+    assert win._act_quit.menuRole() == QAction.MenuRole.QuitRole
+    burger = win._menu_button.menu().actions()
+    assert win._act_about not in burger
+    assert win._act_quit not in burger
+    assert win._act_help in burger
+
+
+def test_linux_has_no_menu_bar_and_keeps_about_and_quit_in_the_burger(
+    qapp, tmp_path, platform
+):
+    platform("linux")
+    win = _temp_window(qapp, tmp_path)
+
+    assert not hasattr(win, "_mac_menu_bar")
+    assert win.menuWidget() is win._tab_chrome
+    burger = win._menu_button.menu().actions()
+    assert win._act_about in burger
+    assert win._act_quit in burger
+
+
+def test_cmd_q_asks_about_unsaved_changes_on_the_mac(qapp, tmp_path, platform):
+    """Beenden laeuft wie Schliessen ueber closeEvent und fragt nach."""
+    from ql_editor.items import TextItem
+
+    platform("darwin")
+    win = _temp_window(qapp, tmp_path)
+    win._add_item(TextItem("Weg", font_pixel_size=20))
+    assert win._active.is_dirty()
+
+    win._act_quit.trigger()
+    qapp.processEvents()
+    assert win.isVisible()  # die Rueckfrage steht, das Programm laeuft weiter
+
+    # Auf dem Mac ist die Rueckfrage ein Systemdialog, kein Overlay.
+    from PySide6.QtWidgets import QMessageBox
+
+    box = next(b for b in win.findChildren(QMessageBox) if b.isVisible())
+    next(b for b in box.buttons() if b.text() == "Verwerfen").click()
+    qapp.processEvents()
+    assert not win.isVisible()

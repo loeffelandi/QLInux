@@ -11,17 +11,17 @@ from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication, QCheckBox, QToolButton
 from ql_editor.items import ImageItem, TextItem
 from ql_editor.printer import CUT_AT_END, CUT_EACH, CUT_MODES, resolution_options
+from ql_editor.settings import user_settings
 
 pytestmark = pytest.mark.usefixtures("qapp")
 
 
 @pytest.fixture(autouse=True)
 def _clean_settings():
-    from PySide6.QtCore import QSettings
 
-    QSettings("QLInux", "QLInux").clear()
+    user_settings().clear()
     yield
-    QSettings("QLInux", "QLInux").clear()
+    user_settings().clear()
 
 
 @pytest.fixture
