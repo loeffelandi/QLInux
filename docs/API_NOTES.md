@@ -18,7 +18,7 @@ python scripts/verify_api.py
 | OS | Pop!_OS (Ubuntu 24.04), Python 3.12.3 |
 | Projekt-venv | `./.venv` (eigene venv, Web-venv bleibt unangetastet) |
 | `brother_ql` | **0.9.4** (gepinnt, nicht upgraden) |
-| Pillow | 12.3.0 |
+| Pillow | 13.0.0 |
 | PySide6 | 6.12.0 |
 | Drucker | QL-820NWB, `tcp://192.168.178.62:9100` |
 | Auflosung | 300 dpi → `DOTS_PER_MM = 300/25.4 ≈ 11.811` |
