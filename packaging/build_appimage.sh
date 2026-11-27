@@ -69,6 +69,16 @@ cd "$ROOT"
     --noconfirm --clean --log-level WARN \
     --distpath "$OUT" --workpath "$OUT/build" \
     "$ROOT/packaging/ql_editor.spec"
+# Die Update-Suche braucht die Zertifikatsliste im Bundle (docs/adr/0024).
+PROBE="$(QT_QPA_PLATFORM=offscreen QLINUX_SELFTEST=certifi "$OUT/ql-editor/ql-editor")"
+echo "$PROBE"
+case "$PROBE" in
+    *"$OUT/ql-editor/"*) ;;
+    *)
+        echo "cacert.pem liegt nicht im Bundle" >&2
+        exit 1
+        ;;
+esac
 # PyInstaller legt das Verzeichnis nach seinem Namen ab.
 mv "$OUT/ql-editor" "$OUT/bundle"
 

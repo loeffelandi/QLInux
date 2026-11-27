@@ -149,6 +149,29 @@ else is the same as on Linux, with these exceptions: USB goes through libusb
 only, there is no “Set up access” button (see [USB permissions](#usb-permissions)),
 and dialogs are the system’s own (Open, Save, alerts).
 
+### Updates
+
+The AppImage and `QLInux.app` update themselves from the GitHub releases. At
+start, QLInux asks GitHub in the background for the latest release, at most
+once every 24 hours. If a newer version exists, a sheet offers **Update now**,
+**Later** and **Skip this version**. The download is checked against the
+SHA-256 sum GitHub publishes for the file; only then the AppImage (or the
+app) is replaced and QLInux offers to restart, reopening your tabs. If
+the folder is not writable (for example `/Applications` without admin rights),
+QLInux says so and changes nothing.
+
+*Check for updates…* in the main menu asks right away, and *Check for updates
+on start* turns the start check off. `QLINUX_NO_UPDATE_CHECK=1` in the
+environment turns it off as well. The request goes to `api.github.com` over
+HTTPS and carries only the program name and version (`QLInux/<version>`) —
+this is the one connection QLInux makes to the internet by itself. A source
+checkout, an AppImage you extracted, and a build that is not a `QLInux.app`
+never update themselves, and the menu entries are not shown there.
+
+On the Mac an update installs a new copy of the app. Because it is not
+signed with a developer certificate, macOS may ask again for the **local
+network** and the firewall after the update.
+
 **From source:**
 
 ```bash
@@ -398,6 +421,7 @@ Your own templates then appear in the same menu.
 | Database | Print the selected row, all rows, or a record range | ✅ |
 | Database | Numbering on one object | ✅ |
 | Sheets | Avery Zweckform A4 templates, database fill, PDF and system printer | ✅ |
+| Updates | Self-update from GitHub releases (AppImage, `QLInux.app`) | ✅ |
 
 ## License
 
@@ -416,6 +440,7 @@ dependency: `brother_ql` is GPL-3.0-or-later.
 | [libusb](https://libusb.info) | Hans de Goede, Nathan Hjelm and contributors | LGPL-2.1-or-later | USB access, bundled in the macOS app |
 | [qrcode](https://github.com/lincolnloop/python-qrcode) | Lincoln Loop and contributors | BSD-3-Clause | QR codes |
 | [python-barcode](https://github.com/WhyNotHugo/python-barcode) | Thorsten Weimann and contributors | MIT | barcodes |
+| [certifi](https://github.com/certifi/python-certifi) | Kenneth Reitz and contributors | MPL-2.0 | CA certificates for the update check |
 | [gLabels](https://github.com/jimevins/glabels-qt) | Jim Evins and contributors | GPL-3.0-or-later | Avery Zweckform sheet measurements |
 
 ## Disclaimer

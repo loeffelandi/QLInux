@@ -402,5 +402,35 @@ class AppSettings:
     def panel_right_visible(self, value: bool) -> None:
         self.set_value("view/panel_right", bool(value))
 
+    # -- Updates ------------------------------------------------------------
+    @property
+    def update_check_on_start(self) -> bool:
+        return self._as_bool(self.value("updates/check_on_start", None), True)
+
+    @update_check_on_start.setter
+    def update_check_on_start(self, value: bool) -> None:
+        self.set_value("updates/check_on_start", bool(value))
+
+    @property
+    def update_last_check(self) -> float:
+        """Zeitpunkt (Unix-Sekunden) der letzten vollstaendigen Abfrage; 0 = nie."""
+        try:
+            return float(self.value("updates/last_check", 0.0) or 0.0)
+        except (TypeError, ValueError):
+            return 0.0
+
+    @update_last_check.setter
+    def update_last_check(self, value: float) -> None:
+        self.set_value("updates/last_check", float(value))
+
+    @property
+    def update_skipped_version(self) -> str:
+        """Version, die der Nutzer uebersprungen hat (leer: keine)."""
+        return str(self.value("updates/skipped_version", "") or "")
+
+    @update_skipped_version.setter
+    def update_skipped_version(self, value: str) -> None:
+        self.set_value("updates/skipped_version", str(value))
+
 
 __all__ = ["AppSettings"]

@@ -98,6 +98,17 @@ case "$PROBE" in
         exit 1
         ;;
 esac
+# Die Update-Suche braucht die Zertifikatsliste im Bundle (docs/adr/0024).
+PROBE="$(env -i HOME="$HOME" PATH="/usr/bin:/bin" QT_QPA_PLATFORM=offscreen \
+    QLINUX_SELFTEST=certifi "$BIN")"
+echo "$PROBE"
+case "$PROBE" in
+    *"$APP/"*) ;;
+    *)
+        echo "cacert.pem liegt nicht im Bundle" >&2
+        exit 1
+        ;;
+esac
 
 echo "==> .dmg"
 mkdir -p "$ROOT/dist"

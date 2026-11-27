@@ -1072,4 +1072,62 @@ EN: dict[str, str] = {
     "PDF gespeichert: {path}": "PDF saved: {path}",
     "Bogen speichern": "Save sheet",
     "PDF (*.pdf)": "PDF (*.pdf)",
+    # -- Selbst-Update --------------------------------------------------------
+    "Updates": "Updates",
+    "QLInux fragt beim Start höchstens einmal am Tag bei GitHub nach einer neuen Version und bietet sie zum Installieren an. Im Menü suchst du mit „Nach Updates suchen…“ von Hand; „Beim Start nach Updates suchen“ schaltet die Abfrage ab.": (
+        "At start, QLInux asks GitHub for a new version at most once a day and "
+        "offers to install it. In the menu, “Check for updates…” looks by hand; "
+        "“Check for updates on start” turns the check off."
+    ),
+    "Nach Updates suchen…": "Check for updates…",
+    "Nach Updates suchen": "Check for updates",
+    "Beim Start nach Updates suchen": "Check for updates on start",
+    "Update verfügbar": "Update available",
+    "QLInux {new} ist erschienen. Installiert ist Version {current}.\n\nJetzt herunterladen und installieren?": (
+        "QLInux {new} is available. Version {current} is installed.\n\n"
+        "Download and install it now?"
+    ),
+    "Jetzt aktualisieren": "Update now",
+    "Später": "Later",
+    "Diese Version überspringen": "Skip this version",
+    "Jetzt neu starten": "Restart now",
+    "Update wird geladen": "Downloading update",
+    "QLInux {version} wird geladen …": "Downloading QLInux {version} …",
+    "Update wird installiert …": "Installing update …",
+    "Update fehlgeschlagen": "Update failed",
+    "Update installiert": "Update installed",
+    "QLInux wurde aktualisiert. Jetzt neu starten, um die neue Version zu benutzen?": (
+        "QLInux was updated. Restart now to use the new version?"
+    ),
+    "QLInux ist aktuell (Version {version}).": (
+        "QLInux is up to date (version {version})."
+    ),
+    "Eine neue Version wird gerade veröffentlicht. Bitte in ein paar Minuten noch einmal suchen.": (
+        "A new version is being published right now. "
+        "Please check again in a few minutes."
+    ),
+    "Die Suche ist fehlgeschlagen: {error}": "The check failed: {error}",
+    "Das Update ist fehlgeschlagen: {error}": "The update failed: {error}",
+    "GitHub ist nicht erreichbar: {error}": "GitHub cannot be reached: {error}",
+    "Unerwartete Antwort von GitHub.": "Unexpected answer from GitHub.",
+    "Unverschlüsselte Adresse abgelehnt: {url}": "Unencrypted address refused: {url}",
+    "Der Download ist fehlgeschlagen: {error}": "The download failed: {error}",
+    "Der Download ist unvollständig.": "The download is incomplete.",
+    "Die Prüfsumme der Datei stimmt nicht. Das Update wird nicht installiert.": (
+        "The checksum of the file does not match. The update is not installed."
+    ),
+    "In den Ordner {path} darf QLInux nicht schreiben.": (
+        "QLInux is not allowed to write to the folder {path}."
+    ),
+    "{path} konnte nicht ersetzt werden: {error}": "{path} could not be replaced: {error}",
+    "QLInux.app wurde nicht gefunden.": "QLInux.app was not found.",
+    "In der .dmg liegt keine QLInux.app.": "The .dmg contains no QLInux.app.",
+    "Die neue App ist unvollständig.": "The new app is incomplete.",
+    "Die neue App hat die Version {found}, erwartet war {expected}.": (
+        "The new app is version {found}, expected {expected}."
+    ),
+    "Das Öffnen der .dmg": "Opening the .dmg",
+    "Das Kopieren der App": "Copying the app",
+    "Die Prüfung der Signatur": "Checking the signature",
+    "{step} ist fehlgeschlagen: {error}": "{step} failed: {error}",
 }

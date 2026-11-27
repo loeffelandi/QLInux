@@ -25,6 +25,7 @@ from __future__ import annotations
 import json
 import logging
 import math
+import os
 import sys
 import threading
 from collections.abc import Iterable, Mapping, Sequence
@@ -101,6 +102,7 @@ from . import (
     resources,
     stationery,
     templates,
+    updater,
 )
 from . import help as app_help
 from . import merge as merge_engine
@@ -191,6 +193,7 @@ from .sheet_output import print_sheets, render_page_image, system_printers, writ
 from .sheet_picker import SheetStartPicker
 from .symbols import SymbolPicker
 from .theme import apply_theme, scheme_for
+from .update_ui import UpdateController
 from .widgets import (
     SmoothScrollArea,
     add_toolbar_separator,
@@ -436,6 +439,10 @@ class DetectLabelWorker(QThread):
 #: diese Referenz haelt es am Leben - ein Fenster ohne Elternteil wird sonst
 #: vom Garbage Collector eingesammelt.
 _current_window: MainWindow | None = None
+
+#: Befehl des Hilfsprozesses, der nach dem Ende des Programms die neue Version
+#: startet. ``MainWindow`` setzt ihn erst, wenn das Fenster wirklich schliesst.
+_restart_command: list[str] | None = None
 
 
 def _remember_window(window: MainWindow) -> None:
@@ -699,6 +706,9 @@ class MainWindow(QMainWindow):
         self._close_prompt = False
         #: Sheet der Fenster-Rückfrage. Hilfe und andere Sheets zählen nicht.
         self._close_sheet: SheetLike | None = None
+        #: (Art, Pfad) der installierten Version, solange ein Neustart ansteht.
+        self._restart_request: tuple[str, Path] | None = None
+        self._updates = UpdateController(self)
         #: CSV-/Hash-Status nach Open zuletzt anzeigen (nicht von „geöffnet“ überdecken).
         self._pending_database_status: str | None = None
         # Von/Bis, wie der Nutzer sie gesetzt hat. Eine kürzere CSV klemmt nur
@@ -1895,6 +1905,13 @@ class MainWindow(QMainWindow):
         self._act_help.setToolTip(tr("Hilfe"))
         self._act_help.triggered.connect(self._show_help)
 
+        self._act_check_updates = QAction(tr("Nach Updates suchen…"), self)
+        self._act_check_updates.triggered.connect(self._updates.check_now)
+        self._act_update_on_start = QAction(tr("Beim Start nach Updates suchen"), self)
+        self._act_update_on_start.setCheckable(True)
+        self._act_update_on_start.setChecked(self._settings.update_check_on_start)
+        self._act_update_on_start.toggled.connect(self._set_update_on_start)
+
         self._act_about = QAction(icon("about"), tr("Über QLInux"), self)
         self._act_about.setToolTip(tr("Über QLInux"))
         self._act_about.triggered.connect(self._show_about)
@@ -2105,6 +2122,9 @@ class MainWindow(QMainWindow):
         self._build_language_menu(menu)
         self._build_appearance_menu(menu)
         menu.addAction(self._act_help)
+        if updater.is_updatable():
+            menu.addAction(self._act_check_updates)
+            menu.addAction(self._act_update_on_start)
         if not is_mac():
             # Auf dem Mac stehen beide im Programmmenue der Menueleiste.
             menu.addAction(self._act_about)
@@ -2305,9 +2325,31 @@ class MainWindow(QMainWindow):
                 list(self._appearance_group.actions()),
             ),
             self._palette_leaf(self._act_help),
+            *self._update_entries(),
             self._palette_leaf(self._act_about),
             self._palette_leaf(self._act_quit),
         ]
+
+    def _update_entries(self) -> list[PaletteEntry]:
+        """Update-Befehle gibt es nur in einer Installation, die sich ersetzen kann."""
+        if not updater.is_updatable():
+            return []
+        return [
+            self._palette_leaf(self._act_check_updates),
+            self._palette_leaf(self._act_update_on_start),
+        ]
+
+    def _set_update_on_start(self, checked: bool) -> None:
+        self._settings.update_check_on_start = checked
+
+    def request_restart(self, kind: str, target: Path) -> None:
+        """Nach einem Update neu starten: das Fenster schliesst wie gewohnt.
+
+        Die Rueckfrage nach ungespeicherten Aenderungen bleibt; bricht der
+        Nutzer sie ab, bleibt das Fenster offen und es wird nicht neu gestartet.
+        """
+        self._restart_request = (kind, target)
+        self.close()
 
     def _palette_leaf(self, action: QAction) -> PaletteEntry:
         return PaletteEntry(action.text(), action=action)
@@ -5744,6 +5786,7 @@ class MainWindow(QMainWindow):
         def _cancel() -> None:
             self._close_prompt = False
             self._close_sheet = None
+            self._restart_request = None
 
         def _continue() -> None:
             self._prompt_close(pending[1:])
@@ -6433,6 +6476,12 @@ class MainWindow(QMainWindow):
         self._finish_close(event)
 
     def _finish_close(self, event) -> None:
+        global _restart_command
+        if self._restart_request is not None:
+            kind, target = self._restart_request
+            paths = [tab.path for tab in self._ordered_tabs() if tab.path]
+            _restart_command = updater.restart_command(kind, target, paths, os.getpid())
+        self._updates.shutdown()
         # Laufende Suche abbrechen, damit kein Thread das geschlossene
         # Fenster anspricht.
         self._network_cancel.set()
@@ -6684,8 +6733,12 @@ def main(argv: list[str] | None = None) -> int:
         window.open_path(path)
     if opener is not None:
         opener.attach()
+    updater.cleanup_stale()
+    window._updates.check_on_start()
     code = app.exec()
     _wait_for_orphans()
+    if _restart_command is not None:
+        updater.start_restart(_restart_command)
     return code
 
 

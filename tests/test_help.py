@@ -161,3 +161,25 @@ def test_help_opens_from_the_menu_beside_about(qapp):
     )
     qapp.processEvents()
     assert not sheet.isVisible()
+
+
+def test_help_names_the_update_entries_only_in_a_packed_install(
+    qapp, monkeypatch, tmp_path
+):
+    monkeypatch.delenv("APPIMAGE", raising=False)
+    assert "Updates" not in _labels(build_help_content())
+
+    image = tmp_path / "QLInux.AppImage"
+    image.write_bytes(b"x")
+    monkeypatch.setenv("APPIMAGE", str(image))
+    german = "\n".join(_labels(build_help_content()))
+    assert "Nach Updates suchen…" in german
+    assert "Beim Start nach Updates suchen" in german
+
+    i18n.set_language("en")
+    try:
+        english = "\n".join(_labels(build_help_content()))
+    finally:
+        i18n.set_language(i18n.DEFAULT_LANGUAGE)
+    assert "Check for updates…" in english
+    assert "Check for updates on start" in english

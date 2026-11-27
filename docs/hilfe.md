@@ -13,6 +13,11 @@ Fett, kursiv und unterstrichen stehen als Strg+B, Strg+I und Strg+U.
 Das linke Panel ist F9, das rechte Umschalt+F9. Strg+B und
 Strg+Umschalt+B sind keine Panels.
 
+Der Abschnitt Updates erscheint nur, wenn sich das Programm selbst
+ersetzen kann (AppImage oder `QLInux.app`, siehe `updater.is_updatable`);
+dort stehen auch die beiden Menüeinträge zum Suchen. Der Text nennt sie
+beim Namen, deshalb zieht eine Umbenennung die Hilfe mit.
+
 ## Grundregel für Sheets
 
 Ein Sheet, das nur etwas zeigt, geht zu, wenn man neben die Karte auf
