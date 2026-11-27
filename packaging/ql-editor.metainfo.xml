@@ -32,6 +32,11 @@
     </screenshot>
   </screenshots>
   <releases>
+    <release version="0.5.1" date="2026-11-27">
+      <description>
+        <p>Pillow 13.0.0 fixes a heap buffer overflow in the bundled JPEG 2000 library that opening an image could reach, plus four smaller image-format bugs. QLInux now needs Python 3.11 or newer when run from source.</p>
+      </description>
+    </release>
     <release version="0.5.0" date="2026-11-27">
       <description>
         <p>QLInux for the Mac: a .dmg for Apple Silicon with system dialogs, the native menu bar, Mac key notation, pinch to zoom at the pointer, printer search on the local network and USB through the bundled libusb. Enter in the print sheet and in question sheets now acts on the default button. Every release ships the AppImages and the .dmg.</p>

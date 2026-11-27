@@ -5,7 +5,7 @@ Avery Zweckform sheets — a P-touch Editor clone, in Python.**
 
 ![License: GPL-3.0-or-later](https://img.shields.io/badge/license-GPL--3.0--or--later-blue)
 ![Tests](https://github.com/loeffelandi/QLInux/actions/workflows/tests.yml/badge.svg)
-![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-blue)
+![Python 3.11+](https://img.shields.io/badge/python-3.11%2B-blue)
 ![GUI: PySide6](https://img.shields.io/badge/GUI-PySide6-green)
 ![Platform: Linux and macOS](https://img.shields.io/badge/platform-Linux%20%7C%20macOS-lightgrey)
 
@@ -102,7 +102,7 @@ first cell stay with this machine, the same way the Brother address does.
 
 ## Requirements
 
-- Linux with a desktop (X11 or Wayland), Python ≥ 3.10, **or** a Mac with Apple
+- Linux with a desktop (X11 or Wayland), Python ≥ 3.11, **or** a Mac with Apple
   Silicon and a recent macOS (the build writes the minimum version it needs
   into the app's Info.plist; it follows the newest part inside the bundle,
   such as a libusb built on a newer macOS)
