@@ -32,6 +32,11 @@
     </screenshot>
   </screenshots>
   <releases>
+    <release version="0.5.2" date="2026-11-27">
+      <description>
+        <p>QLInux updates itself. The AppImage and the Mac app ask GitHub for a newer release at start (at most once a day), then download it, check the SHA-256 sum and replace themselves, with a restart that reopens your tabs. Check for updates in the main menu asks right away; QLINUX_NO_UPDATE_CHECK=1 turns the start check off.</p>
+      </description>
+    </release>
     <release version="0.5.1" date="2026-11-27">
       <description>
         <p>Pillow 13.0.0 fixes a heap buffer overflow in the bundled JPEG 2000 library that opening an image could reach, plus four smaller image-format bugs. QLInux now needs Python 3.11 or newer when run from source.</p>
