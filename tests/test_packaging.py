@@ -85,8 +85,18 @@ def test_mac_build_script_checks_libusb_and_architecture():
     assert "arm64" in script and "hdiutil" in script
     assert "libusb" in script and "otool" in script
     assert "QLINUX_SELFTEST=libusb" in script
+    assert "QLINUX_SELFTEST=certifi" in script
     entry = (ROOT / "packaging" / "entrypoint.py").read_text(encoding="utf-8")
     assert "QLINUX_SELFTEST" in entry
+
+
+def test_certifi_is_pinned_and_checked_in_both_builds():
+    requirements = (ROOT / "requirements.txt").read_text(encoding="utf-8")
+    assert "certifi==" in requirements
+    appimage = (ROOT / "packaging" / "build_appimage.sh").read_text(encoding="utf-8")
+    assert "QLINUX_SELFTEST=certifi" in appimage
+    spec = (ROOT / "packaging" / "ql_editor.spec").read_text(encoding="utf-8")
+    assert '"certifi"' in spec
 
 
 def test_icns_files_exist_for_the_app_and_both_file_types():

@@ -590,6 +590,89 @@ def ask_save(
     return sheet
 
 
+def ask_update(
+    parent: QWidget,
+    *,
+    title: str,
+    text: str,
+    on_choice: Callable[[str], None],
+) -> SheetLike:
+    """Neue Version gefunden: jetzt installieren, spaeter oder ueberspringen.
+
+    ``on_choice`` bekommt ``"update"``, ``"later"`` oder ``"skip"``. Escape und
+    das Schliessen des Sheets zaehlen als Spaeter.
+    """
+    box = QMessageBox()
+    _as_widget(box)
+    box.setIcon(QMessageBox.Icon.Information)
+    box.setText(text)
+    box.addButton(tr("Später"), QMessageBox.ButtonRole.RejectRole)
+    skip = box.addButton(
+        tr("Diese Version überspringen"), QMessageBox.ButtonRole.DestructiveRole
+    )
+    update = box.addButton(tr("Jetzt aktualisieren"), QMessageBox.ButtonRole.AcceptRole)
+    box.setDefaultButton(update)
+    sheet = _open_sheet(parent, box, title=title, sizing="hint")
+    chosen: dict[str, str | None] = {"value": None}
+
+    def _finish(choice: str) -> None:
+        if chosen["value"] is not None:
+            return
+        chosen["value"] = choice
+        sheet.close_sheet()
+        on_choice(choice)
+
+    def _clicked(_result: int) -> None:
+        button = box.clickedButton()
+        if button is update:
+            _finish("update")
+        elif button is skip:
+            _finish("skip")
+        else:
+            _finish("later")
+
+    box.finished.connect(_clicked)
+    sheet.closed.connect(lambda: _finish("later"))
+    return sheet
+
+
+def ask_restart(
+    parent: QWidget,
+    *,
+    title: str,
+    text: str,
+    on_choice: Callable[[str], None],
+) -> SheetLike:
+    """Update installiert: jetzt neu starten oder spaeter.
+
+    ``on_choice`` bekommt ``"restart"`` oder ``"later"``. Escape und das
+    Schliessen des Sheets zaehlen als Spaeter.
+    """
+    box = QMessageBox()
+    _as_widget(box)
+    box.setIcon(QMessageBox.Icon.Question)
+    box.setText(text)
+    box.addButton(tr("Später"), QMessageBox.ButtonRole.RejectRole)
+    restart = box.addButton(tr("Jetzt neu starten"), QMessageBox.ButtonRole.AcceptRole)
+    box.setDefaultButton(restart)
+    sheet = _open_sheet(parent, box, title=title, sizing="hint")
+    chosen: dict[str, str | None] = {"value": None}
+
+    def _finish(choice: str) -> None:
+        if chosen["value"] is not None:
+            return
+        chosen["value"] = choice
+        sheet.close_sheet()
+        on_choice(choice)
+
+    def _clicked(_result: int) -> None:
+        _finish("restart" if box.clickedButton() is restart else "later")
+
+    box.finished.connect(_clicked)
+    sheet.closed.connect(lambda: _finish("later"))
+    return sheet
+
+
 def ask_label_printer(
     parent: QWidget,
     *,
@@ -930,8 +1013,10 @@ __all__ = [
     "ask_label_printer",
     "ask_loaded_tape",
     "ask_print_anyway",
+    "ask_restart",
     "ask_save",
     "ask_text",
+    "ask_update",
     "choose_file",
     "show_message",
 ]

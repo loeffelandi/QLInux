@@ -50,6 +50,7 @@ hidden = [
     "usb",
     "usb.core",
     "usb.util",
+    "certifi",
 ]
 hidden += collect_submodules("ql_editor")
 

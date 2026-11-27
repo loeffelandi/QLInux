@@ -23,9 +23,24 @@ def _selftest_libusb() -> int:
     return 0
 
 
+def _selftest_certifi() -> int:
+    """Prueft fuer den Bau, ob die Zertifikatsliste im Bundle liegt."""
+    import certifi
+
+    path = certifi.where()
+    if not os.path.isfile(path):
+        print(f"cacert.pem fehlt: {path}", file=sys.stderr)
+        return 1
+    print(f"cacert.pem gefunden: {path}")
+    return 0
+
+
 if __name__ == "__main__":
-    if os.environ.get("QLINUX_SELFTEST") == "libusb":
+    selftest = os.environ.get("QLINUX_SELFTEST")
+    if selftest == "libusb":
         raise SystemExit(_selftest_libusb())
+    if selftest == "certifi":
+        raise SystemExit(_selftest_certifi())
     from ql_editor.app import main
 
     raise SystemExit(main(sys.argv))

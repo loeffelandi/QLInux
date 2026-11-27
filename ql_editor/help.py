@@ -18,6 +18,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from . import updater
 from .i18n import paste_label, tr
 from .icons import icon
 from .sheet import Sheet, show_widget
@@ -140,6 +141,19 @@ def build_help_content() -> QWidget:
             )
         )
     )
+
+    if updater.is_updatable():
+        layout.addWidget(_heading(tr("Updates")))
+        layout.addWidget(
+            _body(
+                tr(
+                    "QLInux fragt beim Start höchstens einmal am Tag bei GitHub "
+                    "nach einer neuen Version und bietet sie zum Installieren an. "
+                    "Im Menü suchst du mit „Nach Updates suchen…“ von Hand; "
+                    "„Beim Start nach Updates suchen“ schaltet die Abfrage ab."
+                )
+            )
+        )
 
     layout.addWidget(_heading(tr("Tasten")))
     layout.addWidget(_shortcut_table(action_shortcuts() + canvas_shortcuts()))
